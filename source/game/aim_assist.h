@@ -43,6 +43,12 @@ boolean aim_assist_compute_target(
 	real_point3d const *position,
 	real_vector3d const *direction,
 	struct aim_assist_target *target);
+boolean autoaim_target_within_angle(
+	long object_index,
+	real_point3d const *position,
+	real_vector3d const *direction,
+	long unit_index,
+	double maximum_angle);
 boolean autoaim_compute_target(
 	long object_index,
 	real_point3d const *position,
