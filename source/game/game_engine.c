@@ -650,6 +650,9 @@ enum
 	MULTIPLAYER_MAXIMUM_PLAYERS = HALO_PORT_MAXIMUM_NETWORK_PLAYERS,
 	/* ui\multiplayer_game_text only has strings for the first 16 places */
 	NUMBER_OF_PLACE_STRINGS = 16,
+	/* port: the most duplicate netgame flags a map's check logs
+	(netgame_flag_verify_no_team_duplicates) */
+	MAXIMUM_NETGAME_FLAG_DUPLICATES_REPORTED = 16,
 };
 
 /* scenario_starting_equipment.flags (HCEX names) */
@@ -8778,9 +8781,14 @@ static void netgame_flag_verify_no_team_duplicates(
 	struct scenario *scenario = global_scenario_get();
 	/* port: long counters, for a map's long count */
 	long flag_index;
+	/* port: no more lines than a few: a Halo PC map may have 32767 flags
+	(tag_schema_scenario.c), whose pairs of one team would be half a
+	billion lines, each written to debug.txt as the map loads */
+	long reported_count = 0;
 
 	for (flag_index = 0;
-		flag_index < scenario->netgame_flags.count;
+		flag_index < scenario->netgame_flags.count &&
+			reported_count < MAXIMUM_NETGAME_FLAG_DUPLICATES_REPORTED;
 		flag_index++)
 	{
 		struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
@@ -8793,7 +8801,8 @@ static void netgame_flag_verify_no_team_duplicates(
 			continue;
 
 		for (duplicate_index = flag_index + 1;
-			duplicate_index < scenario->netgame_flags.count;
+			duplicate_index < scenario->netgame_flags.count &&
+				reported_count < MAXIMUM_NETGAME_FLAG_DUPLICATES_REPORTED;
 			duplicate_index++)
 		{
 			struct scenario_netgame_flag *duplicate = TAG_BLOCK_GET_ELEMENT(
@@ -8808,6 +8817,7 @@ static void netgame_flag_verify_no_team_duplicates(
 					_error_silent,
 					error_message,
 					duplicate->team_index);
+				reported_count++;
 			}
 		}
 	}

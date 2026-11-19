@@ -53,7 +53,7 @@ and their Map Browser (Multiplayer > MAP BROWSER) downloads them. Each kind has 
 | --- | --- | --- |
 | `maps_ce` | Halo PC Custom Edition maps, with Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` | `<name>@ce` |
 | `maps_md` | HaloMD maps (below); they read Custom Edition's resource maps from `maps_ce` | `<name>@md` |
-| `maps_pc` | the maps of your own Halo PC (retail) disc | `<name>@pc` |
+| `maps_pc` | the maps of your own Halo PC (retail) disc, with its `bitmaps.map` and `sounds.map` | `<name>@pc` |
 
 Where the game's `maps` folder is:
 
@@ -292,6 +292,14 @@ the maps you want from HaloMD's mod list, and put their `.map` files in
 They need Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` in
 `maps_ce` too: a HaloMD map keeps Halo's own textures and sounds in those
 shared files, and the game reads them from Custom Edition's copies.
+
+HaloMD maps were made for Halo PC's own `bitmaps.map` and `sounds.map`,
+which hold more than Custom Edition's (the campaign's textures and sounds,
+which many HaloMD maps use). Copy those two files from your Halo PC (retail)
+install into `maps_pc`, and the game reads each map's stock textures and
+sounds from them, as Halo PC did. Without them, those textures are stand-ins
+and those sounds are silent, and the game says on screen which file to add.
+Chupathingy never ships or downloads these files: they are yours.
 
 The maps appear in the multiplayer map list after the Halo PC maps, marked
 [MD], with their names from HaloMD's list. Online, a HaloMD map is played as

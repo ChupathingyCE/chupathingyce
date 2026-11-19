@@ -211,7 +211,10 @@ Custom Edition's resource maps, port/linux/game/ce_resources.c) */
 #define CACHE_FILE_VERSION_IS_PC(version) \
 	((version) == CACHE_FILE_CE_VERSION || (version) == CACHE_FILE_RETAIL_VERSION)
 #define CE_TAG_CACHE_BASE 0x40440000U
-#define CE_TAG_CACHE_SIZE 0x01700000U
+/* port: Custom Edition's, or OpenSauce's larger one in SPV3 mode with its
+window mapped (port/linux/game/spv3_mode.c) */
+#include "spv3_mode.h"
+#define CE_TAG_CACHE_SIZE ((unsigned int)spv3_mode_tag_cache_size(0x01700000UL))
 /* what its load reads, against what was checked when it was opened
 (port/linux/game/ce_map_checks.c) */
 boolean ce_map_loaded_tags_unchanged(void const *tag_data, unsigned long size);
@@ -2047,6 +2050,17 @@ long scenario_tags_load(
 						ce_header->scenario_tag_index);
 				}
 			}
+			/* its function fields naming functions there are none of made
+			valid ones (port/linux/game/ce_functions.c), before the tags are
+			checked: a HaloMD tool wrote some in the other byte order (256
+			for 1), which the check would make the first function rather
+			than the one meant */
+			if (ce_map_loaded_unchanged())
+			{
+				extern void ce_functions_tags_loaded(void *tag_instances, long tag_count);
+
+				ce_functions_tags_loaded(global_tag_instances, ce_header->tag_count);
+			}
 #ifndef HALO_CONSOLE_NO_TAG_VALIDATE
 			/* port: and every tag of it, its own and its resources' (all
 			that lies before the room the resources left), checked against
@@ -2086,7 +2100,6 @@ long scenario_tags_load(
 			(port/linux/game/ce_models.c), the one checked */
 			if (ce_map_loaded_unchanged())
 			{
-				extern void ce_functions_tags_loaded(void *tag_instances, long tag_count);
 				extern void ce_shaders_tags_loaded(void *tag_instances, long tag_count);
 #ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
 				extern boolean ce_models_tags_loaded_read(void *tag_instances, long tag_count,
@@ -2100,7 +2113,6 @@ long scenario_tags_load(
 				{
 					error(_error_silent, "Custom Edition map %s: its models could not all be made", scenario_name);
 				}
-				ce_functions_tags_loaded(global_tag_instances, ce_header->tag_count);
 				ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
 #else
 				extern boolean ce_models_tags_loaded(void *tag_instances, long tag_count, byte const *model_data,
@@ -2124,9 +2136,6 @@ long scenario_tags_load(
 						error(_error_silent, "Custom Edition map %s: its models could not all be made",
 							scenario_name);
 					}
-					/* (its function fields naming functions there are none
-					of made valid ones first: port/linux/game/ce_functions.c) */
-					ce_functions_tags_loaded(global_tag_instances, ce_header->tag_count);
 					ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 					if (platform_ce_alias)

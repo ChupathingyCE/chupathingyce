@@ -15,6 +15,7 @@ than a few KB kept.
 #include "halo_map_families.h"
 #include "halo_map_packs.h"
 #include "xbox_mod_maps.h"
+#include "spv3_mode.h"
 #include "stubbs_mode.h"
 
 #include <stdio.h>
@@ -868,7 +869,8 @@ char const *map_pack_menus(
 		if (value && value[0] && strlen(value) < sizeof(name))
 		{
 			folder_pack(value, name, sizeof(name));
-			if (pack_valid(name) && map_pack_present(name, "ui"))
+			/* (SPV3's menus are its ui.yelo, a Custom Edition map: spv3_mode.c) */
+			if (pack_valid(name) && (map_pack_present(name, "ui") || spv3_mode_pack_present(name)))
 				snprintf(pack, sizeof(pack), "%s", name);
 		}
 	}

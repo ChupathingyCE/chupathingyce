@@ -1151,6 +1151,21 @@ static void modes_find(void)
 		if (!valid || !SDL_strcasecmp(suffix, "ce") || !SDL_strcasecmp(suffix, "pc") || !SDL_strcasecmp(suffix, "md"))
 			continue;
 		snprintf(path, sizeof(path), "%s/%s", launcher.root, name);
+		/* (SPV3, early: its menus are its ui.yelo, a Custom Edition map read
+		with OpenSauce's larger tag window, port/linux/game/spv3_mode.c; only
+		with the player's own install here, never a download) */
+		if (!SDL_strcasecmp(suffix, "spv3"))
+		{
+#if defined(HALO_64BIT) && defined(HALO_CUSTOM_EDITION) && !defined(HALO_WINDOW_TRANSLATED)
+			if (posix_find_entry_case_insensitive(path, "ui.yelo", on_disk, sizeof(on_disk)))
+				mode_add("spv3", "SPV3 (early)", "SPV3", name, 1);
+#else
+			/* (only the 64-bit desktop builds map the larger tag window its
+			maps need: port/linux/src/xbox_heap.c) */
+			platform_log("launcher: %s is here, but SPV3 needs a 64-bit desktop build", name);
+#endif
+			continue;
+		}
 		if (!posix_find_entry_case_insensitive(path, "ui.map", on_disk, sizeof(on_disk)))
 			continue;
 		pack = known_pack(suffix);
