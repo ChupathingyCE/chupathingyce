@@ -128,6 +128,37 @@ overrides the file.
 
 Every setting, with its environment variable and default, is in [port/linux/README.md](../port/linux/README.md#settings).
 
+## Tuning
+
+The `[tuning]` section is for players who want more frames and don't mind
+the game looking a bit plainer. Nothing in it changes how the game plays:
+only what is drawn. Leave it alone and nothing changes.
+
+| Setting | What it does |
+| --- | --- |
+| `tuning.preset` | `"retail"` (the default) changes nothing. `"lan-party"` caps the lights and particles of a big firefight (16 lights, 4 with shine, 2048 particles, particles moved once a tick) and shows a late frame at once (`present_mode = "adaptive"`). `"potato"` is the setup screen's POTATO: 8 lights, 2 with shine, 1024 particles, smaller shadows, no anti-aliasing, the Xbox's own lighting and the picture drawn at 640x480. A preset never raises a build's own limit. |
+| `tuning.present_mode` | With V-Sync on: `"vblank"` (the default) waits for the display before every frame. `"adaptive"` shows a frame that missed the display at once, with a tear, rather than a whole refresh later. OpenGL on Windows, Linux and Android, and the original Xbox. Elsewhere it waits. Read at start. |
+| `tuning.texture_cache` | Original Xbox only: the texture cache's size in MB, like `"20"`, or `"auto"` (the default) for the console's own. It's held between 19 MB and what the console's memory has room for. Read at start. |
+
+A preset fills in the settings it names only where you haven't set them
+yourself. The limits stay where they always were (`display.dynamic_light_limit`,
+`display.specular_light_limit`, `display.particle_limit` and the rest), so a
+value you set there wins over the preset. Turning PERFORMANCE to POTATO on
+the setup screen writes `preset = "potato"`.
+
+A value out of range is held in range, and a word the game doesn't know
+falls back to the default. Either way `logs/debug.txt` says so in a line
+starting `tuning:`. That file also says what every knob was at start
+(`tuning: at=boot`), at each map (`tuning: at=map`) and whenever one
+changes (`tuning: change`). A crash report and Send my logs carry the same
+line.
+
+In a network game nobody sees fewer particles than the Xbox kept (1024).
+Smoke and dust can hide players, and a lower limit would take them away.
+
+More knobs (explosion particles, effect density, decal distance, tire
+tracks) come once testers' `console.perf_log` lines show what they'd save.
+
 <a id="a-new-renderer-to-test"></a>
 
 ## Renderers

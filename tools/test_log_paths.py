@@ -298,6 +298,18 @@ def test_crash_report_renderer_from_log(program):
     body = json.loads(run(program, ["no renderer here; frame_renderer=x"], "body")[0])
     assert "renderer" not in body
 
+def test_crash_report_tuning_from_log(program):
+    """the report's tuning: the log's last "tuning: at=" line, from its
+    "preset=" (port_config.c's config_tuning_summary)"""
+    body = json.loads(run(program, ["tuning: at=boot preset=retail lights=0 present=vblank "
+                                    "then tuning: at=map preset=potato lights=8(preset) particles=512(hand)"], "body")[0])
+    assert body["tuning"] == "preset=potato lights=8(preset) particles=512(hand)"
+    body = json.loads(run(program, ["tuning: change particles=4096->512(hand)"], "body")[0])
+    assert "tuning" not in body
+    body = json.loads(run(program, ["no knobs here"], "body")[0])
+    assert "tuning" not in body
+
+
 def test_every_log_writer_redacts():
     """platform_log and the game's error log (debug.txt) both go through
     log_paths_redact_line; the site's uploads through crash_report_redact."""

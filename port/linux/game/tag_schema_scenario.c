@@ -45,6 +45,10 @@ bad_sky).
 /* the game's, which their units keep to themselves */
 enum
 {
+	/* a Halo PC map's netgame flags and equipment: as many as a short
+	counts (Invader's most for them, past the tools' 200) */
+	MAXIMUM_PC_NETGAME_FLAGS_PER_SCENARIO = 0x7FFF,
+	MAXIMUM_PC_NETGAME_EQUIPMENT_PER_SCENARIO = 0x7FFF,
 	/* encounters.c */
 	MAXIMUM_ENCOUNTERS_PER_SCENARIO = 128,
 	MAXIMUM_FIRING_POSITIONS_PER_ENCOUNTER = 512,
@@ -1336,9 +1340,14 @@ static struct tag_schema_field const scenario_fields[] =
 	TAG_SCHEMA_BLOCK(struct scenario, trigger_volumes, trigger_volume_schema, MAXIMUM_TRIGGER_VOLUMES_PER_SCENARIO),
 	TAG_SCHEMA_BLOCK(struct scenario, recorded_animations, recorded_animation_schema,
 		MAXIMUM_RECORDED_ANIMATIONS_PER_SCENARIO),
-	TAG_SCHEMA_BLOCK(struct scenario, netgame_flags, netgame_flag_schema, MAXIMUM_SCENARIO_NETGAME_FLAGS_PER_SCENARIO),
-	TAG_SCHEMA_BLOCK(struct scenario, netgame_equipment, netgame_equipment_schema,
-		MAXIMUM_SCENARIO_NETGAME_EQUIPMENT_PER_SCENARIO),
+	/* (200 of each is the tools' most, Halo PC's too, but no array of the
+	game's: a Halo PC map may have more, which its engine read, as here on
+	every platform, the bytes already in the tag cache. A short's most:
+	the game counts some of them in shorts, game_engine_oddball.c) */
+	TAG_SCHEMA_PC_BLOCK(struct scenario, netgame_flags, netgame_flag_schema, MAXIMUM_SCENARIO_NETGAME_FLAGS_PER_SCENARIO,
+		MAXIMUM_PC_NETGAME_FLAGS_PER_SCENARIO),
+	TAG_SCHEMA_PC_BLOCK(struct scenario, netgame_equipment, netgame_equipment_schema,
+		MAXIMUM_SCENARIO_NETGAME_EQUIPMENT_PER_SCENARIO, MAXIMUM_PC_NETGAME_EQUIPMENT_PER_SCENARIO),
 	TAG_SCHEMA_BLOCK(struct scenario, scenario_starting_equipment, starting_equipment_schema,
 		MAXIMUM_SCENARIO_STARTING_EQUIPMDNG_PER_SCENARIO),
 	TAG_SCHEMA_BLOCK(struct scenario, bsp_switch_trigger_volumes, bsp_switch_trigger_volume_schema,

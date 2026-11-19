@@ -812,6 +812,29 @@ static const struct config_setting config_settings[] =
 #endif
 #endif
 
+	/* ---- tuning: performance knobs that change only what is drawn
+	(config_tuning_apply). The preset fills in the [display] limits it
+	names, and the knobs below, that the player has not set: those keys stay
+	the one place each value lives */
+	{ "tuning.preset", _config_string, "\"retail\"", "HALO_TUNING_PRESET", _environment_value,
+		_platform_all | _platform_xbox,
+		"Several of the costliest settings at once. \"retail\" changes nothing.\n"
+		"\"lan-party\" caps the lights and particles of a big firefight and shows\n"
+		"a late frame at once. \"potato\" turns the heaviest drawing down. A\n"
+		"setting you set yourself wins over the preset. Only how the game looks\n"
+		"changes, never how it plays. Changes at once." },
+	{ "tuning.present_mode", _config_string, "\"vblank\"", "HALO_PRESENT_MODE", _environment_value,
+		_platform_all | _platform_xbox,
+		"With V-Sync on: \"vblank\" waits for the display before every frame.\n"
+		"\"adaptive\" shows a frame that missed the display at once, with a tear,\n"
+		"instead of waiting for the next. OpenGL on Windows, Linux and Android,\n"
+		"and the original Xbox; elsewhere it waits. Takes effect at the next\n"
+		"start." },
+	{ "tuning.texture_cache", _config_string, "\"auto\"", NULL, _environment_value, _platform_xbox,
+		"The texture cache's size in MB, like \"20\", or \"auto\" for the\n"
+		"console's own. It is held between 19 MB and what the console's memory\n"
+		"has room for. Takes effect at the next start." },
+
 	/* ---- audio */
 	{ "audio.volume", _config_real, "1.0", "HALO_VOLUME", _environment_value, _platform_all,
 		"The volume of everything, from 0.0 to 1.0." },
@@ -2302,6 +2325,9 @@ static const struct
 	{ "display", 0,
 		"The picture and what shows on screen. Video Setup in the menus\n"
 		"changes many of these. The first few are the ones most people change." },
+	{ "tuning", 0,
+		"Performance presets and knobs. Each changes only what is drawn, never\n"
+		"how the game plays. The log lists what differs from the defaults." },
 	{ "audio", 0,
 		"Volumes, the sound output, surround and Headphone 3D. Audio Setup in\n"
 		"the menus changes most of these." },
@@ -4596,6 +4622,9 @@ static const struct
 	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
+	/* (the log line for another word is config_tuning_apply's, which uses the default) */
+	{ "tuning.preset", { "retail", "lan-party", "potato", NULL }, NULL },
+	{ "tuning.present_mode", { "vblank", "adaptive", NULL }, NULL },
 	{ "audio.resampling", { "xbox", "sinc", "linear", NULL }, "\"xbox\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
 	{ "game.console_log", { "important", "all", "none", NULL }, "\"important\"" },
@@ -4716,6 +4745,386 @@ static void config_check_words(void)
 			snprintf(list + strlen(list), sizeof(list) - strlen(list), " or empty");
 		platform_log("settings: %s = \"%s\" is not %s; using %s", config_words[word_index].name, value->string, list,
 			config_words[word_index].otherwise);
+	}
+}
+
+/* ---------- [tuning]
+
+tuning.preset fills in, for each knob below that config.toml and the
+environment leave unset, the preset's value; a knob the player set keeps
+theirs. The knobs are the settings themselves: display.particle_limit and
+the others stay where they were, the one place each value lives, and a
+preset only changes what "unset" means. Every knob changes only what is
+drawn, never the simulation, so a game plays the same whatever they say
+(display.particle_limit is held at the Xbox's 1024 or more in a network
+game: particles.c). A value out of a knob's range is held in it, and a word
+that is none of a knob's is its default, each said in the log.
+
+The log has every knob's value and where it came from at the start
+("tuning: at=boot", with a line of those that differ from the defaults),
+at each map's start ("tuning: at=map", config_tuning_log) and at each change
+("tuning: change"); the crash reports and Send my logs carry the same line
+(crash_report.c, log_send.c).
+
+Not knobs yet, needing engine work sized by testers' console.perf_log lines
+first: the explosions' particles, the effects' density, the decals' draw
+distance and the tire tracks. */
+
+enum
+{
+	_tuning_preset_retail,
+	_tuning_preset_lan_party,
+	_tuning_preset_potato,
+	NUMBER_OF_TUNING_PRESETS
+};
+
+static const char *const config_tuning_presets[NUMBER_OF_TUNING_PRESETS] = { "retail", "lan-party", "potato" };
+
+/* where a knob's value came from, as the summary writes it after the value */
+enum
+{
+	_tuning_default,
+	_tuning_preset,
+	_tuning_hand,
+	_tuning_clamped,
+	_tuning_invalid,
+};
+
+static const char *const config_tuning_sources[] = { "", "(preset)", "(hand)", "(clamped)", "(invalid)" };
+
+enum
+{
+	/* a limit where 0 is none: a preset never raises the build's own
+	default (the Xbox 360's 1024 particles stay 1024 in "lan-party") */
+	_tuning_limit = 1,
+	/* "auto", or a whole number of megabytes */
+	_tuning_megabytes = 2,
+	/* one of the words in config_words */
+	_tuning_words = 4,
+};
+
+#ifdef HALO_PORT_MAXIMUM_RENDERED_LIGHTS
+#define TUNING_MAXIMUM_LIGHTS HALO_PORT_MAXIMUM_RENDERED_LIGHTS
+#else
+#define TUNING_MAXIMUM_LIGHTS 128
+#endif
+#ifdef HALO_PORT_MAXIMUM_PARTICLES
+#define TUNING_MAXIMUM_PARTICLES HALO_PORT_MAXIMUM_PARTICLES
+#else
+#define TUNING_MAXIMUM_PARTICLES 1024
+#endif
+
+/* The knobs, in the summary's order. The Potato preset is the setup
+screen's too (settings_rows.c). A knob that is not this build's setting is
+left out of everything. */
+static const struct
+{
+	const char *name;
+	/* the summary's name for it */
+	const char *short_name;
+	unsigned flags;
+	/* a whole number's range */
+	long minimum, maximum;
+	/* the value each preset gives it (retail none): NULL leaves the default */
+	const char *preset[NUMBER_OF_TUNING_PRESETS];
+} config_tuning_knobs[] =
+{
+	{ "display.dynamic_light_limit", "lights", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "16", "8" } },
+	{ "display.specular_light_limit", "specular", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "4", "2" } },
+	{ "display.particle_limit", "particles", _tuning_limit, 0, TUNING_MAXIMUM_PARTICLES, { NULL, "2048", "1024" } },
+	{ "display.particle_ticks", "particle_ticks", 0, 0, 0, { NULL, "true", "true" } },
+	{ "display.shadow_resolution", "shadows", 0, 0, 0, { NULL, NULL, "128" } },
+	{ "display.anisotropic_filtering", "aniso", 0, 0, 0, { NULL, NULL, "0" } },
+	{ "display.anti_aliasing", "aa", 0, 0, 0, { NULL, NULL, "off" } },
+	{ "display.per_pixel_lighting", "per_pixel", 0, 0, 0, { NULL, NULL, "false" } },
+	{ "display.light_effects", "light_effects", 0, 0, 0, { NULL, NULL, "off" } },
+	{ "display.resolution_scaling", "scaling", 0, 0, 0, { NULL, NULL, "original" } },
+	{ "tuning.present_mode", "present", _tuning_words, 0, 0, { NULL, "adaptive", NULL } },
+	{ "tuning.texture_cache", "texture_cache", _tuning_megabytes, 19, 512, { NULL, NULL, NULL } },
+};
+
+#define NUMBER_OF_TUNING_KNOBS (sizeof(config_tuning_knobs) / sizeof(config_tuning_knobs[0]))
+
+/* (the size of a knob's value as text, and of the summary) */
+#define TUNING_VALUE_SIZE 24
+#define TUNING_SUMMARY_SIZE 512
+
+static int config_tuning_preset_now = _tuning_preset_retail;
+static unsigned char config_tuning_source[NUMBER_OF_TUNING_KNOBS];
+/* the values the log last said, for its change lines */
+static char config_tuning_said[NUMBER_OF_TUNING_KNOBS][TUNING_VALUE_SIZE];
+static int config_tuning_said_preset = -1;
+/* config_write (1) and config_reset (-1) of a setting this run: what the
+player chose since the file was read (config_given stays the file's and
+the environment's, which config_chosen answers) */
+static signed char config_touched[NUMBER_OF_CONFIG_SETTINGS];
+
+/* a knob's setting, or -1 for one that is not this build's */
+static long config_tuning_setting(size_t knob)
+{
+	long index = config_setting_index(config_tuning_knobs[knob].name);
+
+	return index >= 0 && (config_settings[index].platforms & CONFIG_PLATFORM) ? index : -1;
+}
+
+/* a setting's value as text, as config_text has it (with config_lock held) */
+static void config_value_as_text(long index, char *text, size_t size)
+{
+	const struct config_value *value = &config_values[index];
+
+	switch (config_settings[index].type)
+	{
+	case _config_boolean:
+		snprintf(text, size, "%s", value->boolean ? "true" : "false");
+		break;
+	case _config_integer:
+		snprintf(text, size, "%ld", value->integer);
+		break;
+	case _config_real:
+		snprintf(text, size, "%.15g", value->real);
+		break;
+	case _config_string:
+		snprintf(text, size, "%s", value->string ? value->string : "");
+		break;
+	}
+}
+
+/* a setting's default as text, a string's without its quotes */
+static void config_default_as_text(long index, char *text, size_t size)
+{
+	const char *value = config_settings[index].default_value;
+	size_t length = strlen(value);
+
+	if (config_settings[index].type == _config_string && length >= 2 && value[0] == '"')
+		snprintf(text, size, "%.*s", (int)(length - 2), value + 1);
+	else
+		snprintf(text, size, "%s", value);
+}
+
+/* a setting set from text, a string only when it differs (the old one is
+kept, not freed: config_set_from_text) */
+static void config_value_set_text(long index, const char *text)
+{
+	char now[TUNING_VALUE_SIZE * 2];
+
+	config_value_as_text(index, now, sizeof(now));
+	if (!strcmp(now, text))
+		return;
+	config_set_from_text(&config_values[index], config_settings[index].type, text);
+}
+
+/* whether a word is one of a word setting's (any case) */
+static int config_tuning_word(const char *name, const char *value)
+{
+	size_t word_index;
+	int word;
+
+	for (word_index = 0; word_index < NUMBER_OF_CONFIG_WORDS; word_index++)
+	{
+		if (strcmp(config_words[word_index].name, name))
+			continue;
+		for (word = 0; config_words[word_index].words[word]; word++)
+		{
+			if (!SDL_strncasecmp(value, config_words[word_index].words[word], strlen(config_words[word_index].words[word]) + 1))
+				return 1;
+		}
+		return 0;
+	}
+	return 1;
+}
+
+/* the summary: "preset=NAME" and each knob's "short=value", the value
+followed by where it came from when that is not the default; only those
+that differ from the defaults with changed (and no preset then unless it
+is one); its length */
+static size_t config_tuning_text(char *text, size_t size, int changed)
+{
+	size_t length = 0, knob;
+
+	if (!size)
+		return 0;
+	text[0] = 0;
+	if (!changed || config_tuning_preset_now != _tuning_preset_retail)
+		length += (size_t)snprintf(text, size, "preset=%s", config_tuning_presets[config_tuning_preset_now]);
+	for (knob = 0; knob < NUMBER_OF_TUNING_KNOBS && length < size; knob++)
+	{
+		long index = config_tuning_setting(knob);
+		char value[TUNING_VALUE_SIZE];
+
+		if (index < 0 || (changed && config_tuning_source[knob] == _tuning_default))
+			continue;
+		config_value_as_text(index, value, sizeof(value));
+		if (changed)
+		{
+			char fallback[TUNING_VALUE_SIZE];
+
+			/* (one set by hand to its default differs from nothing) */
+			config_default_as_text(index, fallback, sizeof(fallback));
+			if (!strcmp(value, fallback))
+				continue;
+		}
+		length += (size_t)snprintf(text + length, size - length, "%s%s=%s%s", length ? " " : "",
+			config_tuning_knobs[knob].short_name, value[0] ? value : "\"\"",
+			config_tuning_sources[config_tuning_source[knob]]);
+	}
+	if (length >= size)
+		length = size - 1;
+	if (changed && !length)
+		length = (size_t)snprintf(text, size, "none");
+	return length;
+}
+
+/* The preset and the knobs worked out again, with config_lock held: at
+the start (changed -1), and after a setting changed (its index). A knob
+the player did not set takes the preset's value, else its default; a value
+out of range or not one of its words is put right and said once. Then the
+log says what changed, or at the start every knob. */
+static void config_tuning_apply(long changed)
+{
+	long preset_setting = config_setting_index("tuning.preset");
+	int preset = _tuning_preset_retail, found = 0, start = changed < 0;
+	size_t knob;
+
+#ifdef HALO_SERVER
+	/* (the dedicated server draws nothing: it has no knobs to say) */
+	return;
+#endif
+	if (preset_setting < 0 || !(config_settings[preset_setting].platforms & CONFIG_PLATFORM))
+		return;
+	for (preset = 0; preset < NUMBER_OF_TUNING_PRESETS && !found; preset++)
+	{
+		found = !SDL_strncasecmp(config_values[preset_setting].string, config_tuning_presets[preset],
+			strlen(config_tuning_presets[preset]) + 1);
+	}
+	preset = found ? preset - 1 : _tuning_preset_retail;
+	if (!found)
+	{
+		platform_log("tuning: tuning.preset = \"%s\" is not \"retail\", \"lan-party\" or \"potato\"; using \"retail\"",
+			config_values[preset_setting].string);
+	}
+	config_value_set_text(preset_setting, config_tuning_presets[preset]);
+	config_tuning_preset_now = preset;
+	for (knob = 0; knob < NUMBER_OF_TUNING_KNOBS; knob++)
+	{
+		long index = config_tuning_setting(knob);
+		unsigned flags = config_tuning_knobs[knob].flags;
+		int given, source = _tuning_hand;
+		char value[TUNING_VALUE_SIZE * 2], fallback[TUNING_VALUE_SIZE * 2];
+
+		if (index < 0)
+			continue;
+		config_default_as_text(index, fallback, sizeof(fallback));
+		given = config_touched[index] > 0 || (!config_touched[index] && config_given[index]);
+		if (config_pending[index])
+		{
+			/* (until the player answers about the new defaults, an older
+			default stays: config_find_new_defaults) */
+			source = given ? _tuning_hand : _tuning_default;
+		}
+		else if (!given)
+		{
+			const char *preset_value = config_tuning_knobs[knob].preset[preset];
+
+			if (preset_value && (flags & _tuning_limit))
+			{
+				long build_default = strtol(fallback, NULL, 10);
+
+				if (build_default > 0 && build_default <= strtol(preset_value, NULL, 10))
+					preset_value = NULL;
+			}
+			if (preset_value && !strcmp(preset_value, fallback))
+				preset_value = NULL;
+			config_value_set_text(index, preset_value ? preset_value : fallback);
+			source = preset_value ? _tuning_preset : _tuning_default;
+		}
+		else if (!start && index != changed && config_tuning_source[knob] >= _tuning_hand)
+		{
+			/* (a knob the change did not touch keeps what it was) */
+			source = config_tuning_source[knob];
+		}
+		config_value_as_text(index, value, sizeof(value));
+		if (config_settings[index].type == _config_integer && config_tuning_knobs[knob].maximum > 0)
+		{
+			long number = config_values[index].integer;
+			long held = number < config_tuning_knobs[knob].minimum ? config_tuning_knobs[knob].minimum :
+				number > config_tuning_knobs[knob].maximum ? config_tuning_knobs[knob].maximum : number;
+
+			if (held != number)
+			{
+				platform_log("tuning: %s = %ld is out of %ld to %ld; using %ld", config_tuning_knobs[knob].name, number,
+					config_tuning_knobs[knob].minimum, config_tuning_knobs[knob].maximum, held);
+				config_values[index].integer = held;
+				source = _tuning_clamped;
+			}
+		}
+		else if ((flags & _tuning_words) && !config_tuning_word(config_tuning_knobs[knob].name, value))
+		{
+			platform_log("tuning: %s = \"%s\" is not one of its words; using \"%s\"", config_tuning_knobs[knob].name, value,
+				fallback);
+			config_value_set_text(index, fallback);
+			source = _tuning_invalid;
+		}
+		else if (flags & _tuning_megabytes)
+		{
+			char *end;
+			long megabytes = strtol(value, &end, 10);
+
+			if (SDL_strncasecmp(value, "auto", 5) && (end == value || *end || megabytes <= 0))
+			{
+				platform_log("tuning: %s = \"%s\" is not \"auto\" or a number of MB; using \"%s\"",
+					config_tuning_knobs[knob].name, value, fallback);
+				config_value_set_text(index, fallback);
+				source = _tuning_invalid;
+			}
+			else if (!SDL_strncasecmp(value, "auto", 5))
+			{
+				config_value_set_text(index, "auto");
+			}
+			else if (megabytes < config_tuning_knobs[knob].minimum || megabytes > config_tuning_knobs[knob].maximum)
+			{
+				char held[TUNING_VALUE_SIZE];
+
+				snprintf(held, sizeof(held), "%ld", megabytes < config_tuning_knobs[knob].minimum ?
+					config_tuning_knobs[knob].minimum : config_tuning_knobs[knob].maximum);
+				platform_log("tuning: %s = \"%s\" is out of %ld to %ld MB; using \"%s\"", config_tuning_knobs[knob].name,
+					value, config_tuning_knobs[knob].minimum, config_tuning_knobs[knob].maximum, held);
+				config_value_set_text(index, held);
+				source = _tuning_clamped;
+			}
+		}
+		config_tuning_source[knob] = (unsigned char)source;
+	}
+	{
+		char summary[TUNING_SUMMARY_SIZE];
+
+		if (start)
+		{
+			config_tuning_text(summary, sizeof(summary), 0);
+			platform_log("tuning: at=boot %s", summary);
+			config_tuning_text(summary, sizeof(summary), 1);
+			platform_log("tuning: differs from the defaults: %s", summary);
+		}
+		else if (config_tuning_said_preset != preset)
+		{
+			platform_log("tuning: change preset=%s->%s", config_tuning_presets[config_tuning_said_preset < 0 ?
+				_tuning_preset_retail : config_tuning_said_preset], config_tuning_presets[preset]);
+		}
+	}
+	config_tuning_said_preset = preset;
+	for (knob = 0; knob < NUMBER_OF_TUNING_KNOBS; knob++)
+	{
+		long index = config_tuning_setting(knob);
+		char value[TUNING_VALUE_SIZE];
+
+		if (index < 0)
+			continue;
+		config_value_as_text(index, value, sizeof(value));
+		if (!start && strcmp(value, config_tuning_said[knob]))
+		{
+			platform_log("tuning: change %s=%s->%s%s", config_tuning_knobs[knob].short_name, config_tuning_said[knob], value,
+				config_tuning_sources[config_tuning_source[knob]]);
+		}
+		snprintf(config_tuning_said[knob], sizeof(config_tuning_said[knob]), "%s", value);
 	}
 }
 
@@ -5076,6 +5485,8 @@ static void config_load(void)
 	}
 #endif
 	config_check_words();
+	/* (the [tuning] preset filled in, and every knob said once) */
+	config_tuning_apply(-1);
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	{
 		long mode = config_setting_index("display.mode");
@@ -5187,6 +5598,8 @@ int config_set(const char *name, const char *value)
 	pthread_mutex_lock(&config_lock);
 	config_set_from_text(&config_values[index], config_settings[index].type, value);
 	config_given[index] = 1;
+	config_touched[index] = 1;
+	config_tuning_apply(index);
 	config_change_count++;
 	pthread_mutex_unlock(&config_lock);
 	return 1;
@@ -5256,6 +5669,8 @@ int config_write(const char *name, const char *value)
 	text = config_read_file(path, &size);
 	changed = config_text_with_line(text ? text : "", name, line_text);
 	succeeded = changed && config_write_file(path, changed);
+	config_touched[index] = 1;
+	config_tuning_apply(index);
 	config_change_count++;
 	pthread_mutex_unlock(&config_lock);
 	free(changed);
@@ -5786,9 +6201,66 @@ int config_reset(const char *name)
 		changed = config_text_with_line(text, name, line_text);
 		succeeded = changed && config_write_file(path, changed);
 	}
+	/* (a [tuning] knob follows the preset again) */
+	config_touched[index] = -1;
+	config_tuning_apply(index);
 	config_change_count++;
 	pthread_mutex_unlock(&config_lock);
 	free(changed);
 	free(text);
 	return succeeded;
+}
+
+/* ---------- [tuning] (config_tuning_apply) */
+
+int config_tuning_summary(char *text, size_t size)
+{
+	size_t length;
+
+	/* (the file read first) */
+	config_value("tuning.preset", _config_string);
+	pthread_mutex_lock(&config_lock);
+	length = config_tuning_text(text, size, 0);
+	pthread_mutex_unlock(&config_lock);
+	return (int)length;
+}
+
+void config_tuning_log(const char *where)
+{
+#ifndef HALO_SERVER
+	char summary[TUNING_SUMMARY_SIZE];
+
+	config_tuning_summary(summary, sizeof(summary));
+	platform_log("tuning: at=%s %s", where, summary);
+#else
+	(void)where;
+#endif
+}
+
+const char *config_tuning_knob(int index)
+{
+	long setting;
+
+	if (index < 0 || (size_t)index >= NUMBER_OF_TUNING_KNOBS)
+		return NULL;
+	setting = config_tuning_setting((size_t)index);
+	return setting < 0 ? "" : config_tuning_knobs[index].name;
+}
+
+const char *config_tuning_preset_value(const char *preset, const char *name)
+{
+	size_t knob;
+	int index;
+
+	for (index = 0; index < NUMBER_OF_TUNING_PRESETS && strcmp(config_tuning_presets[index], preset); index++)
+	{
+	}
+	if (index == NUMBER_OF_TUNING_PRESETS)
+		return NULL;
+	for (knob = 0; knob < NUMBER_OF_TUNING_KNOBS; knob++)
+	{
+		if (!strcmp(config_tuning_knobs[knob].name, name))
+			return config_tuning_knobs[knob].preset[index];
+	}
+	return NULL;
 }
