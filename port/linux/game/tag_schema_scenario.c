@@ -317,9 +317,11 @@ typedef char verify_scenario_size[sizeof(struct scenario) == 0x5B0 ? 1 : -1];
 
 /* the script nodes reached so far, and those still to walk
 (scenario_check_scripts) */
-#ifdef HALO_CUSTOM_EDITION
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_64BIT) && !defined(HALO_WINDOW_TRANSLATED)
 /* (OpenSauce's memory upgrades: its maps' scripts have 28501 nodes, in its
-layout only, tag_schema_opensauce.c) */
+layout only, tag_schema_opensauce.c; on the builds that map its larger tag
+window and run them, as hs.c's tables) */
+#define HS_CHECKED_OPENSAUCE_NODES
 #define HS_CHECKED_SYNTAX_NODES 28501
 #define HS_CHECKED_SYNTAX_DATA_SIZE (0x38 + HS_CHECKED_SYNTAX_NODES * 0x14)
 #else
@@ -484,7 +486,7 @@ static boolean scenario_check_scripts(
 	long syntax_size = HS_SYNTAX_DATA_SIZE;
 	long node_count = MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO;
 
-#ifdef HALO_CUSTOM_EDITION
+#ifdef HS_CHECKED_OPENSAUCE_NODES
 	if (TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_opensauce_bit))
 	{
 		syntax_size = HS_CHECKED_SYNTAX_DATA_SIZE;
