@@ -520,6 +520,65 @@ void lruv_flush(
 	return;
 }
 
+#ifdef HALO_CONSOLE_FEWER_WALKS
+/* port: a cache's allocations may search a window of its blocks instead of
+all of them (lruv_set_search_window): from a cursor, the block the last
+allocation made, through the blocks after it until a hole has been found
+and that many more blocks looked at, and the whole cache only when the
+window has none. The hole taken is the window's least recently used, not
+the cache's: an approximate LRU moving through the cache in page order, for
+a cache where an allocation's walk over every block is the cost (the decal
+vertex cache, rasterizer_xbox_decals.c). The cursor is the port's, not the
+game state's (a saved game doesn't carry it), and is checked before use
+(from Lord BirchWood's Vita port) */
+static struct lruv_search_window
+{
+	struct lruv_cache *cache;
+	long blocks;
+	long cursor_block_index;
+} lruv_search_windows[4];
+
+void lruv_set_search_window(
+	struct lruv_cache *cache,
+	long blocks)
+{
+	short index;
+	short free_index = NONE;
+
+	for (index = 0; index < NUMBEROF(lruv_search_windows); index++)
+	{
+		if (lruv_search_windows[index].cache == cache)
+			break;
+		if (free_index == NONE && !lruv_search_windows[index].cache)
+			free_index = index;
+	}
+	if (index == NUMBEROF(lruv_search_windows))
+		index = free_index;
+	if (index != NONE)
+	{
+		lruv_search_windows[index].cache = blocks > 0 ? cache : NULL;
+		lruv_search_windows[index].blocks = blocks;
+		lruv_search_windows[index].cursor_block_index = NONE;
+	}
+
+	return;
+}
+
+static struct lruv_search_window *lruv_search_window_get(
+	struct lruv_cache *cache)
+{
+	short index;
+
+	for (index = 0; index < NUMBEROF(lruv_search_windows); index++)
+	{
+		if (lruv_search_windows[index].cache == cache)
+			return &lruv_search_windows[index];
+	}
+
+	return NULL;
+}
+#endif
+
 long lruv_block_new(
 	struct lruv_cache *cache,
 	long size)
@@ -556,14 +615,43 @@ long lruv_block_new(
 		225,
 		desired_page_count>0);
 
+#ifdef HALO_CONSOLE_FEWER_WALKS
+	{
+	/* (lruv_set_search_window, above) */
+	struct lruv_search_window *window = lruv_search_window_get(cache);
+	boolean windowed = window != NULL;
+	long window_blocks_after_hole = 0;
+
+walk:
+#endif
 	hole_read_index = 0;
 	hole_write_index = 0;
 	pending_block_index = NONE;
 	page_index = 0;
 	block_index = cache->first_block_index;
+#ifdef HALO_CONSOLE_FEWER_WALKS
+	if (windowed)
+	{
+		struct lruv_cache_block *start = window->cursor_block_index != NONE ?
+			(struct lruv_cache_block *)datum_try_and_get(cache->blocks, window->cursor_block_index) : NULL;
+
+		if (start)
+		{
+			page_index = start->first_page_index;
+			block_index = window->cursor_block_index;
+			pending_block_index = start->previous_block_index;
+		}
+		else
+			windowed = FALSE;
+	}
+#endif
 
 	while (page_index < cache->page_count)
 	{
+#ifdef HALO_CONSOLE_FEWER_WALKS
+		if (windowed && found_hole && ++window_blocks_after_hole > window->blocks)
+			break;
+#endif
 		locked = FALSE;
 
 		if (NEXT_HOLE_INDEX(hole_write_index) != hole_read_index)
@@ -650,6 +738,17 @@ long lruv_block_new(
 			}
 		}
 	}
+
+#ifdef HALO_CONSOLE_FEWER_WALKS
+	/* (a window with no hole: the whole cache, from its start) */
+	if (windowed && !found_hole)
+	{
+		windowed = FALSE;
+		oldest_unlocked_block_index = NONE;
+		goto walk;
+	}
+	}
+#endif
 
 	if (found_hole)
 	{
@@ -827,6 +926,14 @@ long lruv_block_new(
 			new_block->first_page_index = best_hole.first_page_index;
 			new_block->page_count = desired_page_count;
 			new_block->last_used_tick = cache->tick;
+#ifdef HALO_CONSOLE_FEWER_WALKS
+			{
+				struct lruv_search_window *window = lruv_search_window_get(cache);
+
+				if (window)
+					window->cursor_block_index = new_block_index;
+			}
+#endif
 			lruv_cache_verify(cache, TRUE);
 		}
 	}

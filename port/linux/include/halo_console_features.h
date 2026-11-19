@@ -316,8 +316,11 @@ HALO_CONSOLE_FEWER_WALKS
 	objects of the types that hold any (units and projectiles;
 	objects_fix_for_deleted_object, source/objects/objects.c), and an lruv
 	cache's allocation finding the blocks in its hole along its block list
-	(lruv_block_new, source/memory/lruv_cache.c). From Lord BirchWood's
-	Vita port
+	(lruv_block_new, source/memory/lruv_cache.c). And one difference in
+	the picture only: a new decal takes the least recently drawn room among
+	the 64 decals after the last one made, not among all 2048
+	(lruv_set_search_window, rasterizer_xbox_decals.c), so an old decal
+	that goes may not be the oldest of all. From Lord BirchWood's Vita port
 HALO_CONSOLE_XBOX_MAP_SIZES
 	a console that plays the Xbox's own maps only (no Custom Edition or
 	Halo PC maps): tables the desktop builds size for those maps are sized
