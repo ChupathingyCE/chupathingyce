@@ -52,6 +52,8 @@ blur ones, of the types Halo PC's and OpenSauce's scripts give them
 #include "units/units.h"
 #include "opensauce.h"
 #include "stubbs_functions.h"
+#include "network_coop.h"
+#include "networking/network_game_globals.h"
 
 #include <math.h>
 #include <string.h>
@@ -225,12 +227,21 @@ static char const *opensauce_string_argument(
 	return string ? string : "";
 }
 
-/* OpenSauce's IsLocal: a field a network game may not change is set only in
-a local one */
-static boolean opensauce_game_is_local(
-	void)
+/* whether the scripts may set a field (networked: one OpenSauce lets a
+network game change). Host-authoritative: in network co-op only the host
+runs a map's scripts (game.c) and its sync carries the results to clients
+(network_coop.c, network_objects.c), so the host sets any field, as a local
+game does; another network game's host only those OpenSauce lets it (its
+IsLocal rule); a client never (its scripts don't run, and nothing here may
+make its simulation differ from the host's) */
+static boolean opensauce_script_may_set(
+	boolean networked)
 {
-	return game_connection() == _game_connection_local;
+	if (game_connection() == _game_connection_local)
+		return TRUE;
+	if (network_game_distributed_client())
+		return FALSE;
+	return network_coop_active() || networked;
 }
 
 /* a vector's element from its name's first letter (x, y, z), as OpenSauce's
@@ -389,7 +400,7 @@ static boolean opensauce_unit_integer(
 		return FALSE;
 	if (set)
 	{
-		if (writable && (networked || opensauce_game_is_local()))
+		if (writable && opensauce_script_may_set(networked))
 		{
 			if (byte_field)
 				*byte_field = (char)*value;
@@ -458,7 +469,7 @@ static boolean opensauce_script_data(
 
 		if (name[12] == 'g')
 			*value = opensauce_real_result(field ? *field : -1.f);
-		else if (field && (networked || opensauce_game_is_local()))
+		else if (field && opensauce_script_may_set(networked))
 			*field = opensauce_real_argument(arguments[3]);
 	}
 	else if (!strcmp(name, "weapon_data_get_real") || !strcmp(name, "weapon_data_set_real"))
@@ -479,7 +490,7 @@ static boolean opensauce_script_data(
 		}
 		if (name[12] == 'g')
 			*value = opensauce_real_result(field ? *field : -1.f);
-		else if (field && opensauce_game_is_local())
+		else if (field && opensauce_script_may_set(FALSE))
 			*field = opensauce_real_argument(arguments[2]);
 	}
 	else if (!strcmp(name, "weapon_data_trigger_set_real"))
@@ -487,7 +498,7 @@ static boolean opensauce_script_data(
 		struct weapon_datum *weapon = arguments[0] != NONE ?
 			object_try_and_get_and_verify_type(arguments[0], _object_mask_weapon) : NULL;
 
-		if (weapon && opensauce_game_is_local())
+		if (weapon && opensauce_script_may_set(FALSE))
 		{
 			struct weapon_definition *definition = weapon_definition_get(weapon->definition_index);
 			char const *data_name = opensauce_string_argument(arguments[2]);
@@ -547,7 +558,7 @@ static boolean opensauce_script_data(
 
 			if (name[10] == 'g')
 				*value = opensauce_real_result(field ? *field : -1.f);
-			else if (field && opensauce_game_is_local())
+			else if (field && opensauce_script_may_set(FALSE))
 				*field = opensauce_real_argument(arguments[2]);
 		}
 	}
@@ -564,7 +575,7 @@ static boolean opensauce_script_data(
 	{
 		struct player_datum *player = opensauce_player_at((short)arguments[0]);
 
-		if (player && !strcmp(opensauce_string_argument(arguments[1]), "speed"))
+		if (player && !strcmp(opensauce_string_argument(arguments[1]), "speed") && opensauce_script_may_set(FALSE))
 			player->speed_multiplier = opensauce_real_argument(arguments[2]);
 	}
 	else if (!strcmp(name, "abs_real"))
@@ -581,7 +592,10 @@ static boolean opensauce_script_data(
 			*value = (arguments[2] & 0xFF) ? (arguments[0] | (1L << bit)) : (arguments[0] & ~(1L << bit));
 	}
 	else if (!strcmp(name, "physics_set_gravity"))
-		opensauce_map_set_gravity_scale(opensauce_real_argument(arguments[0]));
+	{
+		if (opensauce_script_may_set(FALSE))
+			opensauce_map_set_gravity_scale(opensauce_real_argument(arguments[0]));
+	}
 	else
 		return FALSE;
 	return TRUE;
