@@ -57,8 +57,8 @@ enum
 	LATENCY_SILENT_MILLISECONDS = 2000,
 	/* the largest number shown */
 	LATENCY_MAXIMUM_MILLISECONDS = 9999,
-	/* the meter's place: its right edge from the screen's (in the HUD's
-	640 by 480), its bars' width and gap, and the gap before the text */
+	/* the meter's place: its right edge from the window's, its bars' width
+	and gap, and the gap before the text (all in window pixels) */
 	LATENCY_RIGHT_MARGIN = 12,
 	LATENCY_BAR_WIDTH = 4,
 	LATENCY_BAR_GAP = 1,
