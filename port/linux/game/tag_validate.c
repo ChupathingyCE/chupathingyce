@@ -1030,6 +1030,10 @@ static void validate_block_extent(
 	struct tag_schema_field const *field)
 {
 	struct tag_schema_definition const *definition = field->definition;
+	/* (Halo PC's most, in its layout: TAG_SCHEMA_PC_BLOCK) */
+	long maximum = field->target_offset &&
+		TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_tool_maxima_kept_bit) ?
+		field->target_offset : field->maximum;
 
 	block->definition = XBOX_NULL;
 	if (block->count < 0)
@@ -1039,13 +1043,13 @@ static void validate_block_extent(
 	}
 	/* (a block of the tools' maximum, _tag_schema_tool_maximum_bit, is cut
 	too, but in a layout whose tools went past them: Halo PC's) */
-	if (field->maximum > 0 && block->count > field->maximum &&
+	if (maximum > 0 && block->count > maximum &&
 		!(TEST_FLAG(field->flags, _tag_schema_tool_maximum_bit) &&
 			TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_tool_maxima_kept_bit)))
 	{
 		tag_validate_correct(validation, "has %ld elements, more than the game's %ld: cut to %ld",
-			block->count, field->maximum, field->maximum);
-		block->count = field->maximum;
+			block->count, maximum, maximum);
+		block->count = maximum;
 	}
 	if (block->count &&
 		((unsigned long)block->count > validation->region_size / (unsigned long)definition->size ||

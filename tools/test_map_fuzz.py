@@ -887,6 +887,29 @@ def test_map_changed_after_the_checks(built, tmp_path):
             (part, result.stderr[-4000:])
         assert f"the load found its {part} changed" in result.stderr, (part, result.stderr[-4000:])
 
+
+def test_pc_netgame_flags_and_equipment_past_200(built, tmp_path):
+    """a Halo PC map's netgame flags and equipment past the tools' 200 (four
+    of HaloMD's maps have 202 to 317 flags, one 212 equipment): kept, as
+    Halo PC's engine read them, up to a short's most; more than that cut"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    for count, cut in ((250, False), (0x7FFF + 1, True)):
+        # (a count past a short's is cut before its elements are looked at:
+        # room for 250 of them)
+        data, offsets = ce_map_of_tags([(b"zzzz", 250 * 0x94), (b"zzzz", 250 * 0x90)])
+        scenario = struct.unpack_from("<I", data, offsets["instances"] + 0x14)[0] - base + 0x800
+        struct.pack_into("<iII", data, scenario + 0x378, count, base + offsets["tags"][0] - 0x800, 0)
+        struct.pack_into("<iII", data, scenario + 0x384, count, base + offsets["tags"][1] - 0x800, 0)
+        path = tmp_path / f"netgame_{count}.map"
+        path.write_bytes(data)
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert ("netgame_flags has 32768 elements, more than the game's 32767: cut to 32767" in result.stderr) == cut, \
+            (count, result.stderr[-4000:])
+        assert "more than the game's 200" not in result.stderr, (count, result.stderr[-4000:])
+        assert ("map_fuzz: the map loaded" in result.stderr) != cut, (count, result.stderr[-4000:])
+
 # ---------- longer runs
 
 
