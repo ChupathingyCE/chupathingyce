@@ -286,8 +286,8 @@ def test_weapons_follow_the_client():
     """A Custom Edition player's weapon, zoom and grenade choices reach the
     game, and a weapon put away is still its holder's (not dropped)"""
     source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
-    action = _function(source, "boolean server_ce_local_action")
-    assert "server_ce_choices(client, local_player_index, &update, action);" in action
+    action = _function(source, "static void client_action")
+    assert "server_ce_choices(client, player_index, &update, action);" in action
     choices = _function(source, "static void server_ce_choices")
     # each choice given once, as it changes (the game's own changes stand)
     assert "if (update->weapon != client->chosen_weapon)" in choices
@@ -308,8 +308,8 @@ def test_weapons_follow_the_client():
     assert messages.count("grenades[1], 3);\n\tput_bits(payload, (unsigned int)") == 2
     items = _function(source, "static void update_items")
     assert items.count("weapon_holder(") >= 3
-    control = (ROOT / "source/game/player_control.c").read_text(encoding="utf-8")
-    assert "player->desired_weapon_index = action.desired_weapon_index;" in control
+    # (and held from then on, as the game holds a local player's)
+    assert "client->weapon_choice = action->desired_weapon_index;" in action
 
 
 def update_payload(yaw, pitch):
@@ -609,6 +609,10 @@ def test_off_by_default(harness):  # noqa: F811
 
 def _function(source, name):
     start = source.index("\n" + name + "(\n")
+    # (the definition, not a prototype before it: a prototype's ";" comes
+    # before any "{")
+    while ";" in source[start:source.index("{", start)]:
+        start = source.index("\n" + name + "(\n", start + 1)
     return source[start:source.index("\n}\n", start) + 3]
 
 
@@ -623,7 +627,7 @@ def test_server_side_off_without_the_setting():
     assert update.index("if (!ce.enabled)\n\t{") < update.index("ce_transport_next_event(")
     for path in ("server/src/server_ce.c", "server/platform/gamespy_listing.c", "server/platform/ce_transport.c"):
         assert "HALO_DEDICATED_CE_ACCEPT" not in (ROOT / path).read_text(encoding="utf-8")
-    assert "if (!ce.enabled ||" in _function(source, "boolean server_ce_local_action")
+    assert "if (!ce.enabled)\n\t\treturn;" in _function(source, "void server_ce_take_actions")
     assert "if (!ce.enabled)\n\t\treturn NULL;" in _function(source, "static struct ce_client *client_for_player")
 
 
@@ -636,16 +640,16 @@ def test_joins_held_to_host_limits():
     # players out as it does Chupathingy machines; a client back for the
     # next game was in already)
     assert join.index("CE_PHASE_RECONNECTING") < join.index("if (host_rules_joins_locked())")
-    assert join.index("if (host_rules_joins_locked())") < join.index("network_game_client_add_named_player(")
+    assert join.index("if (host_rules_joins_locked())") < join.index("seat_client(client)")
     locked = join[join.index("if (host_rules_joins_locked())"):]
     assert locked.index("ce_transport_refuse(event->peer, CE_REJECT_FULL);") < locked.index("return TRUE;")
     assert join.index("network_distributed_banned(event->address, NULL)") < join.index("address_full(event->address)")
-    assert join.index("address_full(event->address)") < join.index("network_game_client_add_named_player(")
+    assert join.index("address_full(event->address)") < join.index("seat_client(client)")
     assert "network_distributed_address_full(address, others, count)" in \
         _function(source, "static boolean address_full")
     # (16 players at most with Custom Edition players in: a CE client's game
     # holds 16; a server without them keeps its own limit)
-    assert "game->player_count >= CE_GAME_PLAYERS" in join
+    assert "game->player_count + coming >= CE_GAME_PLAYERS" in join
     manager = (ROOT / "source/networking/network_game_manager.c").read_text(encoding="utf-8")
     assert "if (game->player_count >= 16 && server_ce_players_present())" in manager
 
@@ -717,7 +721,7 @@ def test_team_slayer():
     roster = _function(source, "static void game_settings_for")
     assert "team = network_player_team(player);" in roster
     assert "settings->random_seed = ce.random_seed;" in roster
-    assert "send_roster(client, local_index);" in _function(source, "static void update_client")
+    assert "send_roster(client);" in _function(source, "static void update_client")
     assert "client->announced_team[absolute] != player->team_index" in source
     transport = (ROOT / "server/platform/ce_transport.c").read_text(encoding="utf-8")
     assert "out[13] = (unsigned char)machine;" in transport
@@ -846,6 +850,57 @@ def test_game_types_match_captures(harness):  # noqa: F811
     assert "statistics->game_specific[0] = (specific[0] / TICKS_PER_SECOND) & 0xffff;" in statistics
     sound = _function(source, "void server_ce_multiplayer_sound")
     assert "sound_index == SOUND_COUNTDOWN_TIMER_END && game_engine &&" in sound
+
+
+def test_custom_edition_clients_are_machines():
+    """each Custom Edition client is a machine of the game of its own (a
+    virtual machine: no connection, one player at controller 0), not a
+    split-screen seat of the server's machine (4 at most, the controller
+    index every client checks): 16 of them fit a game. Nothing new on the
+    wire: the other machines see one more machine and player"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    assert "CE_CLIENTS = CE_MAXIMUM_PEERS," in source
+    assert "local_player_get_player_index" not in source
+    assert "network_game_client_add_named_player" not in source
+    seat = _function(source, "static boolean seat_client")
+    assert "network_game_server_port_add_virtual_machine(wide_name, client->address)" in seat
+    assert "network_game_server_port_add_virtual_player(client->machine_index, wide_name, 0)" in seat
+    assert "network_game_server_port_remove_virtual_machine(client->machine_index);" in \
+        _function(source, "static void leave_client")
+    # (its player's input taken each update the host builds, as a client
+    # machine's player's is)
+    take = _function(source, "void server_ce_take_actions")
+    assert "update_server_handle_distributed_input(player_index, update_number, &action, &control_flags, 1);" in take
+    queues = (ROOT / "source/game/player_queues_new.c").read_text(encoding="utf-8")
+    next_update = _function(queues, "void update_server_next_update")
+    assert next_update.index("update_server_take_local_actions();") < next_update.index("server_ce_take_actions(update_number);")
+    control = (ROOT / "source/game/player_control.c").read_text(encoding="utf-8")
+    assert "server_ce_local_action" not in control
+    assert "server_ce_set_desired_weapon(unit->unit.player_index, desired_weapon_index);" in control
+    assert "server_ce_unzoom(player_index);" in control
+    # (the host's machine loops: a virtual machine is never read, timed out
+    # or reset to loading; a kick of one lets its client go)
+    manager = (ROOT / "source/networking/network_server_manager.c").read_text(encoding="utf-8")
+    loop = _function(manager, "static boolean network_game_server_handle_client_machines")
+    assert loop.index("network_game_server_client_machine_is_virtual(client_machine)") < \
+        loop.index("network_connection_active(client_machine->connection)")
+    assert "server_ce_machine_dropped(machine_index);" in loop
+    assert "network_game_server_client_machine_is_virtual(machine)" in \
+        _function(manager, "static boolean network_game_server_client_machine_timed_out")
+    assert "network_game_server_client_machine_is_virtual(&server->client_machines[i])" in \
+        _function(manager, "boolean network_game_server_reset_to_pregame")
+    assert "!network_game_server_client_machine_is_virtual(client_machine)" in \
+        _function(manager, "boolean network_game_server_change_map_name")
+    virtual = _function(manager, "long network_game_server_port_add_virtual_machine")
+    assert "FLAG(_network_client_machine_level_loaded_bit) | FLAG(_network_client_machine_precached_bit)" in virtual
+    assert "server->client_machines[index].connection = NULL;" in virtual
+    # (its players' hits are the host's to deal: no report comes from it)
+    damage = (ROOT / "port/linux/game/network_damage.c").read_text(encoding="utf-8")
+    assert "!network_game_server_port_machine_is_virtual(owner->network_player_data.machine_index)" in damage
+    # (and Delta's view of the game leaves it out: no address, not the
+    # host's, so the capabilities every machine shares are not cut by it)
+    delta = _function(manager, "static void network_game_server_delta_frame")
+    assert "if (local || machines[count].ipv4)" in delta
 
 
 def test_welcome_line():
