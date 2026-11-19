@@ -1410,6 +1410,12 @@ static void perform_filesystem_initialization(
 	void);
 static void ui_widget_delete_children_recursive(
 	struct widget_instance *widget);
+#ifndef HALO_XBOX_CONSOLE
+static void ui_mouse_forget_widget(
+	struct widget_instance *widget);
+static void ui_mouse_forget_all(
+	void);
+#endif
 static struct widget_instance *ui_widget_launch_widget(
 	struct widget_instance *widget,
 	long new_widget_tag_index);
@@ -2696,6 +2702,9 @@ void ui_widgets_dispose(
 	void)
 {
 	ui_widgets_close_all();
+#ifndef HALO_XBOX_CONSOLE
+	ui_mouse_forget_all();
+#endif
 	if (widget_memory_pool->base_address)
 		pool_free(widget_memory_pool->base_address);
 	widget_memory_pool->base_address = NULL;
@@ -2859,6 +2868,10 @@ void ui_widget_delete(
 			ui_widget_delete(widget->parameters.list.extended_description);
 		break;
 	}
+#ifndef HALO_XBOX_CONSOLE
+	/* port: the pointer's targets must not keep it (#1498) */
+	ui_mouse_forget_widget(widget);
+#endif
 	dispose_pointer(widget_memory_pool, widget);
 	for (widget_index = 0;
 		widget_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS;
@@ -7412,6 +7425,8 @@ static void ui_debug_draw_targets(
 				0x8000ffff, 0xc0ff00ff };
 			short kind = ui_mouse_targets[index].kind;
 
+			if (kind == NONE)
+				continue;
 			ui_debug_draw_outline(&ui_mouse_targets[index].bounds, colors[PIN(kind, 0, 7)]);
 		}
 	}
@@ -8145,11 +8160,65 @@ static struct ui_mouse_target *ui_mouse_target_at(
 	{
 		rectangle2d const *bounds = &ui_mouse_targets[index].bounds;
 
+		if (ui_mouse_targets[index].kind == NONE)
+			continue;
 		if (x >= bounds->x0 && x < bounds->x1 && y >= bounds->y0 && y < bounds->y1)
 			return &ui_mouse_targets[index];
 	}
 
 	return NULL;
+}
+
+/* forgets a widget as ui_widget_delete deletes it. The targets are noted
+while the menus draw and read on the next frame, and between the two a
+screen can go: its own handlers, or the network sending the game back to
+the main menu when the host goes down (#1498), whose next frame gave the
+focus to a deleted widget. Its targets stay, with no kind and no area, so
+that nothing hits them, and a click on a screen that has gone is not taken
+for the A of a screen with nothing to pick; a button whose label goes keeps
+its area. A screen's deletion also drops the pointer's waiting hover and
+click, which were meant for it. */
+static void ui_mouse_forget_widget(
+	struct widget_instance *widget)
+{
+	long index;
+
+	for (index = 0; index < ui_mouse_target_count; index++)
+	{
+		struct ui_mouse_target *target = &ui_mouse_targets[index];
+
+		if (target->widget == widget)
+		{
+			target->widget = NULL;
+			target->label = NULL;
+			target->kind = NONE;
+			csmemset(&target->bounds, 0, sizeof(target->bounds));
+		}
+		else if (target->label == widget)
+		{
+			target->label = NULL;
+		}
+	}
+	if (!widget->parent)
+	{
+		ui_mouse_hover_pending = FALSE;
+		ui_mouse_click_pending = FALSE;
+	}
+
+	return;
+}
+
+/* forgets every target and the waiting hover and click: the widgets'
+memory goes (ui_widgets_dispose) */
+static void ui_mouse_forget_all(
+	void)
+{
+	ui_mouse_target_count = 0;
+	ui_mouse_targets_settled = FALSE;
+	ui_mouse_hover_pending = FALSE;
+	ui_mouse_click_pending = FALSE;
+
+	return;
 }
 
 static boolean ui_mouse_widget_has_focus(
@@ -8501,8 +8570,9 @@ static void ui_debug_log_targets(
 	{
 		struct ui_mouse_target const *target = &ui_mouse_targets[index];
 
-		platform_log("touch targets:   %s %s [%d,%d,%d,%d]", kinds[PIN(target->kind, 0, 7)],
-			tag_get_name(target->widget->definition_tag_index),
+		platform_log("touch targets:   %s %s [%d,%d,%d,%d]",
+			target->kind == NONE ? "deleted" : kinds[PIN(target->kind, 0, 7)],
+			target->widget ? tag_get_name(target->widget->definition_tag_index) : "-",
 			target->bounds.x0, target->bounds.y0, target->bounds.x1, target->bounds.y1);
 	}
 
