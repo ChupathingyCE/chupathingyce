@@ -2383,6 +2383,15 @@ long scenario_tags_load(
 				mods_tags_loaded(stripped_scenario_name);
 			}
 #endif
+#ifndef HALO_CONSOLE_NO_FORGE
+			/* port: Forge (port/linux/game/forge.c): a Forge game asked
+			for on this map starts; anything of the last map's is gone */
+			{
+				extern void forge_map_loaded(char const *scenario_name);
+
+				forge_map_loaded(tag_get_name(cache_file_globals.tag_header->scenario_tag_index));
+			}
+#endif
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}
 		/* port: a map refused is closed for the next to open */

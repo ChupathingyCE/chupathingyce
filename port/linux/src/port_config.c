@@ -1636,6 +1636,12 @@ static const struct config_setting config_settings[] =
 		"(sounds for now) over a map's own, as a resource pack. Nothing happens\n"
 		"while the folder is empty. Local games only: a network game plays the\n"
 		"map's own tags. See docs/mods.md." },
+#ifndef HALO_CONSOLE_NO_FORGE
+	{ "game.forge", _config_boolean, "false", "HALO_FORGE", _environment_value, _platform_desktop,
+		"Forge, the layout editor of the multiplayer maps: the console's forge\n"
+		"commands (\"forge start bloodgulch\"). Local games only; a saved layout is\n"
+		"played with \"forge play <map> <layout> <game type>\". See docs/forge.md." },
+#endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
 		"Workshop campaign maps are listed either way. Reopen the map list after\n"

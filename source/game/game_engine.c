@@ -630,6 +630,9 @@ boolean cache_file_tags_are_ce(void);
 #include "mcc_ui_teams.h"
 #include "game_modes.h" /* port: the game modes layer (docs/modes.md) */
 #include "game_engine_playlist.h" /* port: the built-ins' builders */
+#ifndef HALO_CONSOLE_NO_FORGE
+#include "forge.h" /* port: port/linux/game/forge.c */
+#endif
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -5926,7 +5929,13 @@ boolean game_engine_should_end_game(
 {
 	boolean should_end_game = FALSE;
 
-	if (game_engine && !multiple_teams_alive())
+	if (game_engine && !multiple_teams_alive()
+#ifndef HALO_CONSOLE_NO_FORGE
+		/* port: a Forge game (the monitor editing a map, alone) does not end
+		because one team is left */
+		&& !forge_game_active()
+#endif
+		)
 		should_end_game = TRUE;
 	/* port: the gametype's time limit (game_variant_options) */
 	if (game_engine && game_variant_options_get()->time_limit > 0 &&

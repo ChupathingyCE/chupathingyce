@@ -518,6 +518,14 @@ static void render_window(
 		structure_render_fog();
 		HALO_PERF_RENDER_PART(_halo_perf_render_objects);
 		game_engine_post_rasterize_objects();
+#ifndef HALO_CONSOLE_NO_FORGE
+		/* port: Forge's markers (port/linux/game/forge_markers.inc) */
+		{
+			extern void forge_render_world(void);
+
+			forge_render_world();
+		}
+#endif
 		HALO_PERF_RENDER_PART(_halo_perf_render_effects);
 		weather_particle_systems_render();
 		render_particles();
