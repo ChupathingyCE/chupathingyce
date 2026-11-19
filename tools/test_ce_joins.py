@@ -901,6 +901,10 @@ def test_custom_edition_clients_are_machines():
     # host's, so the capabilities every machine shares are not cut by it)
     delta = _function(manager, "static void network_game_server_delta_frame")
     assert "if (local || machines[count].ipv4)" in delta
+    # (nor judged by Delta's rules for a game: it never says HELLO, and its
+    # slot's record may be a machine's before it)
+    refusals = _function(manager, "static void network_game_server_delta_refusals")
+    assert "network_game_server_client_machine_is_virtual(machine) ||" in refusals
     # (a client's player and its lookups by machine hold only while that
     # machine is still its virtual one)
     assert "!network_game_server_port_machine_is_virtual(client->machine_index)" in \

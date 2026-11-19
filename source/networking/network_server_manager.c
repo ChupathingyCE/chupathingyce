@@ -6573,6 +6573,12 @@ static void network_game_server_delta_refusals(
 		if ((!under_floor && !bomb && !pack_map && !mcc_map && !number_changed && !modes_needed) ||
 			!network_game_server_client_machine_is_joined_to_game(server, machine) ||
 			network_game_server_client_machine_is_local(server, machine) ||
+			/* (port: nor a virtual machine, a Custom Edition client's: it
+			never says HELLO, and its slot's record of the number it joined
+			at may be a machine's before it; its client is let in by
+			server/src/server_ce.c's own rules, as when it was a seat of
+			this machine) */
+			network_game_server_client_machine_is_virtual(machine) ||
 			machine->machine_index < 0 || machine->machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
 		{
 			refused_addresses[index] = 0;
