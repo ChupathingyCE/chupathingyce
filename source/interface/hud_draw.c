@@ -1096,15 +1096,20 @@ void hud_calculate_point(
 	corner = absolute_placement->corner;
 	if (corner < _hud_anchor_center)
 	{
+		/* port: the corners in display.hud_safe_zone's frame (the Xbox's
+		window by default) */
+		rectangle2d safe_bounds;
+
+		hud_safe_zone_bounds(&safe_bounds);
 		point.x = placement->offset.x *
 			(TEST_FLAG(corner, _hud_anchor_right_bit) ? -1 : 1) * scale +
-			render.camera.window_bounds.v[
+			safe_bounds.v[
 				((corner & FLAG(_hud_anchor_right_bit)) << 1) |
 					FLAG(_hud_anchor_right_bit)] -
 			render.camera.viewport_bounds.x0;
 		point.y = placement->offset.y *
 			(TEST_FLAG(corner, _hud_anchor_bottom_bit) ? -1 : 1) * scale +
-			render.camera.window_bounds.v[corner & FLAG(_hud_anchor_bottom_bit)] -
+			safe_bounds.v[corner & FLAG(_hud_anchor_bottom_bit)] -
 			render.camera.viewport_bounds.y0;
 	}
 	else
@@ -1481,6 +1486,125 @@ void hud_zoomed_layout_end(
 }
 
 #endif
+
+/* port: display.hud_safe_zone, how far the HUD sits from the screen's edges.
+The Xbox lays a view's HUD out in its window: the title-safe frame of the
+640x480 screen (48 columns and 36 lines in from each edge, 7.5%:
+_rasterizer_initialize), split for split screen with only 4 pixels between
+a view's window and the line between views (compute_window_bounds). So in
+split screen a view's HUD sits far in from the screen's edges and close to
+the other views', as on the Xbox (retail: compute_window_bounds at
+0x000bba00, the frame set at 0x0007fadc). "xbox" keeps that (the default);
+"pc" puts it 8 in from the screen's edges, as Halo PC does; "auto" is the
+Xbox's alone and Halo PC's in split screen; two numbers ("24 18") set the
+columns and the lines, 8 to 48 and 8 to 36. Only the edges that are the
+screen's move: the 4 pixels between views stay. The range and the
+two-number form follow Chimera's chimera_safe_zones, by SnowyMouse
+(GPL-3.0), thanks!
+
+Only the HUD's corners and edges move. The window itself, which the 3D
+view's projection and the crosshair are centered in, stays as it is, so the
+aim doesn't move. Local only: nothing here is sent. */
+enum
+{
+	HUD_SAFE_ZONE_XBOX_COLUMNS = 48,
+	HUD_SAFE_ZONE_XBOX_LINES = 36,
+	HUD_SAFE_ZONE_PC_MARGIN = 8,
+	HUD_SAFE_ZONE_SCREEN_COLUMNS = 640,
+	HUD_SAFE_ZONE_SCREEN_LINES = 480,
+};
+
+enum
+{
+	_hud_safe_zone_xbox = 0,
+	_hud_safe_zone_pc,
+	_hud_safe_zone_auto,
+	_hud_safe_zone_custom,
+};
+
+int config_text(const char *name, char *text, size_t size);
+unsigned long config_changes(void);
+short main_get_window_count(void);
+
+static void hud_safe_zone_margins(
+	short *columns,
+	short *lines)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static short mode = _hud_safe_zone_xbox;
+	static short custom_columns = HUD_SAFE_ZONE_XBOX_COLUMNS;
+	static short custom_lines = HUD_SAFE_ZONE_XBOX_LINES;
+
+	if (read_at != config_changes())
+	{
+		char text[32];
+		int h;
+		int v;
+
+		read_at = config_changes();
+		mode = _hud_safe_zone_xbox;
+		if (config_text("display.hud_safe_zone", text, sizeof(text)))
+		{
+			if (!strcmp(text, "pc"))
+				mode = _hud_safe_zone_pc;
+			else if (!strcmp(text, "auto"))
+				mode = _hud_safe_zone_auto;
+			else if (sscanf(text, "%d%*[ ,]%d", &h, &v) == 2)
+			{
+				mode = _hud_safe_zone_custom;
+				custom_columns = (short)PIN(h, HUD_SAFE_ZONE_PC_MARGIN, HUD_SAFE_ZONE_XBOX_COLUMNS);
+				custom_lines = (short)PIN(v, HUD_SAFE_ZONE_PC_MARGIN, HUD_SAFE_ZONE_XBOX_LINES);
+			}
+		}
+	}
+
+	if (mode == _hud_safe_zone_pc ||
+		(mode == _hud_safe_zone_auto && main_get_window_count() > 1))
+	{
+		*columns = HUD_SAFE_ZONE_PC_MARGIN;
+		*lines = HUD_SAFE_ZONE_PC_MARGIN;
+	}
+	else if (mode == _hud_safe_zone_custom)
+	{
+		*columns = custom_columns;
+		*lines = custom_lines;
+	}
+	else
+	{
+		*columns = HUD_SAFE_ZONE_XBOX_COLUMNS;
+		*lines = HUD_SAFE_ZONE_XBOX_LINES;
+	}
+}
+
+void hud_safe_zone_bounds(
+	rectangle2d *bounds)
+{
+	rectangle2d const *screen = &rasterizer_globals.reserved04.screen_bounds;
+	rectangle2d const *frame = &rasterizer_globals.reserved04.frame_bounds;
+	rectangle2d const *viewport = &render.camera.viewport_bounds;
+	short columns;
+	short lines;
+
+	*bounds = render.camera.window_bounds;
+	hud_safe_zone_margins(&columns, &lines);
+	if (columns == HUD_SAFE_ZONE_XBOX_COLUMNS && lines == HUD_SAFE_ZONE_XBOX_LINES)
+		return;
+
+	/* (in the screen's units: a wider screen's frame is as much wider,
+	_rasterizer_initialize; each edge from the frame's, so the Xbox's own
+	4 pixels at a lone column's right and a lone row's bottom stay) */
+	columns = (short)(columns * (screen->x1 - screen->x0) / HUD_SAFE_ZONE_SCREEN_COLUMNS);
+	lines = (short)(lines * (screen->y1 - screen->y0) / HUD_SAFE_ZONE_SCREEN_LINES);
+	if (viewport->x0 <= screen->x0)
+		bounds->x0 = (short)(bounds->x0 - (frame->x0 - screen->x0 - columns));
+	if (viewport->x1 >= screen->x1)
+		bounds->x1 = (short)(bounds->x1 + (screen->x1 - frame->x1 - columns));
+	if (viewport->y0 <= screen->y0)
+		bounds->y0 = (short)(bounds->y0 - (frame->y0 - screen->y0 - lines));
+	if (viewport->y1 >= screen->y1)
+		bounds->y1 = (short)(bounds->y1 + (screen->y1 - frame->y1 - lines));
+}
+
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 /* port: whether performance mode keeps the HUD's frames and backgrounds */
 boolean console_performance_hud_frames(void);

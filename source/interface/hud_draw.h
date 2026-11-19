@@ -88,6 +88,10 @@ void hud_calculate_point(
 	boolean in_multiplayer,
 	real override_scale,
 	point2d *result);
+/* port: the current view's window with display.hud_safe_zone's margins at
+the screen's edges (the window itself by default, as on the Xbox) */
+void hud_safe_zone_bounds(
+	rectangle2d *bounds);
 #ifdef HALO_PORT_WIDE_INTERFACE
 boolean hud_multitexture_overlays_follow_zoom(
 	struct tag_block const *multitexture_overlays);

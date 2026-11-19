@@ -1457,19 +1457,24 @@ static void game_engine_generate_title_string(
 	return;
 }
 
+/* port: the view's window with display.hud_safe_zone's margins (hud_draw.c) */
+void hud_safe_zone_bounds(rectangle2d *bounds);
+
 static void rasterize_in_game_score_draw_line(
 	wchar_t const *string,
 	boolean brighten,
 	real_argb_color *color,
 	long row_index)
 {
-	rectangle2d bounds = render.camera.window_bounds;
+	rectangle2d bounds;
 	short narrow_tab_stops[3];
 	short wide_tab_stops[3];
 	short *tab_stops;
 	boolean splitscreen;
 	long font_index;
 
+	/* port: at display.hud_safe_zone's edge (the window's by default) */
+	hud_safe_zone_bounds(&bounds);
 	splitscreen = local_player_count() > 1;
 	font_index = hud_get_font_index();
 	narrow_tab_stops[0] = 80;

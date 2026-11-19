@@ -418,6 +418,14 @@ static const struct config_setting config_settings[] =
 		"view; only different in split screen) or \"lowered\" (a tenth of the\n"
 		"view's height below the middle). The view moves with it, so shots\n"
 		"still go where the crosshair is. Zoomed, it's in the middle." },
+	/* (the default is this line's "xbox", the Xbox's look; "auto" would
+	give split screen Halo PC's edges by default) */
+	{ "display.hud_safe_zone", _config_string, "\"xbox\"", "HALO_HUD_SAFE_ZONE", _environment_value,
+		_platform_all | _platform_xbox,
+		"How far the HUD sits from the screen's edges: \"xbox\" (48 and 36\n"
+		"in, as on the Xbox), \"pc\" (8 in, as Halo PC), \"auto\" (the Xbox's\n"
+		"alone, Halo PC's in split screen) or two numbers, \"24 18\" (8 to\n"
+		"48 across, 8 to 36 down). As Chimera's chimera_safe_zones." },
 	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
 		_platform_all,
 		"Draw your weapon and arms. false hides them." },
