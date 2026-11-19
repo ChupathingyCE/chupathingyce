@@ -444,6 +444,8 @@ static char const *const port_game_data_input_names[] =
 	"port delta profile update",
 	/* (Controls Setup's rows and help) */
 	"port controls update",
+	/* (the Chupathingy main menu's logo, taped over or not) */
+	"port duct tape logo",
 };
 
 struct menu_block_range

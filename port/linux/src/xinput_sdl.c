@@ -871,6 +871,9 @@ static const struct
 static int bindings[NUMBER_OF_HALO_KEYBOARD_ACTIONS][MAXIMUM_BINDINGS];
 static unsigned long bindings_read_at = (unsigned long)-1;
 static unsigned long keyboard_actions_held;
+/* the letter keys down while the menus have the keyboard (bit 0 A to bit 25
+Z: halo_keyboard_menu_letters) */
+static unsigned long menu_letters_held;
 
 /* (the C library's case: SDL's string functions are not the Android
 guest's) */
@@ -1206,6 +1209,28 @@ static void chat_escape_update(const struct platform_input_state *input)
 unsigned long halo_keyboard_actions(short controller_index)
 {
 	return controller_index == 0 ? keyboard_actions_held : 0;
+}
+
+unsigned long halo_keyboard_menu_letters(void)
+{
+	return menu_letters_held;
+}
+
+/* (the letters down, while the menus drive the controller with the
+keyboard and no text box takes them) */
+static unsigned long menu_letters(const struct platform_input_state *input)
+{
+	unsigned long letters = 0;
+	int letter;
+
+	if (text_typing)
+		return 0;
+	for (letter = 0; letter < 26; letter++)
+	{
+		if (input->keys[SDL_SCANCODE_A + letter])
+			letters |= 1UL << letter;
+	}
+	return letters;
 }
 
 /* A scroll of the wheel switches weapons once: it holds Y for WHEEL_PRESS_MS
@@ -2645,6 +2670,7 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		mouse_poll(&input);
 		wheel_update();
 		keyboard_actions_held = 0;
+		menu_letters_held = 0;
 		keys_held_over_switch(&input);
 		test_input_menu_keys(&input);
 		test_input_debug_camera(&input);
@@ -2658,7 +2684,10 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 			else
 #endif
 			if (input.menus)
+			{
 				keyboard_gamepad(&input, &state->Gamepad);
+				menu_letters_held = menu_letters(&input);
+			}
 			else
 				keyboard_controls(&input, &state->Gamepad);
 		}

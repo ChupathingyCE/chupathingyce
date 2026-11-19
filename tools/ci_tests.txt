@@ -50,6 +50,7 @@ tools/test_delta_registry.py
 tools/test_determinism.py
 tools/test_discord_activity.py
 tools/test_discord_register.py
+tools/test_duct_tape_logo.py
 tools/test_event_log.py
 tools/test_footer_prompts.py
 tools/test_game_list_rules.py
