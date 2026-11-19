@@ -298,7 +298,7 @@ which hold more than Custom Edition's (the campaign's textures and sounds,
 which many HaloMD maps use). Copy those two files from your Halo PC (retail)
 install into `maps_pc`, and the game reads each map's stock textures and
 sounds from them, as Halo PC did. Without them, those textures are stand-ins
-and those sounds are silent, and the console says which file to add.
+and those sounds are silent, and the game says on screen which file to add.
 Chupathingy never ships or downloads these files: they are yours.
 
 The maps appear in the multiplayer map list after the Halo PC maps, marked

@@ -982,9 +982,58 @@ static boolean ce_halo_pc_resource_is(
 	return FALSE;
 }
 
+/* what ce_bitmap_drawable finds of a bitmap */
+enum
+{
+	_ce_bitmap_drawn,
+	/* (not one the game's bitmap_verify takes) */
+	_ce_bitmap_not_drawn,
+	/* (a format with no Direct3D one) */
+	_ce_bitmap_no_format,
+	/* (linear, of a format that cannot be) */
+	_ce_bitmap_linear,
+	/* (not of its type's shape) */
+	_ce_bitmap_misshapen,
+};
+
+/* a bitmap (data, CE_BITMAP_DATA_SIZE bytes) as the game's renderer would
+make a texture of it, into *bitmap: one the game's own bitmap_verify takes
+(of the Xbox's flags), of a format with a Direct3D one, of its type's shape
+(ce_bitmaps_check's refusals, by what this gives) */
+static short ce_bitmap_drawable(
+	byte const *data,
+	struct bitmap_data *bitmap)
+{
+	memcpy(bitmap, data, sizeof(*bitmap));
+	bitmap->flags &= CE_BITMAP_XBOX_FORMAT_FLAGS;
+	/* (a BC7 bitmap is checked as the DXT5 one it is made: its blocks are
+	the same size) */
+	if (bitmap->format == CE_BITMAP_FORMAT_BC7)
+		bitmap->format = CE_BITMAP_FORMAT_DXT5;
+	if (!bitmap_verify(bitmap, FALSE))
+		return _ce_bitmap_not_drawn;
+	/* (the formats with no Direct3D format, none linear but the
+	uncompressed: xbox_texture_cache.c's tables) */
+	switch (bitmap->format)
+	{
+	case 4: case 5: case 7: case 12: case 13:
+		return _ce_bitmap_no_format;
+	case 14: case 15: case 16: case 17:
+		if (bitmap->flags & CE_BITMAP_LINEAR_FLAG)
+			return _ce_bitmap_linear;
+		break;
+	}
+	if ((bitmap->type == 2 && bitmap->width != bitmap->height) || (bitmap->type != 1 && bitmap->depth != 1))
+		return _ce_bitmap_misshapen;
+	return _ce_bitmap_drawn;
+}
+
 /* a retail map's bitmap tag whose bitmaps (count of them, all external)
-are each a resource of Halo PC's own bitmaps.map: TRUE if they
-all are (their offsets are then kept, and read from there) */
+are each a resource of Halo PC's own bitmaps.map, and each one the game
+draws as the tag gives it: TRUE if they all are (their offsets are then
+kept, and read from there). A protected map's tags may give a bitmap's shape
+or format scrambled, which Custom Edition's bitmaps.map's namesake mends as
+before (ce_retail_bitmap_take) */
 static boolean ce_halo_pc_bitmaps(
 	byte const *bitmaps,
 	long count)
@@ -999,10 +1048,12 @@ static boolean ce_halo_pc_bitmaps(
 		byte const *data = bitmaps + index * CE_BITMAP_DATA_SIZE;
 		long offset = (long)ce_read_long(data + 0x18);
 		long size = (long)ce_read_long(data + 0x1c);
+		struct bitmap_data bitmap;
 
 		/* (a tag's bitmaps are all read from one file: ce_resources_file_for_tag) */
 		if (!(*(unsigned short const *)(data + 0x0e) & CE_BITMAP_EXTERNAL_FLAG) || offset < 0 || size <= 0 ||
-			!ce_halo_pc_resource_is(map, (unsigned long)offset, (unsigned long)size))
+			!ce_halo_pc_resource_is(map, (unsigned long)offset, (unsigned long)size) ||
+			ce_bitmap_drawable(data, &bitmap) != _ce_bitmap_drawn)
 		{
 			return FALSE;
 		}
@@ -1010,21 +1061,33 @@ static boolean ce_halo_pc_bitmaps(
 	return TRUE;
 }
 
-/* a retail map's sound (its pitch ranges, range_count of them, in the
-image) whose every permutation with samples has them external and a
-resource of Halo PC's own sounds.map: TRUE if so (their offsets are then
-kept, and read from there) */
+/* a retail map's sound (its header, and its pitch ranges, range_count of
+them, in the image) of an encoding and compression there are, whose every
+permutation with samples is of a compression there is and has them external
+and a resource of Halo PC's own sounds.map: TRUE if so (their offsets are
+then kept, and read from there). A protected map's tags may give a sound's
+encoding or compression scrambled, which Custom Edition's sounds.map's
+namesake is checked against as before (ce_retail_sound) */
 static boolean ce_halo_pc_sound(
 	struct ce_image *image,
+	byte const *sound,
 	byte *ranges,
 	long range_count,
 	char const *name)
 {
 	struct ce_resource_map const *map = &ce_resource_maps[_ce_resource_halo_pc_sounds];
 	long range_index, external = 0;
+	short encoding, compression;
 
-	if (!ce_halo_pc_resource_map_open(_ce_resource_halo_pc_sounds))
+	memcpy(&encoding, sound + CE_SOUND_ENCODING_OFFSET, sizeof(encoding));
+	memcpy(&compression, sound + CE_SOUND_COMPRESSION_OFFSET, sizeof(compression));
+	/* (mono or stereo; none, Xbox ADPCM, IMA ADPCM or Ogg Vorbis:
+	sound_manager.c's) */
+	if (encoding < 0 || encoding > 1 || compression < CE_SOUND_COMPRESSION_NONE ||
+		compression > CE_SOUND_COMPRESSION_OGG || !ce_halo_pc_resource_map_open(_ce_resource_halo_pc_sounds))
+	{
 		return FALSE;
+	}
 	for (range_index = 0; range_index < range_count; range_index++)
 	{
 		byte *permutations;
@@ -1040,9 +1103,14 @@ static boolean ce_halo_pc_sound(
 			byte const *permutation = permutations + permutation_index * CE_SOUND_PERMUTATION_SIZE;
 			long size = (long)ce_read_long(permutation + CE_PERMUTATION_SAMPLES_OFFSET);
 			long offset = (long)ce_read_long(permutation + CE_PERMUTATION_SAMPLES_OFFSET + 8);
+			short permutation_compression;
 
 			if (!size)
 				continue;
+			memcpy(&permutation_compression, permutation + CE_PERMUTATION_COMPRESSION_OFFSET,
+				sizeof(permutation_compression));
+			if (permutation_compression < CE_SOUND_COMPRESSION_NONE || permutation_compression > CE_SOUND_COMPRESSION_OGG)
+				return FALSE;
 			/* (a sound's samples are all read from one file: one with some in
 			the map is found in Custom Edition's as before) */
 			if (!ce_samples_external(permutation) || size < 0 || offset < 0 ||
@@ -1269,7 +1337,7 @@ static boolean ce_retail_sound(
 		return TRUE;
 	/* (as Halo PC read them, from its own sounds.map: nothing in the tag
 	changed) */
-	if (ce_halo_pc_sound(image, ranges, range_count, name))
+	if (ce_halo_pc_sound(image, sound, ranges, range_count, name))
 	{
 		(*from_halo_pc)++;
 		*type = (byte)(_ce_resource_halo_pc_sounds + 1);
@@ -1700,7 +1768,6 @@ static boolean ce_bitmaps_check(
 {
 	boolean indexed = type != 0;
 	short file_type = type == _ce_resource_halo_pc_bitmaps + 1 ? _ce_resource_halo_pc_bitmaps : _ce_resource_bitmaps;
-
 	byte *group = ce_image_pointer(image, instance->base_address, CE_BITMAP_GROUP_SIZE);
 	char const *name = ce_image_tag_name(image, instance);
 	byte *bitmaps;
@@ -1719,32 +1786,21 @@ static boolean ce_bitmaps_check(
 		unsigned long file_size;
 		boolean external;
 
-		memcpy(&bitmap, bitmaps + index * CE_BITMAP_DATA_SIZE, sizeof(bitmap));
-		external = indexed || (bitmap.flags & CE_BITMAP_EXTERNAL_FLAG);
-		bitmap.flags &= CE_BITMAP_XBOX_FORMAT_FLAGS;
-		/* (a BC7 bitmap is checked as the DXT5 one it is made: its blocks
-		are the same size) */
-		if (bitmap.format == CE_BITMAP_FORMAT_BC7)
-			bitmap.format = CE_BITMAP_FORMAT_DXT5;
-		if (!bitmap_verify(&bitmap, FALSE))
+		external = indexed || (*(unsigned short const *)(bitmaps + index * CE_BITMAP_DATA_SIZE + 0x0e) &
+			CE_BITMAP_EXTERNAL_FLAG);
+		switch (ce_bitmap_drawable(bitmaps + index * CE_BITMAP_DATA_SIZE, &bitmap))
 		{
+		case _ce_bitmap_not_drawn:
 			return ce_refuse("bitmap %ld of %s (%dx%dx%d, type %d, format %d) is not one the game draws", index, name,
 				bitmap.width, bitmap.height, bitmap.depth, bitmap.type, bitmap.format);
-		}
-		/* (the formats with no Direct3D format, none linear but the
-		uncompressed: xbox_texture_cache.c's tables) */
-		switch (bitmap.format)
-		{
-		case 4: case 5: case 7: case 12: case 13:
+		case _ce_bitmap_no_format:
 			return ce_refuse("bitmap %ld of %s has no format the game draws (%d)", index, name, bitmap.format);
-		case 14: case 15: case 16: case 17:
-			if (bitmap.flags & CE_BITMAP_LINEAR_FLAG)
-				return ce_refuse("bitmap %ld of %s is linear, of a format that cannot be", index, name);
-			break;
-		}
-		if ((bitmap.type == 2 && bitmap.width != bitmap.height) || (bitmap.type != 1 && bitmap.depth != 1))
+		case _ce_bitmap_linear:
+			return ce_refuse("bitmap %ld of %s is linear, of a format that cannot be", index, name);
+		case _ce_bitmap_misshapen:
 			return ce_refuse("bitmap %ld of %s is %dx%dx%d, not of its type's shape", index, name, bitmap.width,
 				bitmap.height, bitmap.depth);
+		}
 		if (external && file_type == _ce_resource_bitmaps && !ce_resource_map_open(_ce_resource_bitmaps))
 			return FALSE;
 		file_size = external ? ce_resource_maps[file_type].file_size : map_file_size;
