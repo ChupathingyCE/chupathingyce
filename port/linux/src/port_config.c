@@ -411,6 +411,13 @@ static const struct config_setting config_settings[] =
 		"spread on screen. It makes no difference at 70." },
 	{ "display.reticle_scale", _config_real, "1.0", "HALO_RETICLE_SCALE", _environment_value, _platform_all,
 		"The reticle's size, 0.5 to 2. 1 is the Xbox's." },
+	{ "display.crosshair_position", _config_string, "\"retail\"", "HALO_CROSSHAIR_POSITION", _environment_value,
+		_platform_all,
+		"Where the crosshair and your aim sit: \"retail\" (the middle of the\n"
+		"title-safe frame, as on the Xbox), \"centered\" (the middle of your\n"
+		"view; only different in split screen) or \"lowered\" (a tenth of the\n"
+		"view's height below the middle). The view moves with it, so shots\n"
+		"still go where the crosshair is. Zoomed, it's in the middle." },
 	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
 		_platform_all,
 		"Draw your weapon and arms. false hides them." },
@@ -4643,6 +4650,7 @@ static const struct
 	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
+	{ "display.crosshair_position", { "retail", "centered", "lowered", NULL }, "\"retail\"" },
 	/* (the log line for another word is config_tuning_apply's, which uses the default) */
 	{ "tuning.preset", { "retail", "lan-party", "potato", NULL }, NULL },
 	{ "tuning.present_mode", { "vblank", "adaptive", NULL }, NULL },

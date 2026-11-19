@@ -974,7 +974,17 @@ static void crosshairs_draw(
 	long return_eip = get_return_eip();
 	long stack_buffer[STACK_BUFFER_LENGTH];
 	boolean firing_active = FALSE;
+	/* port: display.crosshair_position: the crosshairs drawn as far down as
+	the aim point (render_player_frame moves the view's bounds as much), by
+	moving the window they are placed in the middle of while they draw */
+	rectangle2d saved_window_bounds = render.camera.window_bounds;
+	short aim_offset = (short)first_person_aim_offset(
+		player->local_player_index,
+		&render.camera.viewport_bounds,
+		&render.camera.window_bounds);
 
+	render.camera.window_bounds.y0 += aim_offset;
+	render.camera.window_bounds.y1 += aim_offset;
 	csmemset(
 		stack_buffer,
 		0x62,
@@ -1351,6 +1361,7 @@ static void crosshairs_draw(
 		}
 	}
 
+	render.camera.window_bounds = saved_window_bounds;
 	match_assert_stack_frame("c:\\halo\\SOURCE\\interface\\hud_weapon.c", 0x4E2);
 	return;
 }
