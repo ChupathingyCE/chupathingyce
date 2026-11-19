@@ -1259,8 +1259,13 @@ static boolean ce_retail_bitmaps(
 		{
 			/* (another bitmap's pixels: what the weather leaves out) */
 			*(unsigned short *)(group + 0x06) |= (unsigned short)FLAG(_bitmap_group_port_stood_in_bit);
-			if (!ce_map_checking() && *stood_in < 16)
-				error(_error_silent, "HaloMD map: bitmap %ld of %s is not in bitmaps.map: stood in for", index, name);
+			if (!ce_map_checking())
+			{
+				if (*stood_in < 16)
+					error(_error_silent, "HaloMD map: bitmap %ld of %s is not in bitmaps.map: stood in for", index, name);
+				/* (SPV3 mode's log counts every one: spv3_mode.c) */
+				spv3_mode_note_resource_miss("bitmap (not in bitmaps.map)", name);
+			}
 			(*stood_in)++;
 		}
 		else
@@ -2694,6 +2699,8 @@ static void ce_sounds_decode(
 					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis permutation of %d channels at %d Hz "
 						"in a sound of %d at %d Hz; it does not play", ce_loaded_tag_name(instance),
 						channels, rate, encoding ? 2 : 1, played_rate);
+					spv3_mode_note_resource_miss("sound (Ogg Vorbis permutation that does not play)",
+						ce_loaded_tag_name(instance));
 					ce_vorbis_free(samples);
 					all = FALSE;
 					break;

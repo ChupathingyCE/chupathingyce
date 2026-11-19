@@ -211,7 +211,10 @@ Custom Edition's resource maps, port/linux/game/ce_resources.c) */
 #define CACHE_FILE_VERSION_IS_PC(version) \
 	((version) == CACHE_FILE_CE_VERSION || (version) == CACHE_FILE_RETAIL_VERSION)
 #define CE_TAG_CACHE_BASE 0x40440000U
-#define CE_TAG_CACHE_SIZE 0x01700000U
+/* port: Custom Edition's, or OpenSauce's larger one in SPV3 mode with its
+window mapped (port/linux/game/spv3_mode.c) */
+#include "spv3_mode.h"
+#define CE_TAG_CACHE_SIZE ((unsigned int)spv3_mode_tag_cache_size(0x01700000UL))
 /* what its load reads, against what was checked when it was opened
 (port/linux/game/ce_map_checks.c) */
 boolean ce_map_loaded_tags_unchanged(void const *tag_data, unsigned long size);

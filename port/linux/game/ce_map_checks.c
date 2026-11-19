@@ -319,7 +319,8 @@ OpenSauce's memory upgrades has tags laid out past Custom Edition's tag cache,
 which the checks below would refuse with no reason a player could act on.
 (As OpenCE's build-145 refuses them, MrBruh's finding.) */
 static boolean ce_needs_opensauce(
-	HANDLE file)
+	HANDLE file,
+	char const *map_name)
 {
 	byte header[8];
 	unsigned long signature;
@@ -329,7 +330,34 @@ static boolean ce_needs_opensauce(
 		return FALSE;
 	memcpy(&signature, header, sizeof(signature));
 	memcpy(&flags, header + CE_OPENSAUCE_HEADER_FLAGS_OFFSET, sizeof(flags));
-	return signature == (unsigned long)CE_OPENSAUCE_HEADER_SIGNATURE && flags != 0;
+	if (signature != (unsigned long)CE_OPENSAUCE_HEADER_SIGNATURE || !flags)
+		return FALSE;
+	/* (SPV3 mode reads OpenSauce's memory upgrades, and nothing else of its
+	header's asks: port/linux/game/spv3_mode.c) */
+	return !spv3_mode_accepts_opensauce(map_name, flags);
+}
+
+/* SPV3 mode's survey of a map (port/linux/game/spv3_mode.c): its header and
+its tag data read again, for the log only */
+static void ce_spv3_survey(
+	HANDLE file,
+	char const *map_name,
+	unsigned long file_size,
+	unsigned long tag_data_offset,
+	unsigned long tag_data_size)
+{
+	byte header[CE_HEADER_SIZE];
+	byte *tags;
+
+	if (!spv3_mode_active() || !ce_range_within(tag_data_offset, tag_data_size, file_size) ||
+		tag_data_size > SPV3_OPENSAUCE_TAG_CACHE_SIZE || !ce_file_read(file, 0, header, sizeof(header)))
+	{
+		return;
+	}
+	tags = malloc(tag_data_size);
+	if (tags && ce_file_read(file, tag_data_offset, tags, tag_data_size))
+		spv3_mode_survey(map_name, header, tags, tag_data_size, file_size);
+	free(tags);
 }
 
 /* the instance at a tag handle, if it is the handle of one */
@@ -1081,9 +1109,10 @@ tag cache (where its tags, resources, models and BSP are), but from zeroed
 bytes of their own, and logged; else, as always, the address */
 #define CE_TAGS_SCRATCH_LIMIT 0x40000UL
 #ifdef HALO_CUSTOM_EDITION
-/* (the bounds the consoles' inline TAG_BLOCK_GET_ELEMENT checks: tag_groups.h) */
+/* (the bounds the consoles' inline TAG_BLOCK_GET_ELEMENT checks: tag_groups.h;
+Custom Edition's, as no console maps OpenSauce's larger window) */
 typedef char ce_tags_inline_bounds_assert[
-	TAG_GROUPS_CE_TAG_CACHE_BASE == CE_IMAGE_TAG_CACHE_BASE && TAG_GROUPS_CE_TAG_CACHE_SIZE == CE_IMAGE_TAG_CACHE_SIZE ? 1 : -1];
+	TAG_GROUPS_CE_TAG_CACHE_BASE == CE_IMAGE_TAG_CACHE_BASE && TAG_GROUPS_CE_TAG_CACHE_SIZE == CE_IMAGE_TAG_CACHE_STOCK_SIZE ? 1 : -1];
 #endif
 
 void *ce_tags_pointer(
@@ -1179,11 +1208,14 @@ boolean ce_map_check(
 	ce_checking = TRUE;
 	ce_checking_bsp_count = 0;
 	memset(&ce_checking_digests, 0, sizeof(ce_checking_digests));
+	/* (SPV3 mode's survey, logged before the checks: nothing in other modes) */
+	if (file_size != INVALID_FILE_SIZE && !file_size_high)
+		ce_spv3_survey(file, map_name, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
 	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > CE_MAXIMUM_FILE_SIZE)
 		valid = ce_refuse("its size could not be read, or is over 2 GB");
 	else if (file_length < CE_HEADER_SIZE || (unsigned long)file_length > file_size)
 		valid = ce_refuse("it is cut short: its header says %ld bytes, the file has %lu", file_length, file_size);
-	else if (ce_needs_opensauce(file))
+	else if (ce_needs_opensauce(file, map_name))
 	{
 		ce_refusal_explain("It needs OpenSauce.");
 		valid = ce_refuse("it needs OpenSauce (its OpenSauce header asks for memory upgrades or mod data)");
@@ -1194,6 +1226,7 @@ boolean ce_map_check(
 	if (!valid)
 	{
 		error(_error_silent, "%s map %s refused: %s", family, map_name, ce_refusal);
+		spv3_mode_log("%s: REFUSED by the map checks: %s", map_name, ce_refusal);
 		console_warning("%s map %s refused: %s", family, map_name, ce_refusal);
 		/* (the game shows it in place of the damaged disc error:
 		cache_files_windows.c) */

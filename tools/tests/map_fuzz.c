@@ -1540,6 +1540,32 @@ boolean pc_menu_owns(unsigned long address, long size)
 	return FALSE;
 }
 
+/* (SPV3 mode, spv3_mode.c, not in the harness: always off, so the checks
+see Custom Edition's own limits) */
+boolean spv3_mode_active(void) { return FALSE; }
+unsigned long spv3_mode_tag_cache_size(unsigned long custom_edition_size) { return custom_edition_size; }
+boolean spv3_mode_accepts_opensauce(char const *map_name, unsigned short flags)
+{
+	(void)map_name;
+	(void)flags;
+	return FALSE;
+}
+void spv3_mode_survey(char const *map_name, void const *cache_header, void const *tags, unsigned long tag_data_size,
+	unsigned long file_size)
+{
+	(void)map_name;
+	(void)cache_header;
+	(void)tags;
+	(void)tag_data_size;
+	(void)file_size;
+}
+void spv3_mode_log(char const *format, ...) { (void)format; }
+void spv3_mode_note_resource_miss(char const *kind, char const *tag_name)
+{
+	(void)kind;
+	(void)tag_name;
+}
+
 /* (tag_validate.c asks whether tag data is Stubbs the Zombie's own:
 stubbs_mode.c, not in the harness) */
 boolean stubbs_mode_owns_data(void const *address, long size)

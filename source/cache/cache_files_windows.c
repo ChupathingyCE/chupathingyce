@@ -464,6 +464,7 @@ compressed): it has a slot of its own, after theirs, which every read goes
 through as theirs do (cache_files.c loads its tags into its own tag cache,
 platform.h) */
 #include "halo_map_families.h"
+#include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 
 #define CE_MAP_FILE_INDEX NUMBER_OF_CACHED_MAP_FILES
 
@@ -496,8 +497,9 @@ static boolean ce_map_refused_open;
 static boolean ce_map_name_is(
 	const char *map_name)
 {
-	/* (a pack's Xbox map, <file>@<pack>, is the Xbox loader's: not one of these) */
-	return !map_family_is_xbox_format(map_family_parse(map_name, NULL, 0));
+	/* (a pack's Xbox map, <file>@<pack>, is the Xbox loader's: not one of these.
+	SPV3's menus are a Custom Edition map, maps_spv3\ui.yelo: spv3_mode.c) */
+	return !map_family_is_xbox_format(map_family_parse(map_name, NULL, 0)) || spv3_mode_is_ui(map_name);
 }
 
 /* the map named <name>@ce, @md or @pc opened in its slot (once): FALSE if
@@ -540,6 +542,12 @@ static boolean ce_map_open(
 		}
 	}
 	family = map_family_parse(map_name, file_name, sizeof(file_name));
+	/* (SPV3's menus: its ui.yelo, read as a Custom Edition map) */
+	if (spv3_mode_is_ui(map_name))
+	{
+		family = _map_family_custom_edition;
+		snprintf(file_name, sizeof(file_name), "ui");
+	}
 	if (!map_family_find(family, file_name, path, sizeof(path)))
 	{
 		/* (an MCC map is in the folder: said so, once, not "damaged") */

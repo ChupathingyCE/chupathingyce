@@ -3671,6 +3671,17 @@ boolean hs_scenario_postprocess(
 /* ---------- constants */
 
 #define MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO 19001
+/* port: OpenSauce's maps' (1.5 times as many: blam_memory_upgrades.hpp), read
+in SPV3 mode only (port/linux/game/spv3_mode.c); the tables kept per node
+below are sized for them */
+#define OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO 28501
+#if defined(HALO_64BIT) && !defined(HALO_WINDOW_TRANSLATED)
+#define HS_SYNTAX_NODES_CAPACITY OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO
+#else
+/* (the builds that can't map OpenSauce's tag window keep Halo's: xbox_heap.c) */
+#define HS_SYNTAX_NODES_CAPACITY MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO
+#endif
+#include "spv3_mode.h"
 /* port: the console's stand-in array (hs_allocate) */
 #define HS_SYNTAX_STAND_IN_NODES 2048
 /* port: the size of the "hs globals" array (hs_runtime_initialize), which
@@ -3730,9 +3741,9 @@ static unsigned long hs_scenario_disabled_scripts[BIT_VECTOR_SIZE_IN_LONGS(MAXIM
 static unsigned long hs_scenario_disabled_globals[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_GLOBALS)];
 /* port: the map's calls and sets a map's scripts may not make, skipped where
 they are while the rest of their scripts runs (hs_scenario_functions_check) */
-static unsigned long hs_scenario_skipped_nodes[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)];
+static unsigned long hs_scenario_skipped_nodes[BIT_VECTOR_SIZE_IN_LONGS(HS_SYNTAX_NODES_CAPACITY)];
 /* port: the nodes linked to, then walked (hs_scenario_functions_check) */
-static unsigned long hs_syntax_nodes_marked[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)];
+static unsigned long hs_syntax_nodes_marked[BIT_VECTOR_SIZE_IN_LONGS(HS_SYNTAX_NODES_CAPACITY)];
 #define hs_token_enumerators hs_function_table.token_enumerators
 struct data_array *hs_syntax_data;
 extern long global_scenario_index;
@@ -13376,8 +13387,14 @@ static char const *hs_scenario_syntax_data_problem(
 		if (mcc_valid >= 0)
 			return mcc_valid ? NULL : "its MCC script syntax data is damaged";
 	}
+	/* port: in SPV3 mode, OpenSauce's larger array too (spv3_mode.c) */
+	long const maximum_nodes =
+		HS_SYNTAX_NODES_CAPACITY == OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO && spv3_mode_active() &&
+		scenario->hs_syntax_data.size ==
+			(long)(sizeof(struct data_array)+OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO*sizeof(struct hs_syntax_node)) ?
+		OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO : MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO;
 	long const syntax_data_size =
-		sizeof(struct data_array)+MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO*sizeof(struct hs_syntax_node);
+		sizeof(struct data_array)+maximum_nodes*sizeof(struct hs_syntax_node);
 	/* (the tag cache the map's tags are in: a Custom Edition map's is its
 	own, cache_files.c) */
 	unsigned long tag_cache_size;
@@ -13413,11 +13430,13 @@ static char const *hs_scenario_syntax_data_problem(
 		if (cache_file_tags_are_ce())
 		{
 			if (data->signature != 'd@t@' ||
-				data->maximum_count != MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO ||
+				data->maximum_count != maximum_nodes ||
 				data->size != sizeof(struct hs_syntax_node))
 			{
 				return "its header isn't a script node array's";
 			}
+			if (maximum_nodes != MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)
+				spv3_mode_log("scripts: OpenSauce's script node array (%ld nodes) read in place", maximum_nodes);
 			return hs_scenario_string_constants_valid(scenario) ? NULL : "its strings aren't inside the map's tag data";
 		}
 	}
@@ -13819,7 +13838,7 @@ static short hs_expression_refusal(
 		/* (only a map whose nodes are not sound gets here: the stack, 74 KB on
 		the console, is made for the walk and given back by the check) */
 		stack = hs_expression_refusal_stack = (long *)debug_malloc(
-			sizeof(long) * (MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO+1), FALSE, "c:\\halo\\SOURCE\\hs\\hs.c", 13536);
+			sizeof(long) * (HS_SYNTAX_NODES_CAPACITY+1), FALSE, "c:\\halo\\SOURCE\\hs\\hs.c", 13536);
 		if (!stack)
 			return _hs_node_refusal_damaged;
 	}
@@ -13937,7 +13956,7 @@ static short hs_mcc_node_refusal(
 	{
 		long absolute_index = (long)(expression - (struct hs_syntax_node const *)(hs_syntax_data + 1));
 
-		if (absolute_index >= 0 && absolute_index < MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)
+		if (absolute_index >= 0 && absolute_index < HS_SYNTAX_NODES_CAPACITY)
 		{
 			if (!hs_mcc_skipped_count++)
 				error(_error_silent, "mcc: skipped a script call to %s, which a map's scripts may not call; the script still runs",
@@ -14149,7 +14168,7 @@ boolean hs_scenario_node_skipped(
 
 	if (expression_index == NONE ||
 		absolute_index<0 ||
-		absolute_index>=MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO ||
+		absolute_index>=HS_SYNTAX_NODES_CAPACITY ||
 		!BIT_VECTOR_TEST_FLAG(hs_scenario_skipped_nodes, absolute_index))
 	{
 		return FALSE;
