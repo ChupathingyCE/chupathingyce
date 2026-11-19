@@ -329,25 +329,44 @@ def test_cache_prune_keeps_mains_newest(fake_gh):
 APT_JOBS = ["linux", "linux-tests", "linux-big-endian", "linux64"]
 
 
-def env_block(name: str) -> str:
-    """a top-level env value written as a block (name: |), dedented"""
-    start = LINES.index(f"  {name}: |")
+def apt_script() -> str:
+    """CI_APT_INSTALL: the block the linux job writes once (&ci-apt-install), dedented"""
+    start = next(index for index, line in enumerate(LINES) if line.endswith("CI_APT_INSTALL: &ci-apt-install |"))
+    indent = len(LINES[start]) - len(LINES[start].lstrip()) + 2
     found = []
     for line in LINES[start + 1:]:
-        if line and not line.startswith("    "):
+        if line and not line.startswith(" " * indent):
             break
-        found.append(line[4:])
+        found.append(line[indent:])
     return "\n".join(found) + "\n"
 
 
 def test_apt_only_through_the_shared_script():
     every = jobs()
+    assert TEXT.count("&ci-apt-install") == 2  # (the anchor, and the comment naming it)
     for name, lines in every.items():
         text = "\n".join(lines)
         if name in APT_JOBS:
             assert 'bash -c "$CI_APT_INSTALL"' in text, name
             assert "APT_PACKAGES: >-" in text, name
-        assert "apt-get" not in text, f"{name} runs apt-get itself"
+            # (the key step and the install step, each with the script)
+            uses = text.count("CI_APT_INSTALL: *ci-apt-install") + text.count("CI_APT_INSTALL: &ci-apt-install |")
+            assert uses == 2, name
+        else:
+            assert "CI_APT_INSTALL" not in text, name
+        # (apt-get nowhere but in the script)
+        outside, inside = [], False
+        for line in lines:
+            if line.endswith("CI_APT_INSTALL: &ci-apt-install |"):
+                inside = True
+                continue
+            if inside and line and not line.startswith(" " * 12):
+                inside = False
+            if not inside:
+                outside.append(line)
+        assert "apt-get" not in "\n".join(outside), f"{name} runs apt-get itself"
+    # (only the steps that use it print it)
+    assert not re.search(r"^  CI_APT_INSTALL:", TEXT, re.M)
 
 
 @pytest.mark.parametrize("name", APT_JOBS)
@@ -427,7 +446,7 @@ def run_apt(fake_apt, hit="", llvm="22", key_sha=None, mirrors=None):
                    "APT_CACHE": str(fake_apt / "cache"), "APT_PACKAGES": "clang-22 lld-22\n zstd",
                    "APT_CACHE_HIT": hit, "LLVM_MAJOR": llvm, "APT_MIRRORS": str(mirror_file),
                    "LLVM_KEY_SHA256": key_sha or hashlib.sha256(b"the key\n").hexdigest()}
-    result = subprocess.run(["bash", "-c", env_block("CI_APT_INSTALL")], capture_output=True, text=True,
+    result = subprocess.run(["bash", "-c", apt_script()], capture_output=True, text=True,
                             env=environment)
     calls = (fake_apt / "calls").read_text().splitlines()
     (fake_apt / "calls").write_text("")

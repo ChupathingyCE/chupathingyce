@@ -34,7 +34,7 @@ name: Build
 # - compiles go through ccache, whose cache carries over from run to run, so
 #   a commit only recompiles what it changed; downloads (SDL, musl, Gradle,
 #   the Linux builds' system roots) are cached too, and so are the Ubuntu
-#   packages the Linux jobs install (CI_APT_INSTALL below: one Ubuntu
+#   packages the Linux jobs install (CI_APT_INSTALL, in the linux job: one Ubuntu
 #   mirror that stalls has cost runs their toolchain step);
 # - the 32-bit Linux build is built once (linux) and tested beside the other
 #   builds (linux-tests): its tree goes to runners that split the tests
@@ -137,75 +137,6 @@ env:
   # apt.llvm.org's signing key (6084F3CF814B57C1CF12EFD515CF4D18AF4F7421)
   # as it was when pinned: a changed key stops the run
   LLVM_KEY_SHA256: 8b2a587ffd672c4687e7581dad4b2f6c1bb2ad6b480cd9771ba2ff48e0b8c75d
-  # The Linux jobs' Ubuntu packages (bash -c "$CI_APT_INSTALL"; the same
-  # script in every job, kept here so that a release branch's commit built
-  # with main's workflow has it). APT_PACKAGES is what to install; APT_CACHE
-  # the folder the job's actions/cache steps keep: apt's package lists and
-  # the .debs of the last install on this runner image (the cache key has
-  # the image's version, the packages and this script); APT_CACHE_HIT is
-  # true when the cache restored is that key's own; LLVM_MAJOR, when set,
-  # adds apt.llvm.org's clang of that major version.
-  # - with the key's own cache: the .debs are installed as they are, with
-  #   the lists they came with, and nothing is downloaded;
-  # - otherwise (no cache, another image's, or one that lacks a package):
-  #   apt's lists are fetched fresh and the .debs downloaded first (those
-  #   the cache has already are kept, and the ones no longer listed
-  #   dropped), each try cut off by timeout; a try that fails starts the
-  #   next with another Ubuntu mirror first, and the .debs a try finished
-  #   stay for the next, so a slow mirror's progress is kept. Only then is
-  #   anything installed, offline.
-  CI_APT_INSTALL: |
-    set -euo pipefail
-    cache=${APT_CACHE:?}
-    read -r -d '' -a packages <<< "${APT_PACKAGES:?}" || true
-    mkdir -p "$cache/debs/partial" "$cache/lists/partial"
-    sudo chown _apt "$cache/debs/partial" "$cache/lists/partial" 2> /dev/null || true
-    printf '%s\n' 'Acquire::Retries "2";' 'Acquire::http::Timeout "20";' 'Acquire::https::Timeout "20";' \
-      'Acquire::Languages "none";' "Dir::Cache::archives \"$cache/debs/\";" "Dir::State::lists \"$cache/lists/\";" \
-      | sudo tee /etc/apt/apt.conf.d/80-ci > /dev/null
-    if [ -n "${LLVM_MAJOR:-}" ]; then
-      [ -s "$cache/apt.llvm.org.asc" ] \
-        || curl -fsSL --retry 3 --max-time 60 -o "$cache/apt.llvm.org.asc" https://apt.llvm.org/llvm-snapshot.gpg.key
-      echo "${LLVM_KEY_SHA256:?}  $cache/apt.llvm.org.asc" | sha256sum -c -
-      sudo install -d -m 0755 /etc/apt/keyrings
-      sudo install -m 0644 "$cache/apt.llvm.org.asc" /etc/apt/keyrings/apt.llvm.org.asc
-      echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] http://apt.llvm.org/noble/ llvm-toolchain-noble-$LLVM_MAJOR main" \
-        | sudo tee /etc/apt/sources.list.d/llvm.list > /dev/null
-    fi
-    apt_install() { sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends "$@" "${packages[@]}"; }
-    keep() { sudo rm -rf "$cache/debs/partial" "$cache/lists/partial" "$cache/debs/lock" "$cache/lists/lock"; sudo chown -R "$(id -u):$(id -g)" "$cache"; }
-    if [ "${APT_CACHE_HIT:-}" = true ] && compgen -G "$cache/lists/*Packages*" > /dev/null; then
-      if apt_install --no-download; then echo "apt: installed from the cache"; keep; exit 0; fi
-      echo "::notice::apt: the cache lacks some of the packages; downloading them"
-    fi
-    # (the runner's mirror list, then two more; each try puts the next first)
-    mirrors=${APT_MIRRORS:-/etc/apt/apt-mirrors.txt}
-    list=()
-    if [ -f "$mirrors" ]; then
-      while read -r uri _; do case "$uri" in "" | "#"*) ;; *) list+=("$uri") ;; esac; done < "$mirrors"
-      for uri in http://archive.ubuntu.com/ubuntu/ http://azure.archive.ubuntu.com/ubuntu/; do
-        case " ${list[*]:-} " in *" $uri "*) ;; *) list+=("$uri") ;; esac
-      done
-    fi
-    updated=0 downloaded=0
-    for try in 1 2 3 4; do
-      if [ "$try" -gt 1 ] && [ "${#list[@]}" -gt 1 ]; then
-        for ((i = 0; i < ${#list[@]}; i++)); do
-          printf '%s\tpriority:%d\n' "${list[(i + try - 1) % ${#list[@]}]}" $((i + 1))
-        done | sudo tee "$mirrors" > /dev/null
-        echo "apt: try $try, from ${list[(try - 1) % ${#list[@]}]} first"
-      fi
-      if [ "$updated" = 0 ]; then sudo timeout 120 apt-get update -q && updated=1; fi
-      if [ "$updated" = 1 ] && sudo timeout 240 apt-get install -y -q --no-install-recommends --download-only "${packages[@]}"; then
-        downloaded=1; break
-      fi
-      echo "apt: try $try of 4 failed" >&2
-      sleep 5
-    done
-    [ "$downloaded" = 1 ] || { echo "::error::apt: could not download the packages"; exit 1; }
-    sudo apt-get autoclean -q
-    apt_install --no-download
-    keep
 
 jobs:
   gate:
@@ -371,10 +302,80 @@ jobs:
         clang-22 lld-22 llvm-22 libclang-rt-22-dev gcc gcc-multilib libc6-dev-i386 cmake pkg-config
         libwayland-bin ninja-build ccache python3-pytest zstd
     steps:
-      # (the Ubuntu packages: CI_APT_INSTALL, at the top of this file; the
-      # key changes with the runner image, the packages and the script)
+      # The Linux jobs' Ubuntu packages: CI_APT_INSTALL, written once here
+      # (&ci-apt-install) and named by the others' steps (*ci-apt-install),
+      # so that only the steps that use it print it, and a release branch's
+      # commit built with main's workflow has it. APT_PACKAGES is what to
+      # install; APT_CACHE the folder the job's actions/cache steps keep:
+      # apt's package lists and the .debs of the last install on this runner
+      # image (the key has the image's version, the packages and this
+      # script); APT_CACHE_HIT is true when the cache restored is that key's
+      # own; LLVM_MAJOR, when set, adds apt.llvm.org's clang of that major
+      # version (its key checked against LLVM_KEY_SHA256).
+      # - with the key's own cache: the .debs are installed as they are, with
+      #   the lists they came with, and nothing is downloaded;
+      # - otherwise (no cache, another image's, or one that lacks a package):
+      #   apt's lists are fetched fresh and the .debs downloaded first (those
+      #   the cache has already are kept, and the ones no longer listed
+      #   dropped), each try cut off by timeout; a try that fails starts the
+      #   next with another Ubuntu mirror first, and the .debs a try finished
+      #   stay for the next, so a slow mirror's progress is kept. Only then is
+      #   anything installed, offline.
       - name: The packages' cache key
         id: apt
+        env:
+          CI_APT_INSTALL: &ci-apt-install |
+            set -euo pipefail
+            cache=${APT_CACHE:?}
+            read -r -d '' -a packages <<< "${APT_PACKAGES:?}" || true
+            mkdir -p "$cache/debs/partial" "$cache/lists/partial"
+            sudo chown _apt "$cache/debs/partial" "$cache/lists/partial" 2> /dev/null || true
+            printf '%s\n' 'Acquire::Retries "2";' 'Acquire::http::Timeout "20";' 'Acquire::https::Timeout "20";' \
+              'Acquire::Languages "none";' "Dir::Cache::archives \"$cache/debs/\";" "Dir::State::lists \"$cache/lists/\";" \
+              | sudo tee /etc/apt/apt.conf.d/80-ci > /dev/null
+            if [ -n "${LLVM_MAJOR:-}" ]; then
+              [ -s "$cache/apt.llvm.org.asc" ] \
+                || curl -fsSL --retry 3 --max-time 60 -o "$cache/apt.llvm.org.asc" https://apt.llvm.org/llvm-snapshot.gpg.key
+              echo "${LLVM_KEY_SHA256:?}  $cache/apt.llvm.org.asc" | sha256sum -c -
+              sudo install -d -m 0755 /etc/apt/keyrings
+              sudo install -m 0644 "$cache/apt.llvm.org.asc" /etc/apt/keyrings/apt.llvm.org.asc
+              echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] http://apt.llvm.org/noble/ llvm-toolchain-noble-$LLVM_MAJOR main" \
+                | sudo tee /etc/apt/sources.list.d/llvm.list > /dev/null
+            fi
+            apt_install() { sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends "$@" "${packages[@]}"; }
+            keep() { sudo rm -rf "$cache/debs/partial" "$cache/lists/partial" "$cache/debs/lock" "$cache/lists/lock"; sudo chown -R "$(id -u):$(id -g)" "$cache"; }
+            if [ "${APT_CACHE_HIT:-}" = true ] && compgen -G "$cache/lists/*Packages*" > /dev/null; then
+              if apt_install --no-download; then echo "apt: installed from the cache"; keep; exit 0; fi
+              echo "::notice::apt: the cache lacks some of the packages; downloading them"
+            fi
+            # (the runner's mirror list, then two more; each try puts the next first)
+            mirrors=${APT_MIRRORS:-/etc/apt/apt-mirrors.txt}
+            list=()
+            if [ -f "$mirrors" ]; then
+              while read -r uri _; do case "$uri" in "" | "#"*) ;; *) list+=("$uri") ;; esac; done < "$mirrors"
+              for uri in http://archive.ubuntu.com/ubuntu/ http://azure.archive.ubuntu.com/ubuntu/; do
+                case " ${list[*]:-} " in *" $uri "*) ;; *) list+=("$uri") ;; esac
+              done
+            fi
+            updated=0 downloaded=0
+            for try in 1 2 3 4; do
+              if [ "$try" -gt 1 ] && [ "${#list[@]}" -gt 1 ]; then
+                for ((i = 0; i < ${#list[@]}; i++)); do
+                  printf '%s\tpriority:%d\n' "${list[(i + try - 1) % ${#list[@]}]}" $((i + 1))
+                done | sudo tee "$mirrors" > /dev/null
+                echo "apt: try $try, from ${list[(try - 1) % ${#list[@]}]} first"
+              fi
+              if [ "$updated" = 0 ]; then sudo timeout 120 apt-get update -q && updated=1; fi
+              if [ "$updated" = 1 ] && sudo timeout 90 apt-get install -y -q --no-install-recommends --download-only "${packages[@]}"; then
+                downloaded=1; break
+              fi
+              echo "apt: try $try of 4 failed" >&2
+              sleep 5
+            done
+            [ "$downloaded" = 1 ] || { echo "::error::apt: could not download the packages"; exit 1; }
+            sudo apt-get autoclean -q
+            apt_install --no-download
+            keep
         run: |
           echo "key=apt-linux32-$(printf '%s\n' "$ImageOS" "$ImageVersion" "${LLVM_MAJOR:-}" "$APT_PACKAGES" "$CI_APT_INSTALL" \
             | sha256sum | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
@@ -393,6 +394,7 @@ jobs:
         env:
           APT_CACHE: ${{ runner.temp }}/apt
           APT_CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
+          CI_APT_INSTALL: *ci-apt-install
         run: |
           bash -c "$CI_APT_INSTALL"
           echo "/usr/lib/llvm-$LLVM_MAJOR/bin" >> "$GITHUB_PATH"
@@ -545,10 +547,12 @@ jobs:
         clang-22 lld-22 llvm-22 libclang-rt-22-dev gcc gcc-multilib libc6-dev-i386 cmake pkg-config
         libwayland-bin ninja-build ccache python3-pytest python3-pytest-xdist python3-numpy python3-pil zstd
     steps:
-      # (the Ubuntu packages: CI_APT_INSTALL, at the top of this file; the
-      # key changes with the runner image, the packages and the script)
+      # (the Ubuntu packages: CI_APT_INSTALL, in the linux job; the key
+      # changes with the runner image, the packages and the script)
       - name: The packages' cache key
         id: apt
+        env:
+          CI_APT_INSTALL: *ci-apt-install
         run: |
           echo "key=apt-linux-tests-$(printf '%s\n' "$ImageOS" "$ImageVersion" "${LLVM_MAJOR:-}" "$APT_PACKAGES" "$CI_APT_INSTALL" \
             | sha256sum | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
@@ -567,6 +571,7 @@ jobs:
         env:
           APT_CACHE: ${{ runner.temp }}/apt
           APT_CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
+          CI_APT_INSTALL: *ci-apt-install
         run: |
           bash -c "$CI_APT_INSTALL"
           echo "/usr/lib/llvm-$LLVM_MAJOR/bin" >> "$GITHUB_PATH"
@@ -706,10 +711,12 @@ jobs:
       APT_PACKAGES: >-
         gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user libc6-dev-i386 lib32gcc-13-dev python3-pytest
     steps:
-      # (the Ubuntu packages: CI_APT_INSTALL, at the top of this file; the
-      # key changes with the runner image, the packages and the script)
+      # (the Ubuntu packages: CI_APT_INSTALL, in the linux job; the key
+      # changes with the runner image, the packages and the script)
       - name: The packages' cache key
         id: apt
+        env:
+          CI_APT_INSTALL: *ci-apt-install
         run: |
           echo "key=apt-big-endian-$(printf '%s\n' "$ImageOS" "$ImageVersion" "${LLVM_MAJOR:-}" "$APT_PACKAGES" "$CI_APT_INSTALL" \
             | sha256sum | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
@@ -728,6 +735,7 @@ jobs:
         env:
           APT_CACHE: ${{ runner.temp }}/apt
           APT_CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
+          CI_APT_INSTALL: *ci-apt-install
         run: |
           bash -c "$CI_APT_INSTALL"
 
@@ -768,10 +776,12 @@ jobs:
       APT_PACKAGES: >-
         clang-22 lld-22 llvm-22 gcc cmake pkg-config libwayland-bin ninja-build ccache zstd
     steps:
-      # (the Ubuntu packages: CI_APT_INSTALL, at the top of this file; the
-      # key changes with the runner image, the packages and the script)
+      # (the Ubuntu packages: CI_APT_INSTALL, in the linux job; the key
+      # changes with the runner image, the packages and the script)
       - name: The packages' cache key
         id: apt
+        env:
+          CI_APT_INSTALL: *ci-apt-install
         run: |
           echo "key=apt-linux64-$(printf '%s\n' "$ImageOS" "$ImageVersion" "${LLVM_MAJOR:-}" "$APT_PACKAGES" "$CI_APT_INSTALL" \
             | sha256sum | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
@@ -790,6 +800,7 @@ jobs:
         env:
           APT_CACHE: ${{ runner.temp }}/apt
           APT_CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
+          CI_APT_INSTALL: *ci-apt-install
         run: |
           bash -c "$CI_APT_INSTALL"
           echo "/usr/lib/llvm-$LLVM_MAJOR/bin" >> "$GITHUB_PATH"
