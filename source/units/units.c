@@ -5047,7 +5047,15 @@ static boolean unit_air_turn_aim(
 	{
 		return FALSE;
 	}
+	/* (an aim not held is its desired aim as it is: the Xbox's shot, bit
+	for bit, which normalizing it again need not give) */
 	desired = unit->unit.desired_aiming_vector;
+	if (desired.i == unit->unit.aiming_vector.i &&
+		desired.j == unit->unit.aiming_vector.j &&
+		desired.k == unit->unit.aiming_vector.k)
+	{
+		return FALSE;
+	}
 	if (normalize3d(&desired) == 0.f)
 		return FALSE;
 	*direction = desired;

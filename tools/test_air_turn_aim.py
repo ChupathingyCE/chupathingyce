@@ -153,6 +153,27 @@ int main(void) {
     CHECK(same(direction, xbox_direction) && at(origin, xbox_origin), "on: a usual shot changed");
     CHECK(origin.x > 0.f, "a usual shot doesn't start ahead of the eye");
 
+    /* ... for aims that aren't along an axis too: a unit vector normalized
+    again can come out a bit different, so a usual shot keeps the aiming
+    vector as it is */
+    for (retail = 0; retail < 1000; retail++) {
+        real yaw = 0.0123f * (real)retail, pitch = 0.4f * sinf(0.37f * (real)retail);
+        setup(FALSE);
+        the_unit.unit.aiming_vector.i = cosf(yaw) * cosf(pitch);
+        the_unit.unit.aiming_vector.j = sinf(yaw) * cosf(pitch);
+        the_unit.unit.aiming_vector.k = sinf(pitch);
+        normalize3d(&the_unit.unit.aiming_vector);
+        the_unit.unit.desired_aiming_vector = the_unit.unit.aiming_vector;
+        rule = FALSE;
+        shoot(FALSE, TRUE, TRUE, &xbox_origin, &xbox_direction);
+        rule = TRUE;
+        shoot(FALSE, TRUE, TRUE, &origin, &direction);
+        if (!same(direction, xbox_direction) || !at(origin, xbox_origin)) {
+            CHECK(0, "on: a usual shot off an axis changed");
+            break;
+        }
+    }
+
     /* rule on, where it doesn't apply: the Xbox's shot */
     for (retail = 0; retail < 4; retail++) {
         setup(TRUE); rule = FALSE;
