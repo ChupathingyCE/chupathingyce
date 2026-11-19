@@ -794,6 +794,66 @@ int ce_vorbis_edges(const unsigned char *data, int size, int count, int whole, i
 
 void ce_vorbis_free(short *samples)
 {
+	free(samples);
+}
+
+/* (a long stream, decoded a piece at a time: a test's stand-in for one,
+data beginning "MAP_FUZZ_PCM" then its channels, rate and frames, gives
+that many frames of a ramp; anything else is refused, as above) */
+struct fuzz_vorbis_stream
+{
+	int channels;
+	long frames_left;
+	long frame;
+};
+
+void *ce_vorbis_stream_open(const unsigned char *data, int size, int *channels, int *sample_rate)
+{
+	struct fuzz_vorbis_stream *stream;
+	int header[3];
+
+	*channels = *sample_rate = 0;
+	if (size < 12 + (int)sizeof(header) || memcmp(data, "MAP_FUZZ_PCM", 12))
+		return NULL;
+	memcpy(header, data + 12, sizeof(header));
+	if (header[0] < 1 || header[0] > 2 || header[2] < 0)
+		return NULL;
+	stream = malloc(sizeof(*stream));
+	if (!stream)
+		return NULL;
+	stream->channels = header[0];
+	stream->frames_left = header[2];
+	stream->frame = 0;
+	*channels = header[0];
+	*sample_rate = header[1];
+	return stream;
+}
+
+int ce_vorbis_stream_read(void *stream, short *buffer, int frames)
+{
+	struct fuzz_vorbis_stream *fake = stream;
+	int count, index;
+
+	if (!fake || frames <= 0)
+		return 0;
+	count = fake->frames_left < frames ? (int)fake->frames_left : frames;
+	for (index = 0; index < count * fake->channels; index++)
+		buffer[index] = (short)(fake->frame + index / fake->channels);
+	fake->frame += count;
+	fake->frames_left -= count;
+	return count;
+}
+
+void ce_vorbis_stream_close(void *stream)
+{
+	free(stream);
+}
+
+short *ce_vorbis_samples_new(int frames, int channels)
+{
+	if (frames <= 0 || channels < 1 || channels > 2)
+		return NULL;
+	return malloc((size_t)frames * (size_t)channels * sizeof(short));
 }
 #endif
 

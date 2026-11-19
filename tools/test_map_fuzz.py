@@ -1122,6 +1122,48 @@ def test_pc_string_over_another_tags_root_copied(built, tmp_path):
     assert "the map loaded" in result.stderr, result.stderr[-4000:]
 
 
+def ce_map_long_ogg(frames, channels=1, rate=22050, size=0x48000):
+    """ce_map's map with one Ogg Vorbis permutation of its own of size bytes,
+    after the map's end: a stand-in stream map_fuzz.c decodes to that many
+    frames of a ramp (a 22 kHz mono sound's)"""
+    data = ce_map(sound=[(3, size, 0, 0)])
+    data = bytearray(ce_map(sound=[(3, size, 0, len(data))]))
+    fake = b"MAP_FUZZ_PCM" + struct.pack("<iii", channels, rate, frames)
+    data += fake + bytes(size - len(fake))
+    struct.pack_into("<i", data, 8, len(data))
+    return bytes(data)
+
+
+def test_long_ogg_sounds_split(built, tmp_path):
+    """a long Ogg Vorbis permutation (a multiplayer map's song, 47 to 102 MB
+    decoded) is decoded a piece at a time and split into permutations the
+    sound cache holds, played one after another; past the 256 permutations
+    a pitch range may have the chunks are larger; past what a permutation
+    may decode to it is not decoded, and the map still loads"""
+    binaries, _ = built
+    cases = (
+        (3000000, "1 long Ogg Vorbis permutations decoded a piece at a time, 1 permutations of more samples",
+         "6000000 bytes of samples played as 16 permutations of 393216 bytes"),
+        # (past 256 permutations of 384 KB: chunks of 768 KB)
+        (70000000, "1 long Ogg Vorbis permutations decoded a piece at a time, 1 permutations of more samples",
+         "140000000 bytes of samples played as 179 permutations of 786432 bytes"),
+        # (a short one: written whole, not split)
+        (100000, "1 long Ogg Vorbis permutations decoded a piece at a time, 0 permutations of more samples", None),
+        # (400 MB: more than a permutation may decode to)
+        (200000000, "a long Ogg Vorbis permutation could not be decoded", None),
+    )
+    for frames, expected, split in cases:
+        path = tmp_path / f"long_{frames}.map"
+        path.write_bytes(ce_map_long_ogg(frames))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert expected in result.stderr, (frames, result.stderr[-4000:])
+        assert "the map loaded" in result.stderr, (frames, result.stderr[-4000:])
+        assert (split is not None) == ("bytes of samples played as" in result.stderr), (frames, result.stderr[-4000:])
+        if split:
+            assert split in result.stderr, (frames, result.stderr[-4000:])
+
+
 def test_pc_netgame_flags_and_equipment_past_200(built, tmp_path):
     """a Halo PC map's netgame flags and equipment past the tools' 200 (four
     of HaloMD's maps have 202 to 317 flags, one 212 equipment): kept, as
