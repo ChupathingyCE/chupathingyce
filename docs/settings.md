@@ -195,6 +195,12 @@ own limits are already where the presets would put them, so:
 - In big games (more than about 24 players) the original Xbox is held back
   by the game tick, not the drawing, so no preset can make those games run
   faster there.
+- `particle_thinning`, `effects`, `shadow_pixels` and `object_cull_pixels`
+  work on the original Xbox too, but no preset sets them yet. On a Mac, in
+  a Blood Gulch game, each one alone saved less than we could measure; all
+  four at their most saved about half a millisecond a frame. They wait for
+  testers' `console.perf_log` lines from the console before a preset uses
+  them. Set them by hand to try them.
 
 The table is made from the code by `tools/tuning_table.py`
 (`tools/test_tuning_table.py` checks it).
