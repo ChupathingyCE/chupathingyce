@@ -142,7 +142,11 @@ static struct
 boolean spv3_mode_active(
 	void)
 {
-#if !defined(HALO_MAP_LIST)
+/* (only the 64-bit desktop builds map the larger tag window its maps need,
+as the launcher offers the mode there alone: xbox_heap.c, launcher.c. The
+consoles, the original Xbox among them, have map packs but never this) */
+#if !defined(HALO_MAP_LIST) || !defined(HALO_64BIT) || defined(HALO_WINDOW_TRANSLATED) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE)
 	return FALSE;
 #else
 	static int active = -1;
