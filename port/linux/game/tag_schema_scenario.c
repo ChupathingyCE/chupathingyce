@@ -45,6 +45,10 @@ bad_sky).
 /* the game's, which their units keep to themselves */
 enum
 {
+	/* a Halo PC map's netgame flags and equipment: as many as a short
+	counts (Invader's most for them, past the tools' 200) */
+	MAXIMUM_PC_NETGAME_FLAGS_PER_SCENARIO = 0x7FFF,
+	MAXIMUM_PC_NETGAME_EQUIPMENT_PER_SCENARIO = 0x7FFF,
 	/* encounters.c */
 	MAXIMUM_ENCOUNTERS_PER_SCENARIO = 128,
 	MAXIMUM_FIRING_POSITIONS_PER_ENCOUNTER = 512,
@@ -317,9 +321,11 @@ typedef char verify_scenario_size[sizeof(struct scenario) == 0x5B0 ? 1 : -1];
 
 /* the script nodes reached so far, and those still to walk
 (scenario_check_scripts) */
-#ifdef HALO_CUSTOM_EDITION
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_64BIT) && !defined(HALO_WINDOW_TRANSLATED)
 /* (OpenSauce's memory upgrades: its maps' scripts have 28501 nodes, in its
-layout only, tag_schema_opensauce.c) */
+layout only, tag_schema_opensauce.c; on the builds that map its larger tag
+window and run them, as hs.c's tables) */
+#define HS_CHECKED_OPENSAUCE_NODES
 #define HS_CHECKED_SYNTAX_NODES 28501
 #define HS_CHECKED_SYNTAX_DATA_SIZE (0x38 + HS_CHECKED_SYNTAX_NODES * 0x14)
 #else
@@ -484,7 +490,7 @@ static boolean scenario_check_scripts(
 	long syntax_size = HS_SYNTAX_DATA_SIZE;
 	long node_count = MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO;
 
-#ifdef HALO_CUSTOM_EDITION
+#ifdef HS_CHECKED_OPENSAUCE_NODES
 	if (TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_opensauce_bit))
 	{
 		syntax_size = HS_CHECKED_SYNTAX_DATA_SIZE;
@@ -1334,9 +1340,14 @@ static struct tag_schema_field const scenario_fields[] =
 	TAG_SCHEMA_BLOCK(struct scenario, trigger_volumes, trigger_volume_schema, MAXIMUM_TRIGGER_VOLUMES_PER_SCENARIO),
 	TAG_SCHEMA_BLOCK(struct scenario, recorded_animations, recorded_animation_schema,
 		MAXIMUM_RECORDED_ANIMATIONS_PER_SCENARIO),
-	TAG_SCHEMA_BLOCK(struct scenario, netgame_flags, netgame_flag_schema, MAXIMUM_SCENARIO_NETGAME_FLAGS_PER_SCENARIO),
-	TAG_SCHEMA_BLOCK(struct scenario, netgame_equipment, netgame_equipment_schema,
-		MAXIMUM_SCENARIO_NETGAME_EQUIPMENT_PER_SCENARIO),
+	/* (200 of each is the tools' most, Halo PC's too, but no array of the
+	game's: a Halo PC map may have more, which its engine read, as here on
+	every platform, the bytes already in the tag cache. A short's most:
+	the game counts some of them in shorts, game_engine_oddball.c) */
+	TAG_SCHEMA_PC_BLOCK(struct scenario, netgame_flags, netgame_flag_schema, MAXIMUM_SCENARIO_NETGAME_FLAGS_PER_SCENARIO,
+		MAXIMUM_PC_NETGAME_FLAGS_PER_SCENARIO),
+	TAG_SCHEMA_PC_BLOCK(struct scenario, netgame_equipment, netgame_equipment_schema,
+		MAXIMUM_SCENARIO_NETGAME_EQUIPMENT_PER_SCENARIO, MAXIMUM_PC_NETGAME_EQUIPMENT_PER_SCENARIO),
 	TAG_SCHEMA_BLOCK(struct scenario, scenario_starting_equipment, starting_equipment_schema,
 		MAXIMUM_SCENARIO_STARTING_EQUIPMDNG_PER_SCENARIO),
 	TAG_SCHEMA_BLOCK(struct scenario, bsp_switch_trigger_volumes, bsp_switch_trigger_volume_schema,

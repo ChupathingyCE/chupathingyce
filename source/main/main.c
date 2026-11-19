@@ -715,6 +715,9 @@ void browser_screen_host_download_update(void);
 #ifdef HALO_PORT_CHAT
 void chat_update(void);
 #endif
+#ifdef HALO_CUSTOM_EDITION
+void ce_resources_update(void);
+#endif
 #ifdef HALO_PORT_VOICE
 void voice_game_update(void);
 #endif
@@ -4408,6 +4411,12 @@ void main_loop(
 			up (port/linux/game/browser_screen.c) */
 			MAIN_STAGE("browser_screen_host_download_update");
 			browser_screen_host_download_update();
+#endif
+#ifdef HALO_CUSTOM_EDITION
+			/* what a Custom Edition or HaloMD map's loading left to tell the
+			player (port/linux/game/ce_resources.c) */
+			MAIN_STAGE("ce_resources_update");
+			ce_resources_update();
 #endif
 #ifdef HALO_PORT_CHAT
 			/* text chat (port/linux/game/chat.c; on a console, its client's

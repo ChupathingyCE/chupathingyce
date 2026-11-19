@@ -662,6 +662,9 @@ the setting for one start of the game. It has priority over the file.
 | `display.particle_ticks` | `false` (consoles: `true`) | `HALO_PARTICLE_TICKS` | `true`: particles not attached to an object move once a 30 Hz tick, as on the Xbox, and are drawn smoothly between ticks. That saves collision tests. `false`: they move every frame, which is smoother at high refresh rates. Takes effect at the next map. |
 | `display.dynamic_light_limit` | `0` (consoles: `8`; the original Xbox: `0`) | `HALO_DYNAMIC_LIGHT_LIMIT` | The most dynamic lights (muzzle flashes, plasma, explosions) that light the level at once. The biggest on screen light the walls and floor; the rest light only the objects near them. `0`: no limit, as on the Xbox. Changes at once. |
 | `display.specular_light_limit` | `0` (consoles: `2`; the original Xbox: `0`) | `HALO_SPECULAR_LIGHT_LIMIT` | Of those lights, the most that also add their shine to metal and wet floors. The first-person weapon's go first. `0`: no limit, as on the Xbox. Changes at once. |
+| `tuning.preset` | `"retail"` | `HALO_TUNING_PRESET` | Several performance knobs at once. `"retail"`: none changed. `"lan-party"`: `display.dynamic_light_limit` 16, `display.specular_light_limit` 4, `display.particle_limit` 2048, `display.particle_ticks` true, `tuning.present_mode` `"adaptive"`. `"potato"` (the setup screen's PERFORMANCE: POTATO): the limits 8, 2 and 1024, `display.particle_ticks` true, `display.shadow_resolution` 128, `display.anisotropic_filtering` 0, `display.anti_aliasing` `"off"`, `display.per_pixel_lighting` false, `display.light_effects` `"off"`, `display.resolution_scaling` `"original"`. The preset gives a knob its value only where config.toml and the environment don't: those keys stay the one place each value lives, and a preset never raises a build's own limit. Drawing only. Refer to "Tuning". |
+| `tuning.present_mode` | `"vblank"` | `HALO_PRESENT_MODE` | With V-Sync: `"vblank"` waits for the display. `"adaptive"` shows a late frame at once (a swap interval of -1, or the original Xbox's `*_OR_IMMEDIATE` intervals); a driver that refuses it waits, and the log says so. OpenGL on Windows, Linux and Android, and the original Xbox; not with VRR. Read at start. |
+| `tuning.texture_cache` | `"auto"` | none | The original Xbox only: the texture cache in MB, held between 19 MB and what the memory class allows (a 128 or 256 MB console's own size; on a 64 MB console what is free with the main loop's reserve still left). `"auto"`: the console's own. Read at start. |
 | `display.crt_filter` | `false` | `HALO_CRT_FILTER=1` sets `true` | `true`: a CRT look over the picture (scanlines, curvature, a phosphor mask). Only the `bgfx` renderer has it for now. |
 | `display.vulkan_blocklist` | `true` | `HALO_VULKAN_BLOCKLIST` | Windows and Linux, with the `bgfx` renderer: skip Vulkan drivers known to be broken or slow on older computers (nouveau's Vulkan before Turing, NVIDIA older than 470, Mesa's Vulkan for Ivy Bridge, Haswell and Bay Trail, software Vulkan) and draw with OpenGL. `false` tries Vulkan anyway. |
 | `audio.enabled` | `true` | `HALO_NO_AUDIO=1` sets `false` | `false`: no audio device. The sound continues without output. |
@@ -848,6 +851,56 @@ the setting for one start of the game. It has priority over the file.
 
 With Mesa drivers, the game sends its GL calls through the GL thread of
 Mesa. To stop this, set the environment variable `mesa_glthread=false`.
+
+### Tuning
+
+The `[tuning]` section (`config_tuning_apply` in `port_config.c`) holds the
+performance knobs that change only what is drawn, never the simulation, so
+a game plays the same on every machine whatever they say. Every default is
+the build's own, which is the retail game on the desktop and the original
+Xbox; the Xbox 360, Wii U and Switch already start with their own light and
+particle caps.
+
+The knobs are the settings themselves. `tuning.preset` does not copy them
+into `[tuning]`: it changes what an unset knob means, so
+`display.particle_limit` and the others keep working as before and stay the
+one place each value lives. A knob given by `config.toml` (as a value, not
+commented out) or by its environment variable keeps that value; the others
+take the preset's, or their default. A preset never raises a limit above
+the build's own default (the Xbox 360's 1024 particles stay 1024 in
+`"lan-party"`). Writing a knob from the menus makes it the player's;
+setting it back to its default (Defaults, `config_reset`) makes it follow
+the preset again.
+
+Each knob is checked: a number out of its range is held in it (the light
+limits 0 to the renderer's most, `display.particle_limit` 0 to the particle
+pool, `tuning.texture_cache` 19 to 512 MB before the console's own limit),
+and a word that is none of a knob's is its default, each said once in the
+log. Nothing in it can stop the game from starting.
+
+The log lines, short and the same on every build, so they can be searched:
+
+    tuning: at=boot preset=potato lights=8(preset) specular=2(preset) particles=512(hand) ... present=vblank
+    tuning: differs from the defaults: preset=potato lights=8(preset) specular=2(preset) particles=512(hand) ...
+    tuning: change particles=4096->512(hand)
+    tuning: at=map preset=potato lights=8(preset) ...
+
+A value is followed by where it came from when that is not the default:
+`(preset)`, `(hand)`, `(clamped)` or `(invalid)`. `at=map` is written at each
+map's start (`game_initialize_for_new_map`). A crash report's JSON has the
+log's last line as `"tuning"` (from `preset=`), and Send my logs sends it
+as a `tuning` field and in its note. The dedicated server has no knobs and
+writes none of these lines.
+
+Fairness: in a network game `display.particle_limit` is held at the Xbox's
+1024 or more (`source/effects/particles.c`), since smoke and dust hide
+players, and the log says so once (`tuning: display.particle_limit 512 held
+at 1024 in a network game`). The light limits only choose which lights
+light the level; every light still lights the players near it.
+
+Not knobs yet: explosion particles, effect density, decal draw distance and
+tire tracks. Each needs engine work, sized first by testers'
+`console.perf_log` lines.
 
 ## Updates
 

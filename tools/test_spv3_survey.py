@@ -96,7 +96,7 @@ def survey(tmp_path_factory):
     rewrite(ROOT / "port/linux/game/spv3_mode.c", work / "spv3_mode.c")
     binary = work / "survey"
     command = [cc, "-std=gnu99", "-Wall", "-Werror", "-Wno-unused-variable", "-Wno-unused-function", "-Wno-format",
-               "-DHALO_MAP_LIST", "-g", "-I", str(work), str(work / "harness.c"), str(work / "spv3_mode.c"),
+               "-DHALO_MAP_LIST", "-DHALO_64BIT", "-g", "-I", str(work), str(work / "harness.c"), str(work / "spv3_mode.c"),
                "-o", str(binary)]
     sanitized = command + ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
     if subprocess.run(sanitized, capture_output=True).returncode != 0:

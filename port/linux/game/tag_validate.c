@@ -1027,13 +1027,14 @@ static struct tag_block const *block_index_target(
 	return (struct tag_block const *)(base + field->target_offset);
 }
 
-/* a field's most elements or bytes in the layout being checked: the field's,
-or the layout's own (tag_schema_layout's field_maximum) */
+/* a field's most elements or bytes in the layout being checked: the one
+given (the field's), or the layout's own (tag_schema_layout's field_maximum) */
 static long field_maximum(
-	struct tag_schema_field const *field)
+	struct tag_schema_field const *field,
+	long maximum)
 {
 	return tag_validate_globals.layout && tag_validate_globals.layout->field_maximum ?
-		tag_validate_globals.layout->field_maximum(field) : field->maximum;
+		tag_validate_globals.layout->field_maximum(field, maximum) : maximum;
 }
 
 static void validate_block_extent(
@@ -1042,7 +1043,11 @@ static void validate_block_extent(
 	struct tag_schema_field const *field)
 {
 	struct tag_schema_definition const *definition = field->definition;
-	long maximum = field_maximum(field);
+	/* (Halo PC's most, in its layout: TAG_SCHEMA_PC_BLOCK; or the layout's
+	own where it has one, field_maximum) */
+	long maximum = field_maximum(field, field->target_offset &&
+		TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_tool_maxima_kept_bit) ?
+		field->target_offset : field->maximum);
 
 	block->definition = XBOX_NULL;
 	if (block->count < 0)
@@ -1100,7 +1105,7 @@ static void validate_data_extent(
 	struct tag_data *data,
 	struct tag_schema_field const *field)
 {
-	long maximum = field_maximum(field);
+	long maximum = field_maximum(field, field->maximum);
 
 	data->definition = XBOX_NULL;
 	if (data->size < 0)
@@ -1245,6 +1250,22 @@ static void validate_value(
 
 		if ((value >= 0 && value < maximum && value != none) || (none_allowed && value == none))
 			break;
+		/* (a Halo PC map's short that names one of its values in the other
+		byte order is that value: HaloMD's tools wrote some so, 256 for 1,
+		as a shotgun's weapon type) */
+		if (field->size == 2 && TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_pc_header_bit))
+		{
+			unsigned short bytes = (unsigned short)value;
+			long swapped = (long)(unsigned short)((bytes >> 8) | (bytes << 8));
+
+			if (swapped < maximum && swapped != none)
+			{
+				tag_validate_correct(validation, "is %ld, past its %ld values: %ld, its bytes the other way round",
+					value, maximum, swapped);
+				integer_set(address, field->size, swapped);
+				break;
+			}
+		}
 		tag_validate_correct(validation, "is %ld, past its %ld values: %s",
 			value, maximum, none_allowed ? "none" : "0");
 		integer_set(address, field->size, none_allowed ? NONE : 0);
