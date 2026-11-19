@@ -212,6 +212,7 @@ void ce_bsp_loaded(void *structure);
 void ce_repairs_bsp_loaded(void *structure);
 void ce_bsp_unloaded(void);
 void ce_resources_tags_unloaded(void);
+void ce_resources_update(void);
 void ce_models_tags_unloaded(void);
 void ce_hud_tags_unloaded(void);
 
@@ -523,6 +524,34 @@ boolean map_family_resource(char const *name, char *path, long size)
 {
 	snprintf(path, (size_t)size, "%s", name);
 	return TRUE;
+}
+
+/* (the game under way, a second in: ce_resources_update) */
+boolean game_in_progress(void)
+{
+	return TRUE;
+}
+
+long game_time_get(void)
+{
+	return 31;
+}
+
+/* (one local player, whose HUD lines are written out: ce_resources_update) */
+short local_player_get_next(short local_player_index)
+{
+	return local_player_index == NONE ? 0 : NONE;
+}
+
+void hud_print_message(short local_player_index, wchar_t const *message)
+{
+	if (fuzz_verbose)
+	{
+		fprintf(stderr, "HUD %d: ", local_player_index);
+		for (; *message; message++)
+			fputc((char)*message, stderr);
+		fputc('\n', stderr);
+	}
 }
 
 boolean map_family_halo_pc_resource(char const *name, char *path, long size)
@@ -1257,6 +1286,9 @@ static void fuzz_ce(unsigned char const *data, size_t size)
 		if (fuzz_verbose)
 			fprintf(stderr, "map_fuzz: the map passed its checks\n");
 		fuzz_ce_load(changed ? changed : data, header);
+		/* (a frame of the game under way: what the load left to tell the
+		player, ce_resources_update) */
+		ce_resources_update();
 		if (changed && changed != data)
 			free(changed);
 		/* (the resource maps as they were, for the next input) */

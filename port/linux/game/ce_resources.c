@@ -38,6 +38,9 @@ for one not there) they are found in Custom Edition's by their tags' paths
 #include "cseries_windows.h"
 #include "errors.h"
 #include "main/console.h"
+#include "game/game.h"
+#include "game/players.h"
+#include "interface/hud_messaging.h"
 #include "tag_files/tag_groups.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
@@ -827,6 +830,9 @@ last found it (ce_resources_place_read looks again each time: a player may
 add one between maps), and whether it was looked for yet this time */
 static short ce_halo_pc_states[2] = { _ce_halo_pc_missing, _ce_halo_pc_missing };
 static boolean ce_halo_pc_looked[2];
+/* the lines for the player about them, once the game is under way
+(ce_resources_update): "" for none */
+static char ce_halo_pc_note[2][63];
 
 static int ce_resource_offset_compare(
 	void const *a,
@@ -1053,7 +1059,8 @@ static boolean ce_halo_pc_sound(
 /* a retail map loaded with stock bitmaps stood in for or sounds silent
 (ce_resources_place_read's counts) while Halo PC's own bitmaps.map or
 sounds.map, which would have them, is missing from maps_pc or not Halo PC's:
-one line logged, and one for the player saying which file to add */
+one line logged, and two for the player saying which file to add, shown on
+the HUD (and the console) a second into the game: ce_resources_update */
 static void ce_halo_pc_missing_tell(
 	long stood_in,
 	long silenced)
@@ -1063,22 +1070,26 @@ static void ce_halo_pc_missing_tell(
 	boolean unusable = (bitmaps && ce_halo_pc_states[0] == _ce_halo_pc_unusable) ||
 		(sounds && ce_halo_pc_states[1] == _ce_halo_pc_unusable);
 	char const *files = bitmaps && sounds ? "bitmaps.map and sounds.map" : bitmaps ? "bitmaps.map" : "sounds.map";
-	char const *what = bitmaps && sounds ? "textures and sounds in this map are missing" :
-		bitmaps ? "textures in this map are stand-ins" : "sounds in this map are silent";
 
+	ce_halo_pc_note[0][0] = ce_halo_pc_note[1][0] = 0;
 	if (!bitmaps && !sounds)
 		return;
+	/* (two lines, each short enough for one of the HUD's: 62 characters) */
+	snprintf(ce_halo_pc_note[0], sizeof(ce_halo_pc_note[0]), "%s", bitmaps && sounds ?
+		"Some textures and sounds in this map are missing." : bitmaps ? "Some textures in this map are stand-ins." :
+		"Some sounds in this map are silent.");
 	if (unusable)
 	{
 		error(_error_silent, "HaloMD map: the %s in maps_pc isn't Halo PC's own: %ld bitmaps stood in for, %ld sounds "
 			"silent", files, stood_in, silenced);
-		console_warning("Some %s: the %s in maps_pc %s Halo PC's own.", what, files, bitmaps && sounds ? "aren't" : "isn't");
+		snprintf(ce_halo_pc_note[1], sizeof(ce_halo_pc_note[1]), "The %s in maps_pc %s Halo PC's.", files,
+			bitmaps && sounds ? "aren't" : "isn't");
 	}
 	else
 	{
 		error(_error_silent, "HaloMD map: Halo PC's own %s missing from maps_pc: %ld bitmaps stood in for, %ld sounds "
 			"silent", files, stood_in, silenced);
-		console_warning("Some %s. Copy %s from your Halo PC install into maps_pc.", what, files);
+		snprintf(ce_halo_pc_note[1], sizeof(ce_halo_pc_note[1]), "Copy Halo PC's %s to maps_pc.", files);
 	}
 }
 
@@ -2768,6 +2779,36 @@ void ce_resources_free_to(
 	}
 }
 
+/* once a frame (main.c): the lines the map's loading left for the player
+(ce_halo_pc_missing_tell), on each local player's HUD and the console a
+second into the game */
+void ce_resources_update(
+	void)
+{
+	short local_player_index;
+	short line;
+
+	if (!ce_halo_pc_note[0][0] || !game_in_progress() || game_time_get() <= 30)
+		return;
+	console_warning("%s %s", ce_halo_pc_note[0], ce_halo_pc_note[1]);
+	for (local_player_index = local_player_get_next(NONE); local_player_index != NONE;
+		local_player_index = local_player_get_next(local_player_index))
+	{
+		/* (the newest line is the HUD's top one: the second first) */
+		for (line = 1; line >= 0; line--)
+		{
+			wchar_t text[64];
+			short index;
+
+			for (index = 0; ce_halo_pc_note[line][index] && index < (short)NUMBEROF(text) - 1; index++)
+				text[index] = (wchar_t)(unsigned char)ce_halo_pc_note[line][index];
+			text[index] = 0;
+			hud_print_message(local_player_index, text);
+		}
+	}
+	ce_halo_pc_note[0][0] = ce_halo_pc_note[1][0] = 0;
+}
+
 /* the map unloaded (cache_files.c) */
 void ce_resources_tags_unloaded(
 	void)
@@ -2775,6 +2816,7 @@ void ce_resources_tags_unloaded(
 	ce_indexed_tag_count = 0;
 	ce_free_next = ce_free_end = 0;
 	ce_room_next = 0;
+	ce_halo_pc_note[0][0] = ce_halo_pc_note[1][0] = 0;
 	ce_loaded_tags_end(0);
 	ce_loaded_bsps_low(0);
 }
