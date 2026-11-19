@@ -1128,8 +1128,105 @@ def main():
     sys.exit(subprocess.run([str(binary), *arguments, str(corpus)], env=env).returncode)
 
 
-if __name__ == "__main__":
-    main()
+def opensauce_map(header=True, widgets_outside=False, syntax_nodes=None, netgame_flags=None):
+    """a Custom Edition map with OpenSauce's header (no flags: the checks
+    take it as they take any Custom Edition map) and its project_yellow
+    (yelo) and project_yellow_globals (gelo) tags, the scenario's first
+    reference naming the yelo tag as OpenSauce's tools make it; its yelo's
+    scripted widgets one element far outside the tags if widgets_outside;
+    its scripts' syntax a data array of syntax_nodes nodes if given; its
+    scenario's netgame flags that many, in a tag of room for 250, if given"""
+    base = TAG_CACHE["ce"]
+    # (the syntax, if any, after the gelo tag's root, in no tag's root)
+    extra = [(b"yelo", 0x138), (b"gelo", 0x120 + (0x38 + syntax_nodes * 0x14 if syntax_nodes else 0))]
+    if netgame_flags is not None:
+        extra.append((b"zzzz", 250 * 0x94))
+    data, offsets = ce_map_of_tags(extra)
+    yelo, gelo = offsets["tags"][:2]
+    scenario = struct.unpack_from("<I", data, offsets["instances"] + 0x14)[0] - base + 0x800
+    # (the tags' handles: the third and fourth, ce_map_of_tags's numbering)
+    yelo_index, gelo_index = ((0xE174 + 2) << 16) | 2, ((0xE174 + 3) << 16) | 3
+    name = struct.unpack_from("<I", data, offsets["instances"] + 0x10)[0]
+    struct.pack_into("<4sIiI", data, scenario, b"oley", name, 0, yelo_index)
+    struct.pack_into("<hH", data, yelo, 2, 0)
+    struct.pack_into("<4sIiI", data, yelo + 0x04, b"oleg", name, 0, gelo_index)
+    for at in (0x14, 0x24):
+        struct.pack_into("<4sIiI", data, yelo + at, b"\xff\xff\xff\xff", 0, 0, 0xFFFFFFFF)
+    struct.pack_into("<f", data, yelo + 0x84, 1.0)
+    struct.pack_into("<f", data, yelo + 0x88, 1.0)
+    if widgets_outside:
+        struct.pack_into("<iI", data, yelo + 0x68, 1, base + 0x01000000)
+    struct.pack_into("<hH", data, gelo, 2, 0)
+    struct.pack_into("<4sIiI", data, gelo + 0x28, b"\xff\xff\xff\xff", 0, 0, 0xFFFFFFFF)
+    if syntax_nodes:
+        syntax = gelo + 0x120
+        struct.pack_into("<hh", data, syntax + 0x20, syntax_nodes, 0x14)
+        struct.pack_into("<iIII", data, scenario + 0x474, 0x38 + syntax_nodes * 0x14, 0, 0, base + syntax - 0x800)
+    if netgame_flags is not None:
+        struct.pack_into("<iII", data, scenario + 0x378, netgame_flags, base + offsets["tags"][2] - 0x800, 0)
+    if header:
+        struct.pack_into("<4shH", data, 0x70, b"oley", 2, 0)
+    return bytes(data)
+
+
+def test_opensauce_netgame_flags_past_200(built, tmp_path):
+    """OpenSauce's layout keeps Halo PC's maxima where it has none of its own:
+    an OpenSauce map's netgame flags past the tools' 200 are kept, as a Halo
+    PC map's are, up to a short's most"""
+    binaries, _ = built
+    for count, cut in ((250, False), (0x7FFF + 1, True)):
+        path = tmp_path / f"opensauce_netgame_{count}.map"
+        path.write_bytes(opensauce_map(netgame_flags=count))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "OpenSauce" in result.stderr, result.stderr[-4000:]
+        assert ("netgame_flags has 32768 elements, more than the game's 32767: cut to 32767" in result.stderr) == cut, \
+            (count, result.stderr[-4000:])
+        assert "more than the game's 200" not in result.stderr, (count, result.stderr[-4000:])
+
+
+def test_opensauce_maps_checked_by_their_own_layout(built, tmp_path):
+    """a map with OpenSauce's header has its tags checked against
+    OpenSauce's layout (tag_schema_opensauce.c): its own groups are walked,
+    not passed over, and a block of one outside the tags refuses the map; a
+    map without the header is checked as Halo PC's, as before, its OpenSauce
+    tags of groups that layout has none of"""
+    binaries, _ = built
+    path = tmp_path / "opensauce.map"
+    path.write_bytes(opensauce_map())
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "OpenSauce's tag schema made" in result.stderr, result.stderr[-4000:]
+    assert "(yelo)" not in result.stderr and "(gelo)" not in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+    path.write_bytes(opensauce_map(widgets_outside=True))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused by OpenSauce's tag schema" in result.stderr, result.stderr[-4000:]
+
+    # (no header: Halo PC's layout, where the same tags are of groups it
+    # does not know, never walked, as starwarsb_3's are)
+    path.write_bytes(opensauce_map(header=False, widgets_outside=True))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "Halo PC's tag schema made" in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
+def test_opensauce_scripts_syntax_kept(built, tmp_path):
+    """OpenSauce's memory upgrades: its scripts' syntax for 28501 nodes is
+    kept in its layout, and cut to the Xbox's 19001 in Halo PC's"""
+    binaries, _ = built
+    path = tmp_path / "opensauce_scripts.map"
+    path.write_bytes(opensauce_map(syntax_nodes=28501))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "more than the game's 380076" not in result.stderr, result.stderr[-4000:]
+    path.write_bytes(opensauce_map(header=False, syntax_nodes=28501))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "has 570076 bytes, more than the game's 380076" in result.stderr, result.stderr[-4000:]
 
 
 def test_pc_actor_variant_grenade_type_past_the_games(built, tmp_path):
@@ -1149,3 +1246,7 @@ def test_pc_actor_variant_grenade_type_past_the_games(built, tmp_path):
         assert (f"grenade_combat.grenade_type is {grenade_type}, OpenSauce's, past the game's 2: 0"
                 in result.stderr) == corrected, \
             result.stderr[-4000:]
+
+
+if __name__ == "__main__":
+    main()

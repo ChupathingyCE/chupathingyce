@@ -286,6 +286,20 @@ long mcc_script_effects_preserve_body(void);
 long mcc_script_effects_preserve_body(void) { return 0; }
 long model_find_marker(void);
 long model_find_marker(void) { return 0; }
+long net_monitor_correction(void);
+long net_monitor_correction(void) { return 0; }
+long net_monitor_layout_bytes(void);
+long net_monitor_layout_bytes(void) { return 0; }
+long net_monitor_message_in(void);
+long net_monitor_message_in(void) { return 0; }
+long net_monitor_message_out(void);
+long net_monitor_message_out(void) { return 0; }
+long net_monitor_notice(void);
+long net_monitor_notice(void) { return 0; }
+long net_monitor_unit_state(void);
+long net_monitor_unit_state(void) { return 0; }
+long net_monitor_warning(void);
+long net_monitor_warning(void) { return 0; }
 long network_distributed_client_send(void);
 long network_distributed_client_send(void) { return 0; }
 long network_distributed_client_send_reliably(void);

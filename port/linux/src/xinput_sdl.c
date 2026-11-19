@@ -2602,6 +2602,21 @@ static int controller_port(HANDLE device)
 and touchscreen are merged into the first gamepad's; runs on the game's main
 thread (touch_input_gamepad relies on it); returns ERROR_SUCCESS or
 ERROR_DEVICE_NOT_CONNECTED for an unknown port */
+/* the server monitor (debug.network_test "monitor:<name>",
+port/linux/game/net_monitor.c) plays nothing: no gamepad, keyboard or mouse
+of this machine reaches the game */
+static int input_blocked(void)
+{
+	static int checked, blocked;
+
+	if (!checked)
+	{
+		checked = 1;
+		blocked = !strncmp(config_string("debug.network_test"), "monitor:", 8);
+	}
+	return blocked;
+}
+
 DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 {
 	int port = controller_port(device);
@@ -2611,6 +2626,12 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 	memset(state, 0, sizeof(*state));
 	if (port < 0)
 		return ERROR_DEVICE_NOT_CONNECTED;
+	/* (its controller there, its buttons never pressed) */
+	if (input_blocked())
+	{
+		platform_pump_events();
+		return ERROR_SUCCESS;
+	}
 #if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_NO_TEST_GAMEPADS)
 	test_virtual_pads_update();
 #endif

@@ -1705,8 +1705,8 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_server,
 		"The telnet console's port." },
 	{ "debug.network_test", _config_string, "\"\"", "HALO_NETWORK_TEST", _environment_value, _platform_all,
-		"Automated system link tests: \"host:<map>\" or \"join\". Leave it empty\n"
-		"for none." },
+		"Automated system link tests: \"host:<map>\" or \"join\"; or the server\n"
+		"monitor, \"monitor:<listed name>\". Leave it empty for none." },
 	{ "debug.map_repositories", _config_string, "\"\"", "HALO_MAP_REPOSITORIES", _environment_value, _platform_all,
 		"Tests: the community map repositories asked for a missing map, their\n"
 		"addresses split by spaces. Leave it empty for HaloNet's." },
@@ -1825,6 +1825,28 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test's host: a file the host writes its invite link\n"
 		"to once it has one, for a joining machine's command line. Leave it\n"
 		"empty for none." },
+	{ "debug.monitor_name", _config_string, "\"Chupa\"", "HALO_MONITOR_NAME", _environment_value, _platform_all,
+		"With debug.network_test's monitor: the name its player joins under." },
+	{ "debug.monitor_output", _config_string, "\"\"", "HALO_MONITOR_OUTPUT", _environment_value, _platform_all,
+		"With debug.network_test's monitor: the file its lines of JSON go to.\n"
+		"Leave it empty for monitor.jsonl in the working folder." },
+	{ "debug.monitor_minutes", _config_real, "10.0", "HALO_MONITOR_MINUTES", _environment_value, _platform_all,
+		"With debug.network_test's monitor: how long it stays, in minutes. It\n"
+		"leaves once the game under way ends, or 20 minutes later at most. 0\n"
+		"for none, with debug.monitor_games set (it won't run with neither)." },
+	{ "debug.monitor_games", _config_integer, "0", "HALO_MONITOR_GAMES", _environment_value, _platform_all,
+		"With debug.network_test's monitor: it leaves after this many games\n"
+		"end. 0 for no limit." },
+	{ "debug.monitor_free_slots", _config_integer, "2", "HALO_MONITOR_FREE_SLOTS", _environment_value,
+		_platform_all,
+		"With debug.network_test's monitor: the slots it leaves free for\n"
+		"players (1 at least). It joins only with this many free after its own\n"
+		"player, and leaves when fewer are." },
+	{ "debug.monitor_keep_text", _config_boolean, "false", "HALO_MONITOR_KEEP_TEXT", _environment_value,
+		_platform_all,
+		"With debug.network_test's monitor: the server's lines' text kept in a\n"
+		"local file beside its output (<output>.text). Its report never has\n"
+		"it: a line may name players." },
 	{ "debug.map_fetch_folder", _config_string, "\"\"", "HALO_MAP_FETCH_FOLDER", _environment_value,
 		_platform_all,
 		"With debug.network_test's fetch: the folder the host's map is written\n"
