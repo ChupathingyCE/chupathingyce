@@ -3960,8 +3960,43 @@ static int object_update_perf_phase(
 	}
 }
 #define OBJECT_UPDATE_PERF_PHASE(type) object_update_perf_phase(type)
+
+/* port: a biped's update timed by who drives it (halo_perf_log.h): this
+machine's players, other machines' players, or neither (the AI's actors,
+empty bodies: NONE, untimed). Begun here, inside objects bipeds; the caller
+ends the phase returned */
+static int object_update_perf_driver_begin(
+	long object_index,
+	short type)
+{
+	struct unit_datum *unit;
+	struct player_datum *player;
+	int phase;
+
+	if (!halo_perf_log_on || type != _object_type_biped)
+		return NONE;
+	HALO_PERF_COUNT(_halo_perf_bipeds_updated, 1);
+	unit = unit_get(object_index);
+	player = unit->unit.player_index != NONE ? player_try_and_get(unit->unit.player_index) : NULL;
+	if (!player)
+		return NONE;
+	if (player->local_player_index != NONE)
+	{
+		phase = _halo_perf_bipeds_local;
+		HALO_PERF_COUNT(_halo_perf_bipeds_local_updated, 1);
+	}
+	else
+	{
+		phase = _halo_perf_bipeds_remote;
+		HALO_PERF_COUNT(_halo_perf_bipeds_remote_updated, 1);
+	}
+	halo_perf_begin(phase);
+	return phase;
+}
+#define OBJECT_UPDATE_PERF_DRIVER_BEGIN(index, type) object_update_perf_driver_begin(index, type)
 #else
 #define OBJECT_UPDATE_PERF_PHASE(type) 0
+#define OBJECT_UPDATE_PERF_DRIVER_BEGIN(index, type) NONE
 #endif
 
 static boolean object_update(
@@ -3974,6 +4009,8 @@ static boolean object_update(
 	boolean result = TRUE;
 	boolean elevator_sampled = FALSE;
 	real_point3d elevator_sample;
+	/* port: the perf log's phase for who drives a biped */
+	int perf_driver;
 	if (!TEST_FLAG(header->flags, _object_header_do_not_update_bit))
 	{
 		if (TEST_FLAG(object->object.flags, _object_garbage_bit))
@@ -3997,7 +4034,10 @@ static boolean object_update(
 
 		HALO_PERF_COUNT(_halo_perf_objects_updated, 1);
 		HALO_PERF_BEGIN(OBJECT_UPDATE_PERF_PHASE(object->object.type));
+		perf_driver = OBJECT_UPDATE_PERF_DRIVER_BEGIN(object_index, object->object.type);
 		object_type_update(object_index);
+		if (perf_driver != NONE)
+			HALO_PERF_END(perf_driver);
 		HALO_PERF_END(OBJECT_UPDATE_PERF_PHASE(object->object.type));
 		if (object_definition->object.collision_model.index!=NONE)
 		{
