@@ -180,7 +180,7 @@ def ce_bsp(bsp_base, extra=0x40):
     return bsp
 
 
-def ce_map(name=b"fuzz", sound=None, weapon_hud_statics=None, bsp_reference_unused=0):
+def ce_map(name=b"fuzz", sound=None, weapon_hud_statics=None, bsp_reference_unused=0, sound_flags=0, sound_next=-1):
     """a Custom Edition map of a scenario and one empty structure BSP, its
     scripts' syntax an empty data array; with sound, a list of permutations
     (compression, samples' size, flags, offset), a sound tag of its own (not
@@ -223,12 +223,13 @@ def ce_map(name=b"fuzz", sound=None, weapon_hud_statics=None, bsp_reference_unus
         sound_permutations = len(tags)
         tags += bytes(0x7C * len(sound))
         struct.pack_into("<h", tags, sound_header + 0x6E, sound[0][0])
+        struct.pack_into("<I", tags, sound_header, sound_flags)
         struct.pack_into("<iII", tags, sound_header + 0x98, 1, base + sound_range, 0)
         struct.pack_into("<h", tags, sound_range + 0x2C, len(sound))
         struct.pack_into("<iII", tags, sound_range + 0x3C, len(sound), base + sound_permutations, 0)
         for index, (compression, size, flags, offset) in enumerate(sound):
             permutation = sound_permutations + index * 0x7C
-            struct.pack_into("<hh", tags, permutation + 0x28, compression, -1)
+            struct.pack_into("<hh", tags, permutation + 0x28, compression, sound_next)
             struct.pack_into("<iIIII", tags, permutation + 0x40, size, flags, offset, 0, 0)
         struct.pack_into("<4s4s4sIIIII", tags, instances + 0x40, b"!dns", b"\xff\xff\xff\xff", b"\xff\xff\xff\xff",
                          0xE1760002, base + sound_name, base + sound_header, 0, 0)
@@ -1122,13 +1123,13 @@ def test_pc_string_over_another_tags_root_copied(built, tmp_path):
     assert "the map loaded" in result.stderr, result.stderr[-4000:]
 
 
-def ce_map_long_ogg(frames, channels=1, rate=22050, size=0x48000, short_at=0):
+def ce_map_long_ogg(frames, channels=1, rate=22050, size=0x48000, short_at=0, sound_flags=0, sound_next=-1):
     """ce_map's map with one Ogg Vorbis permutation of its own of size bytes,
     after the map's end: a stand-in stream map_fuzz.c decodes to that many
     frames of a ramp (a 22 kHz mono sound's), a read stopping short at
     frame short_at if it is not 0"""
-    data = ce_map(sound=[(3, size, 0, 0)])
-    data = bytearray(ce_map(sound=[(3, size, 0, len(data))]))
+    data = ce_map(sound=[(3, size, 0, 0)], sound_flags=sound_flags, sound_next=sound_next)
+    data = bytearray(ce_map(sound=[(3, size, 0, len(data))], sound_flags=sound_flags, sound_next=sound_next))
     fake = b"MAP_FUZZ_PCM" + struct.pack("<iiii", channels, rate, frames, short_at)
     data += fake + bytes(size - len(fake))
     struct.pack_into("<i", data, 8, len(data))
@@ -1253,6 +1254,39 @@ def test_pc_copies_the_same_whatever_the_room(built, tmp_path):
             assert "the map loaded" not in result.stderr, (room, result.stderr[-4000:])
         assert "another's: none" not in result.stderr, (room, result.stderr[-4000:])
     assert copies[None] and copies[None] == copies[16]
+
+
+def test_split_flag_is_the_loaders_alone(built, tmp_path):
+    """the flag the loader gives a sound it split (bit 31 of its flags), which
+    an impulse sound then plays through: a map's own is cleared as it loads,
+    a Halo PC map's and an Xbox map's alike, so that a sound whose permutation
+    follows itself is never played for ever; and a long sound split whose
+    chain comes back round has its chunks end it"""
+    binaries, _ = built
+    # (a short sound, its one permutation followed by itself, the flag set)
+    path = tmp_path / "flagged.map"
+    path.write_bytes(ce_map_long_ogg(1000, sound_flags=0x80000002, sound_next=0))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "1 sounds had the loader's split flag set: cleared" in result.stderr, result.stderr[-4000:]
+    assert "bytes of samples played as" not in result.stderr, result.stderr[-4000:]
+    # (a long one, followed by itself: split, its last chunk ending it)
+    path = tmp_path / "looped.map"
+    path.write_bytes(ce_map_long_ogg(3000000, sound_flags=0x80000002, sound_next=0))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "1 sounds had the loader's split flag set: cleared" in result.stderr, result.stderr[-4000:]
+    assert "a long permutation's chain comes back round; its chunks end it" in result.stderr, result.stderr[-4000:]
+    assert "6000000 bytes of samples played as 16 permutations" in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+    # (an Xbox map's sound with the flag: cleared by its checks)
+    tags, base, (sound,) = xbox_map_of_tags([(b"snd!", 0xA4)])
+    struct.pack_into("<I", tags, sound, 0x80000000)
+    path = tmp_path / "xbox_flagged.map"
+    path.write_bytes(header(5, 0x800 + len(tags), 0x800, len(tags)) + bytes(tags))
+    result = run(binaries["xbox"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "has the flag only the loader gives a sound it split: cleared" in result.stderr, result.stderr[-4000:]
 
 
 def test_pc_netgame_flags_and_equipment_past_200(built, tmp_path):

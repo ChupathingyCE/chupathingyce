@@ -2434,10 +2434,10 @@ static void update_channel_for_impulse_sound(
 
 		channel_set_properties_hardware(channel_index, &properties, TRUE);
 
-		/* port: a sound the loader split (_sound_definition_split_by_loader_bit)
+		/* port: a sound the loader split (SOUND_DEFINITION_SPLIT_BY_LOADER_FLAG)
 		played through: the permutation after the one playing queued behind
 		it once it is in the cache, as a looping sound's next is */
-		if (TEST_FLAG(definition->flags, _sound_definition_split_by_loader_bit) &&
+		if ((definition->flags & SOUND_DEFINITION_SPLIT_BY_LOADER_FLAG) &&
 			channel->playing_permutation && !channel->queued_permutation &&
 			VALID_INDEX(sound->pitch_range_index, definition->pitch_ranges.count))
 		{

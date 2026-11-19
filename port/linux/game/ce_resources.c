@@ -160,6 +160,9 @@ int ce_vorbis_stream_read(void *stream, short *buffer, int frames);
 void ce_vorbis_stream_close(void *stream);
 short *ce_vorbis_samples_new(int frames, int channels);
 unsigned long ce_resources_allocate_tags(unsigned long size);
+#ifndef HALO_CONSOLE
+static unsigned long ce_resources_allocate_split(unsigned long size);
+#endif
 static void ce_sounds_decode(void *tag_instances, long tag_count);
 static boolean ce_samples_external(byte const *permutation);
 
@@ -2172,9 +2175,13 @@ CE_SOUND_STREAM_MOST bytes (an hour of 44.1 kHz stereo is 635 MB) */
 #define CE_SOUND_STREAM_MOST 0x10000000
 #define CE_SOUND_MAXIMUM_PERMUTATIONS 256
 #define CE_SOUND_LINKED_PERMUTATIONS_FLAG 2
-/* (sound_definitions.h's _sound_definition_split_by_loader_bit: played
+/* (sound_definitions.h's SOUND_DEFINITION_SPLIT_BY_LOADER_FLAG: played
 through as an impulse sound too, sound_manager.c) */
 #define CE_SOUND_SPLIT_BY_LOADER_FLAG 0x80000000UL
+/* (the tag validator's most bytes of copies, MAXIMUM_COPIED_BYTES in
+tag_validate.c: kept free of long sounds' permutations,
+ce_resources_allocate_split) */
+#define CE_TAG_COPIES_RESERVE 0x400000UL
 #define CE_PERMUTATION_BUFFER_SIZE_OFFSET 0x38
 
 /* (the silence a sound that is not looped is played from and into) */
@@ -2653,7 +2660,7 @@ static long ce_sound_split(byte *sound, byte *pitch_ranges, unsigned long pitch_
 				"more than the game's %d; left as it was", name, count + extra, CE_SOUND_MAXIMUM_PERMUTATIONS);
 			continue;
 		}
-		address = ce_resources_allocate_tags((count + extra) * CE_SOUND_PERMUTATION_SIZE);
+		address = ce_resources_allocate_split((count + extra) * CE_SOUND_PERMUTATION_SIZE);
 		block = address ? ce_loaded_pointer(address, (count + extra) * CE_SOUND_PERMUTATION_SIZE) : NULL;
 		if (!block)
 		{
@@ -2681,6 +2688,25 @@ static long ce_sound_split(byte *sound, byte *pitch_ranges, unsigned long pitch_
 
 			if ((long)size <= CE_SOUND_SPLIT_SIZE)
 				continue;
+			/* (what follows it, if its chain ends: one that comes back round,
+			to it or in a ring of its own, would play for ever once the
+			chunks join it) */
+			{
+				long step, at_index = following;
+
+				for (step = 0; at_index != NONE && step <= (long)count; step++)
+				{
+					if (at_index < 0 || (unsigned long)at_index >= count || (unsigned long)at_index == permutation)
+						break;
+					at_index = *(short *)(block + at_index * CE_SOUND_PERMUTATION_SIZE + CE_PERMUTATION_NEXT_OFFSET);
+				}
+				if (at_index != NONE)
+				{
+					error(_error_silent, "Custom Edition maps: %s: a long permutation's chain comes back round; "
+						"its chunks end it", name);
+					following = NONE;
+				}
+			}
 			*(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET) = (long)chunk;
 			*(unsigned long *)(at + CE_PERMUTATION_BUFFER_SIZE_OFFSET) = chunk;
 			for (done = chunk; done < size; done += chunk)
@@ -2738,7 +2764,7 @@ static void ce_sounds_decode(
 	HANDLE file = NULL;
 	unsigned long written = 0;
 	long sounds = 0, in_map = 0, permutations_decoded = 0, repaired = 0, copied = 0, resampled_count = 0;
-	long resampled_joined = 0, resampled_looped = 0, streamed_count = 0, split_count = 0;
+	long resampled_joined = 0, resampled_looped = 0, streamed_count = 0, split_count = 0, flags_cleared = 0;
 	boolean resampled_told = FALSE;
 	int played_rate;
 	long index;
@@ -2757,6 +2783,23 @@ static void ce_sounds_decode(
 		CloseHandle(ce_decoded_sounds_file);
 		ce_decoded_sounds_file = NULL;
 		DeleteFileA(ce_decoded_sounds_path);
+	}
+	/* (the loader's split flag, sound_definitions.h's
+	SOUND_DEFINITION_SPLIT_BY_LOADER_FLAG, is the loader's alone: cleared on
+	every sound before any is split, so no map's sound plays a chain of its
+	own through as an impulse sound) */
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance *instance = (struct ce_tag_instance *)((byte *)tag_instances +
+			index * CE_TAG_INSTANCE_SIZE);
+		byte *sound = instance->group_tag == 'snd!' ?
+			ce_loaded_pointer(instance->base_address, CE_SOUND_HEADER_SIZE) : NULL;
+
+		if (sound && (*(unsigned long *)sound & CE_SOUND_SPLIT_BY_LOADER_FLAG) && ce_tags_writable(sound, 4))
+		{
+			*(unsigned long *)sound &= ~CE_SOUND_SPLIT_BY_LOADER_FLAG;
+			flags_cleared++;
+		}
 	}
 	/* (in the save root's cache, z:\, never in a maps folder: a player's
 	maps may be read only, or shared by several copies of the game) */
@@ -3151,6 +3194,8 @@ static void ce_sounds_decode(
 	if (looped)
 		free(looped);
 	ce_decoded_sounds_file = file;
+	if (flags_cleared)
+		error(_error_silent, "Custom Edition maps: %ld sounds had the loader's split flag set: cleared", flags_cleared);
 	error(_error_silent, "Custom Edition maps: %ld long Ogg Vorbis permutations decoded a piece at a time, %ld "
 		"permutations of more samples than the sound cache holds split into ones played one after another",
 		streamed_count, split_count);
@@ -3226,6 +3271,28 @@ unsigned long ce_resources_allocate_tags(
 	ce_loaded_tags_end(ce_free_next);
 	return address;
 }
+
+#ifndef HALO_CONSOLE
+/* the same for a long sound's permutations (ce_sound_split), which come
+before the tag validator's copies (which it decides alone, the same on
+every platform, tag_validate.c's MAXIMUM_COPIED_BYTES) and so leave that
+much of the spare room for them: a sound split or not never decides
+whether a map's copies fit */
+static unsigned long ce_resources_allocate_split(
+	unsigned long size)
+{
+	unsigned long spare = ce_map_checked_spare_room();
+	unsigned long aligned = (size + 15) & ~15UL;
+
+	if (aligned < size || ce_tags_room_used > spare || spare - ce_tags_room_used < CE_TAG_COPIES_RESERVE ||
+		aligned > spare - ce_tags_room_used - CE_TAG_COPIES_RESERVE)
+	{
+		return 0;
+	}
+	return ce_resources_allocate_tags(size);
+}
+
+#endif
 
 /* where the next allocation goes (a BSP's: ce_bsp.c gives back what it took
 when it unloads, ce_resources_free_to) */

@@ -44,14 +44,15 @@ enum sound_definition_flags
 	_sound_definition_fit_to_compression_block_size_bit,
 	_sound_definition_linked_permutations_bit,
 	NUMBER_OF_SOUND_DEFINITION_FLAGS,
-
-	/* port: a sound the loader split into permutations played one after
-	another (a Custom Edition map's long Ogg Vorbis sound,
-	port/linux/game/ce_resources.c's ce_sound_split), which an impulse sound
-	plays through too, as a looping sound does any sound's linked
-	permutations; no tool sets it */
-	_sound_definition_split_by_loader_bit = 31,
 };
+
+/* port: the flag (bit 31) of a sound the loader split into permutations
+played one after another (a Custom Edition map's long Ogg Vorbis sound,
+port/linux/game/ce_resources.c's ce_sound_split), which an impulse sound
+plays through too, as a looping sound does any sound's linked
+permutations; no tool sets it, and every map's is cleared as it loads (a
+mask: FLAG would shift into an int's sign) */
+#define SOUND_DEFINITION_SPLIT_BY_LOADER_FLAG 0x80000000UL
 
 enum looping_sound_definition_flags
 {
