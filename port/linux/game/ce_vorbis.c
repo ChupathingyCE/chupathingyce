@@ -434,6 +434,55 @@ int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int 
 	return ce_vorbis_resample_piece(samples, frames, channels, rate, wanted, NULL, 0, NULL, 0);
 }
 
+/* an Ogg Vorbis stream opened to be decoded a piece at a time (a long one,
+which ce_resources.c writes out as it goes rather than holding it whole):
+its channels and rate; NULL if it cannot be, or has more channels than a
+sound has. data stays the caller's until ce_vorbis_stream_close */
+void *ce_vorbis_stream_open(const unsigned char *data, int size, int *channels, int *sample_rate)
+{
+	int error = 0;
+	stb_vorbis *vorbis = stb_vorbis_open_memory(data, size, &error, NULL);
+
+	*channels = *sample_rate = 0;
+	if (!vorbis)
+		return NULL;
+	*channels = vorbis->channels;
+	*sample_rate = (int)vorbis->sample_rate;
+	if (vorbis->channels < 1 || vorbis->channels > CE_VORBIS_MAXIMUM_CHANNELS)
+	{
+		stb_vorbis_close(vorbis);
+		return NULL;
+	}
+	return vorbis;
+}
+
+/* the next `frames` frames of a stream (fewer at its end), interleaved
+16-bit, into buffer (room for frames of the stream's channels): how many,
+0 at the end */
+int ce_vorbis_stream_read(void *stream, short *buffer, int frames)
+{
+	stb_vorbis *vorbis = stream;
+
+	if (!vorbis || frames <= 0)
+		return 0;
+	return stb_vorbis_get_samples_short_interleaved(vorbis, vorbis->channels, buffer, frames * vorbis->channels);
+}
+
+void ce_vorbis_stream_close(void *stream)
+{
+	if (stream)
+		stb_vorbis_close(stream);
+}
+
+/* room for frames of channels' samples, as ce_vorbis_resample_piece takes
+them (it may free them and give others): ce_vorbis_free them */
+short *ce_vorbis_samples_new(int frames, int channels)
+{
+	if (frames <= 0 || channels < 1 || channels > CE_VORBIS_MAXIMUM_CHANNELS)
+		return NULL;
+	return malloc((size_t)frames * (size_t)channels * sizeof(short));
+}
+
 /* the samples ce_vorbis_decode gave (freed as stb_vorbis allocated them: the
 game's units free through its own allocator, which takes no NULL: debug_free) */
 void ce_vorbis_free(short *samples)

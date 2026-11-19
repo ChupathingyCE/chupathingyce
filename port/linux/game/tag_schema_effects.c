@@ -2229,6 +2229,15 @@ static boolean sound_check(
 	long block_size = SOUND_COMPRESSED_BLOCK_SIZE * (definition->encoding == _sound_encoding_stereo ? 2 : 1);
 	long range_index;
 
+	/* (the flag the Custom Edition loader gives a sound it split, which an
+	impulse sound then plays through: no other map's, ce_resources.c clears
+	it on a Halo PC map's before it splits any) */
+	if (!TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_pc_header_bit) &&
+		(definition->flags & SOUND_DEFINITION_SPLIT_BY_LOADER_FLAG))
+	{
+		tag_validate_correct(validation, "has the flag only the loader gives a sound it split: cleared");
+		definition->flags &= ~SOUND_DEFINITION_SPLIT_BY_LOADER_FLAG;
+	}
 	if (definition->promotion_sound.index != NONE &&
 		(definition->promotion_count < 0 || definition->longest_permutation_length < 0 ||
 			(definition->longest_permutation_length &&

@@ -2433,6 +2433,34 @@ static void update_channel_for_impulse_sound(
 			channel->playing_permutation->gain * definition->gain_modifier * gain;
 
 		channel_set_properties_hardware(channel_index, &properties, TRUE);
+
+		/* port: a sound the loader split (SOUND_DEFINITION_SPLIT_BY_LOADER_FLAG)
+		played through: the permutation after the one playing queued behind
+		it once it is in the cache, as a looping sound's next is */
+		if ((definition->flags & SOUND_DEFINITION_SPLIT_BY_LOADER_FLAG) &&
+			channel->playing_permutation && !channel->queued_permutation &&
+			VALID_INDEX(sound->pitch_range_index, definition->pitch_ranges.count))
+		{
+			struct sound_pitch_range *pitch_range = TAG_BLOCK_GET_ELEMENT(
+				&definition->pitch_ranges,
+				sound->pitch_range_index,
+				struct sound_pitch_range);
+			short next = channel->playing_permutation->next_permutation_index;
+
+			if (VALID_INDEX(next, pitch_range->permutations.count))
+			{
+				struct sound_permutation *permutation = TAG_BLOCK_GET_ELEMENT(
+					&pitch_range->permutations,
+					next,
+					struct sound_permutation);
+
+				if (_sound_cache_sound_request(permutation, FALSE, TRUE, TRUE))
+				{
+					channel_queue_sound(channel_index, permutation);
+					sound->permutation_index = next;
+				}
+			}
+		}
 	}
 
 	sound_manager_globals.platform_definition->channel_update(channel_index);

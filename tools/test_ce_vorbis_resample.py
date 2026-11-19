@@ -592,3 +592,62 @@ if __name__ == "__main__":
             _, difference, largest = one(mode, kind, 4410)
             print(f"{mode:12s} {name:12s}: {difference:7.3%} at the wraps, largest step {largest:.0f}")
     sys.exit(0)
+
+
+# a long permutation decoded a piece at a time (ce_vorbis_stream_*, which
+# ce_resources.c writes out piece by piece): the same frames as the whole
+# decode, whatever the piece's length (one shorter than a Vorbis packet,
+# one longer than the stream)
+STREAM_HARNESS = r"""
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sample_rate, short **samples);
+void *ce_vorbis_stream_open(const unsigned char *data, int size, int *channels, int *sample_rate);
+int ce_vorbis_stream_read(void *stream, short *buffer, int frames);
+void ce_vorbis_stream_close(void *stream);
+void ce_vorbis_free(short *samples);
+int main(int argc, char **argv)
+{
+	FILE *file = fopen(argv[1], "rb");
+	int piece = atoi(argv[2]);
+	unsigned char *data;
+	long size;
+	int channels = 0, rate = 0, stream_channels = 0, stream_rate = 0, frames, read, total = 0, same = 1;
+	short *samples = NULL, *buffer;
+	void *stream;
+	fseek(file, 0, SEEK_END);
+	size = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	data = malloc((size_t)size);
+	fread(data, 1, (size_t)size, file);
+	fclose(file);
+	frames = ce_vorbis_decode(data, (int)size, &channels, &rate, &samples);
+	stream = ce_vorbis_stream_open(data, (int)size, &stream_channels, &stream_rate);
+	buffer = malloc((size_t)piece * 2 * sizeof(short));
+	while (stream && (read = ce_vorbis_stream_read(stream, buffer, piece)) > 0)
+	{
+		if (total + read > frames || memcmp(buffer, samples + (size_t)total * channels, (size_t)read * channels * sizeof(short)))
+			same = 0;
+		total += read;
+	}
+	printf("%d %d %d %d\n", frames, total, same, stream_channels == channels && stream_rate == rate);
+	ce_vorbis_stream_close(stream);
+	ce_vorbis_free(samples);
+	free(buffer);
+	free(data);
+	return 0;
+}
+"""
+
+
+@pytest.mark.parametrize("path", VORBIS_FILES, ids=lambda path: path.name)
+@pytest.mark.parametrize("piece", [7, 4096, 65536])
+def test_a_stream_decoded_in_pieces_is_the_whole(path, piece):
+    out = subprocess.run([str(build("stream", STREAM_HARNESS)), str(path), str(piece)], capture_output=True,
+                         text=True, check=True).stdout.split()
+    frames, total, same, format_same = map(int, out)
+    assert frames > 0
+    assert total == frames
+    assert same and format_same
+
