@@ -572,6 +572,12 @@ enum
 	_network_client_machine_precached_bit,
 	/* started in the game in progress (network_game_server_start_late_joiner) */
 	_network_client_machine_started_late_bit,
+	/* port: a machine of the host's own making, with no connection: a
+	dedicated server's Custom Edition client's (server/src/server_ce.c),
+	whose one player's input the host takes from that client. Always loaded
+	and precached; never timed out, sent to, or dropped for its silence.
+	The host's alone: no machine is told of it but as a machine */
+	_network_client_machine_virtual_bit,
 	NUMBER_OF_NETWORK_CLIENT_MACHINE_FLAGS,
 	/* the protocol's largest message (a client's hits come near it) */
 	MAXIMUM_NETWORK_MESSAGE_SIZE = HALO_PORT_MAXIMUM_NETWORK_MESSAGE_SIZE,
@@ -911,6 +917,9 @@ enum
 	_kick_rejoinable,
 };
 static byte network_game_server_kick_pending[MAXIMUM_NETWORK_MACHINE_COUNT];
+/* (a virtual machine: a dedicated server's Custom Edition client's, below) */
+static boolean network_game_server_client_machine_is_virtual(
+	struct network_game_server_client_machine const *machine);
 /* (how each is refused: the dedicated server's commands give their own
 reasons, server/src/server_commands.c) */
 static short network_game_server_kick_rejection_codes[MAXIMUM_NETWORK_MACHINE_COUNT];
@@ -1333,7 +1342,10 @@ static boolean network_game_server_machine_may_add_player_ingame(
 	short *count;
 
 	if (!VALID_INDEX(machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) ||
-		network_game_server_client_machine_is_local(server, &server->client_machines[machine_index]))
+		network_game_server_client_machine_is_local(server, &server->client_machines[machine_index]) ||
+		/* (port: a virtual machine's one player: its client was held to
+		the address limit as it joined, server/src/server_ce.c) */
+		network_game_server_client_machine_is_virtual(&server->client_machines[machine_index]))
 	{
 		return TRUE;
 	}
@@ -2740,7 +2752,10 @@ boolean network_game_server_accept_client_machine_into_game(
 						if (other != machine &&
 							network_game_server_client_machine_is_joined_to_game(server, other) &&
 							network_game_server_client_machine_addresses[other_index] == address.address.long_words[0] &&
-							!network_game_server_client_machine_is_local(server, other))
+							!network_game_server_client_machine_is_local(server, other) &&
+							/* (not a virtual machine: a Custom Edition client
+							of the same address, another machine) */
+							!network_game_server_client_machine_is_virtual(other))
 						{
 							network_event("machine #%ld joined from the address of machine #%ld, which is dropped",
 								machine_index, other_index);
@@ -3127,7 +3142,8 @@ void network_game_server_update_ticks(
 							TEST_FLAG(machine->flags, _network_client_machine_level_loaded_bit) &&
 							(update_number < network_game_server_frequent_updates_until[client_machine_index] ||
 								update_number % TICKS_PER_SECOND == 0) &&
-							network_connection_active(machine->connection) &&
+							/* (port: not a virtual machine's: it has none) */
+							machine->connection && network_connection_active(machine->connection) &&
 							!network_game_server_send_message_to_client_machine(server, machine, message))
 						{
 							sent = FALSE;
@@ -3188,7 +3204,8 @@ void network_game_server_update_ticks(
 						client_machine,
 						&server->queued_player))
 				{
-					if (!network_game_server_client_machine_is_local(server, client_machine))
+					if (!network_game_server_client_machine_is_local(server, client_machine) &&
+						!network_game_server_client_machine_is_virtual(client_machine))
 					{
 						short *count = network_game_server_ingame_addition_count(
 							network_game_server_client_machine_addresses[client_machine_index], TRUE);
@@ -4308,6 +4325,9 @@ struct network_game_server_client_machine *network_game_server_get_client_machin
 			/* (a machine in the game: not a connection that has not joined) */
 			if (network_game_server_client_machine_addresses[i] == ip_address &&
 				network_game_server_client_machine_is_joined_to_game(server, &server->client_machines[i]) &&
+				/* (port: never a virtual machine: no datagram is its, though
+				its client's address may be another machine's too) */
+				!network_game_server_client_machine_is_virtual(&server->client_machines[i]) &&
 				(pass == 1 || !network_game_server_client_machine_is_local(server, &server->client_machines[i])))
 			{
 				match_assert(NETWORK_SERVER_MANAGER_FILE, 0x755,
@@ -4426,7 +4446,10 @@ boolean network_game_server_change_map_name(
 			&server->client_machines[client_machine_index];
 
 		if (client_machine->machine_index >= 0 &&
-			client_machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT)
+			client_machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT &&
+			/* (port: a virtual machine has every map: its client was let
+			in only on a map it has, server/src/server_ce.c) */
+			!network_game_server_client_machine_is_virtual(client_machine))
 		{
 			SET_FLAG(
 				client_machine->flags,
@@ -4652,7 +4675,10 @@ static boolean network_game_server_client_machine_timed_out(
 	if (!network_game_server_client_machine_is_joined_to_game(server, machine))
 		return silence > NETWORK_GAME_SERVER_JOIN_TIMEOUT;
 	if (server->state != _network_game_server_state_ingame ||
-		network_game_server_client_machine_is_local(server, machine))
+		network_game_server_client_machine_is_local(server, machine) ||
+		/* (port: a virtual machine is never heard from; its client's own
+		connection times out, server/platform/ce_transport.c) */
+		network_game_server_client_machine_is_virtual(machine))
 	{
 		return FALSE;
 	}
@@ -5605,6 +5631,29 @@ static boolean network_game_server_handle_client_machines(
 		if (client_machine->machine_index == NONE)
 			continue;
 
+		/* port: a virtual machine has no connection to read or lose; one
+		the host kicks or bans goes as its client does (server/src/server_ce.c
+		drops that client and removes the machine) */
+		if (network_game_server_client_machine_is_virtual(client_machine))
+		{
+			if (network_game_server_kick_pending[client_machine->machine_index] != _kick_none)
+			{
+				short machine_index = client_machine->machine_index;
+
+				network_game_server_kick_pending[machine_index] = _kick_none;
+#ifdef HALO_SERVER
+				{
+					void server_ce_machine_dropped(long machine_index);
+
+					server_ce_machine_dropped(machine_index);
+				}
+#endif
+				if (network_game_server_port_machine_is_virtual(machine_index))
+					network_game_server_port_remove_virtual_machine(machine_index);
+			}
+			continue;
+		}
+
 		if (!network_connection_active(client_machine->connection))
 		{
 			short machine_index = client_machine->machine_index;
@@ -5985,6 +6034,7 @@ static boolean network_game_server_idle_pregame_tasks(
 			stay in the lobby */
 			else if (network_game_server_client_machine_is_joined_to_game(server, client_machine) &&
 				!network_game_server_client_machine_is_local(server, client_machine) &&
+				!network_game_server_client_machine_is_virtual(client_machine) &&
 				!network_game_server_machine_has_players(server, client_machine->machine_index) &&
 				/* (port: not while it downloads the map: map sharing) */
 				!NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(client_machine->machine_index) &&
@@ -6208,7 +6258,8 @@ boolean network_game_server_reset_to_pregame(
 				if (network_game_server_client_machine_is_joined_to_game(server, machine) &&
 					(TEST_FLAG(machine->flags, _network_client_machine_level_loaded_bit) ||
 						TEST_FLAG(machine->flags, _network_client_machine_started_late_bit)) &&
-					network_connection_active(machine->connection) &&
+					/* (port: not a virtual machine's: it has none) */
+					machine->connection && network_connection_active(machine->connection) &&
 					!network_game_server_send_message_to_client_machine(server, machine, message))
 				{
 					sent = FALSE;
@@ -6240,6 +6291,10 @@ boolean network_game_server_reset_to_pregame(
 
 			for (i = 0; i < MAXIMUM_NETWORK_MACHINE_COUNT; i++)
 			{
+				/* (port: a virtual machine stays loaded and precached: it has
+				nothing to load, its client loads the map on its own) */
+				if (network_game_server_client_machine_is_virtual(&server->client_machines[i]))
+					continue;
 				SET_FLAG(
 					server->client_machines[i].flags,
 					_network_client_machine_level_loaded_bit,
@@ -6768,4 +6823,135 @@ long network_game_server_machine_count(
 	struct network_game_server *server)
 {
 	return server ? (long)server->game.machine_count : 0;
+}
+
+/* ---------- virtual machines (port)
+
+A dedicated server's Custom Edition client is a machine of the game of its
+own (server/src/server_ce.c): one player, at controller 0, on a machine
+slot with no connection. Every other machine is told of it as of any other
+machine and player (the settings record, the in-game add and quit
+messages): nothing new on the wire. The host runs its player from its
+client's input (update_server_handle_distributed_input). */
+
+static boolean network_game_server_client_machine_is_virtual(
+	struct network_game_server_client_machine const *machine)
+{
+	return TEST_FLAG(machine->flags, _network_client_machine_virtual_bit);
+}
+
+boolean network_game_server_port_machine_is_virtual(
+	long machine_index)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	return server && VALID_INDEX(machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
+		server->client_machines[machine_index].machine_index == machine_index &&
+		network_game_server_client_machine_is_virtual(&server->client_machines[machine_index]);
+}
+
+/* a new virtual machine in the lowest free slot (as a connection takes
+one), named, at the address its client comes from (host byte order, for
+the address limit and the log); its index, or NONE: no free slot, the game
+closed or full */
+long network_game_server_port_add_virtual_machine(
+	wchar_t const *name,
+	unsigned long address)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_machine new_machine;
+	long index;
+
+	if (!server || !TEST_FLAG(server->flags, _network_game_server_game_open_bit) ||
+		!network_game_has_free_player_slot(&server->game))
+	{
+		return NONE;
+	}
+	for (index = 0; index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
+	{
+		if (server->client_machines[index].machine_index == NONE &&
+			!network_machine_is_valid(&server->game.machines[index]))
+		{
+			break;
+		}
+	}
+	if (index == MAXIMUM_NETWORK_MACHINE_COUNT)
+		return NONE;
+	csmemset(&new_machine, 0, sizeof(new_machine));
+	ustrncpy(new_machine.name, name, NUMBEROF(new_machine.name) - 1);
+	new_machine.name[NUMBEROF(new_machine.name) - 1] = 0;
+	new_machine.machine_index = (char)index;
+	if (!network_game_add_machine(&server->game, &new_machine))
+		return NONE;
+	server->client_machines[index].connection = NULL;
+	server->client_machines[index].last_received_update_sequence_number = 0;
+	server->client_machines[index].last_heard_time = system_milliseconds();
+	server->client_machines[index].machine_index = (short)index;
+	server->client_machines[index].flags = FLAG(_network_client_machine_validated_bit) |
+		FLAG(_network_client_machine_level_loaded_bit) | FLAG(_network_client_machine_precached_bit) |
+		FLAG(_network_client_machine_virtual_bit);
+	network_game_server_kick_pending[index] = _kick_none;
+	network_game_server_hardware_ids[index][0] = 0;
+	network_game_server_client_machine_addresses[index] = address;
+	network_game_server_client_machine_datagram_ports[index] = 0;
+	network_game_server_client_machine_join_times[index] = system_milliseconds();
+	network_game_server_late_joiner_pick_times[index] = 0;
+	network_game_server_late_joiner_reply_times[index] = 0;
+	network_game_server_late_joiner_reply_due[index] = FALSE;
+	network_event("server added virtual machine #%ld to the game", index);
+	return index;
+}
+
+/* the virtual machine's player (controller 0): in the lobby at once, with
+the settings sent; in game queued, as a joining machine's player is, and
+every machine told once it is in. FALSE: not added (the game full) */
+boolean network_game_server_port_add_virtual_player(
+	long machine_index,
+	wchar_t const *name,
+	short primary_color_index)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_player player;
+
+	if (!network_game_server_port_machine_is_virtual(machine_index))
+		return FALSE;
+	csmemset(&player, 0, sizeof(player));
+	ustrncpy(player.name, name, NETWORK_PLAYER_NAME_LENGTH - 1);
+	player.name[NETWORK_PLAYER_NAME_LENGTH - 1] = 0;
+	player.primary_color_index = primary_color_index;
+	player.icon_index = NONE;
+	player.machine_index = (char)machine_index;
+	player.controller_index = 0;
+	player.team_index = NONE;
+	player.player_list_index = NONE;
+	if (network_game_server_lobby_is_open(server))
+	{
+		if (!network_game_server_add_player_to_game(server, &server->client_machines[machine_index], &player))
+			return FALSE;
+		if (!network_game_server_send_game_data_pregame(server))
+			network_event("server failed to send pregame game data for virtual machine #%ld", machine_index);
+		return TRUE;
+	}
+	if (network_game_server_get_state(server, NULL) == _network_game_server_state_ingame)
+	{
+		network_game_server_queue_player_for_addition(server, &player);
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/* the virtual machine out of the game, its player with it (every machine
+told it quit, in game; the lobby's settings sent again) */
+void network_game_server_port_remove_virtual_machine(
+	long machine_index)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	if (!network_game_server_port_machine_is_virtual(machine_index))
+		return;
+	network_event("server removes virtual machine #%ld from the game", machine_index);
+	if (!network_game_server_remove_machine_from_game(server, &server->game.machines[machine_index]))
+		network_game_server_remove_client_machine_from_game(server, &server->client_machines[machine_index]);
+	network_game_server_client_machine_addresses[machine_index] = 0;
+	network_game_server_kick_pending[machine_index] = _kick_none;
 }

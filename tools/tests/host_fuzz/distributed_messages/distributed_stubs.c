@@ -320,6 +320,8 @@ long network_game_server_machine_address(void);
 long network_game_server_machine_address(void) { return 0; }
 long network_game_server_machine_reports_static_damage(void);
 long network_game_server_machine_reports_static_damage(void) { return 0; }
+long network_game_server_port_machine_is_virtual(void);
+long network_game_server_port_machine_is_virtual(void) { return 0; }
 long network_player_attach_unit(void);
 long network_player_attach_unit(void) { return 0; }
 long network_player_detach_unit(void);
