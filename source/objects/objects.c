@@ -3824,6 +3824,23 @@ void object_attach_to_node(
 		}
 	}
 
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Halo PC map's scripts that attach an object to one of its own
+	children are refused the attach and go on, as Halo PC's release does
+	(the debug build's assert stopped SPV3's d30): said once */
+	if (!valid && cache_file_tags_are_ce())
+	{
+		static boolean logged = FALSE;
+
+		if (!logged)
+		{
+			logged = TRUE;
+			error(_error_silent, "an object attached to one of its own children: not attached, as Halo PC "
+				"leaves it");
+		}
+	}
+	else
+#endif
 	match_vassert(
 		"c:\\halo\\SOURCE\\objects\\objects.c",
 		1225,

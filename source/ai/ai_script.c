@@ -4540,6 +4540,24 @@ static void ai_scripting_go_to_vehicle_internal(
 	vehicle = unit_try_and_get(unit_index);
 	if (ai_reference == NONE || vehicle == NULL)
 		return;
+#ifdef HALO_CUSTOM_EDITION
+	/* port: an OpenSauce map's scripts send AI into a biped's seats
+	(OpenSauce lets bipeds have seats: SPV3's d30); the AI's vehicle code
+	here takes vehicles only, so the order is passed over and said once,
+	until biped seats are supported (port/linux/game/opensauce_map.c) */
+	if (!TEST_FLAG(_object_mask_vehicle, vehicle->object.type) && cache_file_tags_are_ce())
+	{
+		static boolean logged = FALSE;
+
+		if (!logged)
+		{
+			logged = TRUE;
+			error(_error_silent, "AI sent into the seats of a unit that isn't a vehicle (a biped's seats): not "
+				"supported yet, passed over");
+		}
+		return;
+	}
+#endif
 
 	candidate_count = 0;
 	object_get_origin(unit_index, &vehicle_origin);
