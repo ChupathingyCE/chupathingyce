@@ -5406,6 +5406,42 @@ beside the shaders as <hash>.pipeline so that the next run makes them from
 what the driver made the last time. The driver checks the data is its own
 (the device's and the driver's versions are in it) and makes the pipeline
 from scratch when it is not. */
+/* the pipelines read from the cache folder this run, by their data's hash:
+bgfx hands each back to be written once it has made it, and when the
+driver made it from that data, that is the same data again. Writing it
+anyway was a file made and renamed for every pipeline a run first drew
+with, in its frame (on Windows, where a new file is scanned, a few
+milliseconds each) */
+#define BG_PIPELINE_READ_BUCKETS 512
+
+struct bg_pipeline_read
+{
+	struct bg_pipeline_read *next;
+	uint64_t id;
+	uint32_t size;
+	Uint64 check;
+};
+
+static struct bg_pipeline_read *bg_pipelines_read[BG_PIPELINE_READ_BUCKETS];
+
+static struct bg_pipeline_read *bg_pipeline_read_find(uint64_t id, BOOL add)
+{
+	struct bg_pipeline_read **bucket = &bg_pipelines_read[id % BG_PIPELINE_READ_BUCKETS], *entry;
+
+	for (entry = *bucket; entry; entry = entry->next)
+	{
+		if (entry->id == id)
+			return entry;
+	}
+	if (add && (entry = calloc(1, sizeof(*entry))) != NULL)
+	{
+		entry->id = id;
+		entry->next = *bucket;
+		*bucket = entry;
+	}
+	return entry;
+}
+
 static void bg_pipeline_path(char *path, size_t size, uint64_t id)
 {
 	snprintf(path, size, "%s/%016llx.pipeline", bg_jobs.folder, (unsigned long long)id);
@@ -5438,6 +5474,16 @@ static bool bg_callback_cache_read(bgfx_callback_interface_t *self, uint64_t id,
 		return false;
 	read = fread(data, 1, size, file) == size;
 	fclose(file);
+	if (read)
+	{
+		struct bg_pipeline_read *entry = bg_pipeline_read_find(id, TRUE);
+
+		if (entry)
+		{
+			entry->size = size;
+			entry->check = bg_hash(data, size, 14695981039346656037ULL);
+		}
+	}
 	return read;
 }
 
@@ -5449,6 +5495,12 @@ static void bg_callback_cache_write(bgfx_callback_interface_t *self, uint64_t id
 	(void)self;
 	if (!*bg_jobs.folder || !size)
 		return;
+	{
+		struct bg_pipeline_read *entry = bg_pipeline_read_find(id, FALSE);
+
+		if (entry && entry->size == size && entry->check == bg_hash(data, size, 14695981039346656037ULL))
+			return;
+	}
 	bg_pipeline_path(path, sizeof(path), id);
 	snprintf(temporary, sizeof(temporary), "%s.tmp", path);
 	if (!(file = fopen(temporary, "wb")))
