@@ -49,6 +49,18 @@ enum
 	_net_monitor_stale,
 	/* a message too short for its count of entries */
 	_net_monitor_malformed,
+	/* (dropped without a word) a message while no game runs here (loading,
+	the lobby) */
+	_net_monitor_not_in_game,
+	/* ... one before the host's objects are in, of a kind not taken till then */
+	_net_monitor_unsynchronized,
+	/* ... one of a kind only a client sends, or only over a stream */
+	_net_monitor_wrong_sender,
+	/* ... an MCC kind outside an MCC game */
+	_net_monitor_mcc,
+	/* ... one of another checkpoint epoch, or before the first boundary (a
+	layout with an epoch: 44's) */
+	_net_monitor_epoch,
 	NUMBER_OF_NET_MONITOR_WARNINGS
 };
 
@@ -63,20 +75,31 @@ been drawn as, or, with none, further than a world unit) */
 
 /* whether this run is the monitor */
 int net_monitor_active(void);
-/* a distributed message: handled (from the host, or sent), its kind and its
-size; the outermost message of a datagram from the host also gives its
-tick (game_time), for the host's tick rate */
-void net_monitor_message_in(int type, int size, long game_time, int outermost);
+/* a distributed message from the host: its kind and size, whether it came in
+a batch (a batch's own size holds its messages'), and whether its tick
+(game_time) is a sample of the host's tick rate (a datagram's outermost) */
+void net_monitor_message_in(int type, int size, long game_time, int in_batch, int tick_sample);
+/* every message of the game's connection the client's handler reads: its
+message type, a packet's type (else 0), its size and whether it came over
+the stream (else a datagram) */
+void net_monitor_game_message(int message_type, int packet_type, int size, int stream);
+/* the host's notice (a distributed notice: OpenCE's servers' server
+messages), its text */
+void net_monitor_notice(char const *text, int length);
+/* the header's further bytes a layout's messages carry (44's epoch), taken
+off before a message is handled */
+void net_monitor_layout_bytes(int size);
 void net_monitor_message_out(int type, int size);
 /* a correction: what it moved, how far (world units) and whether it was a
 snap (net_monitor_snap) */
 void net_monitor_correction(int kind, float distance, int snap);
 /* the host's word on a player's unit (each entry of a unit states message) */
 void net_monitor_unit_state(long player_index);
-/* a chat line heard: 1 the server's or a notice, 0 a player's; its length
-and, for the server's alone, its text (a player's is never kept) */
-void net_monitor_chat(int server, int length, char const *text);
-void net_monitor_warning(int warning, int type);
+/* a chat line heard: 0 a player's, 1 the server's (Delta's), 2 a system
+line (a notice shown in the chat); its length and, but for a player's, its
+text (a player's is never kept) */
+void net_monitor_chat(int channel, int length, char const *text);
+void net_monitor_warning(int warning, int type, int size);
 /* the player's name for this run (debug.monitor_name), over the profile's */
 void net_monitor_player_name(wchar_t *name, int size);
 /* each frame (network_test.c) */
@@ -85,12 +108,15 @@ void net_monitor_update(int main_menu_loaded, float seconds);
 #else
 
 #define net_monitor_active() 0
-#define net_monitor_message_in(type, size, game_time, outermost) ((void)0)
+#define net_monitor_message_in(type, size, game_time, in_batch, tick_sample) ((void)0)
+#define net_monitor_game_message(message_type, packet_type, size, stream) ((void)0)
+#define net_monitor_notice(text, length) ((void)0)
+#define net_monitor_layout_bytes(size) ((void)0)
 #define net_monitor_message_out(type, size) ((void)0)
 #define net_monitor_correction(kind, distance, snap) ((void)0)
 #define net_monitor_unit_state(player_index) ((void)0)
-#define net_monitor_chat(server, length, text) ((void)0)
-#define net_monitor_warning(warning, type) ((void)0)
+#define net_monitor_chat(channel, length, text) ((void)0)
+#define net_monitor_warning(warning, type, size) ((void)0)
 #define net_monitor_player_name(name, size) ((void)0)
 #define net_monitor_update(main_menu_loaded, seconds) ((void)0)
 

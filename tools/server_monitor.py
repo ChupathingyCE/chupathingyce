@@ -37,6 +37,9 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HEADER = os.path.join(ROOT, "port", "linux", "game", "network_distributed.h")
+PACKETS = os.path.join(ROOT, "source", "networking", "network_messages.h")
+# message_header's types (bungie_net/common/message_header.h)
+MESSAGE_TYPES = {1: "error", 2: "distributed data", 3: "game packet"}
 # (net_monitor.c's buckets: the gaps between the host's new ticks, ms)
 GAP_BOUNDS = ["<40", "40-49", "50-69", "70-99", "100-149", "150-249", "250-499", "500-999", "1000+"]
 CORRECTION_KINDS = ["own_player", "remote_player", "own_vehicle", "remote_vehicle", "object", "actor", "host"]
@@ -68,6 +71,86 @@ def kind_names():
         number = int(match.group(2)) if match.group(2) else number + 1
         names[number] = match.group(1)
     return names
+
+
+def packet_names():
+    """The game's packet types by number, from network_messages.h."""
+    try:
+        text = open(PACKETS, encoding="utf-8").read()
+    except OSError:
+        return {}
+    block = text[text.find("_message_client_broadcast_game_search"):text.find("NUMBER_OF_NETWORK_GAME_MESSAGE_TYPES")]
+    return {index: name for index, name in enumerate(re.findall(r"_message_(\w+)", block))}
+
+
+def accounting(windows):
+    """Every byte the game's sockets read, by where it went: Delta Peer, each
+    game packet type, each distributed kind, the batches' framing, what was
+    dropped and why, and what no layer took up (the connection's own
+    framing, acknowledgments and resends, or anything else)."""
+    seconds = sum(w.get("window", 0) for w in windows) or 1
+    kinds, packets = kind_names(), packet_names()
+    rows = {}
+
+    def add(name, count, size):
+        entry = rows.setdefault(name, [0, 0])
+        entry[0] += count
+        entry[1] += size
+
+    # (UDP datagrams, and the game's reliable connection, which is TCP)
+    datagram_bytes = sum(w["datagrams"]["in_bytes"] for w in windows)
+    stream_bytes = sum(w.get("streams", {}).get("in_bytes", 0) for w in windows)
+    wire = datagram_bytes + stream_bytes
+    wire_count = sum(w["datagrams"]["in"] for w in windows)
+    game_total = 0
+    data_total = 0
+    for w in windows:
+        peer = w.get("delta_peer", {})
+        add("Delta Peer (session, roster, chat)", peer.get("in", 0), peer.get("in_bytes", 0))
+        add("Delta Peer voice", peer.get("voice_in", 0), peer.get("voice_in_bytes", 0))
+        for key, (count, size) in w.get("game_messages", {}).items():
+            message_type, packet, way = key.split(".")
+            message_type, packet = int(message_type), int(packet)
+            game_total += size
+            if message_type == 2:
+                data_total += size
+                continue
+            name = packets.get(packet, f"packet {packet}") if message_type == 3 else \
+                MESSAGE_TYPES.get(message_type, f"message type {message_type}")
+            add(f"game: {name} ({'stream' if way == 's' else 'datagram'})", count, size)
+        for kind, (count, size) in w.get("messages_in", {}).items():
+            name = kinds.get(int(kind), f"kind {kind}")
+            if name != "batch":
+                add(f"distributed: {name}", count, size)
+        add("distributed: batch framing", 0, w.get("batch_bytes", 0) - w.get("batched_bytes", 0))
+        add("distributed: dropped, no game running here (loading, lobby)",
+            w.get("warnings", {}).get("not_in_game", 0), w.get("warning_bytes", {}).get("not_in_game", 0))
+        add("distributed: the layout's header bytes (44's checkpoint epoch, 4 a message)", 0, w.get("layout_bytes", 0))
+        add("distributed: dropped, another checkpoint epoch or before the first",
+            w.get("warnings", {}).get("epoch", 0), w.get("warning_bytes", {}).get("epoch", 0))
+    distributed = sum(w.get("distributed_bytes", 0) for w in windows)
+    not_in_game = sum(w.get("warning_bytes", {}).get("not_in_game", 0) for w in windows)
+    layout = sum(w.get("layout_bytes", 0) for w in windows)
+    epoch = sum(w.get("warning_bytes", {}).get("epoch", 0) for w in windows)
+    add("data read but not handed on (map share, MCC share, not the host's; older builds: the layout's header too)", 0,
+        data_total - distributed - not_in_game - layout - epoch)
+    peer_total = sum(rows.get(k, [0, 0])[1] for k in ("Delta Peer (session, roster, chat)", "Delta Peer voice"))
+    add("UNACCOUNTED (connection framing, acks, resends, anything else)", 0, wire - peer_total - game_total)
+    table = [{"category": name, "count": count, "bytes": size, "bytes_per_second": round(size / seconds, 1),
+              "percent": round(100.0 * size / wire, 2) if wire else None}
+             for name, (count, size) in sorted(rows.items(), key=lambda item: -item[1][1])
+             if count or size or name.startswith("UNACCOUNTED")]
+    # (what was dropped, by why: inside the kinds above)
+    drops = {}
+    for w in windows:
+        for name, size in w.get("warning_bytes", {}).items():
+            entry = drops.setdefault(name, [0, 0])
+            entry[0] += w["warnings"].get(name, 0)
+            entry[1] += size
+    return {"wire_bytes": wire, "wire_datagrams": wire_count, "datagram_bytes": datagram_bytes,
+            "stream_bytes": stream_bytes, "seconds": round(seconds),
+            "wire_bytes_per_second": round(wire / seconds, 1), "rows": table,
+            "dropped": {name: {"count": c, "bytes": b} for name, (c, b) in drops.items() if c}}
 
 
 def safe_name(name):
@@ -269,8 +352,9 @@ def make_report(folder):
         "in": spread([w["datagrams"]["in"] / w["window"] for w in played]),
         "out": spread([w["datagrams"]["out"] / w["window"] for w in played])}
     # chat
-    chat = {key: sum(w["chat"][key] for w in windows) for key in ("server_lines", "server_bytes", "player_lines",
-                                                                   "player_bytes")}
+    chat = {key: sum(w["chat"].get(key, 0) for w in windows)
+            for key in ("server_lines", "server_bytes", "system_lines", "system_bytes", "player_lines", "player_bytes",
+                        "notices", "notice_bytes")}
     chat["server_lines_per_minute"] = round(chat["server_lines"] * 60 / seconds, 2) if seconds else 0
     chat["player_lines_per_minute"] = round(chat["player_lines"] * 60 / seconds, 2) if seconds else 0
     chat["server_lines_heard"] = [{"text": redact(e.get("text", "")), "count": e.get("count")}
@@ -287,8 +371,13 @@ def make_report(folder):
             kind: spread([w["players"]["unit_states_per_second"][kind] for w in played
                           if w["players"]["unit_states_per_second"][kind]]) for kind in ("own", "person", "bot")},
     }
-    report["warnings"] = {key: sum(w["warnings"][key] for w in windows)
-                          for key in ("unknown_kind", "out_of_window", "stale", "malformed")}
+    report["warnings"] = {key: sum(w["warnings"].get(key, 0) for w in windows)
+                          for key in ("unknown_kind", "out_of_window", "stale", "malformed", "not_in_game",
+                                      "unsynchronized", "wrong_sender", "mcc")}
+    report["accounting"] = accounting(windows)
+    report["accounting_in_game"] = accounting(played)
+    report["server_lines"] = [{"t": e["t"], "phase": e.get("phase"), "text": redact(e.get("text", ""))}
+                              for e in events if e["event"] == "server_line"]
     report["client"] = {
         "frame_longest_ms": max([w["client"]["frame_longest_ms"] for w in played], default=None),
         "frames_over_50ms": sum(w["client"]["frames_over_50ms"] for w in played),
@@ -366,11 +455,27 @@ def markdown(report):
               f"| Bytes a second in / out | {fmt(report['datagrams'].get('in_bytes'))} / {fmt(report['datagrams'].get('out_bytes'))} |",
               f"| Players (people / bots) | {fmt(report['players']['listed'])} ({fmt(report['players']['people'])} / {fmt(report['players']['bots'])}) of {fmt(report['players']['maximum'])} |",
               f"| Unit updates a second: person / bot / own | {fmt(report['players']['unit_states_per_second']['person'])} / {fmt(report['players']['unit_states_per_second']['bot'])} / {fmt(report['players']['unit_states_per_second']['own'])} |",
-              f"| Server lines | {report['chat']['server_lines']} ({report['chat']['server_lines_per_minute']}/min, {report['chat']['server_bytes']} bytes) |",
+              f"| Server lines: Delta chat / notices | {report['chat']['server_lines']} ({report['chat']['server_bytes']} B) / {report['chat']['notices']} ({report['chat']['notice_bytes']} B) |",
               f"| Player lines | {report['chat']['player_lines']} ({report['chat']['player_lines_per_minute']}/min) |",
               f"| Warnings | {', '.join(f'{k} {v}' for k, v in report['warnings'].items())} |",
               f"| Our frames: longest, over 50 ms | {fmt(report['client']['frame_longest_ms'])} ms, {report['client']['frames_over_50ms']} |",
               f"| Dip windows | {len(report['dips'])} ({fmt(report['dip_windows_percent'], '%')}) |", ""]
+    acc = report.get("accounting")
+    if acc:
+        lines += [f"Every byte read: {acc['wire_bytes']} bytes ({acc.get('datagram_bytes')} in {acc['wire_datagrams']} UDP datagrams, "
+                  f"{acc.get('stream_bytes')} on the TCP stream) over {acc['seconds']} s "
+                  f"({acc['wire_bytes_per_second']} B/s).", "",
+                  "| Category | Count | Bytes | B/s | % |", "| --- | --- | --- | --- | --- |"]
+        lines += [f"| {r['category']} | {r['count']} | {r['bytes']} | {r['bytes_per_second']} | {r['percent']} |"
+                  for r in acc["rows"]]
+        lines.append("")
+        if acc["dropped"]:
+            lines += ["Dropped (inside the rows above): " + ", ".join(f"{k} {v['count']} ({v['bytes']} B)"
+                                                                       for k, v in acc["dropped"].items()), ""]
+    if report.get("server_lines"):
+        lines += ["Server messages as they came:", ""]
+        lines += [f"- {l['t']} s ({l['phase']}): {l['text']}" for l in report["server_lines"]]
+        lines.append("")
     lines += ["Gaps between the host's ticks: " + ", ".join(f"{k} ms {v}" for k, v in host["gaps"].items()), ""]
     top = list(report["messages_in"].items())[:8]
     if top:
@@ -436,6 +541,26 @@ def compare(args):
             except (KeyError, TypeError):
                 cells.append("-")
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
+    # every byte, side by side (in a game, whole windows)
+    accounts = [r.get("accounting_in_game") for r in reports]
+    if all(accounts):
+        lines += ["", "Bytes read in a game, a second (% of all):", "",
+                  "| Category | " + " | ".join(r["server"] for r in reports) + " |",
+                  "| --- |" + " --- |" * len(reports)]
+        names = []
+        for account in accounts:
+            for row in account["rows"]:
+                if row["category"] not in names:
+                    names.append(row["category"])
+        names.sort(key=lambda name: -max(next((row["bytes_per_second"] for row in a["rows"]
+                                               if row["category"] == name), 0) for a in accounts))
+        for name in names:
+            cells = []
+            for account in accounts:
+                row = next((row for row in account["rows"] if row["category"] == name), None)
+                cells.append(f"{row['bytes_per_second']} ({row['percent']}%)" if row else "-")
+            lines.append(f"| {name} | " + " | ".join(cells) + " |")
+        lines.append("| All | " + " | ".join(f"{a['wire_bytes_per_second']}" for a in accounts) + " |")
     text = "\n".join(lines) + "\n"
     if args.out:
         open(args.out, "w").write(text)

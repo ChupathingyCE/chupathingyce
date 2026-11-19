@@ -5771,7 +5771,12 @@ static void distributed_handle_message(
 
 	/* (none between games: loading, or in the menus) */
 	if (size < sizeof(header) || !game_in_progress())
+	{
+		if (machine_index == NONE && !distributed_handling_batch)
+			net_monitor_warning(_net_monitor_not_in_game, size >= sizeof(header) ?
+				((struct distributed_message_header const *)message)->type : 0, size);
 		return;
+	}
 #ifdef HALO_BIG_ENDIAN
 	/* (a big-endian console: the message in this machine's order; a batch's
 	messages each as it is handled) */
@@ -5784,12 +5789,18 @@ static void distributed_handle_message(
 	csmemcpy(&header, message, sizeof(header));
 	/* (the server monitor: each message, and a datagram's tick from the host
 	as it arrived) */
-	net_monitor_message_in(header.type, size, header.game_time,
-		machine_index == NONE && !distributed_handling_batch && network_connection_last_read_was_unreliable());
+	if (machine_index == NONE)
+	{
+		net_monitor_message_in(header.type, size, header.game_time, distributed_handling_batch,
+			!distributed_handling_batch && network_connection_last_read_was_unreliable());
+	}
 #ifdef HALO_MCC_NETWORK
 	/* MCC messages never execute in an ordinary OpenCE session, even in a batch. */
 	if (header.type >= _distributed_message_mcc_grenades && !mcc_cache_tags_loaded())
+	{
+		net_monitor_warning(_net_monitor_mcc, header.type, size);
 		return;
+	}
 #endif
 	/* a tick's messages in one: each as if it came alone */
 	if (header.type == _distributed_message_batch)
@@ -5830,12 +5841,14 @@ static void distributed_handle_message(
 	{
 		if (network_distributed_mcc_session())
 			distributed_mcc_message(machine_index, &header, entries, size);
+		else
+			net_monitor_warning(_net_monitor_mcc, header.type, size);
 		return;
 	}
 	/* (a kind this build does not know: dropped before anything reads it) */
 	if (!distributed_kind_known(header.type))
 	{
-		net_monitor_warning(_net_monitor_unknown_kind, header.type);
+		net_monitor_warning(_net_monitor_unknown_kind, header.type, size);
 		distributed_unknown_kind(machine_index, header.type);
 		return;
 	}
@@ -5851,7 +5864,7 @@ static void distributed_handle_message(
 	if (header.type == 0 || header.type >= NUMBER_OF_DISTRIBUTED_MESSAGES ||
 		size < sizeof(header) + header.count * entry_size)
 	{
-		net_monitor_warning(_net_monitor_malformed, header.type);
+		net_monitor_warning(_net_monitor_malformed, header.type, size);
 #ifdef HALO_PORT_CHAT
 		/* (OpenCE's chat: dropped, and said in the log once) */
 		if (header.type >= _distributed_message_chat_up && header.type <= _distributed_message_chat_config)
@@ -5892,6 +5905,7 @@ static void distributed_handle_message(
 			header.type == _distributed_message_hit_reports) &&
 		!distributed_handling_stream_message)
 	{
+		net_monitor_warning(_net_monitor_wrong_sender, header.type, size);
 		return;
 	}
 	/* (each kind from the host, or from a client) */
@@ -5906,17 +5920,23 @@ static void distributed_handle_message(
 	case _distributed_message_coop_skip_vote:
 	case _distributed_message_chat_up:
 		if (machine_index == NONE || game_connection() != _game_connection_network_server)
+		{
+			net_monitor_warning(_net_monitor_wrong_sender, header.type, size);
 			return;
+		}
 		break;
 	default:
 		if (game_connection() != _game_connection_network_client)
+		{
+			net_monitor_warning(_net_monitor_wrong_sender, header.type, size);
 			return;
+		}
 		break;
 	}
 	if (!distributed_message_time_bounded(machine_index, header.game_time,
 		machine_index == NONE ? !network_connection_last_read_was_unreliable() : distributed_handling_stream_message))
 	{
-		net_monitor_warning(_net_monitor_out_of_window, header.type);
+		net_monitor_warning(_net_monitor_out_of_window, header.type, size);
 		return;
 	}
 	/* (a client: the host's latest tick, which its input messages tell it
@@ -5929,7 +5949,7 @@ static void distributed_handle_message(
 	if ((distributed_handling_batch || header.type != _distributed_message_damage_events) &&
 		distributed_message_stale(machine_index, &header))
 	{
-		net_monitor_warning(_net_monitor_stale, header.type);
+		net_monitor_warning(_net_monitor_stale, header.type, size);
 		return;
 	}
 	/* (the host: a client's clock, by its messages' ticks; and its players'
@@ -5942,6 +5962,7 @@ static void distributed_handle_message(
 		!network_rules_client_takes_unsynchronized(header.type, !network_connection_last_read_was_unreliable(),
 			distributed_handling_batch))
 	{
+		net_monitor_warning(_net_monitor_unsynchronized, header.type, size);
 		return;
 	}
 	if (machine_index != NONE)
@@ -6113,6 +6134,7 @@ static void distributed_handle_message(
 			length = MAXIMUM_NOTICE_LENGTH - 1;
 		csmemcpy(text, entries, length);
 		text[length] = 0;
+		net_monitor_notice(text, (int)length);
 		for (index = 0; index < length && text[index]; index++)
 		{
 			if (text[index] < 32 || text[index] > 126)
@@ -6433,7 +6455,11 @@ void network_distributed_handle_message(
 	byte type;
 
 	if (size < sizeof(struct distributed_message_header) || !game_in_progress())
+	{
+		if (machine_index == NONE)
+			net_monitor_warning(_net_monitor_not_in_game, size >= 3 ? ((byte const *)message)[2] : 0, size);
 		return;
+	}
 	layout = distributed_wire_layout();
 	if (!layout->header_extra)
 	{
@@ -6449,7 +6475,13 @@ void network_distributed_handle_message(
 	narrow_size = network_rules_header_strip((uint8_t const *)message, size, (uint8_t *)narrow, layout->header_extra,
 		has_epoch, distributed_epoch, 0, &epoch);
 	if (!narrow_size)
+	{
+		if (machine_index == NONE)
+			net_monitor_warning(_net_monitor_epoch, type, size);
 		return;
+	}
+	if (machine_index == NONE)
+		net_monitor_layout_bytes(size - narrow_size);
 	if (has_epoch && type != _distributed_message_batch)
 	{
 		if (type == layout->epoch_kind)
@@ -6464,6 +6496,8 @@ void network_distributed_handle_message(
 			!network_rules_host_takes(epoch, distributed_epoch, type, narrow_size, ((byte const *)narrow)[3],
 				distributed_handling_stream_message, FALSE))
 		{
+			if (machine_index == NONE)
+				net_monitor_warning(_net_monitor_epoch, type, narrow_size);
 			return;
 		}
 	}

@@ -495,7 +495,8 @@ static void line_heard(struct delta_wire_chat_line const *line)
 	int blocked;
 
 	/* (the server monitor counts every line heard, and keeps the server's) */
-	net_monitor_chat(server, line->length, server ? line->text : NULL);
+	net_monitor_chat(!server ? 0 : line->kind == _delta_chat_kind_server ? 1 : 2, line->length,
+		server ? line->text : NULL);
 	if (server)
 	{
 		if (!config_boolean("display.server_messages"))

@@ -81,6 +81,9 @@ enum
 	_role_host
 };
 
+/* (the datagrams read: the rest's count and bytes, voice's count and bytes) */
+static unsigned long delta_game_received[4];
+
 static struct
 {
 	int ready;
@@ -808,15 +811,34 @@ static void receive(void)
 		if (size == SOCKET_ERROR)
 			break;
 		if (size > 3 && (data[3] == _delta_message_voice_up || data[3] == _delta_message_voice_down))
+		{
 			voice++;
+			delta_game_received[2]++;
+			delta_game_received[3] += (unsigned long)size;
+		}
 		else
+		{
 			count++;
+			delta_game_received[0]++;
+			delta_game_received[1] += (unsigned long)size;
+		}
 		if (length < (int)sizeof(from) || from.sin_family != AF_INET)
 			continue;
 		/* (one too big is dropped by the session: read as one byte more) */
 		delta_peer_receive(&delta_game.peer, GetTickCount(), (delta_u32)from.sin_addr.s_addr,
 			halo_ws_ntohs(from.sin_port), data, size);
 	}
+}
+
+/* the datagrams Delta Peer's socket read and their bytes, the rest and
+voice's (for the server monitor, port/linux/game/net_monitor.c) */
+void delta_peer_game_received_counts(unsigned long *datagrams, unsigned long *bytes, unsigned long *voice_datagrams,
+	unsigned long *voice_bytes)
+{
+	*datagrams = delta_game_received[0];
+	*bytes = delta_game_received[1];
+	*voice_datagrams = delta_game_received[2];
+	*voice_bytes = delta_game_received[3];
 }
 
 /* ---------- Halo PC maps' identity (ce_maps) */

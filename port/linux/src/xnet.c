@@ -528,6 +528,9 @@ SOCKET WSAAPI halo_ws_accept(SOCKET socket, struct sockaddr *address, int *addre
 the server monitor (port/linux/game/net_monitor.c), counted once it first
 asks; any thread may count */
 static unsigned long xnet_datagrams[4];
+/* (and the streams': the game's reliable connection is TCP; reads and
+writes, and their bytes) */
+static unsigned long xnet_streams[4];
 static int xnet_counting;
 
 static void xnet_count_datagram(int received, int length);
@@ -544,6 +547,21 @@ static void xnet_count_connected(SOCKET socket, int received, int length)
 	posix_socket_getsockopt((int)socket, SOL_SOCKET, SO_TYPE, &type, &type_length);
 	if (type == SOCK_DGRAM)
 		xnet_count_datagram(received, length);
+	else if (type == SOCK_STREAM && length > 0)
+	{
+		__atomic_fetch_add(&xnet_streams[received ? 2 : 0], 1UL, __ATOMIC_RELAXED);
+		__atomic_fetch_add(&xnet_streams[received ? 3 : 1], (unsigned long)length, __ATOMIC_RELAXED);
+	}
+}
+
+void xnet_stream_counts(unsigned long *writes, unsigned long *written_bytes, unsigned long *reads,
+	unsigned long *read_bytes)
+{
+	__atomic_store_n(&xnet_counting, 1, __ATOMIC_RELAXED);
+	*writes = __atomic_load_n(&xnet_streams[0], __ATOMIC_RELAXED);
+	*written_bytes = __atomic_load_n(&xnet_streams[1], __ATOMIC_RELAXED);
+	*reads = __atomic_load_n(&xnet_streams[2], __ATOMIC_RELAXED);
+	*read_bytes = __atomic_load_n(&xnet_streams[3], __ATOMIC_RELAXED);
 }
 
 int WSAAPI halo_ws_send(SOCKET socket, const char *buffer, int length, int flags)

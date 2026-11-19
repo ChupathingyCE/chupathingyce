@@ -54,6 +54,7 @@ Nothing it writes names an address: the game is named by its listed name.
 #include "networking/network_client_manager.h"
 #include "../src/browser.h"
 #include "../src/map_share_files.h"
+#include "network_distributed.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -74,6 +75,13 @@ unsigned long system_milliseconds(void);
 bytes */
 void xnet_datagram_counts(unsigned long *sent, unsigned long *sent_bytes, unsigned long *received,
 	unsigned long *received_bytes);
+/* xnet.c's: the streams' reads and writes (the game's reliable connection
+is TCP), and their bytes */
+void xnet_stream_counts(unsigned long *writes, unsigned long *written_bytes, unsigned long *reads,
+	unsigned long *read_bytes);
+/* delta_peer_game.c's: the datagrams Delta Peer's socket read */
+void delta_peer_game_received_counts(unsigned long *datagrams, unsigned long *bytes, unsigned long *voice_datagrams,
+	unsigned long *voice_bytes);
 /* browser_screen.c's */
 void browser_screen_open(void);
 boolean browser_screen_active(void);
@@ -96,6 +104,8 @@ enum
 	/* the gaps between the host's new ticks, by their upper bounds (ms) */
 	NUMBER_OF_GAP_BUCKETS = 9,
 	MAXIMUM_KINDS = 256,
+	/* the game connection's message types counted (message_header's) */
+	MAXIMUM_MESSAGE_TYPES = 8,
 	MAXIMUM_PLAYERS = 128,
 	MAXIMUM_SERVER_LINES = 16,
 	SERVER_LINE_LENGTH = 96,
@@ -149,12 +159,31 @@ struct monitor_window
 	float correction_largest[NUMBER_OF_NET_MONITOR_CORRECTIONS];
 	/* the host's word on each player's unit */
 	long unit_states[MAXIMUM_PLAYERS];
-	/* chat lines: the server's and the players', and their bytes */
+	/* chat lines: the server's (Delta's), the system's (a notice shown in
+	the chat) and the players', and their bytes; and the host's notices */
 	long server_lines;
 	long server_bytes;
+	long system_lines;
+	long system_bytes;
 	long player_lines;
 	long player_bytes;
+	long notices;
+	long notice_bytes;
 	long warnings[NUMBER_OF_NET_MONITOR_WARNINGS];
+	long warning_bytes[NUMBER_OF_NET_MONITOR_WARNINGS];
+	/* the distributed messages' bytes: as they came (alone, or batches
+	whole), the batches', and the messages in batches */
+	long distributed_bytes;
+	long layout_bytes;
+	long batch_bytes;
+	long batched_bytes;
+	/* every message the game's connection read, by message type and a
+	packet's type, datagram [0] or stream [1]: count and bytes */
+	long game_count[MAXIMUM_MESSAGE_TYPES][256][2];
+	long game_bytes[MAXIMUM_MESSAGE_TYPES][256][2];
+	/* Delta Peer's socket's counts at the window's start, and the streams' */
+	unsigned long delta_peer[4];
+	unsigned long streams[4];
 	/* this machine's frames: count, longest, over 50 and 100 ms */
 	long frames;
 	long frame_longest;
@@ -190,6 +219,8 @@ static struct
 	char variant[32];
 	long games_ended;
 	short client_state;
+	/* (phase_names) */
+	short phase;
 	unsigned long host_tick_time;
 	long host_tick;
 	struct monitor_window window;
@@ -204,8 +235,9 @@ static char const *correction_names[NUMBER_OF_NET_MONITOR_CORRECTIONS] = {
 	"own_player", "remote_player", "own_vehicle", "remote_vehicle", "object", "actor", "host"
 };
 static char const *warning_names[NUMBER_OF_NET_MONITOR_WARNINGS] = {
-	"unknown_kind", "out_of_window", "stale", "malformed"
+	"unknown_kind", "out_of_window", "stale", "malformed", "not_in_game", "unsynchronized", "wrong_sender", "mcc", "epoch"
 };
+static char const *phase_names[] = { "joining", "lobby", "loading", "game", "postgame" };
 
 /* ---------- writing */
 
@@ -286,6 +318,9 @@ static void monitor_window_reset(
 	window->last_tick = NONE;
 	xnet_datagram_counts(&window->datagrams[0], &window->datagrams[1], &window->datagrams[2],
 		&window->datagrams[3]);
+	delta_peer_game_received_counts(&window->delta_peer[0], &window->delta_peer[1], &window->delta_peer[2],
+		&window->delta_peer[3]);
+	xnet_stream_counts(&window->streams[0], &window->streams[1], &window->streams[2], &window->streams[3]);
 }
 
 static void monitor_append(
@@ -383,7 +418,7 @@ static void monitor_window_write(
 		"{\"t\": %.1f, \"window\": %.1f, \"state\": \"%s\", \"whole_game\": %s, \"map\": \"%s\", "
 		"\"variant\": \"%s\"",
 		monitor_seconds(), (double)seconds,
-		monitor.in_game ? "game" : monitor.client_state == _client_postgame ? "postgame" : "lobby",
+		phase_names[monitor.phase],
 		window->whole_game && monitor.in_game ? "true" : "false", monitor.map, monitor.variant);
 	/* the host's ticks */
 	{
@@ -436,15 +471,65 @@ static void monitor_window_write(
 		"}, \"datagrams\": {\"out\": %lu, \"out_bytes\": %lu, \"in\": %lu, \"in_bytes\": %lu}",
 		datagrams[0] - window->datagrams[0], datagrams[1] - window->datagrams[1], datagrams[2] - window->datagrams[2],
 		datagrams[3] - window->datagrams[3]);
+	{
+		unsigned long streams[4];
+
+		xnet_stream_counts(&streams[0], &streams[1], &streams[2], &streams[3]);
+		monitor_append(line, sizeof(line), &length,
+			", \"streams\": {\"writes\": %lu, \"out_bytes\": %lu, \"reads\": %lu, \"in_bytes\": %lu}",
+			streams[0] - window->streams[0], streams[1] - window->streams[1], streams[2] - window->streams[2],
+			streams[3] - window->streams[3]);
+	}
+	/* every message the game's connection read: "<message type>.<packet
+	type>.<d|s>": [count, bytes] */
+	monitor_append(line, sizeof(line), &length, ", \"game_messages\": {");
+	{
+		int type, packet, stream;
+
+		for (type = 0, first = TRUE; type < MAXIMUM_MESSAGE_TYPES; type++)
+		{
+			for (packet = 0; packet < 256; packet++)
+			{
+				for (stream = 0; stream < 2; stream++)
+				{
+					if (!window->game_count[type][packet][stream])
+						continue;
+					monitor_append(line, sizeof(line), &length, "%s\"%d.%d.%c\": [%ld, %ld]", first ? "" : ", ", type,
+						packet, stream ? 's' : 'd', window->game_count[type][packet][stream],
+						window->game_bytes[type][packet][stream]);
+					first = FALSE;
+				}
+			}
+		}
+	}
+	{
+		unsigned long delta_peer[4];
+
+		delta_peer_game_received_counts(&delta_peer[0], &delta_peer[1], &delta_peer[2], &delta_peer[3]);
+		monitor_append(line, sizeof(line), &length,
+			"}, \"distributed_bytes\": %ld, \"layout_bytes\": %ld, \"batch_bytes\": %ld, \"batched_bytes\": %ld, "
+			"\"delta_peer\": {\"in\": %lu, \"in_bytes\": %lu, \"voice_in\": %lu, \"voice_in_bytes\": %lu}",
+			window->distributed_bytes, window->layout_bytes, window->batch_bytes, window->batched_bytes,
+			delta_peer[0] - window->delta_peer[0], delta_peer[1] - window->delta_peer[1],
+			delta_peer[2] - window->delta_peer[2], delta_peer[3] - window->delta_peer[3]);
+	}
 	monitor_append(line, sizeof(line), &length,
-		", \"chat\": {\"server_lines\": %ld, \"server_bytes\": %ld, \"player_lines\": %ld, \"player_bytes\": %ld}",
-		window->server_lines, window->server_bytes, window->player_lines, window->player_bytes);
+		", \"chat\": {\"server_lines\": %ld, \"server_bytes\": %ld, \"system_lines\": %ld, \"system_bytes\": %ld, "
+		"\"player_lines\": %ld, \"player_bytes\": %ld, \"notices\": %ld, \"notice_bytes\": %ld}",
+		window->server_lines, window->server_bytes, window->system_lines, window->system_bytes, window->player_lines,
+		window->player_bytes, window->notices, window->notice_bytes);
 	monitor_players(line, sizeof(line), &length, seconds);
 	monitor_append(line, sizeof(line), &length, ", \"warnings\": {");
 	for (index = 0; index < NUMBER_OF_NET_MONITOR_WARNINGS; index++)
 	{
 		monitor_append(line, sizeof(line), &length, "%s\"%s\": %ld", index ? ", " : "", warning_names[index],
 			window->warnings[index]);
+	}
+	monitor_append(line, sizeof(line), &length, "}, \"warning_bytes\": {");
+	for (index = 0; index < NUMBER_OF_NET_MONITOR_WARNINGS; index++)
+	{
+		monitor_append(line, sizeof(line), &length, "%s\"%s\": %ld", index ? ", " : "", warning_names[index],
+			window->warning_bytes[index]);
 	}
 	monitor_append(line, sizeof(line), &length,
 		"}, \"client\": {\"frames\": %ld, \"frame_longest_ms\": %ld, \"frames_over_50ms\": %ld, "
@@ -462,23 +547,42 @@ int net_monitor_active(
 	return monitor.state != _monitor_off;
 }
 
+/* (counting from the join on: what the host sends as the machine joins
+too) */
+static boolean monitor_counting(
+	void)
+{
+	return monitor.state == _monitor_joining || monitor.state == _monitor_joined;
+}
+
 void net_monitor_message_in(
 	int type,
 	int size,
 	long game_time,
-	int outermost)
+	int in_batch,
+	int tick_sample)
 {
 	struct monitor_window *window = &monitor.window;
 
-	if (monitor.state != _monitor_joined)
+	if (!monitor_counting())
 		return;
+	/* (a batch's own bytes hold its messages': counted as it came, and its
+	messages each by their kind) */
+	if (!in_batch)
+		window->distributed_bytes += size;
+	if (!in_batch && type == _distributed_message_batch)
+		window->batch_bytes += size;
+	if (in_batch)
+		window->batched_bytes += size;
 	if (type >= 0 && type < MAXIMUM_KINDS)
 	{
 		window->in_count[type]++;
 		window->in_bytes[type] += size;
 	}
+	if (monitor.state != _monitor_joined)
+		return;
 	/* (a datagram's newest tick: the host's tick as it arrived) */
-	if (outermost && game_time > monitor.host_tick)
+	if (tick_sample && game_time > monitor.host_tick)
 	{
 		unsigned long now = system_milliseconds();
 
@@ -546,27 +650,17 @@ void net_monitor_unit_state(
 		monitor.window.unit_states[player_index]++;
 }
 
-void net_monitor_chat(
-	int server,
-	int length,
-	char const *text)
+/* the server's distinct lines, by channel: an event for each new one, the
+first ones kept and counted */
+static void monitor_server_line(
+	char const *channel,
+	char const *text,
+	int length)
 {
-	struct monitor_window *window = &monitor.window;
 	char kept[SERVER_LINE_LENGTH];
 	short index;
 
-	if (monitor.state != _monitor_joined)
-		return;
-	if (!server)
-	{
-		window->player_lines++;
-		window->player_bytes += length;
-		return;
-	}
-	window->server_lines++;
-	window->server_bytes += length;
-	/* (the server's distinct lines, counted: the first ones kept) */
-	snprintf(kept, sizeof(kept), "%.*s", MIN(length, (int)sizeof(kept) - 1), text ? text : "");
+	snprintf(kept, sizeof(kept), "%s: %.*s", channel, MAX(0, MIN(length, (int)sizeof(kept) - 16)), text ? text : "");
 	for (index = 0; index < monitor.server_line_count; index++)
 	{
 		if (!strcmp(monitor.server_lines[index], kept))
@@ -583,17 +677,90 @@ void net_monitor_chat(
 		snprintf(monitor.server_lines[monitor.server_line_count], SERVER_LINE_LENGTH, "%s", kept);
 		monitor.server_line_counts[monitor.server_line_count++] = 1;
 		monitor_json_text(text_json, sizeof(text_json), kept);
-		snprintf(fields, sizeof(fields), "\"text\": \"%s\", \"length\": %d", text_json, length);
+		snprintf(fields, sizeof(fields), "\"text\": \"%s\", \"length\": %d, \"phase\": \"%s\"", text_json, length,
+			phase_names[monitor.phase]);
 		monitor_event("server_line", fields);
 	}
 }
 
+void net_monitor_chat(
+	int channel,
+	int length,
+	char const *text)
+{
+	struct monitor_window *window = &monitor.window;
+
+	if (!monitor_counting())
+		return;
+	if (channel == 0)
+	{
+		window->player_lines++;
+		window->player_bytes += length;
+		return;
+	}
+	if (channel == 1)
+	{
+		window->server_lines++;
+		window->server_bytes += length;
+	}
+	else
+	{
+		window->system_lines++;
+		window->system_bytes += length;
+	}
+	monitor_server_line(channel == 1 ? "delta chat" : "chat system line", text, length);
+}
+
+void net_monitor_notice(
+	char const *text,
+	int length)
+{
+	if (!monitor_counting())
+		return;
+	monitor.window.notices++;
+	monitor.window.notice_bytes += length;
+	/* (a blank one, a screen's padding, counted alone) */
+	while (length > 0 && text && *text == ' ')
+	{
+		text++;
+		length--;
+	}
+	if (length > 0)
+		monitor_server_line("notice", text, length);
+}
+
+void net_monitor_layout_bytes(
+	int size)
+{
+	if (monitor_counting())
+		monitor.window.layout_bytes += size;
+}
+
+void net_monitor_game_message(
+	int message_type,
+	int packet_type,
+	int size,
+	int stream)
+{
+	struct monitor_window *window = &monitor.window;
+
+	if (!monitor_counting() || message_type < 0 || packet_type < 0 || packet_type > 255)
+		return;
+	message_type = MIN(message_type, MAXIMUM_MESSAGE_TYPES - 1);
+	window->game_count[message_type][packet_type][stream != 0]++;
+	window->game_bytes[message_type][packet_type][stream != 0] += size;
+}
+
 void net_monitor_warning(
 	int warning,
-	int type)
+	int type,
+	int size)
 {
-	if (monitor.state == _monitor_joined && warning >= 0 && warning < NUMBER_OF_NET_MONITOR_WARNINGS)
+	if (monitor_counting() && warning >= 0 && warning < NUMBER_OF_NET_MONITOR_WARNINGS)
+	{
 		monitor.window.warnings[warning]++;
+		monitor.window.warning_bytes[warning] += size;
+	}
 	(void)type;
 }
 
@@ -779,6 +946,14 @@ static void monitor_finding(
 		}
 		return;
 	}
+	/* (a game between maps, not open to joins: waited for, as long as a
+	listing is) */
+	if (!game.open)
+	{
+		if (now - monitor.state_time >= FIND_SECONDS * 1000)
+			monitor_leave("not open to joins", 4);
+		return;
+	}
 	monitor_listed_name(&game, name, sizeof(name));
 	monitor_json_text(name_json, sizeof(name_json), name);
 	monitor_json_text(map_json, sizeof(map_json), game.map);
@@ -804,8 +979,10 @@ static void monitor_finding(
 	else
 	{
 		monitor_event("join", "");
-		browser_screen_debug_join(index);
 		monitor_state(_monitor_joining);
+		monitor.phase = 0;
+		monitor_window_reset();
+		browser_screen_debug_join(index);
 	}
 }
 
@@ -820,6 +997,8 @@ static void monitor_follow_game(
 	short client_state = client ? network_game_client_get_state(client, &state_data) : _client_searching;
 
 	monitor.client_state = client_state;
+	monitor.phase = in_game ? 3 : client_state == _client_postgame || (game_in_progress() && game_engine_running()) ? 4 :
+		game_in_progress() ? 2 : 1;
 	if (game)
 	{
 		char map[128];
@@ -949,8 +1128,9 @@ void net_monitor_update(
 
 		if (state >= _client_pregame)
 		{
+			/* (what came while joining, its own window) */
+			monitor_window_write();
 			monitor_event("joined", "");
-			monitor_window_reset();
 			monitor_state(_monitor_joined);
 		}
 		else if (now - monitor.state_time >= JOIN_SECONDS * 1000)
