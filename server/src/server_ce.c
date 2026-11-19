@@ -575,8 +575,13 @@ static long client_player(
 	struct data_iterator iterator;
 	struct player_datum *datum;
 
-	if (!client->active || client->machine_index == NONE || !player_data)
+	/* (and only while that machine is still its virtual machine: a machine
+	of that index the game has since given another client is not its) */
+	if (!client->active || client->machine_index == NONE || !player_data ||
+		!network_game_server_port_machine_is_virtual(client->machine_index))
+	{
 		return NONE;
+	}
 	data_iterator_new(&iterator, player_data);
 	while ((datum = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
 	{
@@ -2829,7 +2834,7 @@ static struct ce_client *client_for_player(
 		struct ce_client *client = &ce.clients[index];
 
 		if (client->active && client->machine_index != NONE && client->machine_index == machine_index &&
-			controller_index == 0)
+			controller_index == 0 && network_game_server_port_machine_is_virtual(machine_index))
 		{
 			return client;
 		}

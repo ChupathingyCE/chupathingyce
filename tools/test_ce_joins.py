@@ -901,6 +901,12 @@ def test_custom_edition_clients_are_machines():
     # host's, so the capabilities every machine shares are not cut by it)
     delta = _function(manager, "static void network_game_server_delta_frame")
     assert "if (local || machines[count].ipv4)" in delta
+    # (a client's player and its lookups by machine hold only while that
+    # machine is still its virtual one)
+    assert "!network_game_server_port_machine_is_virtual(client->machine_index)" in \
+        _function(source, "static long client_player")
+    assert "controller_index == 0 && network_game_server_port_machine_is_virtual(machine_index)" in \
+        _function(source, "static struct ce_client *client_for_player")
 
 
 def test_welcome_line():
