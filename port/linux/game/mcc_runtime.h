@@ -63,6 +63,7 @@ int mcc_bitmaps_read(struct mcc_runtime *runtime, long tag, uint32_t offset,
 int mcc_bitmaps_contains(struct mcc_runtime *runtime, uint32_t offset, uint32_t bytes);
 int mcc_bitmaps_valid(struct mcc_runtime *runtime, struct bitmap_data *bitmap);
 int mcc_bitmaps_group_valid(struct mcc_runtime *runtime, void *group);
+int mcc_bitmaps_source_crc(struct mcc_runtime *runtime, struct bitmap_data const *bitmap, uint32_t *crc);
 void const *mcc_bitmaps_pixels(struct mcc_runtime *runtime,
     struct bitmap_data const *bitmap, uint32_t *bytes, int *coverage);
 void mcc_bitmaps_dispose(struct mcc_runtime *runtime);
