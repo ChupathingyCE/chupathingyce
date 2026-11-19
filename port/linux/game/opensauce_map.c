@@ -331,6 +331,22 @@ void opensauce_map_set_gravity_scale(
 	opensauce_log("gravity scaled by %.3f by its scripts (physics_set_gravity)", (double)scale);
 }
 
+float opensauce_map_drawn_camouflage(
+	float amount)
+{
+	static boolean logged = FALSE;
+
+	if (!opensauce_globals.active || (amount >= 0.0f && amount <= 1.0f))
+		return amount;
+	if (!logged)
+	{
+		logged = TRUE;
+		opensauce_log("a unit's active camouflage is %.2f, past 1 (its scripts set it so): drawn fully on, the unit "
+			"keeping its value as it fades", (double)amount);
+	}
+	return amount < 0.0f ? 0.0f : 1.0f;
+}
+
 void opensauce_map_unloaded(
 	void)
 {

@@ -12,6 +12,11 @@ is used for a map without an OpenSauce header.
 #ifndef OPENSAUCE_H
 #define OPENSAUCE_H
 
+#ifndef HALO_CUSTOM_EDITION
+/* (no OpenSauce maps without Custom Edition's: as it is) */
+#define opensauce_map_drawn_camouflage(amount) (amount)
+#endif
+
 /* ---------- constants */
 
 enum
@@ -87,6 +92,15 @@ void opensauce_map_tags_loaded(
 physics_set_gravity does: put back when the map unloads */
 void opensauce_map_set_gravity_scale(
 	float scale);
+
+/* a unit's active camouflage as it is drawn (and fades its lights): an
+OpenSauce map's scripts set it past 1 (SPV3's camo_power 2, to hold it on
+longer as it fades), which Halo PC's engine draws as fully on; drawn so here,
+the unit keeping its value. Any other map's as it is */
+#ifdef HALO_CUSTOM_EDITION
+float opensauce_map_drawn_camouflage(
+	float amount);
+#endif
 
 /* the map unloaded: whatever it changed put back */
 void opensauce_map_unloaded(
