@@ -89,6 +89,7 @@ symbols in this file:
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps_inlines.h"
 #include "bitmaps/bitmap_utilities.h"
+#include "cache/cache_files.h"
 #include "cache/texture_cache.h"
 #include "mcc_cache.h"
 #include "mcc_hud_draw.h"
@@ -1659,8 +1660,12 @@ static void hud_draw_bitmap_internal(
 	reaches the window's edges: its quad is widened and its texture carried
 	on at the same rate, so the middle is drawn as before, and the bitmap,
 	mirrored past its edges, fills the sides: a scope mask's black border
-	stays black, a tint or vignette carries on without a seam or streaks */
-	if (theta == 0.0f)
+	stays black, a tint or vignette carries on without a seam or streaks.
+	A Custom Edition map's only, as Halo PC's HUD is laid out for any screen;
+	the Xbox's maps keep their 4:3 HUD. The mirroring is the whole texture's
+	(its addressing): fine for a bitmap that covers the screen, the only kind
+	widened */
+	if (theta == 0.0f && CACHE_FILE_TAGS_ARE_CE())
 	{
 		/* (the viewport's: the window is the HUD's safe area within it) */
 		real window_x0 = 0.0f;
