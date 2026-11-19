@@ -1622,6 +1622,67 @@ writes into `maps_quarantine`. `map_download.c` then runs the quick checks
 transfer runs on the game's thread; the checks run on a thread of their
 own. Its progress is the screen's download bar, and B cancels it.
 
+### Server monitor
+
+The server monitor shows how a public game's host really behaves, from one
+quiet guest, so a dip a player sees can be told apart: the host's, the way
+between, or the player's own machine. `tools/server_monitor.py run` starts
+the game headless in a folder of its own (its own HOME, saves and data
+root) with `debug.network_test = "monitor:<listed name>"`
+(`port/linux/game/net_monitor.c`), waits for it, and writes a report (JSON
+and Markdown); `compare` puts reports side by side.
+
+The monitor opens the Online Games screen, finds the game listed under
+that name (the same name, else the same name in any case, else the one game
+whose name holds it), and joins it as A on it does, once. It joins only a
+game with no password, open to joins, of a version it plays, and with
+`debug.monitor_free_slots` free after its own player (2 unless set, 1 at
+least). Its player is named `debug.monitor_name` ("Chupa" unless set) and
+plays nothing: no chat, and no input (this machine's gamepads, keyboard and
+mouse never reach the game); the tool turns voice, profile sharing, map
+downloads, the game list's reports and the lobby off. It leaves when
+`debug.monitor_minutes` are up and the game under way has ended (20
+minutes later at most), after `debug.monitor_games` games (it won't run
+with neither), at once when the game has fewer free slots than it keeps,
+and for good when the host drops it. The tool runs it once a server at a
+time (a lock file), and not again on a server whose join failed or that
+dropped it until it is told to (`--clear-failed`).
+
+Nothing it writes names an address or a player. Games go by their listed
+names (a player's own game, often named after the player, only counted),
+and the server's lines by their channel, length and a hash: a line may
+name players, so its text goes only to a local file beside the output, and
+only with `debug.monitor_keep_text`; a report never has it. The game's log
+reaches a report only as counts of what kind of line it was.
+
+Every ten seconds a line of JSON goes to `debug.monitor_output`:
+
+- the host's ticks as they arrived: new ticks a second, the gaps between
+  them (mean, spread, largest, and counts by length), the ticks skipped,
+  and the host's clock against this machine's;
+- the corrections, by what they moved (this machine's own player, other
+  players, vehicles it drives or not, AI), with how far and how many were
+  snaps. The net health line's `corrections` counts all of these but the
+  host's; its `own` count is this machine's own players alone;
+- the distributed messages each way by kind, and the datagrams and bytes
+  each way;
+- every byte it read, from the join on: each game packet type (stream or
+  datagram: the game's reliable connection is TCP), each distributed kind,
+  the batches' framing, a layout's header bytes (44's checkpoint epoch),
+  Delta Peer's, and each reason a message was dropped; what no layer took
+  up is the report's "unaccounted" row;
+- the server's lines, by how they came (Delta's chat, or the host's
+  notices, OpenCE's servers' server messages, which a Delta client shows
+  on its console), and the players' chat, counted;
+- the players, the bots (on a dedicated server, players sharing a machine:
+  its own plays no one; a player's game's split screen is not counted as
+  bots), and how often the host told this machine of each;
+- this machine's own frames (the longest, those over 50 and 100 ms): a gap
+  in the host's ticks while every frame here was short wasn't this
+  machine's;
+- the warnings: kinds it doesn't know, messages too far from the host's
+  clock, reordered ones, short ones.
+
 ## Map checks
 
 The game reads a map's tags straight into memory and uses them as its own
