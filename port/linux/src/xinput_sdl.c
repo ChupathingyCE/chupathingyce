@@ -2315,6 +2315,9 @@ enum
 	_gyro_pad_free,
 	_gyro_pad_on,
 	_gyro_pad_no_sensor,
+	/* (SDL listed a gyroscope but would not turn it on: not asked again
+	until gyro aim is turned off and on, so the log says it once) */
+	_gyro_pad_failed,
 };
 
 struct gyro_pad
@@ -2418,7 +2421,7 @@ controller plugged in again is a new ID to SDL, asked anew */
 static BOOL gyro_sensors_on(SDL_Gamepad *gamepad, SDL_JoystickID id)
 {
 	struct gyro_pad *pad;
-	BOOL on;
+	BOOL on, listed;
 
 	pthread_mutex_lock(&gyro_lock);
 	pad = gyro_pad_find(id);
@@ -2426,7 +2429,7 @@ static BOOL gyro_sensors_on(SDL_Gamepad *gamepad, SDL_JoystickID id)
 	{
 		on = pad->state == _gyro_pad_on;
 		pthread_mutex_unlock(&gyro_lock);
-		if (on || !SDL_GamepadHasSensor(gamepad, SDL_SENSOR_GYRO))
+		if (on || pad->state == _gyro_pad_failed || !SDL_GamepadHasSensor(gamepad, SDL_SENSOR_GYRO))
 			return on;
 		pthread_mutex_lock(&gyro_lock);
 		/* (it has one now: asked again below) */
@@ -2435,8 +2438,8 @@ static BOOL gyro_sensors_on(SDL_Gamepad *gamepad, SDL_JoystickID id)
 			pad->state = _gyro_pad_free;
 	}
 	pthread_mutex_unlock(&gyro_lock);
-	on = SDL_GamepadHasSensor(gamepad, SDL_SENSOR_GYRO) &&
-		SDL_SetGamepadSensorEnabled(gamepad, SDL_SENSOR_GYRO, true);
+	listed = SDL_GamepadHasSensor(gamepad, SDL_SENSOR_GYRO);
+	on = listed && SDL_SetGamepadSensorEnabled(gamepad, SDL_SENSOR_GYRO, true);
 	if (on && SDL_GamepadHasSensor(gamepad, SDL_SENSOR_ACCEL))
 		SDL_SetGamepadSensorEnabled(gamepad, SDL_SENSOR_ACCEL, true);
 	{
@@ -2447,7 +2450,7 @@ static BOOL gyro_sensors_on(SDL_Gamepad *gamepad, SDL_JoystickID id)
 	}
 	pthread_mutex_lock(&gyro_lock);
 	pad = gyro_pad_add(id);
-	pad->state = on ? _gyro_pad_on : _gyro_pad_no_sensor;
+	pad->state = on ? _gyro_pad_on : listed ? _gyro_pad_failed : _gyro_pad_no_sensor;
 	pad->taken_ms = SDL_GetTicks();
 	pthread_mutex_unlock(&gyro_lock);
 	return on;
