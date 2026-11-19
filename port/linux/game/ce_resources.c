@@ -2694,9 +2694,11 @@ static long ce_sound_split(byte *sound, byte *pitch_ranges, unsigned long pitch_
 			{
 				long step, at_index = following;
 
-				for (step = 0; at_index != NONE && step <= (long)count; step++)
+				/* (through the chunks of one split before it too, which end
+				where its chain did) */
+				for (step = 0; at_index != NONE && step <= (long)next_new; step++)
 				{
-					if (at_index < 0 || (unsigned long)at_index >= count || (unsigned long)at_index == permutation)
+					if (at_index < 0 || (unsigned long)at_index >= next_new || (unsigned long)at_index == permutation)
 						break;
 					at_index = *(short *)(block + at_index * CE_SOUND_PERMUTATION_SIZE + CE_PERMUTATION_NEXT_OFFSET);
 				}
