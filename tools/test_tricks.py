@@ -86,11 +86,12 @@ def read_recording(path):
     on a 32-bit build, 8 on a 64-bit Linux build)."""
     with open(path, "rb") as file:
         data = file.read()
-    if data[:5] != b"HDET1":
+    if data[:5] not in (b"HDET1", b"HDET2"):
         raise RuntimeError(f"{path} is no recording")
     long_size = 8 if struct.unpack_from("<Q", data, 8)[0] == ACTION.size else 4
     integer = "<q" if long_size == 8 else "<l"
-    header_size = 8 + 3 * long_size
+    # (the two sizes and the seed; "HDET2" keeps the host's rules after it)
+    header_size = 8 + (3 if data[:5] == b"HDET1" else 4) * long_size
     header = data[:header_size]
     offset = header_size
     ticks = []
