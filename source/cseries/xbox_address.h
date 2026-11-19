@@ -41,7 +41,18 @@ contiguous memory above), are one block of host memory placed wherever the
 host had room. Xbox address X is host address xbox_address_space_base + X,
 modulo 2^32 (the port reserves it: platform_xbox_window_reserve). */
 
+/* (a console with less memory starts the window higher, its heap the
+smaller: HALO_CONSOLE_WINDOW_LOW, halo_console_features.h, which its prefix
+header reads ahead of this one) */
+#ifdef HALO_CONSOLE_WINDOW_LOW
+#if (HALO_CONSOLE_WINDOW_LOW) < 0x78000000U || (HALO_CONSOLE_WINDOW_LOW) >= 0x80000000U || \
+	((HALO_CONSOLE_WINDOW_LOW) & 0xFFFFFU)
+#error HALO_CONSOLE_WINDOW_LOW is a whole megabyte from 0x78000000 up to below 0x80000000
+#endif
+#define XBOX_WINDOW_LOW HALO_CONSOLE_WINDOW_LOW
+#else
 #define XBOX_WINDOW_LOW 0x78000000U
+#endif
 #define XBOX_WINDOW_HIGH 0x88000000U
 #define XBOX_WINDOW_SIZE (XBOX_WINDOW_HIGH - XBOX_WINDOW_LOW)
 
