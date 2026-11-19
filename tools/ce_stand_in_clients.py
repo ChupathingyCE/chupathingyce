@@ -176,14 +176,20 @@ def stand_in(port, number, prefix, seconds, results):
                     client.send(seal(client.key, bytes.fromhex(update_payload(yaw, 0.0))))
                     last_update = time.time()
         except Exception as exception:  # noqa: BLE001
-            state["stage"] += f" ({exception!r})"
+            # (a challenge unanswered: the server answers so many first
+            # packets an address a second, and these clients share one;
+            # tried again, as a Custom Edition client keeps connecting)
+            if state["stage"] in ("connecting", "reconnecting") and attempt < 15:
+                state["retries"] = state.get("retries", 0) + 1
+            else:
+                state["stage"] += f" ({exception!r})"
         finally:
             try:
                 client.send(b"\xfe\xfe\x68")
             except OSError:
                 pass
             client.sock.close()
-        if state["stage"] == "reconnecting":
+        if state["stage"] in ("connecting", "reconnecting"):
             time.sleep(1.0)
 
 
