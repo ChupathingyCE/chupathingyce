@@ -3062,6 +3062,18 @@ boolean browser_screen_debug_game(
 	return TRUE;
 }
 
+/* (the server monitor, net_monitor.c) the screen's index'th game as the
+screen lists it; FALSE past the last */
+boolean browser_screen_debug_listing(
+	long index,
+	struct browser_game *game)
+{
+	if (index < 0 || index >= browser_screen.count)
+		return FALSE;
+	*game = browser_screen.games[index];
+	return TRUE;
+}
+
 /* (the network test's browse:join) the screen's index'th game picked, as A
 on it does */
 void browser_screen_debug_join(

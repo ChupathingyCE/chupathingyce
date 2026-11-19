@@ -32,6 +32,7 @@ project_yellow it honors at run time (the gravity scale, when it is above
 #include "errors.h"
 #include "ce_map_checks.h"
 #include "opensauce.h"
+#include "opensauce_scripts.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -94,9 +95,14 @@ static struct
 	boolean active;
 	struct opensauce_header header;
 	char map_name[64];
-	/* the gravity as it was, put back when the map unloads */
+	/* the gravity as it was, put back when the map unloads. It is the
+	physics' global, not the game state's, as OpenSauce keeps it
+	(GameState.cpp resets it at each map; its physics globals are the
+	engine's): a checkpoint's revert leaves it as the scripts last set it */
 	boolean gravity_changed;
 	real gravity_before;
+	/* (camouflage past 1 said once a map) */
+	boolean camouflage_logged;
 } opensauce_globals;
 
 static char const *const opensauce_flag_names[NUMBER_OF_OPENSAUCE_HEADER_FLAGS] =
@@ -184,6 +190,9 @@ static void opensauce_gravity_restore(
 		opensauce_globals.gravity_changed = FALSE;
 	}
 }
+
+/* the game's own gravity (physics.c's), whatever a map set it to */
+#define OPENSAUCE_STOCK_GRAVITY 0.0035651792f
 
 /* ---------- public code */
 
@@ -318,11 +327,42 @@ void opensauce_map_tags_loaded(
 	}
 }
 
+void opensauce_map_set_gravity_scale(
+	float scale)
+{
+	if (!opensauce_globals.active)
+		return;
+	if (!opensauce_globals.gravity_changed)
+	{
+		opensauce_globals.gravity_before = global_gravity;
+		opensauce_globals.gravity_changed = TRUE;
+	}
+	global_gravity = OPENSAUCE_STOCK_GRAVITY * scale;
+	opensauce_log("gravity scaled by %.3f by its scripts (physics_set_gravity)", (double)scale);
+}
+
+float opensauce_map_drawn_camouflage(
+	float amount)
+{
+	if (!opensauce_globals.active || (amount >= 0.0f && amount <= 1.0f))
+		return amount;
+	if (!opensauce_globals.camouflage_logged)
+	{
+		opensauce_globals.camouflage_logged = TRUE;
+		opensauce_log("a unit's active camouflage is %.2f, past 1 (its scripts set it so): drawn fully on, the unit "
+			"keeping its value as it fades", (double)amount);
+	}
+	return amount < 0.0f ? 0.0f : 1.0f;
+}
+
 void opensauce_map_unloaded(
 	void)
 {
 	opensauce_gravity_restore();
+	if (opensauce_globals.active)
+		opensauce_scripts_map_unloaded();
 	opensauce_globals.active = FALSE;
+	opensauce_globals.camouflage_logged = FALSE;
 }
 
 #endif

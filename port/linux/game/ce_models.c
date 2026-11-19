@@ -96,8 +96,11 @@ enum
 	transparent chicago shader's extra flags (rasterizer_xbox_transparent_geometry.c),
 	and an extended one's (after its two-stage maps) */
 	SHADER_TYPE_OFFSET = 0x24,
+	CHICAGO_MAPS_OFFSET = 0x54,
 	CHICAGO_EXTRA_FLAGS_OFFSET = 0x60,
+	CHICAGO_EXTENDED_TWO_STAGE_MAPS_OFFSET = 0x60,
 	CHICAGO_EXTENDED_EXTRA_FLAGS_OFFSET = 0x6c,
+	CHICAGO_BLOCK_SIZE = 12,
 	CE_SHADER_TYPE_TRANSPARENT_CHICAGO = 6,
 	CE_SHADER_TYPE_TRANSPARENT_CHICAGO_EXTENDED = 7,
 
@@ -897,14 +900,16 @@ added a shader type after transparent chicago (7, transparent chicago
 extended, scex), so its later types are one more than the Xbox's (water 8,
 glass 9, meter 10, plasma 11; the Xbox's 7 to 10). Each type is put back;
 each extended chicago shader becomes a chicago one (schi): its four-stage
-maps are where a chicago shader's maps are, its two-stage maps (the fallback
-for older graphics cards) are dropped, and its extra flags move up to where
-a chicago shader's are */
+maps are where a chicago shader's maps are, and its extra flags move up to
+where a chicago shader's are. Its two-stage maps are what Halo PC drew on
+graphics cards of two texture stages, and where it has no four-stage maps,
+on every card: there, they are its maps (as MCC's are, mcc_tags.c), not
+nothing drawn. Elsewhere they are not needed, and are let go */
 void ce_shaders_tags_loaded(
 	void *tag_instances,
 	long tag_count)
 {
-	long extended = 0, shifted = 0;
+	long extended = 0, shifted = 0, two_stage = 0;
 	long index;
 
 	ce_tags_guard_begin_loaded(tag_instances, tag_count);
@@ -929,15 +934,32 @@ void ce_shaders_tags_loaded(
 			continue;
 		}
 		if (!ce_tags_writable(shader + SHADER_TYPE_OFFSET, sizeof(short)) ||
-			(instance->group_tag == 'scex' && !ce_tags_writable(shader + CHICAGO_EXTRA_FLAGS_OFFSET, 4)))
+			(instance->group_tag == 'scex' &&
+				!ce_tags_writable(shader + CHICAGO_MAPS_OFFSET,
+					CHICAGO_EXTENDED_EXTRA_FLAGS_OFFSET - CHICAGO_MAPS_OFFSET)))
 		{
 			continue;
 		}
 		type = (short *)(shader + SHADER_TYPE_OFFSET);
 		if (instance->group_tag == 'scex')
 		{
-			*(unsigned long *)(shader + CHICAGO_EXTRA_FLAGS_OFFSET) =
-				*(unsigned long *)(shader + CHICAGO_EXTENDED_EXTRA_FLAGS_OFFSET);
+			unsigned long extra_flags = *(unsigned long *)(shader + CHICAGO_EXTENDED_EXTRA_FLAGS_OFFSET);
+
+			/* (its two-stage maps where it has no four-stage ones: a block
+			of the same maps, checked as its own by Halo PC's tag schema,
+			tag_schema_render.c) */
+			if (*(long *)(shader + CHICAGO_MAPS_OFFSET) <= 0 &&
+				*(long *)(shader + CHICAGO_EXTENDED_TWO_STAGE_MAPS_OFFSET) > 0)
+			{
+				memcpy(shader + CHICAGO_MAPS_OFFSET, shader + CHICAGO_EXTENDED_TWO_STAGE_MAPS_OFFSET,
+					CHICAGO_BLOCK_SIZE);
+				two_stage++;
+			}
+			/* (and where a chicago shader's flags and padding are, its flags
+			and nothing of its two-stage maps' block) */
+			memset(shader + CHICAGO_EXTRA_FLAGS_OFFSET, 0,
+				CHICAGO_EXTENDED_EXTRA_FLAGS_OFFSET - CHICAGO_EXTRA_FLAGS_OFFSET);
+			*(unsigned long *)(shader + CHICAGO_EXTRA_FLAGS_OFFSET) = extra_flags;
 			*type = CE_SHADER_TYPE_TRANSPARENT_CHICAGO;
 			instance->group_tag = 'schi';
 			instance->parent_group_tags[0] = 'shdr';
@@ -953,6 +975,8 @@ void ce_shaders_tags_loaded(
 	ce_tags_guard_end();
 	error(_error_silent, "Custom Edition maps: %ld extended chicago shaders made chicago ones, %ld shader types moved",
 		extended, shifted);
+	error(_error_silent, "Custom Edition maps: %ld extended chicago shaders with no four-stage maps drawn with their "
+		"two-stage maps", two_stage);
 	error(_error_silent, "Custom Edition maps: %ld multipurpose bitmaps sampled in Halo PC's channels",
 		ce_multipurpose_bitmaps_find(tag_instances, tag_count));
 }

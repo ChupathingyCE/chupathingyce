@@ -1259,13 +1259,17 @@ static boolean bitmap_data_check(
 		bitmap->mipmap_count = (short)PIN(bitmap->mipmap_count, 0, maximum_mipmap_count);
 	}
 	/* (a linear texture has a format with a linear form, and a pitch of
-	64-byte steps) */
+	64-byte steps; Halo PC's rows are packed, a row's texels after the
+	last's, whatever the pitch, and the texture cache reads them so:
+	cache/xbox_texture_cache.c's any_pitch. Its pitch is not a reason to
+	read it as swizzled, which shears it) */
 	if (TEST_FLAG(bitmap->flags, _bitmap_linear_bit))
 	{
 		long pitch = (long)bitmap->width * bitmap_format_bits_per_pixel[bitmap->format] / 8;
+		boolean packed_rows = TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_pc_header_bit);
 
 		if (compressed || bitmap->format == _bitmap_format_p8_bump || bitmap->type != _bitmap_type_2d ||
-			pitch % BITMAP_PITCH_ALIGNMENT || pitch > MAXIMUM_BITMAP_PITCH)
+			(pitch % BITMAP_PITCH_ALIGNMENT && !packed_rows) || pitch > MAXIMUM_BITMAP_PITCH)
 		{
 			tag_validate_correct(validation, "is linear, but of format %d, type %d, pitch %ld: not linear",
 				bitmap->format, bitmap->type, pitch);
@@ -1517,8 +1521,12 @@ static boolean shader_transparent_chicago_extended_check(
 		chicago->two_stage_maps.count = 0;
 		chicago->two_stage_maps.address = XBOX_NULL;
 	}
+	/* (Halo PC's draws its two-stage maps where it has no four-stage ones,
+	ce_models.c: the first of those is its first map then) */
 	shader_transparent_check(validation, &chicago->transparent, chicago->transparent.maps.count ?
-		&((struct shader_transparent_chicago_map *)xbox_pointer(chicago->transparent.maps.address))->map : NULL);
+		&((struct shader_transparent_chicago_map *)xbox_pointer(chicago->transparent.maps.address))->map :
+		pc && chicago->two_stage_maps.count > 0 ?
+		&((struct shader_transparent_chicago_map *)xbox_pointer(chicago->two_stage_maps.address))->map : NULL);
 
 	return TRUE;
 }

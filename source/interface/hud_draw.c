@@ -89,6 +89,7 @@ symbols in this file:
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps_inlines.h"
 #include "bitmaps/bitmap_utilities.h"
+#include "cache/cache_files.h"
 #include "cache/texture_cache.h"
 #include "mcc_cache.h"
 #include "mcc_hud_draw.h"
@@ -1628,6 +1629,9 @@ static void hud_draw_bitmap_internal(
 	struct dynamic_screen_vertex vertices[4];
 	struct rasterizer_dynamic_screen_geometry_parameters parameters;
 	short vertex_index;
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
+	boolean mirrored_across = FALSE;
+#endif
 
 	csmemset(stack_buffer, 0x62, sizeof(stack_buffer));
 
@@ -1650,6 +1654,47 @@ static void hud_draw_bitmap_internal(
 		vertices[vertex_index].color = color;
 	}
 
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
+	/* port: on a screen wider than 4:3, a HUD bitmap that covers the
+	window's whole 4:3 middle (a full-screen tint, vignette or scope mask)
+	reaches the window's edges: its quad is widened and its texture carried
+	on at the same rate, so the middle is drawn as before, and the bitmap,
+	mirrored past its edges, fills the sides: a scope mask's black border
+	stays black, a tint or vignette carries on without a seam or streaks.
+	A Custom Edition map's only, as Halo PC's HUD is laid out for any screen;
+	the Xbox's maps keep their 4:3 HUD. The mirroring is the whole texture's
+	(its addressing): fine for a bitmap that covers the screen, the only kind
+	widened */
+	if (theta == 0.0f && CACHE_FILE_TAGS_ARE_CE())
+	{
+		/* (the viewport's: the window is the HUD's safe area within it) */
+		real window_x0 = 0.0f;
+		real window_x1 = (real)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0);
+		real window_y0 = 0.0f;
+		real window_y1 = (real)(render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0);
+		real middle_width = (window_y1 - window_y0) * 4.0f / 3.0f;
+		real x0 = vertices[0].position.x, x1 = vertices[1].position.x;
+		real y0 = vertices[0].position.y, y1 = vertices[2].position.y;
+
+		if (window_x1 - window_x0 > middle_width + 2.0f && x1 > x0 &&
+			x1 - x0 >= middle_width - 2.0f && y0 <= window_y0 + 1.0f && y1 >= window_y1 - 1.0f &&
+			x0 > window_x0 && x1 < window_x1)
+		{
+			real texels_per_unit = (vertices[1].texture_coordinates.x - vertices[0].texture_coordinates.x) / (x1 - x0);
+
+			for (vertex_index = 0; vertex_index < 4; vertex_index++)
+			{
+				boolean left = vertices[vertex_index].position.x == x0;
+				real edge = left ? window_x0 : window_x1;
+
+				vertices[vertex_index].texture_coordinates.x += (edge - vertices[vertex_index].position.x) *
+					texels_per_unit;
+				vertices[vertex_index].position.x = edge;
+			}
+			mirrored_across = TRUE;
+		}
+	}
+#endif
 	csmemset(&parameters, 0, sizeof(parameters));
 	parameters.map_texture_scale[0].j = 1.0f;
 	parameters.map_texture_scale[0].i = 1.0f;
@@ -1660,6 +1705,10 @@ static void hud_draw_bitmap_internal(
 	parameters.framebuffer_blend_function =
 		_shader_framebuffer_blend_function_alpha_multiply_add;
 	parameters.map[0] = (struct bitmap_data *)bitmap;
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
+	if (mirrored_across)
+		parameters.map_wrapped[0] = 2;
+#endif
 
 	rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
 

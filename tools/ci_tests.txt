@@ -122,6 +122,7 @@ tools/test_network_rules.py
 tools/test_network_test_startup.py
 tools/test_online_games_list.py
 tools/test_opence_welcome.py
+tools/test_opensauce_scripts.py
 tools/test_p2p_copies.py
 tools/test_p2p_host_port.py
 tools/test_p2p_public_address.py
@@ -144,6 +145,7 @@ tools/test_server_badge.py
 tools/test_server_bans.py
 tools/test_server_control.py
 tools/test_server_mcc_playable.py
+tools/test_server_monitor.py
 tools/test_server_roles.py
 tools/test_settings_layout.py
 tools/test_social.py

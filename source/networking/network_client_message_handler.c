@@ -206,6 +206,7 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "networking/network_connection.h"
 #include "map_share.h" /* port: map sharing's messages to the map bot's fetch */
+#include "net_monitor.h" /* port: the server monitor (port/linux/game/net_monitor.c) */
 #endif
 unsigned delta_peer_game_host_number(void); /* port/linux/src/delta_peer_game.c */
 int delta_peer_game_host_agreed_mcc_maps(void); /* port/linux/src/delta_peer_game.c */
@@ -511,6 +512,13 @@ boolean network_game_client_handle_message(
 		client && message && (message_size == GET_MESSAGE_SIZE(*message)) && source_address);
 
 	message_type = (byte)GET_MESSAGE_TYPE(*message);
+#ifdef HALO_GAME_BROWSER
+	/* port: the server monitor counts every message read, whatever becomes
+	of it (port/linux/game/net_monitor.c) */
+	net_monitor_game_message(message_type,
+		message_type == _message_type_packet ? ((byte *)message)[message_size - 1] : 0, message_size,
+		!network_connection_last_read_was_unreliable());
+#endif
 	if (GET_MESSAGE_FLAGS(*message))
 	{
 		network_event("client received client message with invalid flags");
