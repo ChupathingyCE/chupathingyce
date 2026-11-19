@@ -45,7 +45,11 @@ HOMEBREW = Path("/opt/homebrew")
 # the Android build's release, built here with CMake
 from .android_build import SDL_TAG, SDL_URL, check_sdl_commit  # noqa: E402
 PORTABLE_SDL_DIR = Path("build/macos/third_party/SDL3")
-PORTABLE_SDL_BUILD = Path("build/macos/third_party/SDL3-build")
+# (its build folder's name must not begin with the sources' "SDL3": SDL's
+# sdl_source_group takes any path that starts with the same letters as inside
+# its sources, and CMake 4.5's source_group(TREE) stops the configure on
+# third_party/SDL3-build/include-revision/SDL3/SDL_revision.h)
+PORTABLE_SDL_BUILD = Path("build/macos/third_party/sdl3-build")
 
 
 def fetch_portable_sdl() -> bool:
