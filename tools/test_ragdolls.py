@@ -116,6 +116,20 @@ def test_jolt_units_listed(monkeypatch):
     assert not any(name.endswith(("JobSystemThreadPool.cpp", "StateRecorderImpl.cpp")) for name in names)
 
 
+def test_link_check_lets_only_jolts_units_call_wide_functions():
+    """libc++ makes Jolt's std::find over ints a wmemchr call (FreeBSD): the
+    link check lets Jolt's units and its C face, built with the host's
+    32-bit wchar_t, call it, and no game unit"""
+    import linux_link_check
+
+    allowed = linux_link_check.HOST_ABI_OBJECT
+    assert allowed.search("build/freebsd64/obj/port/third_party/jolt/Jolt/Geometry/ConvexHullBuilder.o")
+    assert allowed.search("build/freebsd64/obj/port/linux/game/physics_jolt.o")
+    assert not allowed.search("build/freebsd64/obj/port/linux/game/ragdolls.o")
+    assert not allowed.search("build/freebsd64/obj/source/game/game.o")
+    assert not allowed.search("build/freebsd64/obj/port/linux/src/posix_files.o")
+
+
 def test_ragdolls_on_and_off_replay_alike(tmp_path):
     """the same game, ragdolls off and on: identical tick for tick"""
     import pytest
