@@ -653,6 +653,87 @@ long lruv_block_new(
 
 	if (found_hole)
 	{
+#ifdef HALO_CONSOLE_FEWER_WALKS
+		/* port: the blocks in the hole, found along the block list (kept in
+		page order) from the block before it, instead of by a pass over every
+		slot of the block array (the decal cache's 2048) for each allocation.
+		They are deleted in the array's order, as the pass deleted them; more
+		than MAXIMUM_LRUV_CACHE_HOLES of them fall back to the pass (from
+		Lord BirchWood's Vita port) */
+		long hole_blocks[MAXIMUM_LRUV_CACHE_HOLES];
+		short hole_block_count = 0;
+		boolean listed = TRUE;
+		long hole_end_page_index = best_hole.first_page_index + desired_page_count;
+		long list_index = best_hole.block_index == NONE ?
+			cache->first_block_index :
+			((struct lruv_cache_block *)datum_get(cache->blocks, best_hole.block_index))->next_block_index;
+
+		while (list_index != NONE)
+		{
+			block = datum_get(cache->blocks, list_index);
+			if (block->first_page_index >= hole_end_page_index)
+				break;
+			if (block->first_page_index + block->page_count > best_hole.first_page_index)
+			{
+				short insert;
+
+				if (hole_block_count >= MAXIMUM_LRUV_CACHE_HOLES)
+				{
+					listed = FALSE;
+					break;
+				}
+				/* (by absolute index, the pass's order) */
+				for (insert = hole_block_count; insert > 0 &&
+					DATUM_INDEX_TO_ABSOLUTE_INDEX(hole_blocks[insert - 1]) > DATUM_INDEX_TO_ABSOLUTE_INDEX(list_index); insert--)
+				{
+					hole_blocks[insert] = hole_blocks[insert - 1];
+				}
+				hole_blocks[insert] = list_index;
+				hole_block_count++;
+			}
+			list_index = block->next_block_index;
+		}
+		if (listed)
+		{
+			short delete_index;
+
+#if !defined(HALO_RELEASE) && !defined(HALO_CONSOLE_NO_DEBUG_ASSERTS)
+			/* (builds with assertions check the list's blocks against the
+			pass's: the same blocks, in the same order) */
+			{
+				short checked = 0;
+
+				data_iterator_new(&iterator, cache->blocks);
+				while ((block = data_iterator_next(&iterator)) != NULL)
+				{
+					if (block->first_page_index < hole_end_page_index &&
+						block->first_page_index + block->page_count > best_hole.first_page_index)
+					{
+						match_assert(
+							"c:\\halo\\SOURCE\\memory\\lruv_cache.c",
+							__LINE__,
+							checked < hole_block_count && hole_blocks[checked] == iterator.datum_index);
+						checked++;
+					}
+				}
+				match_assert(
+					"c:\\halo\\SOURCE\\memory\\lruv_cache.c",
+					__LINE__,
+					checked == hole_block_count);
+			}
+#endif
+			for (delete_index = 0; delete_index < hole_block_count; delete_index++)
+			{
+				match_assert(
+					"c:\\halo\\SOURCE\\memory\\lruv_cache.c",
+					375,
+					!cache->locked_block_proc || !cache->locked_block_proc(hole_blocks[delete_index]));
+				lruv_block_delete(cache, hole_blocks[delete_index]);
+			}
+		}
+		else
+		{
+#endif
 		data_iterator_new(&iterator, cache->blocks);
 		while ((block = data_iterator_next(&iterator)) != NULL)
 		{
@@ -666,6 +747,9 @@ long lruv_block_new(
 				lruv_block_delete(cache, iterator.datum_index);
 			}
 		}
+#ifdef HALO_CONSOLE_FEWER_WALKS
+		}
+#endif
 
 		if (cache->blocks->actual_count == cache->blocks->maximum_count &&
 			oldest_unlocked_block_index != NONE)
