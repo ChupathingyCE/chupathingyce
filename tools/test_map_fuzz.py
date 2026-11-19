@@ -949,6 +949,53 @@ def test_map_changed_after_the_checks(built, tmp_path):
         assert f"the load found its {part} changed" in result.stderr, (part, result.stderr[-4000:])
 
 
+def test_halomd_tag_data_size_given_as_file_length(built, tmp_path):
+    """a HaloMD map (version 7) whose header gives its file's length as its
+    tag data's size, as a HaloMD tool wrote nine of the archive's maps: read
+    as the rest of the file after its tag data's offset, and loaded. Not a
+    Custom Edition map's (version 609), which stays refused"""
+    binaries, _ = built
+    data = bytearray(ce_map())
+    file_length = struct.unpack_from("<i", data, 8)[0]
+    struct.pack_into("<i", data, 0x14, file_length)
+    for version, loads in ((7, True), (609, False)):
+        struct.pack_into("<i", data, 4, version)
+        path = tmp_path / f"size_{version}.map"
+        path.write_bytes(data)
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert ("the header's tag data size is the file's length" in result.stderr) == loads, result.stderr[-4000:]
+        assert ("map_fuzz: the map loaded" in result.stderr) == loads, result.stderr[-4000:]
+
+
+def test_halomd_last_tag_at_the_end_of_its_tag_data(built, tmp_path):
+    """a HaloMD map whose last tag, a sound environment or a wind, begins
+    exactly where its tag data ends (ten of the archive's maps): read as an
+    empty one, zeroes after the tag data, and the map loaded. Any other
+    group there, a tag that is not the last, or a Custom Edition map's, is
+    still not in its tag data"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    cases = (((b"snde",), 7, True), ((b"wind",), 7, True), ((b"snde",), 609, False), ((b"ligh",), 7, False),
+             ((b"snde", b"wind"), 7, False))
+    for index, (groups, version, loads) in enumerate(cases):
+        data, offsets = ce_map_of_tags([(group, 0x48) for group in groups])
+        tag_data_size = struct.unpack_from("<i", data, 0x14)[0]
+        struct.pack_into("<i", data, 4, version)
+        # (the first extra tag's data at the end of the tag data: the last
+        # tag, unless there is another after it)
+        struct.pack_into("<I", data, offsets["instances"] + 0x20 * 2 + 0x14, base + tag_data_size)
+        path = tmp_path / f"end_{index}.map"
+        path.write_bytes(data)
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, (groups, version, result.stderr[-4000:])
+        assert ("begins where its tag data ends: read as an empty one" in result.stderr) == loads, \
+            (groups, version, result.stderr[-4000:])
+        assert ("map_fuzz: the map loaded" in result.stderr) == loads, (groups, version, result.stderr[-4000:])
+        if not loads:
+            assert "is not in its tag data" in result.stderr, (groups, version, result.stderr[-4000:])
+
+
 def test_stubbs_image_effects_and_vegetation_checked(built, tmp_path):
     """Stubbs's image effects (imef) and vegetation (vege), which Stubbs mode
     reads, go through the schema: an image effect's stages past the 8 drawn
