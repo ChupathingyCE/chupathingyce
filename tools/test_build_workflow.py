@@ -12,7 +12,13 @@
   own head without a version;
 - the plan job: which platform jobs a pull request gets, and the full
   matrix everywhere else; ci-ok's verdict; cache-prune never deleting
-  main's newest cache of a kind. Their scripts are run here with a fake gh.
+  main's newest cache of a kind. Their scripts are run here with a fake gh;
+- the Linux jobs' Ubuntu packages: every job installs them through
+  CI_APT_INSTALL, with its cache key, restore and save; the script is run
+  here with a fake sudo, apt-get and curl (from the cache with nothing
+  downloaded, without one, with a mirror that fails, with a changed key);
+- rerun-unacquired.yml: a failed Build's jobs run again, once, only when
+  one of them never had a runner.
 
 Text only (no YAML library), no network: python3 -m pytest tools/test_build_workflow.py"""
 
@@ -318,3 +324,226 @@ def test_cache_prune_keeps_mains_newest(fake_gh):
     # 5 or 6, main's newest of each, nor a release branch's or a key without
     # a hash)
     assert deleted == [1, 4, 7]
+
+
+APT_JOBS = ["linux", "linux-tests", "linux-big-endian", "linux64"]
+
+
+def env_block(name: str) -> str:
+    """a top-level env value written as a block (name: |), dedented"""
+    start = LINES.index(f"  {name}: |")
+    found = []
+    for line in LINES[start + 1:]:
+        if line and not line.startswith("    "):
+            break
+        found.append(line[4:])
+    return "\n".join(found) + "\n"
+
+
+def test_apt_only_through_the_shared_script():
+    every = jobs()
+    for name, lines in every.items():
+        text = "\n".join(lines)
+        if name in APT_JOBS:
+            assert 'bash -c "$CI_APT_INSTALL"' in text, name
+            assert "APT_PACKAGES: >-" in text, name
+        assert "apt-get" not in text, f"{name} runs apt-get itself"
+
+
+@pytest.mark.parametrize("name", APT_JOBS)
+def test_apt_cache_steps(name):
+    job = steps(jobs()[name])
+    names = [next((line.split("name: ", 1)[1] for line in step if "name: " in line), step[0].strip()) for step in job]
+    key = names.index("The packages' cache key")
+    restore = next(index for index, step in enumerate(job) if "id: apt-cache" in "\n".join(step))
+    install = names.index("Install the toolchain")
+    save = [index for index, step in enumerate(job)
+            if "uses: actions/cache/save@" in step[0] and "steps.apt.outputs.key" in "\n".join(step)]
+    assert key < restore < install and len(save) == 1 and save[0] > install
+    restore_text, install_text = "\n".join(job[restore]), "\n".join(job[install])
+    assert "restore-keys: " in restore_text
+    assert "APT_CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}" in install_text
+    assert "timeout-minutes: " in install_text
+    assert "steps.apt-cache.outputs.cache-hit != 'true'" in condition(job[save[0]])
+    # (a key that no other job's starts with: restore-keys is a prefix)
+    prefix = re.search(r'echo "key=(apt-[a-z0-9-]+-)\$\(', "\n".join(job[key])).group(1)
+    for other in APT_JOBS:
+        if other != name:
+            other_key = "\n".join(next(step for step in steps(jobs()[other]) if "The packages' cache key" in step[0]))
+            assert not re.search(r'echo "key=' + re.escape(prefix), other_key), (name, other)
+
+
+@pytest.fixture
+def fake_apt(tmp_path):
+    """sudo (with /etc under the test's folder), apt-get, curl, timeout and
+    sleep that log their calls; apt-get's download fails as many times as
+    the file download-failures says"""
+    root, folder = tmp_path / "root", tmp_path / "bin"
+    (root / "etc" / "apt" / "apt.conf.d").mkdir(parents=True)
+    (root / "etc" / "apt" / "sources.list.d").mkdir(parents=True)
+    folder.mkdir()
+    (tmp_path / "download-failures").write_text("0")
+    (tmp_path / "key").write_text("the key\n")
+    scripts = {
+        "sudo": f"""#!/usr/bin/env bash
+args=()
+for a in "$@"; do case "$a" in /etc/*) a="{root}$a" ;; esac; args+=("$a"); done
+exec env "${{args[@]}}"
+""",
+        "timeout": '#!/usr/bin/env bash\nshift\nexec "$@"\n',
+        "sleep": "#!/bin/sh\nexit 0\n",
+        "curl": f"""#!/usr/bin/env bash
+echo "curl $*" >> {tmp_path}/calls
+while [ $# -gt 0 ]; do [ "$1" = -o ] && cp {tmp_path}/key "$2"; shift; done
+""",
+        "apt-get": f"""#!/usr/bin/env bash
+echo "apt-get $*" >> {tmp_path}/calls
+debs=$(sed -n 's/^Dir::Cache::archives "\\(.*\\)";$/\\1/p' {root}/etc/apt/apt.conf.d/80-ci)
+lists=$(sed -n 's/^Dir::State::lists "\\(.*\\)";$/\\1/p' {root}/etc/apt/apt.conf.d/80-ci)
+case "$*" in
+  update*) touch "$lists/mirror_dists_noble_main_binary-amd64_Packages" ;;
+  *--download-only*)
+    left=$(cat {tmp_path}/download-failures)
+    if [ "$left" -gt 0 ]; then echo $((left - 1)) > {tmp_path}/download-failures; exit 100; fi
+    touch "$debs/clang-22.deb" ;;
+  *--no-download*) [ -f "$debs/clang-22.deb" ] || exit 100 ;;
+esac
+""",
+    }
+    for name, text in scripts.items():
+        (folder / name).write_text(text)
+        (folder / name).chmod(0o755)
+    (tmp_path / "calls").write_text("")
+    return tmp_path
+
+
+def run_apt(fake_apt, hit="", llvm="22", key_sha=None, mirrors=None):
+    root = fake_apt / "root"
+    mirror_file = root / "etc" / "apt" / "apt-mirrors.txt"
+    if mirrors is not None:
+        mirror_file.write_text(mirrors)
+    import hashlib
+    environment = {**os.environ, "PATH": f"{fake_apt / 'bin'}:{os.environ['PATH']}",
+                   "APT_CACHE": str(fake_apt / "cache"), "APT_PACKAGES": "clang-22 lld-22\n zstd",
+                   "APT_CACHE_HIT": hit, "LLVM_MAJOR": llvm, "APT_MIRRORS": str(mirror_file),
+                   "LLVM_KEY_SHA256": key_sha or hashlib.sha256(b"the key\n").hexdigest()}
+    result = subprocess.run(["bash", "-c", env_block("CI_APT_INSTALL")], capture_output=True, text=True,
+                            env=environment)
+    calls = (fake_apt / "calls").read_text().splitlines()
+    (fake_apt / "calls").write_text("")
+    return result, calls
+
+
+def test_apt_without_a_cache(fake_apt):
+    result, calls = run_apt(fake_apt)
+    assert result.returncode == 0, result.stdout + result.stderr
+    apt = [call for call in calls if call.startswith("apt-get")]
+    assert apt[0] == "apt-get update -q"
+    assert "--download-only clang-22 lld-22 zstd" in apt[1]
+    assert apt[2] == "apt-get autoclean -q"
+    assert apt[3].endswith("--no-install-recommends --no-download clang-22 lld-22 zstd")
+    assert any(call.startswith("curl ") for call in calls)
+    root = fake_apt / "root" / "etc" / "apt"
+    assert (root / "keyrings" / "apt.llvm.org.asc").read_text() == "the key\n"
+    assert "llvm-toolchain-noble-22 main" in (root / "sources.list.d" / "llvm.list").read_text()
+    # (kept for the cache: no lock or partial folder)
+    cache = fake_apt / "cache"
+    assert (cache / "debs" / "clang-22.deb").exists() and (cache / "apt.llvm.org.asc").exists()
+    assert not (cache / "debs" / "partial").exists() and not (cache / "lists" / "partial").exists()
+
+
+def test_apt_from_the_cache_downloads_nothing(fake_apt):
+    assert run_apt(fake_apt)[0].returncode == 0
+    result, calls = run_apt(fake_apt, hit="true")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert calls == ["apt-get install -y -q --no-install-recommends --no-download clang-22 lld-22 zstd"]
+    assert "installed from the cache" in result.stdout
+
+
+def test_apt_another_images_cache_is_brought_up_to_date(fake_apt):
+    assert run_apt(fake_apt)[0].returncode == 0
+    # (a cache restored by restore-keys: the lists are fetched again)
+    result, calls = run_apt(fake_apt, hit="false")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert calls[0] == "apt-get update -q" and "apt-get autoclean -q" in calls
+
+
+def test_apt_tries_the_next_mirror(fake_apt):
+    (fake_apt / "download-failures").write_text("2")
+    result, calls = run_apt(fake_apt, mirrors="http://slow.example/ubuntu/\tpriority:1\n"
+                                              "http://archive.ubuntu.com/ubuntu/\tpriority:2\n")
+    assert result.returncode == 0, result.stdout + result.stderr
+    downloads = [call for call in calls if "--download-only" in call]
+    assert len(downloads) == 3 and calls.count("apt-get update -q") == 1
+    # (try 3 put the third mirror first: the runner's two, then azure's)
+    assert (fake_apt / "root" / "etc" / "apt" / "apt-mirrors.txt").read_text().splitlines() == [
+        "http://azure.archive.ubuntu.com/ubuntu/\tpriority:1", "http://slow.example/ubuntu/\tpriority:2",
+        "http://archive.ubuntu.com/ubuntu/\tpriority:3"]
+
+
+def test_apt_gives_up_after_four_tries(fake_apt):
+    (fake_apt / "download-failures").write_text("9")
+    result, calls = run_apt(fake_apt, mirrors="http://slow.example/ubuntu/\n")
+    assert result.returncode != 0
+    assert len([call for call in calls if "--download-only" in call]) == 4
+    assert not any("--no-download" in call for call in calls)
+
+
+def test_apt_refuses_a_changed_llvm_key(fake_apt):
+    result, calls = run_apt(fake_apt, key_sha="0" * 64)
+    assert result.returncode != 0
+    assert not any(call.startswith("apt-get") for call in calls)
+
+
+def test_apt_without_llvm(fake_apt):
+    result, calls = run_apt(fake_apt, llvm="")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any(call.startswith("curl ") for call in calls)
+    assert not (fake_apt / "root" / "etc" / "apt" / "sources.list.d" / "llvm.list").exists()
+
+
+RERUN = WORKFLOW.parent / "rerun-unacquired.yml"
+
+
+def rerun_script() -> str:
+    lines = RERUN.read_text().splitlines()
+    start = next(index for index, line in enumerate(lines) if line.strip() == "run: |")
+    script = []
+    for line in lines[start + 1:]:
+        if line and not line.startswith("          "):
+            break
+        script.append(line[10:])
+    return "\n".join(script) + "\n"
+
+
+def test_rerun_only_a_failed_first_attempt():
+    text = RERUN.read_text()
+    assert "workflows: [Build]" in text and "types: [completed]" in text
+    assert ("if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1"
+            in text)
+    assert "actions/checkout" not in text
+
+
+@pytest.mark.parametrize("annotation, rerun", [
+    ("The job was not acquired by Runner of type hosted even after multiple attempts", True),
+    ("Canceling since a higher priority waiting request for build-refs/heads/main exists", False),
+])
+def test_rerun_when_no_runner_took_a_job(tmp_path, annotation, rerun):
+    folder = tmp_path / "bin"
+    folder.mkdir()
+    (tmp_path / "annotation").write_text(annotation + "\n")
+    gh = folder / "gh"
+    gh.write_text(f"""#!/bin/sh
+echo "$*" >> {tmp_path}/calls
+case "$*" in
+  *"/jobs?"*) printf '%s\\n' "7 macos" ;;
+  *"/check-runs/7/annotations"*) cat {tmp_path}/annotation ;;
+esac
+""")
+    gh.chmod(0o755)
+    environment = {**os.environ, "PATH": f"{folder}:{os.environ['PATH']}", "REPOSITORY": "ChupathingyCE/chupathingyce",
+                   "RUN": "42"}
+    result = subprocess.run(["bash", "-e", "-c", rerun_script()], capture_output=True, text=True, env=environment)
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = (tmp_path / "calls").read_text().splitlines()
+    assert ("run rerun 42 --failed -R ChupathingyCE/chupathingyce" in calls) == rerun
