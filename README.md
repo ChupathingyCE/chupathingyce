@@ -364,7 +364,10 @@ with their authors credited in each commit.
   the fields Custom Edition players' clients are sent; its Halo PC object
   structures and engine addresses, the reference for the memory Lua
   scripts read (`port/linux/game/lua_twiddlings_objects.c`,
-  `port/linux/game/lua_opensauce.c`).
+  `port/linux/game/lua_opensauce.c`); its cache header, tag definitions and
+  memory upgrades, the reference for how OpenSauce maps are read and
+  checked (`port/linux/game/opensauce_map.c`,
+  `port/linux/game/tag_schema_opensauce.c`).
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, Lua, tomlc17, musl's maths,

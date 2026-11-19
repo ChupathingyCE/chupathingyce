@@ -77,9 +77,12 @@ enum
 	MAXIMUM_MESSAGE_LENGTH = 512,
 
 	/* the claims: a bit for each byte of the largest tag cache a layout
-	has (a Custom Edition map's: cache_files.c's CE_TAG_CACHE_SIZE) */
+	has (a Custom Edition map's: cache_files.c's CE_TAG_CACHE_SIZE; on a
+	64-bit desktop, OpenSauce's, 0x02280000: tag_schema_opensauce.c) */
 	CLAIM_BITS = 32,
-#ifdef HALO_CUSTOM_EDITION
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_64BIT) && !defined(HALO_CONSOLE)
+	CLAIM_CACHE_SIZE = TAG_CACHE_SIZE > 0x02280000 ? TAG_CACHE_SIZE : 0x02280000,
+#elif defined(HALO_CUSTOM_EDITION)
 	CLAIM_CACHE_SIZE = TAG_CACHE_SIZE > 0x01700000 ? TAG_CACHE_SIZE : 0x01700000,
 #else
 	CLAIM_CACHE_SIZE = TAG_CACHE_SIZE,
@@ -1024,12 +1027,22 @@ static struct tag_block const *block_index_target(
 	return (struct tag_block const *)(base + field->target_offset);
 }
 
+/* a field's most elements or bytes in the layout being checked: the field's,
+or the layout's own (tag_schema_layout's field_maximum) */
+static long field_maximum(
+	struct tag_schema_field const *field)
+{
+	return tag_validate_globals.layout && tag_validate_globals.layout->field_maximum ?
+		tag_validate_globals.layout->field_maximum(field) : field->maximum;
+}
+
 static void validate_block_extent(
 	struct tag_validation *validation,
 	struct tag_block *block,
 	struct tag_schema_field const *field)
 {
 	struct tag_schema_definition const *definition = field->definition;
+	long maximum = field_maximum(field);
 
 	block->definition = XBOX_NULL;
 	if (block->count < 0)
@@ -1039,13 +1052,13 @@ static void validate_block_extent(
 	}
 	/* (a block of the tools' maximum, _tag_schema_tool_maximum_bit, is cut
 	too, but in a layout whose tools went past them: Halo PC's) */
-	if (field->maximum > 0 && block->count > field->maximum &&
+	if (maximum > 0 && block->count > maximum &&
 		!(TEST_FLAG(field->flags, _tag_schema_tool_maximum_bit) &&
 			TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_tool_maxima_kept_bit)))
 	{
 		tag_validate_correct(validation, "has %ld elements, more than the game's %ld: cut to %ld",
-			block->count, field->maximum, field->maximum);
-		block->count = field->maximum;
+			block->count, maximum, maximum);
+		block->count = maximum;
 	}
 	if (block->count &&
 		((unsigned long)block->count > validation->region_size / (unsigned long)definition->size ||
@@ -1087,17 +1100,19 @@ static void validate_data_extent(
 	struct tag_data *data,
 	struct tag_schema_field const *field)
 {
+	long maximum = field_maximum(field);
+
 	data->definition = XBOX_NULL;
 	if (data->size < 0)
 	{
 		tag_validate_refuse(validation, "has %ld bytes", data->size);
 		return;
 	}
-	if (field->maximum > 0 && data->size > field->maximum)
+	if (maximum > 0 && data->size > maximum)
 	{
 		tag_validate_correct(validation, "has %ld bytes, more than the game's %ld: cut to %ld",
-			data->size, field->maximum, field->maximum);
-		data->size = field->maximum;
+			data->size, maximum, maximum);
+		data->size = maximum;
 	}
 	if (field->type == _tag_schema_file_data)
 	{

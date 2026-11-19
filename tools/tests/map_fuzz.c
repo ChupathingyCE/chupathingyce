@@ -182,6 +182,7 @@ long tag_validate_corrections(void);
 #ifdef MAP_FUZZ_CE
 struct tag_schema_layout;
 extern struct tag_schema_layout const tag_schema_pc_layout;
+extern struct tag_schema_layout const tag_schema_opensauce_layout;
 boolean tag_validate_tags_layout(struct tag_schema_layout const *layout, void *tag_header, long tag_data_size,
 	long file_length, char const *map_name);
 unsigned long ce_resources_free_mark(void);
@@ -1103,16 +1104,24 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 			tags_end <= CE_TAG_CACHE_BASE + CE_TAG_CACHE_SIZE ?
 			(long)(tags_end - CE_TAG_CACHE_BASE) : header->tag_data_size;
 
-		struct tag_schema_layout const *layout = &tag_schema_pc_layout;
+		/* (OpenSauce's layout for a map with OpenSauce's header, as
+		cache_files.c chooses it: port/linux/game/opensauce_map.c) */
+		unsigned long opensauce_signature;
+		struct tag_schema_layout const *layout;
+		char const *layout_name;
 
+		memcpy(&opensauce_signature, data + 0x70, sizeof(opensauce_signature));
+		layout = opensauce_signature == 'yelo' ? &tag_schema_opensauce_layout : &tag_schema_pc_layout;
+		layout_name = opensauce_signature == 'yelo' ? "OpenSauce" : "Halo PC";
 		if (!tag_validate_tags_layout(layout, tag_cache, tags_size, header->file_length, "fuzz"))
 		{
 			if (fuzz_verbose)
-				fprintf(stderr, "map_fuzz: the map was refused by Halo PC's tag schema\n");
+				fprintf(stderr, "map_fuzz: the map was refused by %s's tag schema\n", layout_name);
 			return;
 		}
 		if (fuzz_verbose)
-			fprintf(stderr, "map_fuzz: Halo PC's tag schema made %ld corrections\n", (long)tag_validate_corrections());
+			fprintf(stderr, "map_fuzz: %s's tag schema made %ld corrections\n", layout_name,
+				(long)tag_validate_corrections());
 		if (tag_validate_corrections())
 		{
 			boolean valid = tag_validate_tags_layout(layout, tag_cache, tags_size, header->file_length, "fuzz");

@@ -214,6 +214,7 @@ Custom Edition's resource maps, port/linux/game/ce_resources.c) */
 /* port: Custom Edition's, or OpenSauce's larger one in SPV3 mode with its
 window mapped (port/linux/game/spv3_mode.c) */
 #include "spv3_mode.h"
+#include "opensauce.h"
 #define CE_TAG_CACHE_SIZE ((unsigned int)spv3_mode_tag_cache_size(0x01700000UL))
 /* what its load reads, against what was checked when it was opened
 (port/linux/game/ce_map_checks.c) */
@@ -706,6 +707,10 @@ void scenario_tags_unload(
 
 		mods_tags_unloaded();
 	}
+#endif
+#ifdef HALO_CUSTOM_EDITION
+	/* port: what an OpenSauce map changed put back (port/linux/game/opensauce_map.c) */
+	opensauce_map_unloaded();
 #endif
 	/* MCC's appended pause table unwinds before the native menu table. */
 	{
@@ -1895,6 +1900,10 @@ long scenario_tags_load(
 		{
 			struct cache_file_ce_tag_header *ce_header;
 
+			/* port: an OpenSauce map's (one with OpenSauce's header) is
+			OpenSauce's module's from here until it unloads
+			(port/linux/game/opensauce_map.c); any other map, nothing */
+			opensauce_map_opened(&cache_file_globals.header, scenario_name);
 			tag_cache_base_address = xbox_pointer(CE_TAG_CACHE_BASE);
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 			/* port: a 64 MB console's tag cache is the Xbox's, by the page
@@ -2041,11 +2050,14 @@ long scenario_tags_load(
 				/* (Custom Edition's and HaloMD's alike, overlapping blocks
 				walked as their own where safe, as HaloMD plays them:
 				tag_schema_pc.c) */
-				if (!tag_validate_tags_layout(&tag_schema_pc_layout, tag_cache_base_address, tags_size,
+				if (!tag_validate_tags_layout(
+					opensauce_map_active() ? &tag_schema_opensauce_layout : &tag_schema_pc_layout,
+					tag_cache_base_address, tags_size,
 					cache_file_globals.header.file_length, scenario_name))
 				{
-					error(_error_silent, "%s map %s: its tags are not Halo PC's layout; the map is not loaded",
-						cache_file_globals.header.version == CACHE_FILE_RETAIL_VERSION ? "HaloMD" : "Custom Edition", scenario_name);
+					error(_error_silent, "%s map %s: its tags are not %s layout; the map is not loaded",
+						cache_file_globals.header.version == CACHE_FILE_RETAIL_VERSION ? "HaloMD" : "Custom Edition", scenario_name,
+						opensauce_map_active() ? "OpenSauce's" : "Halo PC's");
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 					if (platform_ce_alias)
 						platform_ce_load_end();
@@ -2055,6 +2067,10 @@ long scenario_tags_load(
 				}
 			}
 #endif
+			/* an OpenSauce map's project_yellow read, once its tags are
+			checked (port/linux/game/opensauce_map.c): nothing for another */
+			if (ce_map_loaded_unchanged())
+				opensauce_map_tags_loaded(global_tag_instances, ce_header->tag_count, ce_header->scenario_tag_index);
 			/* its gbxmodels made models, from its model data block
 			(port/linux/game/ce_models.c), the one checked */
 			if (ce_map_loaded_unchanged())

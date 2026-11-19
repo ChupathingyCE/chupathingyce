@@ -317,8 +317,16 @@ typedef char verify_scenario_size[sizeof(struct scenario) == 0x5B0 ? 1 : -1];
 
 /* the script nodes reached so far, and those still to walk
 (scenario_check_scripts) */
-static unsigned long hs_nodes_reached[(MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO + 31) / 32];
-static short hs_nodes_to_walk[MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO];
+#ifdef HALO_CUSTOM_EDITION
+/* (OpenSauce's memory upgrades: its maps' scripts have 28501 nodes, in its
+layout only, tag_schema_opensauce.c) */
+#define HS_CHECKED_SYNTAX_NODES 28501
+#define HS_CHECKED_SYNTAX_DATA_SIZE (0x38 + HS_CHECKED_SYNTAX_NODES * 0x14)
+#else
+#define HS_CHECKED_SYNTAX_NODES MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO
+#endif
+static unsigned long hs_nodes_reached[(HS_CHECKED_SYNTAX_NODES + 31) / 32];
+static short hs_nodes_to_walk[HS_CHECKED_SYNTAX_NODES];
 
 /* ---------- private code */
 
@@ -473,9 +481,19 @@ static boolean scenario_check_scripts(
 
 	/* (hs.c finds a header that is not its own damaged, and runs no
 	scripts) */
-	if (scenario->hs_syntax_data.size != HS_SYNTAX_DATA_SIZE ||
+	long syntax_size = HS_SYNTAX_DATA_SIZE;
+	long node_count = MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO;
+
+#ifdef HALO_CUSTOM_EDITION
+	if (TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_opensauce_bit))
+	{
+		syntax_size = HS_CHECKED_SYNTAX_DATA_SIZE;
+		node_count = HS_CHECKED_SYNTAX_NODES;
+	}
+#endif
+	if (scenario->hs_syntax_data.size != syntax_size ||
 		nodes->signature != HS_SYNTAX_DATA_SIGNATURE ||
-		nodes->maximum_count != MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO ||
+		nodes->maximum_count != node_count ||
 		nodes->size != sizeof(struct hs_syntax_node) ||
 		nodes->count < 0 || nodes->count > nodes->maximum_count)
 	{
