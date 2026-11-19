@@ -33,7 +33,13 @@ authors.
 
 - **OpenCE, before its license change.** Code merged into OpenCE before
   2026-10-19 07:12 UTC, when it moved to the AGPL, was released under terms
-  that let us use it. We take nothing added after that time.
+  that let us use it. We take nothing added after that time. A pull request
+  opened before then counts too, even if OpenCE merged it later: we take only
+  its author's own commits as they stood before the change, never later
+  review edits or the merge. For example, hkmodd's HDR comes from OpenCE pull
+  request 280: opened 2026-10-11, last commit 2026-10-16, under CC0 1.0 at
+  the time. OpenCE merged it on 2026-10-19 at 14:29 UTC, after the change,
+  and we don't use that merge.
 - **OpenH1, before its license change.** Commits authored before the same
   time. Later work by the OpenH1 team's own authors is covered by their
   permission above; OpenCE's later code carried in OpenH1 is not, and we
