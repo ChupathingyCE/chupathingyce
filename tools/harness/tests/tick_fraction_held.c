@@ -9,6 +9,7 @@
 #include "harness.h"
 #define TICKS_PER_SECOND 30
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define PIN(x, lo, hi) ((x) < (lo) ? (lo) : (x) > (hi) ? (hi) : (x))
 #define valid_real(x) (!isnan(x) && !isinf(x))
 #define HALO_PERF_BEGIN(x) ((void)0)

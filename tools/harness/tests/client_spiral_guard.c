@@ -16,6 +16,7 @@
 #include "harness.h"
 #define TICKS_PER_SECOND 30
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define PIN(x, lo, hi) ((x) < (lo) ? (lo) : (x) > (hi) ? (hi) : (x))
 #define valid_real(x) (!isnan(x) && !isinf(x))
 #define HALO_PERF_BEGIN(x) ((void)0)
@@ -108,14 +109,18 @@ int main(int argc, char **argv)
 	char model[16];
 	char who[16];
 	int render, hitch;
+	float speed;
 
 	game_time_globals = &globals;
 	game_time_initialize_for_new_map();
 	globals.active = TRUE;
 	globals.speed = 1.0f;
-	/* "<connection>:<model>:<render ms>:<hitch every>" */
-	if (sscanf(case_name, "%15[a-z]:%15[a-z]:%d:%d", who, model, &render, &hitch) == 4)
+	/* "<connection>:<model>:<render ms>:<hitch every>[:<game speed>]" */
+	if (sscanf(case_name, "%15[a-z]:%15[a-z]:%d:%d:%f", who, model, &render, &hitch, &speed) >= 4)
 	{
+		/* (an MCC map's game speed: more ticks due a frame) */
+		if (sscanf(case_name, "%*[a-z]:%*[a-z]:%*d:%*d:%f", &speed) == 1)
+			globals.speed = speed;
 		connection = !strcmp(who, "client") ? _game_connection_network_client :
 			!strcmp(who, "host") ? _game_connection_network_server :
 			!strcmp(who, "film") ? _game_connection_film_playback : _game_connection_local;
