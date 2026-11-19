@@ -2546,6 +2546,20 @@ if (!valid_real_matrix4x3(matrix)) \
 	ocnm_parent_matrix_internal(file, line, matrix, string); \
 }
 
+/* port: a console's release-style build (HALO_ASSERTS_COMPILED_OUT) doesn't
+check the node matrices it computes: the checks above only assert, and the
+root node's below only logs before them. The retail game has none of these
+checks or their messages. A desktop build checks them as before. */
+#ifdef HALO_ASSERTS_COMPILED_OUT
+#undef ocnm_root_matrix_custom
+#undef ocnm_parent_matrix_custom
+#define ocnm_root_matrix_custom(file, line, matrix, custom_string) ((void)(matrix))
+#define ocnm_parent_matrix_custom(file, line, matrix, custom_string) ((void)(matrix))
+#define OCNM_CHECKS_MATRICES FALSE
+#else
+#define OCNM_CHECKS_MATRICES TRUE
+#endif
+
 void object_compute_node_matrices(
 	long object_index)
 {
@@ -2857,7 +2871,7 @@ void object_compute_node_matrices(
 					object_nodes[node_stack_index] = node_matrix;
 				}
 
-				if (!valid_real_matrix4x3(&object_nodes[node_stack_index]))
+				if (OCNM_CHECKS_MATRICES && !valid_real_matrix4x3(&object_nodes[node_stack_index]))
 				{
 					real_matrix4x3 const *validated_root_node_matrix;
 
@@ -2980,7 +2994,7 @@ void object_compute_node_matrices(
 			if (node_stack_index==0)
 			{
 				real_matrix4x3 *final_matrix = &object_nodes[node_stack_index];
-				if (!valid_real_matrix4x3(final_matrix))
+				if (OCNM_CHECKS_MATRICES && !valid_real_matrix4x3(final_matrix))
 				{
 					char *name2 = tag_get_name(object->definition_index);
 					char *string = name2;
@@ -3047,6 +3061,7 @@ void object_compute_node_matrices(
 #undef ocnm_root_matrix_internal
 #undef ocnm_parent_matrix_custom
 #undef ocnm_parent_matrix_internal
+#undef OCNM_CHECKS_MATRICES
 
 static void object_postprocess_node_matrices(
 	long object_index)
