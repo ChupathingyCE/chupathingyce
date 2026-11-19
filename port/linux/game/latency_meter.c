@@ -146,11 +146,14 @@ static pixel32 latency_pixel(
 static boolean latency_meter_shown(
 	void)
 {
-	short connection = game_connection();
+	short connection;
 
+	/* (the setting first: off, nothing else is asked each frame) */
+	if (!latency_meter_enabled())
+		return FALSE;
+	connection = game_connection();
 	return (connection == _game_connection_network_client || connection == _game_connection_network_server) &&
-		game_in_progress() && !main_menu_is_active() && !game_engine_showing_postgame() &&
-		latency_meter_enabled();
+		game_in_progress() && !main_menu_is_active() && !game_engine_showing_postgame();
 }
 
 /* (a client) its own player's ping, NONE when it has none */
