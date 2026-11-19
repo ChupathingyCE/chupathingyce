@@ -17,6 +17,12 @@ the C library (the test's SDL3/SDL.h and platform.h declare them).
 	                                         as menus_retired
 	port_config_test duplicates              a setting or environment variable
 	                                         named twice ("duplicates=none")
+	port_config_test reset <setting>         config_reset, then as get
+	port_config_test tuning                  prints "tuning_summary=<summary>"
+	                                         (config_tuning_summary), the
+	                                         "tuning: at=map" line, and the
+	                                         Potato preset's knobs
+	                                         ("potato.<setting>=<value>")
 */
 
 #include "platform.h"
@@ -170,6 +176,31 @@ int main(int argc, char **argv)
 		index = 2;
 		argc = 3;
 	}
+	else if (argc >= 3 && !strcmp(argv[1], "reset"))
+	{
+		if (!config_reset(argv[2]))
+			printf("reset failed\n");
+		index = 2;
+		argc = 3;
+	}
+	else if (argc >= 2 && !strcmp(argv[1], "tuning"))
+	{
+		char summary[600];
+		const char *knob;
+		int knob_index;
+
+		config_tuning_summary(summary, sizeof(summary));
+		printf("tuning_summary=%s\n", summary);
+		config_tuning_log("map");
+		for (knob_index = 0; (knob = config_tuning_knob(knob_index)) != NULL; knob_index++)
+		{
+			const char *value = *knob ? config_tuning_preset_value("potato", knob) : NULL;
+
+			if (value)
+				printf("potato.%s=%s\n", knob, value);
+		}
+		return 0;
+	}
 	else if (argc >= 2 && !strcmp(argv[1], "pending"))
 	{
 		char changes[1024];
@@ -246,7 +277,7 @@ int main(int argc, char **argv)
 	}
 	else if (argc < 2 || strcmp(argv[1], "get"))
 	{
-		fprintf(stderr, "usage: port_config_test get <setting>... | write <setting> <value> | pending | answer <new|keep> | menus_retired | menus_retired_seen\n");
+		fprintf(stderr, "usage: port_config_test get <setting>... | write <setting> <value> | reset <setting> | tuning | pending | answer <new|keep> | menus_retired | menus_retired_seen\n");
 		return 2;
 	}
 	for (; index < argc; index++)

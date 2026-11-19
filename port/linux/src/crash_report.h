@@ -28,7 +28,9 @@ and crash_report_body makes the request's body of it, JSON:
 	{"format": 1, "version", "channel", "commit", "platform", "architecture",
 	 "os", "exception", "renderer" (gl, bgfx-metal, bgfx-vulkan, bgfx-d3d11,
 	 native, none; left out when not known), "build_id" (left out without
-	 one), "frames": [...], "log": the log's last
+	 one), "tuning" (the [tuning] knobs, the log's last "tuning: at=" line
+	 from its "preset=": port_config.h's config_tuning_summary; left out
+	 without one), "frames": [...], "log": the log's last
 	 CRASH_REPORT_LOG_LINES lines, "minidump": base64 (Windows; left out
 	 without one, or past CRASH_REPORT_MAXIMUM_DUMP bytes)}
 
@@ -72,6 +74,11 @@ char *crash_report_body(const char *report, const char *log, size_t log_size, co
 /* the renderer the log names last (its "renderer=NAME" line): its length,
 written to out (NUL terminated); 0 for none */
 size_t crash_report_renderer(const char *log, size_t size, char *out, size_t out_size);
+
+/* the [tuning] knobs the log names last (its "tuning: at=... preset=..."
+line, config_tuning_summary's): its length, written to out (NUL
+terminated); 0 for none */
+size_t crash_report_tuning(const char *log, size_t size, char *out, size_t out_size);
 
 /* text with each public IP address in it "[address]" and each home folder
 "~" or "%USERPROFILE%": its length, written

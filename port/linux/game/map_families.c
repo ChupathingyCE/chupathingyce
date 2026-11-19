@@ -548,6 +548,14 @@ static struct map_family_place const resource_places[] =
 	{ FALSE, "custom_maps\\", "" },
 };
 
+/* where Halo PC retail's own resource maps (bitmaps.map, sounds.map) are,
+which HaloMD's and Halo PC's maps read their stock bitmaps and sounds from
+when a player has them: Halo PC's maps folder */
+static struct map_family_place const halo_pc_resource_places[] =
+{
+	{ FALSE, "maps_pc\\", "" },
+};
+
 /* ---------- prototypes */
 
 void platform_log(char const *format, ...);
@@ -1029,6 +1037,31 @@ boolean map_family_resource(
 	}
 	/* (where it goes: the first place) */
 	snprintf(path, (size_t)size, "d:\\%s%s.map", resource_places[0].folder, name);
+	return FALSE;
+}
+
+boolean map_family_halo_pc_resource(
+	char const *name,
+	char *path,
+	long size)
+{
+	long index;
+
+	for (index = 0; index < NUMBEROF(halo_pc_resource_places); index++)
+	{
+		char folder[256];
+		HANDLE file;
+
+		place_folder(&halo_pc_resource_places[index], folder, sizeof(folder));
+		snprintf(path, (size_t)size, "%s%s.map", folder, name);
+		file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (file != INVALID_HANDLE_VALUE)
+		{
+			CloseHandle(file);
+			return TRUE;
+		}
+	}
+	snprintf(path, (size_t)size, "d:\\%s%s.map", halo_pc_resource_places[0].folder, name);
 	return FALSE;
 }
 

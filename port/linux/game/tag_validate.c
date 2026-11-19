@@ -1030,6 +1030,10 @@ static void validate_block_extent(
 	struct tag_schema_field const *field)
 {
 	struct tag_schema_definition const *definition = field->definition;
+	/* (Halo PC's most, in its layout: TAG_SCHEMA_PC_BLOCK) */
+	long maximum = field->target_offset &&
+		TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_tool_maxima_kept_bit) ?
+		field->target_offset : field->maximum;
 
 	block->definition = XBOX_NULL;
 	if (block->count < 0)
@@ -1039,13 +1043,13 @@ static void validate_block_extent(
 	}
 	/* (a block of the tools' maximum, _tag_schema_tool_maximum_bit, is cut
 	too, but in a layout whose tools went past them: Halo PC's) */
-	if (field->maximum > 0 && block->count > field->maximum &&
+	if (maximum > 0 && block->count > maximum &&
 		!(TEST_FLAG(field->flags, _tag_schema_tool_maximum_bit) &&
 			TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_tool_maxima_kept_bit)))
 	{
 		tag_validate_correct(validation, "has %ld elements, more than the game's %ld: cut to %ld",
-			block->count, field->maximum, field->maximum);
-		block->count = field->maximum;
+			block->count, maximum, maximum);
+		block->count = maximum;
 	}
 	if (block->count &&
 		((unsigned long)block->count > validation->region_size / (unsigned long)definition->size ||
@@ -1230,6 +1234,22 @@ static void validate_value(
 
 		if ((value >= 0 && value < maximum && value != none) || (none_allowed && value == none))
 			break;
+		/* (a Halo PC map's short that names one of its values in the other
+		byte order is that value: HaloMD's tools wrote some so, 256 for 1,
+		as a shotgun's weapon type) */
+		if (field->size == 2 && TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_pc_header_bit))
+		{
+			unsigned short bytes = (unsigned short)value;
+			long swapped = (long)(unsigned short)((bytes >> 8) | (bytes << 8));
+
+			if (swapped < maximum && swapped != none)
+			{
+				tag_validate_correct(validation, "is %ld, past its %ld values: %ld, its bytes the other way round",
+					value, maximum, swapped);
+				integer_set(address, field->size, swapped);
+				break;
+			}
+		}
 		tag_validate_correct(validation, "is %ld, past its %ld values: %s",
 			value, maximum, none_allowed ? "none" : "0");
 		integer_set(address, field->size, none_allowed ? NONE : 0);

@@ -126,6 +126,14 @@ TAG_SCHEMA_END */
 	{ _tag_schema_block, sizeof(struct tag_block), 1, 0, \
 		TAG_SCHEMA_OFFSET(type, field, struct tag_block), (maximum), 0, 0, &(definition), NULL, #field }
 
+/* ... of pc_maximum elements in Halo PC's layout
+(_tag_schema_layout_tool_maxima_kept_bit): a block whose Xbox maximum is
+its tools' alone, no array of the game's, which Halo PC's maps went past
+and Halo PC's engine read as long as it was, to its own limit */
+#define TAG_SCHEMA_PC_BLOCK(type, field, definition, maximum, pc_maximum) \
+	{ _tag_schema_block, sizeof(struct tag_block), 1, 0, \
+		TAG_SCHEMA_OFFSET(type, field, struct tag_block), (maximum), 0, (pc_maximum), &(definition), NULL, #field }
+
 /* ... whose maximum is the editing kit's (_tag_schema_tool_maximum_bit) */
 #define TAG_SCHEMA_TOOL_BLOCK(type, field, definition, maximum) 	{ _tag_schema_block, sizeof(struct tag_block), 1, FLAG(_tag_schema_tool_maximum_bit), 		TAG_SCHEMA_OFFSET(type, field, struct tag_block), (maximum), 0, 0, &(definition), NULL, #field }
 
@@ -236,8 +244,9 @@ struct tag_schema_field
 	/* a block index's block: where it is (TAG_SCHEMA_ROOT,
 	TAG_SCHEMA_STRUCTURE, or how many elements up) and its offset there */
 	long target_level;
-	/* a block index's block's offset; a reset's value; an enum's values in
-	Halo PC's layout (TAG_SCHEMA_PC_ENUM), or 0 */
+	/* a block index's block's offset; a reset's value; an enum's values or
+	a block's most elements in Halo PC's layout (TAG_SCHEMA_PC_ENUM,
+	TAG_SCHEMA_PC_BLOCK), or 0 */
 	long target_offset;
 	/* a block's or structure's definition; a reference's or tag index's
 	groups */

@@ -240,26 +240,10 @@ static const struct settings_row settings_rows[] =
 
 #define NUMBER_OF_SETTINGS_ROWS ((int)(sizeof(settings_rows) / sizeof(settings_rows[0])))
 
-/* the Potato preset: the display's heaviest work turned down */
-static const struct
-{
-	const char *key;
-	const char *value;
-} potato[] =
-{
-	{ "display.particle_limit", "1024" },
-	{ "display.particle_ticks", "true" },
-	{ "display.dynamic_light_limit", "8" },
-	{ "display.specular_light_limit", "2" },
-	{ "display.shadow_resolution", "128" },
-	{ "display.anisotropic_filtering", "0" },
-	{ "display.anti_aliasing", "off" },
-	{ "display.per_pixel_lighting", "false" },
-	{ "display.light_effects", "off" },
-	{ "display.resolution_scaling", "original" },
-};
-
-#define NUMBER_OF_POTATO_SETTINGS ((int)(sizeof(potato) / sizeof(potato[0])))
+/* the Potato preset: the display's heaviest work turned down. It is
+config.toml's tuning.preset = "potato", whose knobs and values are
+port_config.c's (config_tuning_knob, config_tuning_preset_value) */
+#define POTATO_PRESET "potato"
 
 enum
 {
@@ -400,36 +384,50 @@ static void values_of(const struct settings_row *row, struct values *values)
 
 /* ---------- the preset */
 
+/* the Potato preset's knob at index that this build has: its value, NULL
+for one it leaves alone, and its setting in key */
+static const char *potato_value(int index, const char **key)
+{
+	*key = config_tuning_knob(index);
+	if (!*key || !**key || config_setting_kind(*key) < 0)
+		return NULL;
+	return config_tuning_preset_value(POTATO_PRESET, *key);
+}
+
 static int preset_now(void)
 {
 	char value[VALUE_SIZE], fallback[VALUE_SIZE];
 	int index, potato_all = 1, defaults_all = 1;
+	const char *key, *potato;
 
-	for (index = 0; index < NUMBER_OF_POTATO_SETTINGS; index++)
+	for (index = 0; config_tuning_knob(index); index++)
 	{
-		if (config_setting_kind(potato[index].key) < 0)
+		if (!(potato = potato_value(index, &key)))
 			continue;
-		current(potato[index].key, value, sizeof(value));
-		if (!same(value, potato[index].value))
+		current(key, value, sizeof(value));
+		if (!same(value, potato))
 			potato_all = 0;
-		if (!config_default(potato[index].key, fallback, sizeof(fallback)) || !same(value, fallback))
+		if (!config_default(key, fallback, sizeof(fallback)) || !same(value, fallback))
 			defaults_all = 0;
 	}
 	return defaults_all ? _preset_default : potato_all ? _preset_potato : _preset_custom;
 }
 
+/* Potato: tuning.preset written, and its knobs back to following it;
+Default: the preset and its knobs back to their defaults */
 static void preset_set(int preset)
 {
 	int index;
+	const char *key;
 
-	for (index = 0; index < NUMBER_OF_POTATO_SETTINGS; index++)
+	if (preset == _preset_potato)
+		config_write("tuning.preset", POTATO_PRESET);
+	else
+		config_reset("tuning.preset");
+	for (index = 0; config_tuning_knob(index); index++)
 	{
-		if (config_setting_kind(potato[index].key) < 0)
-			continue;
-		if (preset == _preset_potato)
-			config_write(potato[index].key, potato[index].value);
-		else
-			config_reset(potato[index].key);
+		if (potato_value(index, &key))
+			config_reset(key);
 	}
 }
 

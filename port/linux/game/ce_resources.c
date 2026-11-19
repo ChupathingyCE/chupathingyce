@@ -25,9 +25,11 @@ in it, as it is relocated; a map whose resources do not is refused before it
 is opened (ce_map_checks.c, which copies them in as loading does, into an
 image of the tag cache, and checks every bitmap and sound: ce_resources_check).
 
-HaloMD's maps (Halo PC retail's) are read with Custom Edition's resource
-maps too: their stock bitmaps' pixels and sounds' samples are found in them
-by their tags' paths (below).
+HaloMD's maps (Halo PC retail's) read their stock bitmaps' pixels and
+sounds' samples from Halo PC retail's own bitmaps.map and sounds.map, at the
+offsets their tags give, when the player has put them in maps_pc; else (or
+for one not there) they are found in Custom Edition's by their tags' paths
+(below).
 */
 
 #ifdef HALO_CUSTOM_EDITION
@@ -35,6 +37,10 @@ by their tags' paths (below).
 #include "cseries.h"
 #include "cseries_windows.h"
 #include "errors.h"
+#include "main/console.h"
+#include "game/game.h"
+#include "game/players.h"
+#include "interface/hud_messaging.h"
 #include "tag_files/tag_groups.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
@@ -54,6 +60,11 @@ enum
 	_ce_resource_bitmaps,
 	_ce_resource_sounds,
 	_ce_resource_strings,
+	/* Halo PC retail's own bitmaps.map and sounds.map (maps_pc), which a
+	retail map's stock bitmaps and sounds are read from when they are
+	there: the player's own copies, never shipped */
+	_ce_resource_halo_pc_bitmaps,
+	_ce_resource_halo_pc_sounds,
 	NUMBER_OF_CE_RESOURCE_MAPS,
 
 	/* a bitmap's flags the Xbox's tags keep (bitmap_utilities.c: power of
@@ -145,11 +156,13 @@ int ce_vorbis_resample_piece(short **samples, int frames, int channels, int rate
 	const short *before, int before_frames, const short *after, int after_frames);
 void ce_vorbis_free(short *samples);
 static void ce_sounds_decode(void *tag_instances, long tag_count);
+static boolean ce_samples_external(byte const *permutation);
 
 /* ---------- globals */
 
 static struct ce_resource_map ce_resource_maps[NUMBER_OF_CE_RESOURCE_MAPS];
-static char const *const ce_resource_map_names[NUMBER_OF_CE_RESOURCE_MAPS] = { "bitmaps", "sounds", "loc" };
+static char const *const ce_resource_map_names[NUMBER_OF_CE_RESOURCE_MAPS] =
+	{ "bitmaps", "sounds", "loc", "bitmaps", "sounds" };
 /* the indexed tags of the map loaded: their resource map, by tag index (+1;
 0 none) */
 static byte *ce_indexed_tags;
@@ -786,8 +799,372 @@ static long ce_retail_resource_at(
 	return NONE;
 }
 
-/* a retail map's bitmap tag: its external bitmaps' pixels found in Custom
-Edition's bitmaps.map, and the tag's pixels read from there (*type). A bitmap
+/* ---------- Halo PC retail's own resource maps (maps_pc)
+
+Halo PC retail's bitmaps.map and sounds.map are laid out as Custom Edition's
+are (a type, the offsets of the paths and of the table, a count; each
+resource its path's offset, its size and its offset), but hold only pixels
+(<path>_<n>, a tag's bitmap n) and samples (<path>__<range>__<permutation>):
+the tags are in the maps. A retail map's tag gives each stock bitmap's pixels
+and each stock permutation's samples as an offset and a size in them, which
+Halo PC read as they were. So, with the player's own copy in maps_pc, a tag
+whose every external bitmap or permutation is one of its resources (from its
+start, and no longer) keeps its offsets and is read from there; any
+other (a file that is not Halo PC's, a tag of a map built with other resource
+maps) is found in Custom Edition's as before. Nothing in the file is trusted:
+its header, its table and every resource are checked to lie in it, a file
+whose resources are named as Custom Edition's is not taken, and the pixels
+and samples are checked again with the map (ce_bitmaps_check, ce_sound_check).
+*/
+
+enum
+{
+	_ce_halo_pc_ready,
+	_ce_halo_pc_missing,
+	/* (not a resource map of its kind, or Custom Edition's) */
+	_ce_halo_pc_unusable,
+};
+
+/* each Halo PC resource map's state as the placing of a map's resources
+last found it (ce_resources_place_read looks again each time: a player may
+add one between maps), and whether it was looked for yet this time */
+static short ce_halo_pc_states[2] = { _ce_halo_pc_missing, _ce_halo_pc_missing };
+static boolean ce_halo_pc_looked[2];
+/* the lines for the player about them, once the game is under way
+(ce_resources_update): "" for none */
+static char ce_halo_pc_note[2][63];
+
+static int ce_resource_offset_compare(
+	void const *a,
+	void const *b)
+{
+	struct ce_resource const *first = a, *second = b;
+
+	if (first->offset != second->offset)
+		return first->offset < second->offset ? -1 : 1;
+	if (first->size != second->size)
+		return first->size < second->size ? -1 : 1;
+	return 0;
+}
+
+/* Halo PC's own bitmaps.map or sounds.map (type: _ce_resource_halo_pc_*),
+opened once it is found and checked: FALSE (and its state kept) if it is
+not in maps_pc or is not Halo PC's. Never a refusal: without it, a retail
+map's stock bitmaps and sounds are found in Custom Edition's */
+static boolean ce_halo_pc_resource_map_open(
+	short type)
+{
+	struct ce_resource_map *map = &ce_resource_maps[type];
+	short which = (short)(type - _ce_resource_halo_pc_bitmaps);
+	unsigned long kind = type == _ce_resource_halo_pc_bitmaps ? 1 : 2;
+	char const *custom_ending = type == _ce_resource_halo_pc_bitmaps ? "__pixels" : "__permutations";
+	size_t custom_ending_length = strlen(custom_ending);
+	char path[256];
+	unsigned long header[4];
+	unsigned long file_size, file_size_high = 0, paths_size, index, kept;
+	struct ce_resource *resources;
+	char *paths;
+	HANDLE file;
+
+	if (map->file)
+		return TRUE;
+	if (ce_halo_pc_looked[which])
+		return FALSE;
+	ce_halo_pc_looked[which] = TRUE;
+	ce_halo_pc_states[which] = _ce_halo_pc_missing;
+	if (!map_family_halo_pc_resource(ce_resource_map_names[type], path, sizeof(path)))
+		return FALSE;
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+	if (file == INVALID_HANDLE_VALUE)
+		return FALSE;
+	ce_halo_pc_states[which] = _ce_halo_pc_unusable;
+	file_size = GetFileSize(file, &file_size_high);
+	/* (its type, its paths after its header and before its table, the
+	table in the file, and no more than 4 MB of paths: Halo PC's are under
+	200 KB) */
+	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > 0x7fffffff ||
+		!ce_read(file, 0, header, sizeof(header)) || header[0] != kind || !header[3] ||
+		header[3] > CE_MAXIMUM_ELEMENTS || header[1] < sizeof(header) || header[1] > header[2] ||
+		header[2] - header[1] > 0x400000 || !ce_range_within(header[2], header[3] * sizeof(struct ce_resource), file_size))
+	{
+		error(_error_silent, "HaloMD maps: %s is not a resource map of its kind; it is not read", path);
+		CloseHandle(file);
+		return FALSE;
+	}
+	paths_size = header[2] - header[1];
+	resources = malloc(header[3] * sizeof(struct ce_resource));
+	paths = malloc(paths_size + 1);
+	if (!resources || !paths || !ce_read(file, header[2], resources, header[3] * sizeof(struct ce_resource)) ||
+		!ce_read(file, header[1], paths, paths_size))
+	{
+		error(_error_silent, "HaloMD maps: %s could not be read; it is not read", path);
+		if (resources)
+			free(resources);
+		if (paths)
+			free(paths);
+		CloseHandle(file);
+		return FALSE;
+	}
+	paths[paths_size] = 0;
+	/* (each resource in the file, with a path, and none named as Custom
+	Edition's: a Custom Edition resource map put in maps_pc is not Halo
+	PC's, whose offsets the retail maps give) */
+	for (index = 0, kept = 0; index < header[3]; index++)
+	{
+		struct ce_resource const *resource = &resources[index];
+		size_t length;
+
+		if (resource->path_offset >= paths_size)
+			continue;
+		length = strlen(paths + resource->path_offset);
+		if (length >= custom_ending_length &&
+			!strcmp(paths + resource->path_offset + length - custom_ending_length, custom_ending))
+		{
+			error(_error_silent, "HaloMD maps: %s is Custom Edition's (its resources are named <path>%s), not Halo "
+				"PC's own; it is not read", path, custom_ending);
+			free(resources);
+			free(paths);
+			CloseHandle(file);
+			return FALSE;
+		}
+		if (!resource->size || !ce_range_within(resource->offset, resource->size, file_size))
+			continue;
+		resources[kept++] = *resource;
+	}
+	free(paths);
+	if (!kept)
+	{
+		error(_error_silent, "HaloMD maps: %s has no resources in it; it is not read", path);
+		free(resources);
+		CloseHandle(file);
+		return FALSE;
+	}
+	/* (by offset, for ce_halo_pc_resource_is) */
+	qsort(resources, kept, sizeof(struct ce_resource), ce_resource_offset_compare);
+	map->resources = resources;
+	map->count = kept;
+	map->paths = NULL;
+	map->paths_size = 0;
+	map->file_size = file_size;
+	map->file = file;
+	ce_halo_pc_states[which] = _ce_halo_pc_ready;
+	error(_error_silent, "HaloMD maps: Halo PC's own %s.map found (%s, %lu of its %lu resources in it)",
+		ce_resource_map_names[type], path, kept, header[3]);
+	return TRUE;
+}
+
+/* whether size bytes at offset are one of a Halo PC resource map's
+resources, from its start, or the first size bytes of one (HaloMD's maps cut
+some stock sounds short: the pistol's fire, the shield's alarm). Its
+resources are by offset (ce_halo_pc_resource_map_open) */
+static boolean ce_halo_pc_resource_is(
+	struct ce_resource_map const *map,
+	unsigned long offset,
+	unsigned long size)
+{
+	long low = 0, high = (long)map->count;
+
+	/* (the first at offset or past it) */
+	while (low < high)
+	{
+		long middle = low + (high - low) / 2;
+
+		if (map->resources[middle].offset < offset)
+			low = middle + 1;
+		else
+			high = middle;
+	}
+	for (; low < (long)map->count && map->resources[low].offset == offset; low++)
+	{
+		if (size <= map->resources[low].size)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* what ce_bitmap_drawable finds of a bitmap */
+enum
+{
+	_ce_bitmap_drawn,
+	/* (not one the game's bitmap_verify takes) */
+	_ce_bitmap_not_drawn,
+	/* (a format with no Direct3D one) */
+	_ce_bitmap_no_format,
+	/* (linear, of a format that cannot be) */
+	_ce_bitmap_linear,
+	/* (not of its type's shape) */
+	_ce_bitmap_misshapen,
+};
+
+/* a bitmap (data, CE_BITMAP_DATA_SIZE bytes) as the game's renderer would
+make a texture of it, into *bitmap: one the game's own bitmap_verify takes
+(of the Xbox's flags), of a format with a Direct3D one, of its type's shape
+(ce_bitmaps_check's refusals, by what this gives) */
+static short ce_bitmap_drawable(
+	byte const *data,
+	struct bitmap_data *bitmap)
+{
+	memcpy(bitmap, data, sizeof(*bitmap));
+	bitmap->flags &= CE_BITMAP_XBOX_FORMAT_FLAGS;
+	/* (a BC7 bitmap is checked as the DXT5 one it is made: its blocks are
+	the same size) */
+	if (bitmap->format == CE_BITMAP_FORMAT_BC7)
+		bitmap->format = CE_BITMAP_FORMAT_DXT5;
+	if (!bitmap_verify(bitmap, FALSE))
+		return _ce_bitmap_not_drawn;
+	/* (the formats with no Direct3D format, none linear but the
+	uncompressed: xbox_texture_cache.c's tables) */
+	switch (bitmap->format)
+	{
+	case 4: case 5: case 7: case 12: case 13:
+		return _ce_bitmap_no_format;
+	case 14: case 15: case 16: case 17:
+		if (bitmap->flags & CE_BITMAP_LINEAR_FLAG)
+			return _ce_bitmap_linear;
+		break;
+	}
+	if ((bitmap->type == 2 && bitmap->width != bitmap->height) || (bitmap->type != 1 && bitmap->depth != 1))
+		return _ce_bitmap_misshapen;
+	return _ce_bitmap_drawn;
+}
+
+/* a retail map's bitmap tag whose bitmaps (count of them, all external)
+are each a resource of Halo PC's own bitmaps.map, and each one the game
+draws as the tag gives it: TRUE if they all are (their offsets are then
+kept, and read from there). A protected map's tags may give a bitmap's shape
+or format scrambled, which Custom Edition's bitmaps.map's namesake mends as
+before (ce_retail_bitmap_take) */
+static boolean ce_halo_pc_bitmaps(
+	byte const *bitmaps,
+	long count)
+{
+	struct ce_resource_map const *map = &ce_resource_maps[_ce_resource_halo_pc_bitmaps];
+	long index;
+
+	if (!count || !ce_halo_pc_resource_map_open(_ce_resource_halo_pc_bitmaps))
+		return FALSE;
+	for (index = 0; index < count; index++)
+	{
+		byte const *data = bitmaps + index * CE_BITMAP_DATA_SIZE;
+		long offset = (long)ce_read_long(data + 0x18);
+		long size = (long)ce_read_long(data + 0x1c);
+		struct bitmap_data bitmap;
+
+		/* (a tag's bitmaps are all read from one file: ce_resources_file_for_tag) */
+		if (!(*(unsigned short const *)(data + 0x0e) & CE_BITMAP_EXTERNAL_FLAG) || offset < 0 || size <= 0 ||
+			!ce_halo_pc_resource_is(map, (unsigned long)offset, (unsigned long)size) ||
+			ce_bitmap_drawable(data, &bitmap) != _ce_bitmap_drawn)
+		{
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
+/* a retail map's sound (its header, and its pitch ranges, range_count of
+them, in the image) of an encoding and compression there are, whose every
+permutation with samples is of a compression there is and has them external
+and a resource of Halo PC's own sounds.map: TRUE if so (their offsets are
+then kept, and read from there). A protected map's tags may give a sound's
+encoding or compression scrambled, which Custom Edition's sounds.map's
+namesake is checked against as before (ce_retail_sound) */
+static boolean ce_halo_pc_sound(
+	struct ce_image *image,
+	byte const *sound,
+	byte *ranges,
+	long range_count,
+	char const *name)
+{
+	struct ce_resource_map const *map = &ce_resource_maps[_ce_resource_halo_pc_sounds];
+	long range_index, external = 0;
+	short encoding, compression;
+
+	memcpy(&encoding, sound + CE_SOUND_ENCODING_OFFSET, sizeof(encoding));
+	memcpy(&compression, sound + CE_SOUND_COMPRESSION_OFFSET, sizeof(compression));
+	/* (mono or stereo; none, Xbox ADPCM, IMA ADPCM or Ogg Vorbis:
+	sound_manager.c's) */
+	if (encoding < 0 || encoding > 1 || compression < CE_SOUND_COMPRESSION_NONE ||
+		compression > CE_SOUND_COMPRESSION_OGG || !ce_halo_pc_resource_map_open(_ce_resource_halo_pc_sounds))
+	{
+		return FALSE;
+	}
+	for (range_index = 0; range_index < range_count; range_index++)
+	{
+		byte *permutations;
+		long permutation_count, permutation_index;
+
+		if (!ce_image_block(image, ranges + range_index * CE_SOUND_PITCH_RANGE_SIZE + CE_PITCH_RANGE_PERMUTATIONS_OFFSET,
+			CE_SOUND_PERMUTATION_SIZE, CE_MAXIMUM_ELEMENTS, name, &permutation_count, &permutations))
+		{
+			return FALSE;
+		}
+		for (permutation_index = 0; permutation_index < permutation_count; permutation_index++)
+		{
+			byte const *permutation = permutations + permutation_index * CE_SOUND_PERMUTATION_SIZE;
+			long size = (long)ce_read_long(permutation + CE_PERMUTATION_SAMPLES_OFFSET);
+			long offset = (long)ce_read_long(permutation + CE_PERMUTATION_SAMPLES_OFFSET + 8);
+			short permutation_compression;
+
+			if (!size)
+				continue;
+			memcpy(&permutation_compression, permutation + CE_PERMUTATION_COMPRESSION_OFFSET,
+				sizeof(permutation_compression));
+			if (permutation_compression < CE_SOUND_COMPRESSION_NONE || permutation_compression > CE_SOUND_COMPRESSION_OGG)
+				return FALSE;
+			/* (a sound's samples are all read from one file: one with some in
+			the map is found in Custom Edition's as before) */
+			if (!ce_samples_external(permutation) || size < 0 || offset < 0 ||
+				!ce_halo_pc_resource_is(map, (unsigned long)offset, (unsigned long)size))
+			{
+				return FALSE;
+			}
+			external++;
+		}
+	}
+	return external != 0;
+}
+
+/* a retail map loaded with stock bitmaps stood in for or sounds silent
+(ce_resources_place_read's counts) while Halo PC's own bitmaps.map or
+sounds.map, which would have them, is missing from maps_pc or not Halo PC's:
+one line logged, and two for the player saying which file to add, shown on
+the HUD (and the console) a second into the game: ce_resources_update */
+static void ce_halo_pc_missing_tell(
+	long stood_in,
+	long silenced)
+{
+	boolean bitmaps = stood_in && ce_halo_pc_states[0] != _ce_halo_pc_ready;
+	boolean sounds = silenced && ce_halo_pc_states[1] != _ce_halo_pc_ready;
+	boolean unusable = (bitmaps && ce_halo_pc_states[0] == _ce_halo_pc_unusable) ||
+		(sounds && ce_halo_pc_states[1] == _ce_halo_pc_unusable);
+	char const *files = bitmaps && sounds ? "bitmaps.map and sounds.map" : bitmaps ? "bitmaps.map" : "sounds.map";
+
+	ce_halo_pc_note[0][0] = ce_halo_pc_note[1][0] = 0;
+	if (!bitmaps && !sounds)
+		return;
+	/* (two lines, each short enough for one of the HUD's: 62 characters) */
+	snprintf(ce_halo_pc_note[0], sizeof(ce_halo_pc_note[0]), "%s", bitmaps && sounds ?
+		"Some textures and sounds in this map are missing." : bitmaps ? "Some textures in this map are stand-ins." :
+		"Some sounds in this map are silent.");
+	if (unusable)
+	{
+		error(_error_silent, "HaloMD map: the %s in maps_pc isn't Halo PC's own: %ld bitmaps stood in for, %ld sounds "
+			"silent", files, stood_in, silenced);
+		snprintf(ce_halo_pc_note[1], sizeof(ce_halo_pc_note[1]), "The %s in maps_pc %s Halo PC's.", files,
+			bitmaps && sounds ? "aren't" : "isn't");
+	}
+	else
+	{
+		error(_error_silent, "HaloMD map: Halo PC's own %s missing from maps_pc: %ld bitmaps stood in for, %ld sounds "
+			"silent", files, stood_in, silenced);
+		snprintf(ce_halo_pc_note[1], sizeof(ce_halo_pc_note[1]), "Copy Halo PC's %s to maps_pc.", files);
+	}
+}
+
+/* a retail map's bitmap tag: its external bitmaps' pixels read from Halo
+PC's own bitmaps.map, if it is there and has them all (*from_halo_pc counts
+them), else found in Custom Edition's bitmaps.map, and the tag's pixels read
+from there (*type). A bitmap
 of its path there of another size or format (a bitmaps.map not as Custom
 Edition shipped it: an HD or repacked one) is drawn as that one is (*resized);
 one not there at all is stood in for (*stood_in) */
@@ -797,7 +1174,8 @@ static boolean ce_retail_bitmaps(
 	byte *type,
 	long *stood_in,
 	long *resized,
-	long *renamed)
+	long *renamed,
+	long *from_halo_pc)
 {
 	byte *group = ce_image_pointer(image, instance->base_address, CE_BITMAP_GROUP_SIZE);
 	char const *name = ce_image_tag_name(image, instance);
@@ -819,6 +1197,14 @@ static boolean ce_retail_bitmaps(
 		external |= (*(unsigned short *)(bitmaps + index * CE_BITMAP_DATA_SIZE + 0x0e) & CE_BITMAP_EXTERNAL_FLAG) != 0;
 	if (!external)
 		return TRUE;
+	/* (as Halo PC read them, from its own bitmaps.map: nothing in the tag
+	changed) */
+	if (ce_halo_pc_bitmaps(bitmaps, count))
+	{
+		*from_halo_pc += count;
+		*type = (byte)(_ce_resource_halo_pc_bitmaps + 1);
+		return TRUE;
+	}
 	if (!ce_resource_map_open(_ce_resource_bitmaps))
 		return FALSE;
 	found = ce_retail_resource(map, name);
@@ -906,14 +1292,17 @@ static boolean ce_samples_external(
 	return (ce_read_long(permutation + CE_PERMUTATION_SAMPLES_OFFSET + 4) & CE_SAMPLES_EXTERNAL_FLAG) != 0;
 }
 
-/* a retail map's sound tag: its external permutations' samples found in
-Custom Edition's sounds.map, and the tag's samples read from there (*type);
-or, if they are not all there, of the same sizes, the sound made silent */
+/* a retail map's sound tag: its external permutations' samples read from
+Halo PC's own sounds.map, if it is there and has them all (*from_halo_pc
+counts the sound), else found in Custom Edition's sounds.map, and the tag's
+samples read from there (*type); or, if they are not all there, of the same
+sizes, the sound made silent */
 static boolean ce_retail_sound(
 	struct ce_image *image,
 	struct ce_tag_instance const *instance,
 	byte *type,
-	long *silenced)
+	long *silenced,
+	long *from_halo_pc)
 {
 	byte *sound = ce_image_pointer(image, instance->base_address, CE_SOUND_HEADER_SIZE);
 	char const *name = ce_image_tag_name(image, instance);
@@ -946,6 +1335,14 @@ static boolean ce_retail_sound(
 	}
 	if (!external)
 		return TRUE;
+	/* (as Halo PC read them, from its own sounds.map: nothing in the tag
+	changed) */
+	if (ce_halo_pc_sound(image, sound, ranges, range_count, name))
+	{
+		(*from_halo_pc)++;
+		*type = (byte)(_ce_resource_halo_pc_sounds + 1);
+		return TRUE;
+	}
 	if (!ce_resource_map_open(_ce_resource_sounds))
 		return FALSE;
 	found = ce_retail_resource(map, name);
@@ -1131,9 +1528,13 @@ static boolean ce_resources_place_read(
 	unsigned long next = (tags_end + 15) & ~15UL;
 	long index;
 	long stood_in = 0, silenced = 0, resized = 0, reindexed = 0, renamed = 0;
+	long halo_pc_bitmaps = 0, halo_pc_sounds = 0;
 
 	*copied = 0;
 	csmemset(types, 0, tag_count);
+	/* (Halo PC's own resource maps looked for again, if they weren't found:
+	a player may have added them since) */
+	ce_halo_pc_looked[0] = ce_halo_pc_looked[1] = FALSE;
 	for (index = 0; index < tag_count; index++)
 	{
 		struct ce_tag_instance *instance = (struct ce_tag_instance *)((byte *)tag_instances +
@@ -1156,9 +1557,10 @@ static boolean ce_resources_place_read(
 				boolean found = TRUE;
 
 				if (instance->group_tag == 'bitm')
-					found = ce_retail_bitmaps(image, instance, &types[index], &stood_in, &resized, &renamed);
+					found = ce_retail_bitmaps(image, instance, &types[index], &stood_in, &resized, &renamed,
+						&halo_pc_bitmaps);
 				else if (instance->group_tag == 'snd!')
-					found = ce_retail_sound(image, instance, &types[index], &silenced);
+					found = ce_retail_sound(image, instance, &types[index], &silenced, &halo_pc_sounds);
 				if (!found)
 					return FALSE;
 			}
@@ -1242,9 +1644,11 @@ static boolean ce_resources_place_read(
 	}
 	if (ce_map_cache_version == CE_CACHE_VERSION_RETAIL && !ce_map_checking())
 	{
-		error(_error_silent, "HaloMD map: %ld bitmaps stood in for, %ld sounds silent (not in Custom Edition's "
-			"resource maps), %ld bitmaps of another size or format in bitmaps.map, %ld found by their pixels' "
-			"offset under another tag's name", stood_in, silenced, resized, renamed);
+		error(_error_silent, "HaloMD map: %ld bitmaps and %ld sounds read from Halo PC's own resource maps; "
+			"%ld bitmaps stood in for, %ld sounds silent (not in Custom Edition's resource maps), %ld bitmaps of "
+			"another size or format in bitmaps.map, %ld found by their pixels' offset under another tag's name",
+			halo_pc_bitmaps, halo_pc_sounds, stood_in, silenced, resized, renamed);
+		ce_halo_pc_missing_tell(stood_in, silenced);
 		/* (Custom Edition's own bitmaps.map has every stock bitmap at the
 		size Halo PC's maps expect: one that doesn't is another file) */
 		if (resized)
@@ -1353,13 +1757,17 @@ static boolean ce_resources_place(
 /* a tag's bitmaps: each one a bitmap the game's renderer can make a texture
 of (the game's own bitmap_verify, of the Xbox's flags, a format with a
 Direct3D one, square cube maps) and its pixels in the file they are read
-from (bitmaps.map's size if they are there, else the map's) */
+from (bitmaps.map's size if they are there, Halo PC's own bitmaps.map's if
+they are read from that, else the map's; type is the tag's resource map, as
+ce_resources_place found it, +1, or 0) */
 static boolean ce_bitmaps_check(
 	struct ce_image const *image,
 	struct ce_tag_instance const *instance,
-	boolean indexed,
+	byte type,
 	unsigned long map_file_size)
 {
+	boolean indexed = type != 0;
+	short file_type = type == _ce_resource_halo_pc_bitmaps + 1 ? _ce_resource_halo_pc_bitmaps : _ce_resource_bitmaps;
 	byte *group = ce_image_pointer(image, instance->base_address, CE_BITMAP_GROUP_SIZE);
 	char const *name = ce_image_tag_name(image, instance);
 	byte *bitmaps;
@@ -1378,40 +1786,30 @@ static boolean ce_bitmaps_check(
 		unsigned long file_size;
 		boolean external;
 
-		memcpy(&bitmap, bitmaps + index * CE_BITMAP_DATA_SIZE, sizeof(bitmap));
-		external = indexed || (bitmap.flags & CE_BITMAP_EXTERNAL_FLAG);
-		bitmap.flags &= CE_BITMAP_XBOX_FORMAT_FLAGS;
-		/* (a BC7 bitmap is checked as the DXT5 one it is made: its blocks
-		are the same size) */
-		if (bitmap.format == CE_BITMAP_FORMAT_BC7)
-			bitmap.format = CE_BITMAP_FORMAT_DXT5;
-		if (!bitmap_verify(&bitmap, FALSE))
+		external = indexed || (*(unsigned short const *)(bitmaps + index * CE_BITMAP_DATA_SIZE + 0x0e) &
+			CE_BITMAP_EXTERNAL_FLAG);
+		switch (ce_bitmap_drawable(bitmaps + index * CE_BITMAP_DATA_SIZE, &bitmap))
 		{
+		case _ce_bitmap_not_drawn:
 			return ce_refuse("bitmap %ld of %s (%dx%dx%d, type %d, format %d) is not one the game draws", index, name,
 				bitmap.width, bitmap.height, bitmap.depth, bitmap.type, bitmap.format);
-		}
-		/* (the formats with no Direct3D format, none linear but the
-		uncompressed: xbox_texture_cache.c's tables) */
-		switch (bitmap.format)
-		{
-		case 4: case 5: case 7: case 12: case 13:
+		case _ce_bitmap_no_format:
 			return ce_refuse("bitmap %ld of %s has no format the game draws (%d)", index, name, bitmap.format);
-		case 14: case 15: case 16: case 17:
-			if (bitmap.flags & CE_BITMAP_LINEAR_FLAG)
-				return ce_refuse("bitmap %ld of %s is linear, of a format that cannot be", index, name);
-			break;
-		}
-		if ((bitmap.type == 2 && bitmap.width != bitmap.height) || (bitmap.type != 1 && bitmap.depth != 1))
+		case _ce_bitmap_linear:
+			return ce_refuse("bitmap %ld of %s is linear, of a format that cannot be", index, name);
+		case _ce_bitmap_misshapen:
 			return ce_refuse("bitmap %ld of %s is %dx%dx%d, not of its type's shape", index, name, bitmap.width,
 				bitmap.height, bitmap.depth);
-		if (external && !ce_resource_map_open(_ce_resource_bitmaps))
+		}
+		if (external && file_type == _ce_resource_bitmaps && !ce_resource_map_open(_ce_resource_bitmaps))
 			return FALSE;
-		file_size = external ? ce_resource_maps[_ce_resource_bitmaps].file_size : map_file_size;
+		file_size = external ? ce_resource_maps[file_type].file_size : map_file_size;
 		if (bitmap.pixels_offset < 0 || bitmap.pixels_size < 0 ||
 			!ce_range_within((unsigned long)bitmap.pixels_offset, (unsigned long)bitmap.pixels_size, file_size))
 		{
 			return ce_refuse("bitmap %ld of %s: its pixels (%ld bytes at %ld) are not in %s", index, name,
-				bitmap.pixels_size, bitmap.pixels_offset, external ? "bitmaps.map" : "the map");
+				bitmap.pixels_size, bitmap.pixels_offset, external ? (file_type == _ce_resource_bitmaps ? "bitmaps.map" :
+				"Halo PC's bitmaps.map") : "the map");
 		}
 	}
 	return TRUE;
@@ -1420,14 +1818,18 @@ static boolean ce_bitmaps_check(
 /* a sound's pitch ranges and permutations: all in the tags, each played
 permutation one of its range's, and each permutation's samples in the file
 they are read from (sounds.map's for an indexed sound's and for those
-flagged in it, ce_samples_external; else the map's), its mouth data and
-subtitles in the tags */
+flagged in it, ce_samples_external, or Halo PC's own sounds.map's for a
+retail map's sound read from that; else the map's), its mouth data and
+subtitles in the tags (type: as ce_bitmaps_check's) */
 static boolean ce_sound_check(
 	struct ce_image const *image,
 	struct ce_tag_instance const *instance,
-	boolean indexed,
+	byte type,
 	unsigned long map_file_size)
 {
+	boolean indexed = type != 0;
+	short file_type = type == _ce_resource_halo_pc_sounds + 1 ? _ce_resource_halo_pc_sounds : _ce_resource_sounds;
+
 	byte *sound = ce_image_pointer(image, instance->base_address, CE_SOUND_HEADER_SIZE);
 	char const *name = ce_image_tag_name(image, instance);
 	byte *ranges;
@@ -1471,14 +1873,14 @@ static boolean ce_sound_check(
 			memcpy(&next, permutation + CE_PERMUTATION_NEXT_OFFSET, sizeof(next));
 			if (next != NONE && (next < 0 || next >= permutation_count))
 				return ce_refuse("sound %s: a permutation follows on with permutation %d", name, next);
-			if (external && !ce_resource_map_open(_ce_resource_sounds))
+			if (external && file_type == _ce_resource_sounds && !ce_resource_map_open(_ce_resource_sounds))
 				return FALSE;
-			file_size = external ? ce_resource_maps[_ce_resource_sounds].file_size : map_file_size;
+			file_size = external ? ce_resource_maps[file_type].file_size : map_file_size;
 			if (samples_size < 0 || samples_offset < 0 ||
 				!ce_range_within((unsigned long)samples_offset, (unsigned long)samples_size, file_size))
 			{
 				return ce_refuse("sound %s: samples (%ld bytes at %ld) not in %s", name, samples_size, samples_offset,
-					external ? "sounds.map" : "the map");
+					external ? (file_type == _ce_resource_sounds ? "sounds.map" : "Halo PC's sounds.map") : "the map");
 			}
 			if (!ce_image_data(image, permutation + CE_PERMUTATION_MOUTH_DATA_OFFSET, name, &ignored_size, &ignored) ||
 				!ce_image_data(image, permutation + CE_PERMUTATION_SUBTITLE_DATA_OFFSET, name, &ignored_size,
@@ -1524,9 +1926,9 @@ boolean ce_resources_check(
 			index * CE_TAG_INSTANCE_SIZE);
 
 		if (instance->group_tag == 'bitm')
-			valid = ce_bitmaps_check(image, instance, types[index] != 0, map_file_size);
+			valid = ce_bitmaps_check(image, instance, types[index], map_file_size);
 		else if (instance->group_tag == 'snd!')
-			valid = ce_sound_check(image, instance, types[index] != 0, map_file_size);
+			valid = ce_sound_check(image, instance, types[index], map_file_size);
 	}
 	if (types)
 		free(types);
@@ -1603,8 +2005,9 @@ boolean ce_resources_tags_loaded(
 			byte *data = elements + bitmap * CE_BITMAP_DATA_SIZE;
 
 			/* (a tag's bitmaps are all external or none are: its pixels are
-			read from bitmaps.map, as an indexed tag's are) */
-			if (*(unsigned short *)(data + 0x0e) & CE_BITMAP_EXTERNAL_FLAG)
+			read from bitmaps.map, as an indexed tag's are, or from Halo PC's
+			own, as placing them found: ce_retail_bitmaps) */
+			if ((*(unsigned short *)(data + 0x0e) & CE_BITMAP_EXTERNAL_FLAG) && !ce_indexed_tags[index])
 				ce_indexed_tags[index] = (byte)(_ce_resource_bitmaps + 1);
 			*(unsigned short *)(data + 0x0e) = (*(unsigned short *)(data + 0x0e) & CE_BITMAP_XBOX_FORMAT_FLAGS) |
 				CE_BITMAP_CACHED_FLAG;
@@ -1955,7 +2358,7 @@ static void ce_sounds_decode(
 	void *tag_instances,
 	long tag_count)
 {
-	HANDLE sounds_map = ce_resource_maps[_ce_resource_sounds].file;
+	HANDLE custom_sounds_map = ce_resource_maps[_ce_resource_sounds].file;
 	HANDLE map_file = cache_files_ce_map_file();
 	char path[256];
 	HANDLE file = NULL;
@@ -1993,12 +2396,16 @@ static void ce_sounds_decode(
 		unsigned long sound_start, decoded_index;
 		short encoding, sample_rate;
 		boolean all = TRUE, ogg, from_map = FALSE, from_sounds_map = FALSE;
+		HANDLE sounds_map = custom_sounds_map;
 
 		if (instance->group_tag != 'snd!')
 			continue;
-		/* (sounds.map's samples for a sound copied in from there; a map's
-		own sound's from either file, by each permutation's flag) */
-		if (ce_indexed_tags[index] && ce_indexed_tags[index] != _ce_resource_sounds + 1)
+		/* (sounds.map's samples for a sound copied in from there, or for a
+		retail map's stock sound read from Halo PC's own; a map's own
+		sound's from either file, by each permutation's flag) */
+		if (ce_indexed_tags[index] == _ce_resource_halo_pc_sounds + 1)
+			sounds_map = ce_resource_maps[_ce_resource_halo_pc_sounds].file;
+		else if (ce_indexed_tags[index] && ce_indexed_tags[index] != _ce_resource_sounds + 1)
 			continue;
 		/* (its blocks in the tag cache, and none over its tag header or tag
 		index: else it is left as it was) */
@@ -2428,6 +2835,36 @@ void ce_resources_free_to(
 	}
 }
 
+/* once a frame (main.c): the lines the map's loading left for the player
+(ce_halo_pc_missing_tell), on each local player's HUD and the console a
+second into the game */
+void ce_resources_update(
+	void)
+{
+	short local_player_index;
+	short line;
+
+	if (!ce_halo_pc_note[0][0] || !game_in_progress() || game_time_get() <= 30)
+		return;
+	console_warning("%s %s", ce_halo_pc_note[0], ce_halo_pc_note[1]);
+	for (local_player_index = local_player_get_next(NONE); local_player_index != NONE;
+		local_player_index = local_player_get_next(local_player_index))
+	{
+		/* (the newest line is the HUD's top one: the second first) */
+		for (line = 1; line >= 0; line--)
+		{
+			wchar_t text[64];
+			short index;
+
+			for (index = 0; ce_halo_pc_note[line][index] && index < (short)NUMBEROF(text) - 1; index++)
+				text[index] = (wchar_t)(unsigned char)ce_halo_pc_note[line][index];
+			text[index] = 0;
+			hud_print_message(local_player_index, text);
+		}
+	}
+	ce_halo_pc_note[0][0] = ce_halo_pc_note[1][0] = 0;
+}
+
 /* the map unloaded (cache_files.c) */
 void ce_resources_tags_unloaded(
 	void)
@@ -2435,6 +2872,7 @@ void ce_resources_tags_unloaded(
 	ce_indexed_tag_count = 0;
 	ce_free_next = ce_free_end = 0;
 	ce_room_next = 0;
+	ce_halo_pc_note[0][0] = ce_halo_pc_note[1][0] = 0;
 	ce_loaded_tags_end(0);
 	ce_loaded_bsps_low(0);
 }
