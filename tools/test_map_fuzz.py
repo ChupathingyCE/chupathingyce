@@ -1122,13 +1122,14 @@ def test_pc_string_over_another_tags_root_copied(built, tmp_path):
     assert "the map loaded" in result.stderr, result.stderr[-4000:]
 
 
-def ce_map_long_ogg(frames, channels=1, rate=22050, size=0x48000):
+def ce_map_long_ogg(frames, channels=1, rate=22050, size=0x48000, short_at=0):
     """ce_map's map with one Ogg Vorbis permutation of its own of size bytes,
     after the map's end: a stand-in stream map_fuzz.c decodes to that many
-    frames of a ramp (a 22 kHz mono sound's)"""
+    frames of a ramp (a 22 kHz mono sound's), a read stopping short at
+    frame short_at if it is not 0"""
     data = ce_map(sound=[(3, size, 0, 0)])
     data = bytearray(ce_map(sound=[(3, size, 0, len(data))]))
-    fake = b"MAP_FUZZ_PCM" + struct.pack("<iii", channels, rate, frames)
+    fake = b"MAP_FUZZ_PCM" + struct.pack("<iiii", channels, rate, frames, short_at)
     data += fake + bytes(size - len(fake))
     struct.pack_into("<i", data, 8, len(data))
     return bytes(data)
@@ -1162,6 +1163,23 @@ def test_long_ogg_sounds_split(built, tmp_path):
         assert (split is not None) == ("bytes of samples played as" in result.stderr), (frames, result.stderr[-4000:])
         if split:
             assert split in result.stderr, (frames, result.stderr[-4000:])
+
+
+def test_long_ogg_sound_short_read_doubled(built, tmp_path):
+    """a long 11 kHz Ogg Vorbis permutation of a 22 kHz sound, whose decoder
+    gives a short piece before the stream's end (stb_vorbis does where it
+    skips a page it cannot read): the piece, doubled, is not read into again
+    (it was smaller than a piece, a heap overflow), and every frame is
+    written, twice over"""
+    binaries, _ = built
+    for short_at in (1000, 65536 + 30000):
+        path = tmp_path / f"short_{short_at}.map"
+        path.write_bytes(ce_map_long_ogg(3000000, rate=11025, short_at=short_at))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "12000000 bytes of samples played as 31 permutations of 393216 bytes" in result.stderr, \
+            (short_at, result.stderr[-4000:])
+        assert "the map loaded" in result.stderr, (short_at, result.stderr[-4000:])
 
 
 def test_pc_netgame_flags_and_equipment_past_200(built, tmp_path):

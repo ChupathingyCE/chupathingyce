@@ -777,10 +777,38 @@ int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int 
 	return -1;
 }
 
+/* (a piece of a long stream's, below, brought to another rate as the real
+one gives it back: halved in place, doubled in a new allocation of twice
+its frames; each sample is only repeated or dropped. Any other is refused) */
 int ce_vorbis_resample_piece(short **samples, int frames, int channels, int rate, int wanted,
 	const short *before, int before_frames, const short *after, int after_frames)
 {
-	return -1;
+	short *in = *samples;
+	short *out;
+	int index;
+
+	if (frames <= 0 || channels < 1 || channels > 2 || !in)
+		return -1;
+	if (rate == wanted)
+		return frames;
+	if (rate == wanted * 2)
+	{
+		if (frames / 2 <= 0)
+			return -1;
+		for (index = 0; index < frames / 2 * channels; index++)
+			in[index] = in[(index / channels) * 2 * channels + index % channels];
+		return frames / 2;
+	}
+	if (rate * 2 != wanted)
+		return -1;
+	out = malloc((size_t)frames * 2 * (size_t)channels * sizeof(*out));
+	if (!out)
+		return -1;
+	for (index = 0; index < frames * 2 * channels; index++)
+		out[index] = in[(index / channels) / 2 * channels + index % channels];
+	free(in);
+	*samples = out;
+	return frames * 2;
 }
 
 int ce_vorbis_edges(const unsigned char *data, int size, int count, int whole, int *channels, int *sample_rate,
@@ -799,18 +827,21 @@ void ce_vorbis_free(short *samples)
 
 /* (a long stream, decoded a piece at a time: a test's stand-in for one,
 data beginning "MAP_FUZZ_PCM" then its channels, rate and frames, gives
-that many frames of a ramp; anything else is refused, as above) */
+that many frames of a ramp; anything else is refused, as above. Then, if
+not 0, the frame a read stops short at, as stb_vorbis's does where it skips
+a page it cannot read, with more after it) */
 struct fuzz_vorbis_stream
 {
 	int channels;
 	long frames_left;
 	long frame;
+	long short_at;
 };
 
 void *ce_vorbis_stream_open(const unsigned char *data, int size, int *channels, int *sample_rate)
 {
 	struct fuzz_vorbis_stream *stream;
-	int header[3];
+	int header[4];
 
 	*channels = *sample_rate = 0;
 	if (size < 12 + (int)sizeof(header) || memcmp(data, "MAP_FUZZ_PCM", 12))
@@ -824,6 +855,7 @@ void *ce_vorbis_stream_open(const unsigned char *data, int size, int *channels, 
 	stream->channels = header[0];
 	stream->frames_left = header[2];
 	stream->frame = 0;
+	stream->short_at = header[3];
 	*channels = header[0];
 	*sample_rate = header[1];
 	return stream;
@@ -837,6 +869,8 @@ int ce_vorbis_stream_read(void *stream, short *buffer, int frames)
 	if (!fake || frames <= 0)
 		return 0;
 	count = fake->frames_left < frames ? (int)fake->frames_left : frames;
+	if (fake->short_at > fake->frame && fake->short_at - fake->frame < count)
+		count = (int)(fake->short_at - fake->frame);
 	for (index = 0; index < count * fake->channels; index++)
 		buffer[index] = (short)(fake->frame + index / fake->channels);
 	fake->frame += count;

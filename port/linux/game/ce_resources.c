@@ -2543,8 +2543,11 @@ static unsigned long ce_sound_stream(HANDLE file, unsigned long room, void *stre
 				ok = FALSE;
 				break;
 			}
-			/* (doubled: given back at its size for the next piece) */
-			if (out_frames > CE_SOUND_STREAM_PIECE_FRAMES)
+			/* (doubled: given back, and a piece of CE_SOUND_STREAM_PIECE_FRAMES
+			made for the next read. Doubled from a short read it is smaller
+			than that, and a short read can come before the stream's end:
+			stb_vorbis gives one where it skips a page it cannot read) */
+			if (rate * 2 == played_rate)
 			{
 				short *piece = pieces[current];
 
