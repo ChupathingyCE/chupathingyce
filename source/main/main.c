@@ -3051,11 +3051,14 @@ static short main_console_vblank_interval(
 	speed = game_time_get_speed();
 	if (frames_per_second == TICKS_PER_SECOND && fraction < 1.0f && speed > 0.0f)
 	{
-		/* (a twentieth of a blank's slack, for the clock's rounding) */
-		real blanks = (1.0f - fraction) * (real)refresh_rate / (speed * (real)TICKS_PER_SECOND) - 0.05f;
+		/* (the fewest blanks that surely reach the tick, the longest
+		always does: a slack the other way let a frame stop just short of
+		it once the clock's rounding had built up, and that frame drew no
+		tick) */
+		real ticks_per_blank = speed * (real)TICKS_PER_SECOND / (real)refresh_rate;
 
-		interval = blanks > (real)longest ? longest : (short)blanks;
-		if (interval < longest && (real)interval < blanks)
+		interval = 1;
+		while (interval < longest && fraction + (real)interval * ticks_per_blank < 1.0001f)
 			interval++;
 	}
 	else
