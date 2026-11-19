@@ -12215,13 +12215,18 @@ long const hs_function_table_count= 418 + 3 + 24 + HS_MODS_FUNCTIONS;
 long const hs_function_table_count= 418;
 #endif
 
+/* port: OpenSauce's functions and globals (a map with an OpenSauce header
+only: port/linux/game/opensauce_scripts.c); a build without them gets the
+header's empty ones, which hs_scenario_postprocess counts too */
+#include "opensauce_scripts.h"
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 /* port: Stubbs the Zombie's functions, a table of their own after Halo's
 (Stubbs mode only: port/linux/game/stubbs_functions.c) */
 #include "stubbs_mode.h"
 #include "stubbs_functions.h"
 #include "stubbs_campaign.h" /* (the map_name allowance) */
-#define HS_FUNCTION_COUNT() (hs_function_table_count + stubbs_function_count())
+/* port: and OpenSauce's, a table after them */
+#define HS_FUNCTION_COUNT() (hs_function_table_count + stubbs_function_count() + opensauce_script_function_count())
 #else
 #define HS_FUNCTION_COUNT() hs_function_table_count
 #endif
@@ -14604,7 +14609,13 @@ struct hs_function_definition *hs_function_get(
 
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 	if (function_index>=hs_function_table_count)
-		return stubbs_function_get(function_index - hs_function_table_count);
+	{
+		long index = function_index - hs_function_table_count;
+
+		if (index >= stubbs_function_count())
+			return opensauce_script_function_get(index - stubbs_function_count());
+		return stubbs_function_get(index);
+	}
 #endif
 	return hs_function_table.functions[function_index];
 }
@@ -14659,6 +14670,13 @@ short hs_find_global_by_name(
 			if (_stricmp(name, global->name) == 0)
 				return global_index & ~0x8000;
 		}
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+		/* port: OpenSauce's and Halo PC's that an OpenSauce map's scripts
+		use, after the scenario's (port/linux/game/opensauce_scripts.c) */
+		global_index = opensauce_script_global_find(name);
+		if (global_index != NONE)
+			return (short)(scenario->hs_globals.count + global_index) & ~0x8000;
+#endif
 	}
 
 	return NONE;
@@ -14711,7 +14729,15 @@ short hs_global_get_type(
 		return hs_global_external_get(global_index & 0x7FFF)->type;
 	}
 	if ((global_index & 0x7FFF) >= global_scenario_get()->hs_globals.count)
+	{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+		/* (OpenSauce's, after the scenario's: opensauce_scripts.c) */
+		return opensauce_script_global_type(
+			(short)((global_index & 0x7FFF) - global_scenario_get()->hs_globals.count));
+#else
 		return _hs_unparsed;
+#endif
+	}
 
 	return TAG_BLOCK_GET_ELEMENT(
 		&global_scenario_get()->hs_globals,
@@ -14724,6 +14750,12 @@ char const *hs_global_get_name(
 {
 	if (global_index & 0x8000)
 		return hs_global_external_get(global_index & 0x7FFF)->name;
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* (OpenSauce's, after the scenario's: opensauce_scripts.c) */
+	if ((global_index & 0x7FFF) >= global_scenario_get()->hs_globals.count && opensauce_script_global_count())
+		return opensauce_script_global_name(
+			(short)((global_index & 0x7FFF) - global_scenario_get()->hs_globals.count));
+#endif
 
 	return TAG_BLOCK_GET_ELEMENT(
 		&global_scenario_get()->hs_globals,
@@ -14764,6 +14796,16 @@ short hs_find_function_by_name(
 		if (_stricmp(hs_function_table.functions[function_index]->name, name) == 0)
 			return function_index;
 	}
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* (OpenSauce's after Halo's, on an OpenSauce map only: none shares a
+	name with one of Halo's) */
+	{
+		long opensauce_index = opensauce_script_function_find(name);
+
+		if (opensauce_index != NONE)
+			return (short)(hs_function_table_count + stubbs_function_count() + opensauce_index);
+	}
+#endif
 
 	return NONE;
 }
@@ -16393,12 +16435,14 @@ boolean hs_scenario_postprocess(
 	which the casts' and the type names' tables are looked up by. A map
 	whose globals aren't so runs no scripts. The shipped maps' all are, and
 	have far fewer */
+	/* port: (and room for OpenSauce's, on an OpenSauce map:
+	port/linux/game/opensauce_scripts.c) */
 	if (scenario->hs_globals.count<0 ||
-		scenario->hs_globals.count>MAXIMUM_HS_GLOBALS-hs_external_global_count)
+		scenario->hs_globals.count>MAXIMUM_HS_GLOBALS-hs_external_global_count-opensauce_script_global_count())
 	{
 		error(_error_log, "the scenario has %ld script globals, more than the %d there is room for; its scripts won't run",
 			scenario->hs_globals.count,
-			MAXIMUM_HS_GLOBALS-hs_external_global_count);
+			MAXIMUM_HS_GLOBALS-hs_external_global_count-opensauce_script_global_count());
 		hs_scenario_scripts_disable(scenario);
 	}
 	else

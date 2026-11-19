@@ -4,7 +4,9 @@ TAG_SCHEMA_EFFECTS.C
 The schemas (tag_schema.h) of effects, damage, sounds, the interface and the
 globals: effe, jpt!, cdmg, foot, mgs2, trak; snd!, lsnd, snde; the hud's
 (grhi, unhi, wphi, hud#, hudg, hmt , metr); the menus' (DeLa, Soul, vcky),
-fonts and strings (font, str#, ustr); matg and mply.
+fonts and strings (font, str#, ustr); matg and mply. And two of Stubbs the
+Zombie's groups, which Stubbs mode reads: its image effects (imef) and
+vegetation (vege).
 */
 
 /* ---------- headers */
@@ -36,6 +38,9 @@ enum
 {
 	/* periodic_functions.c */
 	NUMBER_OF_PERIODIC_FUNCTIONS = 12,
+
+	/* port/linux/game/stubbs_image_effects.c */
+	MAXIMUM_STUBBS_IMAGE_EFFECT_STAGES = 8,
 
 	/* effects.c */
 	NUMBER_OF_EFFECT_ENVIRONMENTS = 4,
@@ -230,6 +235,33 @@ struct camera_track_definition
 
 typedef char verify_camera_track_control_point_size[sizeof(struct camera_track_control_point) == 0x3C ? 1 : -1];
 typedef char verify_camera_track_definition_size[sizeof(struct camera_track_definition) == 0x30 ? 1 : -1];
+
+/* Stubbs the Zombie's image effects and vegetation, what Stubbs mode reads
+of them (port/linux/game/stubbs_image_effects.c, stubbs_vegetation.c: the
+layouts are theirs). Halo's maps have none */
+struct stubbs_image_effect_stage
+{
+	byte unused0[0x3C];
+	struct tag_reference bitmap;
+	byte unused1[0x58];
+};
+
+struct stubbs_image_effect
+{
+	byte unused0[0x1A0];
+	struct tag_block stages;
+};
+
+struct stubbs_vegetation
+{
+	byte unused0[0x40];
+	struct tag_reference model;
+	real_vector2d spacing;
+};
+
+typedef char verify_stubbs_image_effect_stage_size[sizeof(struct stubbs_image_effect_stage) == 0xA4 ? 1 : -1];
+typedef char verify_stubbs_image_effect_size[sizeof(struct stubbs_image_effect) == 0x1AC ? 1 : -1];
+typedef char verify_stubbs_vegetation_size[sizeof(struct stubbs_vegetation) == 0x58 ? 1 : -1];
 
 /* hud_draw.c's */
 struct number_hud_element_definition
@@ -908,6 +940,38 @@ static struct tag_schema_field const camera_track_fields[] =
 
 static struct tag_schema_definition const camera_track_schema =
 	TAG_SCHEMA_DEFINITION(camera_track, struct camera_track_definition, camera_track_fields);
+
+/* Stubbs's image effects: their stages (stubbs_image_effects.c draws at
+most 8) and each one's bitmap; its vegetation's model */
+
+static struct tag_schema_field const stubbs_image_effect_stage_fields[] =
+{
+	TAG_SCHEMA_REFERENCE(struct stubbs_image_effect_stage, bitmap, TAG_SCHEMA_GROUPS('bitm')),
+	TAG_SCHEMA_END
+};
+
+static struct tag_schema_definition const stubbs_image_effect_stage_schema =
+	TAG_SCHEMA_DEFINITION(stubbs_image_effect_stage, struct stubbs_image_effect_stage,
+		stubbs_image_effect_stage_fields);
+
+static struct tag_schema_field const stubbs_image_effect_fields[] =
+{
+	TAG_SCHEMA_BLOCK(struct stubbs_image_effect, stages, stubbs_image_effect_stage_schema,
+		MAXIMUM_STUBBS_IMAGE_EFFECT_STAGES),
+	TAG_SCHEMA_END
+};
+
+static struct tag_schema_definition const stubbs_image_effect_schema =
+	TAG_SCHEMA_DEFINITION(stubbs_image_effect, struct stubbs_image_effect, stubbs_image_effect_fields);
+
+static struct tag_schema_field const stubbs_vegetation_fields[] =
+{
+	TAG_SCHEMA_REFERENCE(struct stubbs_vegetation, model, TAG_SCHEMA_GROUPS('mode')),
+	TAG_SCHEMA_END
+};
+
+static struct tag_schema_definition const stubbs_vegetation_schema =
+	TAG_SCHEMA_DEFINITION(stubbs_vegetation, struct stubbs_vegetation, stubbs_vegetation_fields);
 
 /* sound environments (nothing but numbers) */
 
@@ -2019,6 +2083,8 @@ struct tag_schema_group const tag_schema_effect_groups[] =
 	{ 'trak', { NONE, NONE }, &camera_track_schema },
 	{ 'matg', { NONE, NONE }, &game_globals_schema },
 	{ 'mply', { NONE, NONE }, &multiplayer_scenario_descriptions_schema },
+	{ 'imef', { NONE, NONE }, &stubbs_image_effect_schema },
+	{ 'vege', { NONE, NONE }, &stubbs_vegetation_schema },
 	{ 0 }
 };
 

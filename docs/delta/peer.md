@@ -724,8 +724,11 @@ of Delta's goes into the game protocol.
     filter and their mutes. It takes nothing but the host's stream. Such a
     host's console notices (the game's notice message, which an OpenCE
     server uses for its server messages and its message of the day) show
-    in the chat too, as a system line, blank ones and repeats within 15
-    seconds left out; a host with Delta chat keeps them on the console. A host
+    in the chat too, as a system line, blank ones left out. Any host's do,
+    one with Delta chat too (a server built on ours may send its welcome
+    and its announcements as notices), and the console keeps its copy. A
+    server line the chat had within 15 seconds, as a notice or over Delta,
+    is left out, so a host that sends a line both ways shows it once. A host
     with Delta chat is never bridged: its lines come over Delta alone.
   - A message of the wrong size is dropped and the log says so once (the
     machine's index, never its address); nothing about chat ever ends a

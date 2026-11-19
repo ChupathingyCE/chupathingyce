@@ -95,25 +95,25 @@ static struct
 	char const *engine;
 } const spv3_opensauce_groups[] =
 {
-	{ "yelo", "project_yellow", "not read (gravity, player speed, matg override, flags)" },
-	{ "gelo", "project_yellow_globals", "not read (MP player units, yelo script definitions)" },
-	{ "gelc", "project_yellow_globals_cv", "not read" },
-	{ "shpp", "shader_postprocess", "no post-processing" },
-	{ "shpg", "shader_postprocess_generic", "no post-processing (HLSL effects)" },
-	{ "sppg", "shader_postprocess_globals", "no post-processing" },
-	{ "efpp", "effect_postprocess", "no post-processing" },
-	{ "efpc", "effect_postprocess_collection", "no post-processing" },
-	{ "efpg", "effect_postprocess_generic", "no post-processing" },
-	{ "avtc", "actor_variant_transform_collection", "actors never transform" },
-	{ "avti", "actor_variant_transform_in", "actors never transform" },
-	{ "avto", "actor_variant_transform_out", "actors never transform" },
-	{ "magy", "model_animations_yelo", "not read" },
-	{ "eqhi", "equipment_hud_interface", "not read" },
-	{ "sidy", "string_id_yelo", "not read" },
-	{ "sily", "text_value_pair_definition", "not read" },
-	{ "tag+", "tag_database", "not read" },
-	{ "memg", "cache_memory_gestalt", "not read" },
-	{ "meml", "cache_memory_layout_table", "not read" },
+	{ "yelo", "project_yellow", "checked; read: gravity honored, the rest logged (opensauce_map.c)" },
+	{ "gelo", "project_yellow_globals", "checked; read and logged (opensauce_map.c)" },
+	{ "gelc", "project_yellow_globals_cv", "not supported, not read" },
+	{ "shpp", "shader_postprocess", "not supported, no post-processing" },
+	{ "shpg", "shader_postprocess_generic", "checked, no post-processing yet (compiled effects)" },
+	{ "sppg", "shader_postprocess_globals", "checked, no post-processing yet" },
+	{ "efpp", "effect_postprocess", "not supported, no post-processing" },
+	{ "efpc", "effect_postprocess_collection", "checked, no post-processing yet" },
+	{ "efpg", "effect_postprocess_generic", "checked, no post-processing yet" },
+	{ "avtc", "actor_variant_transform_collection", "checked, actors never transform yet" },
+	{ "avti", "actor_variant_transform_in", "checked, actors never transform yet" },
+	{ "avto", "actor_variant_transform_out", "checked, actors never transform yet" },
+	{ "magy", "model_animations_yelo", "not supported, not read" },
+	{ "eqhi", "equipment_hud_interface", "not supported, not read" },
+	{ "sidy", "string_id_yelo", "not supported, not read" },
+	{ "sily", "text_value_pair_definition", "not supported, not read" },
+	{ "tag+", "tag_database", "not supported, not read" },
+	{ "memg", "cache_memory_gestalt", "not supported, not read" },
+	{ "meml", "cache_memory_layout_table", "not supported, not read" },
 };
 
 /* ---------- globals */
@@ -457,10 +457,10 @@ void spv3_mode_survey(
 					engine = spv3_opensauce_groups[known].engine;
 				}
 			}
-			spv3_mode_log("%s: tag group %s (%s): %ld tags: not supported, %s", map_name, groups[index].group, name,
+			spv3_mode_log("%s: tag group %s (%s): %ld tags: %s", map_name, groups[index].group, name,
 				groups[index].count, engine);
 		}
-		spv3_mode_log("%s: %ld tags of groups the game does not read", map_name, other);
+		spv3_mode_log("%s: %ld tags of OpenSauce's and other groups outside Halo PC's", map_name, other);
 	}
 	if (!scenario)
 	{

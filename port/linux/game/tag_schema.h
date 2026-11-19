@@ -298,6 +298,9 @@ enum tag_schema_layout_flags
 	port/linux/game/ce_models.c makes them the Xbox's once they are checked.
 	An enum of TAG_SCHEMA_PC_ENUM takes its Halo PC count */
 	_tag_schema_layout_pc_shader_types_bit,
+	/* OpenSauce's memory upgrades (tag_schema_opensauce.c): a scenario's
+	scripts' syntax is for OpenSauce's 28501 nodes, not 19001 */
+	_tag_schema_layout_opensauce_bit,
 	NUMBER_OF_TAG_SCHEMA_LAYOUT_FLAGS
 };
 
@@ -314,6 +317,10 @@ struct tag_schema_layout
 	/* the tag cache the tags (and their structure bsps) are in */
 	unsigned long tag_cache_size;
 	unsigned long flags;
+	/* a block's most elements or a data's most bytes in this layout, given
+	the one the checks would take otherwise (the field's): its own where it
+	has one (OpenSauce's memory upgrades), else that one; NULL: that one */
+	long (*field_maximum)(struct tag_schema_field const *field, long maximum);
 };
 
 /* ---------- prototypes/TAG_SCHEMA_*.C */
@@ -342,6 +349,10 @@ extern struct tag_schema_definition const tag_schema_gbxmodel_schema;
 /* (its tools' overlapping blocks walked as their own where safe:
 _tag_schema_layout_overlaps_walked_bit) */
 extern struct tag_schema_layout const tag_schema_pc_layout;
+/* OpenSauce's (a map with an OpenSauce header: port/linux/game/opensauce_map.c),
+tag_schema_opensauce.c: Halo PC's with OpenSauce's groups first and its
+memory upgrades */
+extern struct tag_schema_layout const tag_schema_opensauce_layout;
 #endif
 
 /* ---------- prototypes/TAG_VALIDATE.C */

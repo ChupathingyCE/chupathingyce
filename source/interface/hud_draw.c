@@ -2078,6 +2078,34 @@ void hud_draw_meter(
 	return;
 }
 
+#ifdef HALO_CUSTOM_EDITION
+#include "opensauce.h"
+
+/* port: an OpenSauce map's weapon HUDs (SPV3's) draw a digit from a sprite
+of another bitmap than the number bitmap's first: it is drawn from that one,
+as Halo PC's engine draws it, and said once, on an OpenSauce map only */
+static boolean hud_digits_elsewhere_allowed(
+	struct bitmap_data const *source_bitmap,
+	struct bitmap_data const *number_bitmap)
+{
+	static boolean logged = FALSE;
+
+	/* (not a digit with no bitmap at all, a bad sprite's: it would be drawn
+	from none) */
+	if (!number_bitmap || source_bitmap == number_bitmap || !opensauce_map_active())
+		return FALSE;
+	if (!logged)
+	{
+		logged = TRUE;
+		error(_error_silent, "OpenSauce map: a HUD number's digits are sprites of another bitmap than its first: "
+			"drawn from theirs");
+	}
+	return TRUE;
+}
+#else
+#define hud_digits_elsewhere_allowed(source_bitmap, number_bitmap) FALSE
+#endif
+
 void hud_draw_numbers(
 	short local_player_index,
 	struct hud_absolute_placement_definition const *absolute_placement,
@@ -2228,7 +2256,8 @@ void hud_draw_numbers(
 					match_assert(
 						"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 						515,
-						!digits_on_one_bitmap || source_bitmap==number_bitmap);
+						!digits_on_one_bitmap || source_bitmap==number_bitmap ||
+						hud_digits_elsewhere_allowed(source_bitmap, number_bitmap));
 					hud_draw_bitmap_direct(
 						number_bitmap,
 						absolute_placement->corner,
@@ -2269,7 +2298,8 @@ void hud_draw_numbers(
 						match_assert(
 							"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 							539,
-							!digits_on_one_bitmap || source_bitmap==number_bitmap);
+							!digits_on_one_bitmap || source_bitmap==number_bitmap ||
+							hud_digits_elsewhere_allowed(source_bitmap, number_bitmap));
 						hud_draw_bitmap_direct(
 							number_bitmap,
 							absolute_placement->corner,
@@ -2304,7 +2334,8 @@ void hud_draw_numbers(
 						match_assert(
 							"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 							556,
-							!digits_on_one_bitmap || source_bitmap==number_bitmap);
+							!digits_on_one_bitmap || source_bitmap==number_bitmap ||
+							hud_digits_elsewhere_allowed(source_bitmap, number_bitmap));
 						hud_draw_bitmap_direct(
 							number_bitmap,
 							absolute_placement->corner,
@@ -2341,7 +2372,8 @@ void hud_draw_numbers(
 					match_assert(
 						"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 						575,
-						!digits_on_one_bitmap || source_bitmap==number_bitmap);
+						!digits_on_one_bitmap || source_bitmap==number_bitmap ||
+						hud_digits_elsewhere_allowed(source_bitmap, number_bitmap));
 					hud_draw_bitmap_direct(
 						number_bitmap,
 						absolute_placement->corner,
@@ -2374,7 +2406,8 @@ void hud_draw_numbers(
 					match_assert(
 						"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 						595,
-						!digits_on_one_bitmap || source_bitmap==number_bitmap);
+						!digits_on_one_bitmap || source_bitmap==number_bitmap ||
+						hud_digits_elsewhere_allowed(source_bitmap, number_bitmap));
 					hud_draw_bitmap_direct(
 						number_bitmap,
 						absolute_placement->corner,
