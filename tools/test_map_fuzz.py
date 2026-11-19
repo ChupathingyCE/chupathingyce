@@ -551,9 +551,9 @@ def test_tags_checked_again_as_they_load(built, tmp_path):
 def test_pc_schema_walks_overlapping_blocks(built, tmp_path):
     """a block of a group no conversion reads (an item collection's
     permutations) laid over another tag's root: before Halo PC's tag schema,
-    nothing checked it and the map loaded; now it is checked as its own, its
-    elements having nothing the walk writes to, and the map loads, as HaloMD
-    plays such maps: a Custom Edition map's and a HaloMD map's alike"""
+    nothing checked it and the map loaded; now it is given a copy of its own
+    past the tags and checked there, and the map loads, as HaloMD plays such
+    maps: a Custom Edition map's and a HaloMD map's alike"""
     binaries, _ = built
     base = TAG_CACHE["ce"]
     data, offsets = ce_map_of_tags([(b"itmc", 0x5C), (b"itmc", 0x5C)])
@@ -571,7 +571,7 @@ def test_pc_schema_walks_overlapping_blocks(built, tmp_path):
         result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
         assert result.returncode == 0, result.stderr[-4000:]
         assert "refused" not in result.stderr, result.stderr[-4000:]
-        assert "1 roots, blocks and data overlapping others'" in result.stderr, result.stderr[-4000:]
+        assert "1 roots, blocks and data overlapping others' given their own copies" in result.stderr, result.stderr[-4000:]
         assert "the map loaded" in result.stderr, result.stderr[-4000:]
 
 
@@ -1120,6 +1120,80 @@ def test_pc_string_over_another_tags_root_copied(built, tmp_path):
     assert "strings[0].string has 8 bytes at" in result.stderr, result.stderr[-4000:]
     assert "has its own copy made" in result.stderr, result.stderr[-4000:]
     assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
+def xbox_map_of_tags(extra):
+    """an Xbox map of a scenario and the tags in extra (each a group and its
+    data's size, zeroed), uncompressed: its tags, their base address and the
+    offsets in them of each extra tag's data"""
+    base = TAG_CACHE["xbox"]
+    count = 1 + len(extra)
+    tags = bytearray(0x24 + 0x20 * count)
+    name = len(tags)
+    tags += b"fuzz\0\0\0\0"
+    root = len(tags)
+    tags += bytes(0x5B0 + 0x200)
+    datas = []
+    for group, size in extra:
+        datas.append(len(tags))
+        tags += bytes(size + (-size) % 16)
+    struct.pack_into("<IIIiiIiI4s", tags, 0, base + 0x24, 0xE1740000, 0, count, 0, 0, 0, 0, b"sgat")
+    for index, (group, address) in enumerate([(b"scnr", root)] + [(group, data) for (group, _), data in
+                                                                     zip(extra, datas)]):
+        struct.pack_into("<4s4s4sIIIII", tags, 0x24 + 0x20 * index, group[::-1], b"\xff\xff\xff\xff",
+                         b"\xff\xff\xff\xff", ((0xE174 + index) << 16) | index, base + name, base + address, 0, 0)
+    return tags, base, datas
+
+
+def test_xbox_string_over_another_tags_root_refused(built, tmp_path):
+    """the same string list over the next tag's root in an Xbox map: shared
+    there as data and as a structure, its check's terminator ended in the
+    other list's block after that was checked (a crash). Bytes shared as
+    another structure (as Halo CE+'s maps share a few) are checked again
+    after every check: changed, the map is refused before a check reads
+    through them"""
+    binaries, _ = built
+    tags, base, (first, second) = xbox_map_of_tags([(b"ustr", 0x40), (b"ustr", 0x40)])
+    struct.pack_into("<iII", tags, first, 1, base + first + 0x10, 0)
+    struct.pack_into("<iII", tags, second, 1, base + first + 0x10, 0)
+    struct.pack_into("<iiiII", tags, first + 0x10, 8, 0, 0, base + second, 0)
+    path = tmp_path / "xbox_string_over_root.map"
+    path.write_bytes(header(5, 0x800 + len(tags), 0x800, len(tags)) + bytes(tags))
+    result = run(binaries["xbox"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "reads them as another structure, and a correction changed them" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_copies_the_same_whatever_the_room(built, tmp_path):
+    """what a Halo PC map has copied apart depends on its tags alone, not on
+    the room past them a platform has (a console's conversion room is none):
+    with room, as little as the copies take, or none, it has the same copies
+    or is refused, never loaded without them"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"ustr", 0x40), (b"ustr", 0x40)])
+    first, second = offsets["tags"]
+    struct.pack_into("<iII", data, first, 1, base + first + 0x10 - 0x800, 0)
+    struct.pack_into("<iII", data, second, 1, base + first + 0x10 - 0x800, 0)
+    struct.pack_into("<iiiII", data, first + 0x10, 8, 0, 0, base + second - 0x800, 0)
+    path = tmp_path / "string_over_root.map"
+    path.write_bytes(bytes(data))
+    copies = {}
+    for room in (None, 16, 15, 0):
+        environment = {"MAP_FUZZ_VERBOSE": "1"}
+        if room is not None:
+            environment["MAP_FUZZ_COPY_ROOM"] = str(room)
+        result = run(binaries["ce"], [path], environment=environment)
+        assert result.returncode == 0, result.stderr[-4000:]
+        made = [line for line in result.stderr.splitlines() if "has its own copy made" in line]
+        if room is None or room >= 16:
+            assert "the map loaded" in result.stderr, (room, result.stderr[-4000:])
+            copies[room] = made
+        else:
+            assert "no room in the tag cache to copy them apart" in result.stderr, (room, result.stderr[-4000:])
+            assert "the map loaded" not in result.stderr, (room, result.stderr[-4000:])
+        assert "another's: none" not in result.stderr, (room, result.stderr[-4000:])
+    assert copies[None] and copies[None] == copies[16]
 
 
 def test_pc_netgame_flags_and_equipment_past_200(built, tmp_path):

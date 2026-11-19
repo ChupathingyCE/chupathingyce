@@ -179,6 +179,10 @@ struct fuzz_file
 int LLVMFuzzerInitialize(int *argc, char ***argv);
 int LLVMFuzzerTestOneInput(unsigned char const *data, size_t size);
 
+/* (MAP_FUZZ_COPY_ROOM: fuzz_copy_room) */
+static long fuzz_copy_room_limit = -1;
+static unsigned long fuzz_copy_room_used;
+
 boolean tag_validate_tags(void *tag_header, long tag_data_size, long file_length, char const *map_name);
 boolean tag_validate_structure_bsp(long tag_index, void *base, long size);
 long tag_validate_corrections(void);
@@ -870,6 +874,9 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 	char const *xbox_ui = getenv("MAP_FUZZ_XBOX_UI");
 
 	fuzz_verbose = getenv("MAP_FUZZ_VERBOSE") != NULL;
+#ifdef MAP_FUZZ_CE
+	fuzz_copy_room_limit = getenv("MAP_FUZZ_COPY_ROOM") ? atol(getenv("MAP_FUZZ_COPY_ROOM")) : -1;
+#endif
 	fuzz_ce_schema = !getenv("MAP_FUZZ_CE_SCHEMA") || strcmp(getenv("MAP_FUZZ_CE_SCHEMA"), "0");
 	fuzz_ce_change = getenv("MAP_FUZZ_CE_CHANGE");
 	if (fuzz_ce_change && !*fuzz_ce_change)
@@ -1100,6 +1107,25 @@ static unsigned char *fuzz_ce_changed(unsigned char const *data, size_t size, st
 
 /* the map loaded as scenario_tags_load and scenario_structure_bsp_load load
 a Custom Edition map that passed its checks */
+/* MAP_FUZZ_COPY_ROOM: the room the tag validator is given for copies, in
+bytes, as a platform with less room past the tags would give it (none
+given: as the game gives it, ce_resources_allocate_tags). The copies a map
+gets never depend on it: a map whose copies don't fit is refused */
+#ifdef MAP_FUZZ_CE
+static unsigned long fuzz_copy_room(unsigned long size)
+{
+	unsigned long aligned = (size + 15) & ~15UL;
+
+	if (aligned > (unsigned long)fuzz_copy_room_limit - fuzz_copy_room_used ||
+		fuzz_copy_room_used > (unsigned long)fuzz_copy_room_limit)
+	{
+		return 0;
+	}
+	fuzz_copy_room_used += aligned;
+	return ce_resources_allocate_tags(size);
+}
+#endif
+
 static void fuzz_ce_load(unsigned char const *data, struct map_header const *header)
 {
 	byte *tag_cache = xbox_pointer(CE_TAG_CACHE_BASE);
@@ -1184,7 +1210,8 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 		layout_name = opensauce_signature == 'yelo' ? "OpenSauce" : "Halo PC";
 		/* (overlapping blocks given copies of their own past the tags, as
 		scenario_tags_load gives them room: ce_resources_allocate_tags) */
-		tag_validate_room_proc = ce_resources_allocate_tags;
+		tag_validate_room_proc = fuzz_copy_room_limit >= 0 ? fuzz_copy_room : ce_resources_allocate_tags;
+		fuzz_copy_room_used = 0;
 		valid_tags = tag_validate_tags_layout(layout, tag_cache, tags_size, header->file_length, "fuzz");
 		tag_validate_room_proc = NULL;
 		if (!valid_tags)
