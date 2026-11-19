@@ -822,7 +822,13 @@ version 34 the host deals itself, whoever placed it) */
 		/* (from network version 34, a static target's own damage, a
 		tripmine's going off, dealt here whoever placed it, unless the
 		placer's machine still reports it: an older build's) */
+		/* (port: nor a virtual machine's player, a dedicated server's Custom
+		Edition client's: no report comes from it, the host deals its hits as
+		its own players', network_server_manager.c) */
+		boolean network_game_server_port_machine_is_virtual(long machine_index);
+
 		if (owner && !owner->quit_out_of_game && owner_machine != NONE &&
+			!network_game_server_port_machine_is_virtual(owner->network_player_data.machine_index) &&
 			!(network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
 				damage->owner_object_index != NONE && static_target(damage->owner_object_index) &&
 				!network_game_server_machine_reports_static_damage(owner_machine)))

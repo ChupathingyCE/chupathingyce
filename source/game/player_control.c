@@ -894,24 +894,6 @@ static void handle_one_player_input(
 		action.desired_zoom_level = player->zoom_level;
 		action.throttle = player->throttle;
 		action.primary_trigger = player->primary_trigger;
-#ifdef HALO_SERVER
-		/* port: a Custom Edition player's actions come from its client
-		(server/src/server_ce.c) */
-		{
-			boolean server_ce_local_action(short local_player_index, struct player_action *action);
-
-			if (server_ce_local_action(local_player_index, &action))
-			{
-				player->desired_angles = action.desired_facing;
-				player->control_flags = action.control_flags;
-				player->throttle = action.throttle;
-				player->primary_trigger = action.primary_trigger;
-				player->desired_weapon_index = action.desired_weapon_index;
-				player->desired_grenade_index = action.desired_grenade_index;
-				player->zoom_level = action.desired_zoom_level;
-			}
-		}
-#endif
 
 		match_assert_valid_real(
 			"c:\\halo\\SOURCE\\game\\player_control.c",
@@ -1050,6 +1032,16 @@ void player_control_unzoom(
 		{
 			player_control_get(player->local_player_index)->zoom_level = NONE;
 		}
+#ifdef HALO_SERVER
+		/* port: a Custom Edition player's choices are kept for it as a local
+		player's are here (server/src/server_ce.c) */
+		else
+		{
+			void server_ce_unzoom(long player_index);
+
+			server_ce_unzoom(player_index);
+		}
+#endif
 	}
 	return;
 }
@@ -1092,6 +1084,15 @@ void player_control_set_desired_weapon(
 			player_control_get(player->local_player_index)->desired_weapon_index =
 				desired_weapon_index;
 		}
+#ifdef HALO_SERVER
+		/* port: (as player_control_unzoom's) */
+		else
+		{
+			void server_ce_set_desired_weapon(long player_index, short desired_weapon_index);
+
+			server_ce_set_desired_weapon(unit->unit.player_index, desired_weapon_index);
+		}
+#endif
 	}
 	return;
 }

@@ -138,6 +138,21 @@ char const *network_game_server_machine_hardware_id(
 void network_game_server_update_ticks(
 	struct network_game_server *server,
 	short tick_count);
+/* port: a dedicated server's Custom Edition client as a machine of the game
+of its own, with no connection (network_server_manager.c, "virtual
+machines"; server/src/server_ce.c): added (its index, NONE if none), its
+player added, removed, and whether a machine is one */
+long network_game_server_port_add_virtual_machine(
+	wchar_t const *name,
+	unsigned long address);
+boolean network_game_server_port_add_virtual_player(
+	long machine_index,
+	wchar_t const *name,
+	short primary_color_index);
+void network_game_server_port_remove_virtual_machine(
+	long machine_index);
+boolean network_game_server_port_machine_is_virtual(
+	long machine_index);
 /* port: the machines in the game (the test host's lobby: network_test.c) */
 long network_game_server_machine_count(struct network_game_server *server);
 /* port: a dedicated server's playlist was read (MCC maps' games at the MCC number) */
