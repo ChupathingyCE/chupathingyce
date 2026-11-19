@@ -3984,7 +3984,8 @@ void network_game_server_begin_game_start_countdown(
 
 /**
  * @brief Whether a team game lacks a player on one of its teams, which
- * holds back the start. Never with game.start_with_one_player.
+ * holds back the start. Never with game.start_with_one_player, nor on a
+ * dedicated server with Custom Edition players in.
  * @param server the server whose game is asked about
  * @return TRUE if the start has to wait for more players
  */
@@ -3993,6 +3994,19 @@ boolean server_needs_more_teams(
 {
 	boolean needs_more_teams = FALSE;
 
+#ifdef HALO_SERVER
+	{
+		/* port: a dedicated server with Custom Edition players starts a team
+		game with one team, as Custom Edition's own server plays its game
+		whoever is in it: a Custom Edition client can't wait in a lobby (it
+		gives up on its join in about 15 seconds), so the first one into an
+		empty team game was turned away (server/src/server_ce.c) */
+		boolean server_ce_players_present(void);
+
+		if (server_ce_players_present())
+			return FALSE;
+	}
+#endif
 	if (server->game.variant.universal_variant.teams
 		&& !network_game_solo_game())
 	{
