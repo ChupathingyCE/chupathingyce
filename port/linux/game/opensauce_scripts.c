@@ -400,6 +400,13 @@ static boolean opensauce_unit_integer(
 		return FALSE;
 	if (set)
 	{
+		/* (a weapon index past the unit's weapons refused: the game indexes
+		its weapons by it, units.c's unit_get_weapon) */
+		if (short_field == &unit->unit.current_weapon_index &&
+			(*value < 0 || *value >= MAXIMUM_WEAPONS_PER_UNIT))
+		{
+			writable = FALSE;
+		}
 		if (writable && opensauce_script_may_set(networked))
 		{
 			if (byte_field)

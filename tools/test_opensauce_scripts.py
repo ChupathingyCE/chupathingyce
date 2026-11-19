@@ -52,6 +52,14 @@ def test_sets_are_host_authoritative():
     assert "opensauce_script_may_set(FALSE))\n\t\t\topensauce_map_set_gravity_scale" in text
 
 
+def test_weapon_index_set_is_bounded():
+    # (a crafted map's script must not set an index the game reads its
+    # weapons array by past that array: units.c's unit_get_weapon)
+    text = source()
+    assert ("if (short_field == &unit->unit.current_weapon_index &&\n"
+            "\t\t\t(*value < 0 || *value >= MAXIMUM_WEAPONS_PER_UNIT))") in text
+
+
 def test_clients_never_run_map_scripts():
     game = (ROOT / "source/game/game.c").read_text(encoding="latin-1")
     assert "if (!(network_game_distributed_client() && network_coop_active()))\n\t\ths_update();" in game
