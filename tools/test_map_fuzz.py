@@ -1026,6 +1026,33 @@ def test_stubbs_image_effects_and_vegetation_checked(built, tmp_path):
         result.stderr[-4000:]
 
 
+def test_extended_chicago_with_only_two_stage_maps(built, tmp_path):
+    """an extended chicago shader (Halo PC's scex) is made a chicago one with
+    its four-stage maps; one with none, only two-stage maps, which Halo PC
+    draws then on any card, is given its two-stage maps (as MCC's are,
+    mcc_tags.c), not left with nothing to draw"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    for four_stage, given in ((0, 1), (1, 0)):
+        data, offsets = ce_map_of_tags([(b"scex", 0x78 + 2 * 0xDC)])
+        shader = offsets["tags"][0]
+        maps = base + shader + 0x78 - 0x800
+        struct.pack_into("<h", data, shader + 0x24, 7)
+        struct.pack_into("<iII", data, shader + 0x54, four_stage, maps + 0xDC if four_stage else 0, 0)
+        struct.pack_into("<iII", data, shader + 0x60, 1, maps, 0)
+        for element in (0, 1):
+            # (each map's bitmap none: 0x6C in, a tag reference)
+            struct.pack_into("<4sIiI", data, shader + 0x78 + element * 0xDC + 0x6C, b"mtib", 0, 0, 0xFFFFFFFF)
+        path = tmp_path / f"scex_{four_stage}.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "1 extended chicago shaders made chicago ones" in result.stderr, result.stderr[-4000:]
+        assert ("%d extended chicago shaders with no four-stage maps drawn with their two-stage maps" % given) in \
+            result.stderr, result.stderr[-4000:]
+        assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
 def test_pc_netgame_flags_and_equipment_past_200(built, tmp_path):
     """a Halo PC map's netgame flags and equipment past the tools' 200 (four
     of HaloMD's maps have 202 to 317 flags, one 212 equipment): kept, as
