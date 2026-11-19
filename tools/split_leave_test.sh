@@ -13,15 +13,20 @@
 # Internet play off), with its own HOME, save and data folders. Prints the
 # end of the log and any crash or assertion.
 # WIN=<w>x<h> sets the window (640x360 default); NULLR=true draws nothing (fast).
+# DATA_ROOT_SCRIPT names the script that makes a data folder with the maps
+# (default ~/halo-maps/new-data-root.sh).
 set -u
 if [ $# -lt 5 ]; then
-	sed -n '5,15p' "$0"
+	sed -n '5,17p' "$0"
 	exit 2
 fi
 BIN=$(readlink -f "$1"); MAP=$2; PLAYERS=$3; LEAVE=$4; SECS=$5; SHOT=${6:-0}
 D=:$((150 + RANDOM % 40)); B=$(mktemp -d /tmp/split-leave.XXXX)
 mkdir -p "$B/home" "$B/save" "$B/shots"
-~/halo-maps/new-data-root.sh "$B/data" >/dev/null 2>&1 || ~/emulators/new-data-root.sh "$B/data" >/dev/null
+if ! "${DATA_ROOT_SCRIPT:-$HOME/halo-maps/new-data-root.sh}" "$B/data" >/dev/null; then
+	echo "$0: no data folder (DATA_ROOT_SCRIPT)" >&2
+	exit 2
+fi
 mkdir -p "$B/data/logs"
 Xvfb $D -screen 0 1280x720x24 -nolisten tcp >/dev/null 2>&1 & XP=$!
 sleep 1
