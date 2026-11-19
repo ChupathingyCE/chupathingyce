@@ -259,6 +259,19 @@ static void test_gaps(void)
 	gyro_filter_sample(&filter, sample, one_g, DT, 0.0f, angle);
 	CHECK(angle[1] == angle[1] && angle[1] > 0.0f);
 	CHECK(filter.bias[1] == filter.bias[1]);
+	/* nor is an infinite or huge one: the filter goes on turning */
+	{
+		float infinite[3] = { 0.0f, INFINITY, 0.0f };
+		float huge[3] = { -1.0e30f, 0.0f, 0.0f };
+		float before;
+
+		gyro_filter_sample(&filter, infinite, NULL, DT, 0.0f, angle);
+		gyro_filter_sample(&filter, huge, one_g, DT, 0.0f, angle);
+		before = angle[1];
+		gyro_filter_sample(&filter, sample, one_g, DT, 0.0f, angle);
+		CHECK(filter.smoothed[0] == filter.smoothed[0] && filter.smoothed[1] == filter.smoothed[1]);
+		CHECK(angle[1] == angle[1] && angle[1] > before);
+	}
 }
 
 static void test_look(void)

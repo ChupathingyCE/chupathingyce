@@ -148,8 +148,9 @@ void gyro_filter_sample(struct gyro_filter *filter, const float rate[3], const f
 
 	for (axis = 0; axis < 3; axis++)
 	{
-		/* (a sample that is not a number is none) */
-		if (!(rate[axis] == rate[axis]) || (accel && !(accel[axis] == accel[axis])))
+		/* (a sample that is not a number, or past any sensor's range, is
+		none) */
+		if (!(gyro_absolute(rate[axis]) <= GYRO_FILTER_MAXIMUM_RATE) || (accel && !(accel[axis] == accel[axis])))
 			return;
 	}
 	if (!(dt >= 0.0f) || dt > GYRO_FILTER_MAXIMUM_GAP)

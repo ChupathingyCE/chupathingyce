@@ -86,6 +86,10 @@ time constant (seconds) */
 (BirchWood's Vita sampled at 60 Hz or more and had 0.05; a phone's and a
 Bluetooth controller's samples come further apart now and then) */
 #define GYRO_FILTER_MAXIMUM_GAP 0.1f
+/* a rate past this (radians a second: about 2900 degrees a second, past
+every controller's and phone's range) is a bad sample, as one that is not a
+number: an infinite or huge one would leave NaN in the smoothing for good */
+#define GYRO_FILTER_MAXIMUM_RATE 50.0f
 
 struct gyro_filter
 {
