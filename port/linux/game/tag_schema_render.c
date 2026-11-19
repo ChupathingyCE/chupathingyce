@@ -1517,8 +1517,12 @@ static boolean shader_transparent_chicago_extended_check(
 		chicago->two_stage_maps.count = 0;
 		chicago->two_stage_maps.address = XBOX_NULL;
 	}
+	/* (Halo PC's draws its two-stage maps where it has no four-stage ones,
+	ce_models.c: the first of those is its first map then) */
 	shader_transparent_check(validation, &chicago->transparent, chicago->transparent.maps.count ?
-		&((struct shader_transparent_chicago_map *)xbox_pointer(chicago->transparent.maps.address))->map : NULL);
+		&((struct shader_transparent_chicago_map *)xbox_pointer(chicago->transparent.maps.address))->map :
+		pc && chicago->two_stage_maps.count > 0 ?
+		&((struct shader_transparent_chicago_map *)xbox_pointer(chicago->two_stage_maps.address))->map : NULL);
 
 	return TRUE;
 }
