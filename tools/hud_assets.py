@@ -6,6 +6,10 @@ holds), laid out as the Xbox maps' sheets:
 
     python tools/hud_assets.py layout --map assets/maps/bloodgulch.map \\
         --hek ../halopc-restored --svg port/assets/hud/svg
+    python tools/hud_assets.py mcc-layout --map <MCC>/halo1/maps/bloodgulch.map \
+        --map <MCC>/halo1/maps/a10.map --map <MCC>/halo1/maps/d40.map \
+        --bitmaps <MCC>/halo1/maps/custom_edition/bitmaps.map \
+        --bitmaps <MCC>/halo1/maps/bitmaps.map --hek ../halopc-restored
     python tools/hud_assets.py build
     python tools/hud_assets.py thresholds  # update only discrete segment data
     python tools/hud_assets.py check --map assets/maps/bloodgulch.map --out /tmp/hud_check
@@ -38,8 +42,19 @@ layout: reads the Xbox map's HUD bitmaps (sizes, formats, sprite rectangles,
     SVG redraws used in port/assets/hud/svg). Needs a map and the restored
     tags; its output is committed. A bitmap with a cell that nothing
     matches is left out.
+mcc-layout: the same for MCC's stock HUD sheets (read from your own MCC
+    maps and bitmaps.map files, in place), the sheets the Xbox maps' layout
+    has but the meters: each cell matched with the restored art in the MCC
+    sheet's layout, at the art's scale (often MCC's own), and told apart by
+    the CRC-32 of its first mip level as the map stores it. A cell that is
+    not surely the same picture (a sprite that is another one on the
+    restored sheet, MCC's controller buttons, a whole bitmap matching under
+    MCC_MATCH) is listed as kept and left empty: the game draws the map's
+    own texels there. Writes port/assets/hud/mcc_layout.json (numbers only)
+    and adds any art it uses to port/assets/hud/art.
 build: draws port/assets/hud/art and svg with layout.json into
-    port/assets/hud/*.png (committed; the builds embed them).
+    port/assets/hud/*.png, and with mcc_layout.json into
+    port/assets/hud/mcc/*.png (committed; the builds embed them).
 check: compares each PNG, reduced to the tag's size, with the map's bitmap
     and writes side-by-side images into --out.
 
@@ -63,6 +78,9 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "port/assets/hud"
 LAYOUT = ASSETS / "layout.json"
+# the MCC maps' stock sheets' (mcc-layout), and their textures' folder
+MCC_LAYOUT = ASSETS / "mcc_layout.json"
+MCC_ASSETS = ASSETS / "mcc"
 # the textures' size over the Xbox bitmaps' where an SVG redraw is drawn (the
 # restored art's are its own), but no side longer than every OpenGL ES 3
 # device can take
@@ -160,6 +178,147 @@ class XboxMap:
             sprite_count, sprites = struct.unpack_from("<II", sequence, 0x34)
             group["sequences"].append([sprite_from(self.read(sprites + j * 0x20, 0x20), "<") for j in range(sprite_count)])
         return group
+
+
+# ---------- MCC maps
+
+
+# MCC's formats (Halo PC's, and BC7): the texel sizes of the uncompressed
+# ones; the DXT ones and BC7 by their 4x4 blocks
+MCC_TEXEL_BYTES = {0: 1, 1: 1, 2: 1, 3: 2, 6: 2, 8: 2, 9: 2, 10: 4, 11: 4, 17: 1}
+MCC_BLOCK_BYTES = {14: 8, 15: 16, 16: 16, 18: 16}
+MCC_EXTERNAL_FLAG = 0x100
+MCC_FORMATS = {**FORMATS, 17: "p8", 18: "bc7"}
+# how well an MCC sheet's whole bitmap must match the restored art for it
+# to be drawn in its place (a sprite's must be the same sprite on both)
+MCC_MATCH = 0.5
+# the sheets whose sequences the HUD globals' button icons name
+MESSAGE_ICONS = ("ui\\hud\\bitmaps\\combined\\hud_msg_icons", "ui\\hud\\bitmaps\\hud_msg_icons_sm")
+
+
+def mcc_level0_size(width: int, height: int, format: int) -> int:
+    """The bytes of an MCC bitmap's first mip level (in rows, not swizzled)."""
+    if format in MCC_BLOCK_BYTES:
+        return ((width + 3) // 4) * ((height + 3) // 4) * MCC_BLOCK_BYTES[format]
+    return width * height * MCC_TEXEL_BYTES.get(format, 0)
+
+
+class MccResources:
+    """An MCC bitmaps.map: its items by name (port/linux/game/mcc_resources.c)."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        with path.open("rb") as stream:
+            header = stream.read(16)
+            kind, names, index, count = struct.unpack("<4I", header)
+            if kind != 1:
+                raise ValueError(f"{path}: not a bitmaps resource map")
+            stream.seek(names)
+            text = stream.read(index - names)
+            stream.seek(index)
+            entries = stream.read(count * 12)
+        self.items = {}
+        for number in range(count):
+            name, size, offset = struct.unpack_from("<3I", entries, number * 12)
+            self.items.setdefault(text[name:text.index(b"\0", name)].decode("latin-1"), (offset, size))
+
+    def read(self, name: str, group: str, offset: int, size: int):
+        """An external bitmap's pixels, as the game reads them: the item of
+        its own name, else its tag's group of pixels at offset; or None."""
+        if name in self.items:
+            start, length = self.items[name]
+        elif group in self.items and self.items[group][0] <= offset and \
+                offset + size <= sum(self.items[group]):
+            start, length = offset, size
+        else:
+            return None
+        if size > length:
+            return None
+        with self.path.open("rb") as stream:
+            stream.seek(start)
+            return stream.read(size)
+
+
+class MccMap:
+    """The tags of an MCC (version 13) cache file, and its bitmaps' pixels,
+    from the map or from the bitmaps.map files given (the package's first,
+    then MCC's shared ones), as port/linux/game/mcc_cache_format.c and
+    mcc_bitmaps.c read them."""
+
+    def __init__(self, path: Path, resources: list):
+        self.path = path
+        self.resources = resources
+        data = path.read_bytes()
+        if data[:4] != b"daeh" or struct.unpack_from("<I", data, 4)[0] != 13:
+            raise ValueError(f"{path}: not an MCC version 13 map")
+        offset, size = struct.unpack_from("<II", data, 0x10)
+        self.data = data
+        self.tags_data = data[offset:offset + size]
+        index, = struct.unpack_from("<I", self.tags_data, 0)
+        count, = struct.unpack_from("<I", self.tags_data, 0xC)
+        self.base = index - 0x28
+        self.tags = {}
+        for number in range(count):
+            group, _, _, _, name, address, _, _ = struct.unpack_from("<4sIIIIIII", self.tags_data, 0x28 + number * 0x20)
+            name = self.read(name, 256).split(b"\0")[0].decode("latin-1")
+            self.tags[(group[::-1].decode("latin-1"), name)] = address
+
+    def read(self, address: int, size: int) -> bytes:
+        offset = address - self.base
+        return self.tags_data[offset:offset + size]
+
+    def bitmap_group(self, name: str) -> dict:
+        address = self.tags[("bitm", name)]
+        header = self.read(address, 0x6C)
+        sequence_count, sequences = struct.unpack_from("<II", header, 0x54)
+        bitmap_count, bitmaps = struct.unpack_from("<II", header, 0x60)
+        group = {"bitmaps": [], "sequences": []}
+        for index in range(bitmap_count):
+            bitmap = self.read(bitmaps + index * 0x30, 0x30)
+            width, height, _, _, format, flags = struct.unpack_from("<hhhhhH", bitmap, 4)
+            offset, size = struct.unpack_from("<ii", bitmap, 0x18)
+            level0 = mcc_level0_size(width, height, format)
+            pixels = None
+            if level0 and level0 <= size:
+                if flags & MCC_EXTERNAL_FLAG:
+                    for resource in self.resources:
+                        pixels = resource.read(f"{name}_{index}", f"{name}__pixels", offset, level0)
+                        if pixels is not None:
+                            break
+                else:
+                    pixels = self.data[offset:offset + level0]
+            group["bitmaps"].append({"width": width, "height": height, "format": format, "flags": flags,
+                                     "pixels": pixels})
+        for index in range(sequence_count):
+            sequence = self.read(sequences + index * 0x40, 0x40)
+            sprite_count, sprites = struct.unpack_from("<II", sequence, 0x34)
+            group["sequences"].append([sprite_from(self.read(sprites + j * 0x20, 0x20), "<") for j in range(sprite_count)])
+        return group
+
+
+def mcc_button_sequences(mcc_map: "MccMap") -> set:
+    """The message icons' sequences the HUD globals name as the controller's
+    buttons (their button icons: hud_messaging_parameters_definition)."""
+    result = set()
+    for (group_tag, _), address in mcc_map.tags.items():
+        if group_tag != "hudg":
+            continue
+        count, buttons = struct.unpack_from("<II", mcc_map.read(address + 0xC4, 8))
+        for index in range(min(count, 64)):
+            result.add(struct.unpack_from("<h", mcc_map.read(buttons + index * 0x10, 2))[0])
+    return result
+
+
+def decode_mcc_bitmap(bitmap: dict) -> np.ndarray:
+    """An MCC bitmap's first mip level as RGBA (its pixels are in rows, as
+    Halo PC's are; BC7 decoded by Pillow)."""
+    width, height, format = bitmap["width"], bitmap["height"], bitmap["format"]
+    if format == 18:
+        blocks = Image.frombytes("RGBA", ((width + 3) // 4 * 4, (height + 3) // 4 * 4), bitmap["pixels"], "bcn", 7)
+        return np.asarray(blocks)[:height, :width].copy()
+    if format == 17:
+        raise ValueError("no decoder for p8")
+    return decode_bitmap(dict(bitmap, flags=BITMAP_LINEAR_FLAG))
 
 
 def sprite_from(data: bytes, order: str) -> tuple:
@@ -481,6 +640,148 @@ def score_cell(alpha: np.ndarray, cell: list, numbers: set, xbox_width: int, can
     return best
 
 
+def sheet_cells(name: str, tag: str, texels: np.ndarray, group: dict, index: int, art: list, svgs: list,
+                renders: dict, svg_root, used: dict, art_scale: int, key: str, keep: list = None,
+                buttons: set = frozenset()):
+    """A sheet's cells (its sprites' rectangles, or the whole bitmap), each
+    matched with the restored art (at least art_scale times its size), or
+    else an SVG redraw, and aligned by its content: the cells as layout.json
+    lists them (each cell's rectangle under key), [] for an empty sheet, or
+    None if a cell matches nothing. The art and redraws used go into used.
+    With keep (an MCC sheet's), a cell is drawn only where it is surely the
+    same picture: a sprite the same sprite on the restored sheet, and not
+    one of the controller's buttons (MCC's are another controller's), a
+    whole bitmap matching at MCC_MATCH; any other cell goes into keep, and
+    the game draws the map's own texels there."""
+    height, width = texels.shape[:2]
+    # (each cell with the sprites, as sequence and sprite numbers, it is)
+    cells = {}
+    for sequence_index, sequence in enumerate(group["sequences"]):
+        for sprite_index, sprite in enumerate(sequence):
+            if sprite[0] == index:
+                cells.setdefault(tuple(pixel_rectangle(sprite, width, height)), set()).add(
+                    (sequence_index, sprite_index))
+    cells = cells or {(0, 0, width, height): set()}
+    matched = []
+    for cell, numbers in sorted(cells.items()):
+        cell = list(cell)
+        left, top, right, bottom = cell
+        # (the cell's shape: its alpha, or its grey where its alpha is
+        # flat: the Xbox's DXT1 blip is opaque, and its "Km" glyph
+        # has only grey)
+        alpha = texels[top:bottom, left:right, 3]
+        grey = texels[top:bottom, left:right, 0]
+        # (or its grey where that is the shape drawn: the warning
+        # sheet's pips are dots in the grey over triangles in the
+        # alpha, where the restored ones are dots in both)
+        if alpha.size == 0:
+            continue
+        if alpha.min() == alpha.max() or (
+                "reticle_warnings" in tag and overlap(alpha.astype(float), grey.astype(float)) < 0.5):
+            alpha = grey
+        # (blank, or a few stray texels: the edges of a neighbour's
+        # shape, which the Xbox's sheets have in some cells; left
+        # blank)
+        if np.count_nonzero(alpha) <= 4:
+            continue
+        # (the restored art where it is larger than the Xbox's; else
+        # an SVG redraw)
+        kind = "art"
+        best = score_cell(alpha, cell, numbers, width, art, renders, kind, svg_root, art_scale)
+        if best is None or best[0] < MATCH or best[5] is None:
+            kind = "svg"
+            best = score_cell(alpha, cell, numbers, width, svgs, renders, kind, svg_root, 1)
+        # (a faint cell that matches nothing: matched by its shape,
+        # and drawn as faint; or, matching nothing still, left blank,
+        # as a faint frame on the Xbox's message icons, all but
+        # invisible, is)
+        faint = (best is None or best[0] < MATCH) and alpha.max() < 64
+        if faint:
+            kind = "art"
+            best = score_cell((alpha.astype(float) * 255 / alpha.max()).astype(np.uint8), cell, numbers,
+                              width, art, renders, kind, svg_root, art_scale)
+            if best is None or best[0] < MATCH:
+                if keep is not None:
+                    keep.append(cell)
+                    continue
+                print(f"{name}: cell {cell}, faint, matches nothing: left blank")
+                continue
+        if keep is not None and (best is None or best[5] is None or (
+                not best[6] or numbers & {(sequence, sprite) for sequence in buttons for sprite in range(64)})
+                if numbers else best is None or best[0] < MCC_MATCH or best[5] is None):
+            print(f"{name}: cell {cell} kept as the map draws it" +
+                  ("" if best is None else f" (best {best[1]} at {best[0]:.2f})"))
+            keep.append(cell)
+            continue
+        if best is None or best[0] < MATCH or best[5] is None:
+            print(f"{name}: left out, cell {cell} " +
+                  ("has no redraw" if best is None else f"matches best {best[1]} at {best[0]:.2f}"))
+            return None
+        score, source, scale, corner, clip, cell_kind, _ = best
+        corner = CORNERS.get((name, tuple(cell)), corner)
+        if tag in METERS:
+            cell_kind = "meter"
+        flat = source.replace("/", "__").replace(" ", "_")
+        if kind == "art":
+            flat += ".png"
+            used[flat] = renders[("art", source)]
+        else:
+            used[flat] = svg_root / source
+        found = {key: cell, kind: flat, "source_scale": scale,
+                 "source": corner, "clip": clip, "kind": cell_kind, "score": round(score, 3)}
+        if tag == HUD + "combined\\hud_unit_meters":
+            original = texels[top:bottom, left:right]
+            values = set(np.unique(original[..., 2][original[..., 3] > 0]))
+            health = set(range(30, 241, 30))
+            if health <= values <= health | {0}:
+                found["thresholds"] = sorted(health)
+        if faint:
+            found["intensity"] = round(float(texels[top:bottom, left:right, 3].max()) / 255, 3)
+        matched.append(found)
+    return matched
+
+
+def sheet_name(tag: str, index: int) -> str:
+    """A sheet's texture's name: the combined sheets by their own names, as
+    before the others; the weapon's by its name and theirs."""
+    stem = tag[len(HUD):].replace("combined\\", "") if tag.startswith(HUD) else \
+        tag.split("\\", 1)[1].replace("\\bitmaps\\", "\\")
+    return stem.replace("\\", "__").replace(" ", "_") + f"__{index}"
+
+
+def sheet_scale(matched: list, width: int, height: int) -> int:
+    """The restored art's own scale; 8x where a redraw is drawn; no side
+    longer than MAXIMUM_SIZE."""
+    scale = max(SCALE if "svg" in cell else cell["source_scale"] for cell in matched)
+    while max(width, height) * scale > MAXIMUM_SIZE and scale > 1:
+        scale //= 2
+    return scale
+
+
+def keep_used(used: dict, svg_root, replace: bool) -> None:
+    """The restored art and redraws used, written into port/assets/hud/art
+    and svg: replacing what is there (layout), or added to it (mcc-layout,
+    whose sheets use the same art as the Xbox's and some more)."""
+    if replace:
+        for folder in ("art", "svg"):
+            if (ASSETS / folder).exists() and Path(svg_root or "").resolve() != (ASSETS / folder).resolve():
+                shutil.rmtree(ASSETS / folder)
+    (ASSETS / "art").mkdir(parents=True, exist_ok=True)
+    (ASSETS / "svg").mkdir(parents=True, exist_ok=True)
+    kept_svgs = set()
+    for flat, source in sorted(used.items(), key=lambda item: item[0]):
+        if flat.endswith(".png"):
+            Image.fromarray(source).save(ASSETS / "art" / flat, optimize=True)
+        else:
+            kept_svgs.add(flat)
+            if source.resolve() != (ASSETS / "svg" / flat).resolve():
+                shutil.copyfile(source, ASSETS / "svg" / flat)
+    if replace:
+        for stale in (ASSETS / "svg").glob("*.svg"):
+            if stale.name not in kept_svgs:
+                stale.unlink()
+
+
 def layout(arguments) -> None:
     xbox_map = XboxMap(Path(arguments.map))
     svg_root = Path(arguments.svg) if arguments.svg else None
@@ -488,6 +789,14 @@ def layout(arguments) -> None:
     renders = {}
     entries = []
     used = {}
+    # (what the MCC sheets use too: mcc-layout's, kept)
+    if MCC_LAYOUT.is_file():
+        for entry in json.loads(MCC_LAYOUT.read_text())["assets"]:
+            for cell in entry["cells"]:
+                if "art" in cell and (ASSETS / "art" / cell["art"]).is_file():
+                    used[cell["art"]] = np.asarray(Image.open(ASSETS / "art" / cell["art"]).convert("RGBA"))
+                elif "svg" in cell:
+                    used[cell["svg"]] = (svg_root or ASSETS / "svg") / cell["svg"]
     for group_tag, tag in sorted(xbox_map.tags):
         if group_tag != "bitm" or not tag.startswith(FOLDERS):
             continue
@@ -497,93 +806,14 @@ def layout(arguments) -> None:
         group = xbox_map.bitmap_group(tag)
         for index, bitmap in enumerate(group["bitmaps"]):
             width, height = bitmap["width"], bitmap["height"]
-            # (the combined sheets by their own names, as before the others;
-            # the weapon's by its name and theirs)
-            stem = tag[len(HUD):].replace("combined\\", "") if tag.startswith(HUD) else \
-                tag.split("\\", 1)[1].replace("\\bitmaps\\", "\\")
-            name = stem.replace("\\", "__").replace(" ", "_") + f"__{index}"
-            xbox = decode_bitmap(bitmap)
-            # (each cell with the sprites, as sequence and sprite numbers, it is)
-            cells = {}
-            for sequence_index, sequence in enumerate(group["sequences"]):
-                for sprite_index, sprite in enumerate(sequence):
-                    if sprite[0] == index:
-                        cells.setdefault(tuple(pixel_rectangle(sprite, width, height)), set()).add(
-                            (sequence_index, sprite_index))
-            cells = cells or {(0, 0, width, height): set()}
-            matched = []
-            for cell, numbers in sorted(cells.items()):
-                cell = list(cell)
-                left, top, right, bottom = cell
-                # (the cell's shape: its alpha, or its grey where its alpha is
-                # flat: the Xbox's DXT1 blip is opaque, and its "Km" glyph
-                # has only grey)
-                alpha = xbox[top:bottom, left:right, 3]
-                grey = xbox[top:bottom, left:right, 0]
-                # (or its grey where that is the shape drawn: the warning
-                # sheet's pips are dots in the grey over triangles in the
-                # alpha, where the restored ones are dots in both)
-                if alpha.min() == alpha.max() or (
-                        "reticle_warnings" in tag and overlap(alpha.astype(float), grey.astype(float)) < 0.5):
-                    alpha = grey
-                # (blank, or a few stray texels: the edges of a neighbour's
-                # shape, which the Xbox's sheets have in some cells; left
-                # blank)
-                if np.count_nonzero(alpha) <= 4:
-                    continue
-                # (the restored art where it is larger than the Xbox's; else
-                # an SVG redraw)
-                kind = "art"
-                best = score_cell(alpha, cell, numbers, width, art, renders, kind, svg_root, 2)
-                if best is None or best[0] < MATCH or best[5] is None:
-                    kind = "svg"
-                    best = score_cell(alpha, cell, numbers, width, svgs, renders, kind, svg_root, 1)
-                # (a faint cell that matches nothing: matched by its shape,
-                # and drawn as faint; or, matching nothing still, left blank,
-                # as a faint frame on the Xbox's message icons, all but
-                # invisible, is)
-                faint = (best is None or best[0] < MATCH) and alpha.max() < 64
-                if faint:
-                    kind = "art"
-                    best = score_cell((alpha.astype(float) * 255 / alpha.max()).astype(np.uint8), cell, numbers,
-                                      width, art, renders, kind, svg_root, 2)
-                    if best is None or best[0] < MATCH:
-                        print(f"{name}: cell {cell}, faint, matches nothing: left blank")
-                        continue
-                if best is None or best[0] < MATCH or best[5] is None:
-                    matched = None
-                    print(f"{name}: left out, cell {cell} " +
-                          ("has no redraw" if best is None else f"matches best {best[1]} at {best[0]:.2f}"))
-                    break
-                score, source, scale, corner, clip, cell_kind, _ = best
-                corner = CORNERS.get((name, tuple(cell)), corner)
-                if tag in METERS:
-                    cell_kind = "meter"
-                flat = source.replace("/", "__").replace(" ", "_")
-                if kind == "art":
-                    flat += ".png"
-                    used[flat] = renders[("art", source)]
-                else:
-                    used[flat] = svg_root / source
-                found = {"xbox": cell, kind: flat, "source_scale": scale,
-                         "source": corner, "clip": clip, "kind": cell_kind, "score": round(score, 3)}
-                if tag == HUD + "combined\\hud_unit_meters":
-                    original = xbox[top:bottom, left:right]
-                    values = set(np.unique(original[..., 2][original[..., 3] > 0]))
-                    health = set(range(30, 241, 30))
-                    if health <= values <= health | {0}:
-                        found["thresholds"] = sorted(health)
-                if faint:
-                    found["intensity"] = round(float(xbox[top:bottom, left:right, 3].max()) / 255, 3)
-                matched.append(found)
+            name = sheet_name(tag, index)
+            matched = sheet_cells(name, tag, decode_bitmap(bitmap), group, index, art, svgs, renders, svg_root,
+                                  used, 2, "xbox")
             if not matched:
                 if matched is not None:
                     print(f"{name}: left out, empty")
                 continue
-            # (the restored art's own scale; 8x where a redraw is drawn)
-            scale = max(SCALE if "svg" in cell else cell["source_scale"] for cell in matched)
-            while max(width, height) * scale > MAXIMUM_SIZE:
-                scale //= 2
+            scale = sheet_scale(matched, width, height)
             entries.append({
                 "name": name,
                 "tag": tag,
@@ -600,23 +830,84 @@ def layout(arguments) -> None:
             print(f"{name}: {width}x{height} {FORMATS[bitmap['format']]} at {scale}x, {len(matched)} cells, "
                   f"{sorted({'art' if 'art' in cell else 'svg' for cell in matched})}, "
                   f"worst match {min(cell['score'] for cell in matched):.2f}")
-    for folder in ("art", "svg"):
-        if (ASSETS / folder).exists() and Path(arguments.svg or "").resolve() != (ASSETS / folder).resolve():
-            shutil.rmtree(ASSETS / folder)
-    (ASSETS / "art").mkdir(parents=True, exist_ok=True)
-    (ASSETS / "svg").mkdir(parents=True, exist_ok=True)
-    kept_svgs = set()
-    for flat, source in sorted(used.items(), key=lambda item: item[0]):
-        if flat.endswith(".png"):
-            Image.fromarray(source).save(ASSETS / "art" / flat, optimize=True)
-        else:
-            kept_svgs.add(flat)
-            if source.resolve() != (ASSETS / "svg" / flat).resolve():
-                shutil.copyfile(source, ASSETS / "svg" / flat)
-    for stale in (ASSETS / "svg").glob("*.svg"):
-        if stale.name not in kept_svgs:
-            stale.unlink()
+    keep_used(used, svg_root, True)
     LAYOUT.write_text(json.dumps({"assets": entries}, indent=1) + "\n")
+
+
+def mcc_layout(arguments) -> None:
+    """The MCC maps' stock HUD sheets (MCC's own, which its maps and the
+    Workshop's carry unless their makers drew their own) laid out as the
+    Xbox's are: each MCC cell matched with the restored art, aligned by its
+    content, in the MCC sheet's layout. Each is told apart by its first mip
+    level's checksum as the map stores it (before the game converts it), so
+    a map's own art, under a stock sheet's name or not, keeps its own."""
+    svg_root = Path(arguments.svg) if arguments.svg else ASSETS / "svg"
+    hek_root = Path(arguments.hek)
+    resources = [MccResources(Path(path)) for path in arguments.bitmaps]
+    # (only the sheets the Xbox maps' high-res HUD has: the HUD's, not the
+    # sniper rifle's own textures beside its scope's ladder)
+    covered = {entry["tag"] for entry in json.loads(LAYOUT.read_text())["assets"]}
+    renders = {}
+    entries = {}
+    left_out = set()
+    used = {}
+    for path in arguments.map:
+        mcc_map = MccMap(Path(path), resources)
+        buttons = mcc_button_sequences(mcc_map)
+        for group_tag, tag in sorted(mcc_map.tags):
+            # (the meters are drawn from a copy in the Xbox's channel order,
+            # as the map's own art: mcc_bitmaps.c)
+            if group_tag != "bitm" or tag not in covered or tag in METERS:
+                continue
+            art, svgs = sources(svg_root, hek_root, tag, arguments.font)
+            # (the redraws where there are some: the restored art of those
+            # sheets is no larger than MCC's, as on the Xbox maps)
+            if svgs:
+                art = []
+            if not art and not svgs:
+                continue
+            group = mcc_map.bitmap_group(tag)
+            for index, bitmap in enumerate(group["bitmaps"]):
+                width, height = bitmap["width"], bitmap["height"]
+                name = sheet_name(tag, index)
+                if bitmap["pixels"] is None or bitmap["format"] == 17:
+                    print(f"{path}: {name}: no pixels here")
+                    continue
+                crc = zlib.crc32(bitmap["pixels"])
+                if name in left_out:
+                    continue
+                if name in entries:
+                    if entries[name]["crc"] != crc:
+                        print(f"{name}: {path}'s is another sheet than the first map's: left out")
+                    continue
+                keep = []
+                matched = sheet_cells(name, tag, decode_mcc_bitmap(bitmap), group, index, art, svgs, renders,
+                                      svg_root, used, 1, "mcc", keep, buttons if tag in MESSAGE_ICONS else set())
+                if not matched:
+                    if matched is not None:
+                        print(f"{name}: left out, empty")
+                    left_out.add(name)
+                    continue
+                scale = sheet_scale(matched, width, height)
+                entries[name] = {
+                    "name": name,
+                    "tag": tag,
+                    "bitmap": index,
+                    "width": width,
+                    "height": height,
+                    "format": MCC_FORMATS[bitmap["format"]],
+                    "scale": scale,
+                    # (the stock sheet's first mip level as the map stores it,
+                    # which the game checks before drawing this in its place)
+                    "crc": crc,
+                    "cells": matched,
+                    # (the cells drawn with the map's own texels)
+                    "keep": keep,
+                }
+                print(f"{name}: {width}x{height} {MCC_FORMATS[bitmap['format']]} at {scale}x, {len(matched)} cells, "
+                      f"{len(keep)} kept, worst match {min(cell['score'] for cell in matched):.2f}")
+    keep_used(used, svg_root, False)
+    MCC_LAYOUT.write_text(json.dumps({"assets": [entries[name] for name in sorted(entries)]}, indent=1) + "\n")
 
 
 # ---------- building
@@ -716,7 +1007,7 @@ def add_meter_thresholds(image: np.ndarray, entry: dict) -> np.ndarray:
         image[..., 0] = 0
         scale = entry["scale"]
         for cell in cells:
-            left, top, right, bottom = [value * scale for value in cell["xbox"]]
+            left, top, right, bottom = [value * scale for value in cell_rectangle(cell)]
             texels = image[top:bottom, left:right]
             # The meter's blue is still the original greyscale artwork data.
             source = texels.copy()
@@ -740,6 +1031,11 @@ def resized(texels: np.ndarray, zoom: float) -> np.ndarray:
     return np.round(np.clip(result, 0, 255)).astype(np.uint8)
 
 
+def cell_rectangle(cell: dict) -> list:
+    """A cell's rectangle on its sheet: an Xbox sheet's, or an MCC one's."""
+    return cell["xbox"] if "xbox" in cell else cell["mcc"]
+
+
 def build_asset(entry: dict, renders: dict) -> np.ndarray:
     scale = entry["scale"]
     image = np.zeros((entry["height"] * scale, entry["width"] * scale, 4), np.uint8)
@@ -756,7 +1052,7 @@ def build_asset(entry: dict, renders: dict) -> np.ndarray:
             key = ("svg", cell["svg"], zoom)
             if key not in renders:
                 renders[key] = render_svg(ASSETS / "svg" / cell["svg"], int(zoom))
-        left, top, right, bottom = cell["xbox"]
+        left, top, right, bottom = cell_rectangle(cell)
         width, height = (right - left) * scale, (bottom - top) * scale
         texels = window(clipped(renders[key], [round(value * zoom) for value in cell["clip"]]),
                         round(cell["source"][0] * zoom), round(cell["source"][1] * zoom), width, height)
@@ -782,16 +1078,20 @@ def thresholds(arguments) -> None:
 
 
 def build(arguments) -> None:
-    description = json.loads(LAYOUT.read_text())
-    names = {f"{entry['name']}.png" for entry in description["assets"]}
-    for stale in ASSETS.glob("*.png"):
-        if stale.name not in names:
-            stale.unlink()
     renders = {}
-    for entry in description["assets"]:
-        image = build_asset(entry, renders)
-        Image.fromarray(image, "RGBA").save(ASSETS / f"{entry['name']}.png", optimize=True)
-        print(f"{entry['name']}.png: {image.shape[1]}x{image.shape[0]}")
+    for listing, folder in ((LAYOUT, ASSETS), (MCC_LAYOUT, MCC_ASSETS)):
+        if not listing.is_file():
+            continue
+        description = json.loads(listing.read_text())
+        names = {f"{entry['name']}.png" for entry in description["assets"]}
+        folder.mkdir(parents=True, exist_ok=True)
+        for stale in folder.glob("*.png"):
+            if stale.name not in names:
+                stale.unlink()
+        for entry in description["assets"]:
+            image = build_asset(entry, renders)
+            Image.fromarray(image, "RGBA").save(folder / f"{entry['name']}.png", optimize=True)
+            print(f"{folder.name}/{entry['name']}.png: {image.shape[1]}x{image.shape[0]}")
 
 
 # ---------- checking
@@ -831,13 +1131,19 @@ def main() -> None:
     command.add_argument("--hek", required=True)
     command.add_argument("--svg")
     command.add_argument("--font", default=TAHOMA_BOLD)
+    command = commands.add_parser("mcc-layout")
+    command.add_argument("--map", required=True, action="append")
+    command.add_argument("--bitmaps", required=True, action="append")
+    command.add_argument("--hek", required=True)
+    command.add_argument("--svg")
+    command.add_argument("--font", default=TAHOMA_BOLD)
     commands.add_parser("build")
     commands.add_parser("thresholds")
     command = commands.add_parser("check")
     command.add_argument("--map", required=True)
     command.add_argument("--out", required=True)
     arguments = parser.parse_args()
-    {"layout": layout, "build": build, "thresholds": thresholds, "check": check}[arguments.command](arguments)
+    {"layout": layout, "mcc-layout": mcc_layout, "build": build, "thresholds": thresholds, "check": check}[arguments.command](arguments)
 
 
 if __name__ == "__main__":
