@@ -244,7 +244,10 @@ The app keeps the layout in its own preferences, not in `config.toml`.
 Removing the app's data or the app removes the layout.
 
 A controller's gyroscope aims as on the desktop (`input.gyro_aim`, Controls
-Setup's GYRO page) where SDL can read it on Android; when it can't, the
+Setup's GYRO page). SDL reads a controller's gyroscope through Android's
+own sensors for input devices, which Android 12 and later have: a
+DualSense or DualShock 4 over Bluetooth or USB, with no extra permission.
+On Android 9 to 11, or with a controller Android gives no sensors for, the
 log says `gyro aim: <controller> has no gyroscope SDL can read`.
 
 ## Settings

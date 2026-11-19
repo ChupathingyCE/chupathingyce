@@ -974,11 +974,13 @@ static const struct config_setting config_settings[] =
 	{ "input.gyro_sensitivity_horizontal", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_HORIZONTAL",
 		_environment_value, _platform_all,
 		"How far the view turns left and right with the gyroscope, when\n"
-		"input.gyro_aim is on. 1 is the sensor's own turn. From 0.25 to 10." },
+		"input.gyro_aim is on. 1 turns the view as far as the controller\n"
+		"turns (on the Switch, 1.5 times as far). From 0.25 to 10." },
 	{ "input.gyro_sensitivity_vertical", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_VERTICAL",
 		_environment_value, _platform_all,
 		"How far the view turns up and down with the gyroscope, when\n"
-		"input.gyro_aim is on. 1 is the sensor's own turn. From 0.25 to 10." },
+		"input.gyro_aim is on. 1 turns the view as far as the controller\n"
+		"turns (on the Switch, 1.5 times as far). From 0.25 to 10." },
 	{ "input.gyro_invert_horizontal", _config_boolean, "false", "HALO_GYRO_INVERT_HORIZONTAL",
 		_environment_value, _platform_all,
 		"Invert the gyroscope's left and right. With true, turning the\n"
