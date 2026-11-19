@@ -195,6 +195,7 @@ struct game_options;
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "game_modes.h" /* port: the game modes layer (docs/modes.md) */
 #include "lua_scripting.h" /* port: mods' Lua scripts (port/linux/game/lua_scripting.c) */
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -723,6 +724,11 @@ void game_initialize_for_new_map(
 	the host's indices, not its own objects' of the last game's */
 	network_distributed_new_game();
 	render_interpolation_reset();
+#ifdef HALO_PORT_RAGDOLLS
+	/* port: the last map's ragdolls let go, and its level's mesh
+	(port/linux/game/ragdolls.c) */
+	ragdolls_new_map();
+#endif
 	render_initialize_for_new_map();
 	structures_initialize_for_new_map();
 	breakable_surfaces_initialize_for_new_map();

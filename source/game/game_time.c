@@ -78,6 +78,7 @@ symbols in this file:
 #include "saved games/game_state.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "mcc_game_speed.h" /* port: port/linux/game/mcc_game_speed.c */
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 /* port/linux/game/network_distributed.c's */
 void network_distributed_tick(void);
 /* port/linux/game/determinism_check.c's */
@@ -620,6 +621,13 @@ void game_time_update(
 						game_tick();
 						HALO_PERF_END(_halo_perf_tick);
 						HALO_PERF_COUNT(_halo_perf_ticks, 1);
+#ifdef HALO_PORT_RAGDOLLS
+						/* port: the dead bodies' ragdolls a tick on, after the
+						game's and before its poses are kept for the frames
+						(port/linux/game/ragdolls.c: their own state only,
+						none of the game's) */
+						ragdolls_tick();
+#endif
 						render_interpolation_tick();
 						game_time_globals->server_time++;
 						game_time_globals->local_time++;

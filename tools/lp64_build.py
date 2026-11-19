@@ -33,6 +33,8 @@ from .linux_build import (
     KCP_DIR,
     LUA_DEFINES,
     LUA_DIR,
+    jolt_cflags,
+    jolt_sources,
     LZMA_DIR,
     MBEDTLS_DIR,
     MINIUPNPC_DEFINES,
@@ -170,6 +172,9 @@ class Lp64Host:
     compressed_maps: bool = False
     # mods' Lua scripts (linux_build.py, LUA_DEFINES): the desktop builds'
     lua: bool = False
+    # the ragdolls' Jolt Physics (linux_build.py, JOLT_DIR): the desktop
+    # builds'; the build links its C++ library
+    jolt: bool = False
 
 
 @dataclass
@@ -278,7 +283,7 @@ class Lp64Build:
         compressed_maps = [*COMPRESSED_MAP_DEFINES, "-DHALO_STEAM_CONTENT"] if host.compressed_maps else []
         lua = [*LUA_DEFINES, f"-idirafter {LUA_DIR}"] if host.lua else []
         abi = " ".join([*host.target_flags, *LP64_ABI_FLAGS, *release, *game_browser_defines(sln),
-                        *compressed_maps, *lua])
+                        *compressed_maps, *lua, *(["-DHALO_JOLT"] if host.jolt else [])])
         prefix_header = lp64(LINUX_PORT_DIR / "include" / "halo_linux_prefix.h")
         port_include = lp64(LINUX_PORT_DIR / "include")
         xdk = _quote(lp64(XDK_INCLUDE))
@@ -424,6 +429,12 @@ class Lp64Build:
         if host.lua:
             for source in lua_sources():
                 add(source, " ".join([*native_third_party, f"-I{LUA_DIR}"]), native=True)
+        # the ragdolls' Jolt Physics and its C face (port/third_party/jolt;
+        # ragdolls.c), with the host's ABI: the C face takes only ints,
+        # floats and pointers (physics_jolt.h)
+        if host.jolt:
+            for source in jolt_sources():
+                add(source, jolt_cflags(host.target_flags), native=True)
         third_party = " ".join([abi, "-std=gnu11", "-w"])
         add(lp64(TOML_DIR / "tomlc17.c"), third_party)
         add(lp64(KCP_DIR / "ikcp.c"), third_party)
