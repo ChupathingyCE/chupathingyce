@@ -133,6 +133,24 @@
       ]
     },
     {
+      "name": "Lua",
+      "use": "Running mods' Lua scripts made for Chimera.",
+      "source": "https://www.lua.org (release 5.4.8)",
+      "copyright": [
+        "Copyright (C) 1994-2025 Lua.org, PUC-Rio"
+      ],
+      "license": "MIT",
+      "files": [
+        "port/third_party/lua/LICENSE"
+      ],
+      "packages": [
+        "game"
+      ],
+      "covers": [
+        "port/third_party/lua"
+      ]
+    },
+    {
       "name": "Monocypher",
       "use": "Encryption and signatures: internet play, updates and Delta.",
       "source": "https://monocypher.org (release 4.0.3)",

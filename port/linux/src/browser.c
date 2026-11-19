@@ -4928,8 +4928,7 @@ static int add_direct(struct browser_game *games, int count, int maximum_count, 
 		names here are ASCII, where a letter outside it is '?') */
 		if (browser_name_blocked_text(listing->name_utf8))
 			continue;
-		/* (an older build's listing is not listed: game_list_broker_listed) */
-		if (strlen(code) != BROWSER_INVITE_LENGTH || !browser_listing_shown(listing->version) ||
+		if (strlen(code) != BROWSER_INVITE_LENGTH || !browser_version_shown(listing->version) ||
 			!SDL_strncasecmp(code, own, 2 * P2P_KEY_HASH_SIZE) || listing_on_list(listing, code, games, listed))
 		{
 			continue;
@@ -5162,12 +5161,6 @@ int browser_version_shown(int version)
 {
 	return browser_show_all_games() ||
 		game_list_joinable((unsigned int)version, 0, delta_legacy_minimum(), delta_legacy_maximum());
-}
-
-int browser_listing_shown(int version)
-{
-	return browser_show_all_games() ||
-		(game_list_broker_listed((unsigned int)version) && browser_version_shown(version));
 }
 
 #ifdef HALO_GAME_BROWSER

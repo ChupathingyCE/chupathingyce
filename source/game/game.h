@@ -169,6 +169,10 @@ boolean game_all_quiet(
 	void);
 boolean game_safe_to_save(
 	void);
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+/* port: the check that made game_safe_to_save's last answer no, or NULL */
+extern char const *game_save_unsafe_check;
+#endif
 boolean game_safe_to_speak(
 	void);
 boolean game_is_cooperative(void);
@@ -197,6 +201,7 @@ boolean game_map_loaded(void);
 boolean game_time_get_paused(void);
 /* whether a client's clock waits for the host's first game update */
 boolean game_time_held(void);
+long game_time_client_catch_up_ticks(void);
 void game_time_set_paused(boolean paused);
 real game_time_get_speed(void);
 void game_time_set_speed(real speed);

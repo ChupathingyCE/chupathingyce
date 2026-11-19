@@ -1349,6 +1349,19 @@ void player0_look_invert_pitch(
 	wchar_t const *message;
 
 	player_ui_globals.local_players[0].profile.controller_settings.invert_look = invert;
+#ifdef HALO_GUIDE
+	{
+		/* port: the mouse's invert, input.invert_mouse, which is its own,
+		follows too when the player plays with the keyboard and mouse (the
+		Pillar of Autumn's look test asks this of the player: #95) */
+		int platform_input_scheme(void);
+		int config_boolean(const char *name);
+		int config_write_boolean(const char *name, int value);
+
+		if (platform_input_scheme() == 0 && (config_boolean("input.invert_mouse") != 0) != (invert != FALSE))
+			config_write_boolean("input.invert_mouse", invert != FALSE);
+	}
+#endif
 	if (player_ui_globals.local_players[0].active_profile_index != NONE)
 	{
 		string_list_index = tag_loaded(

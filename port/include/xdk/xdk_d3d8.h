@@ -75,6 +75,10 @@ stores 0, 1, 2 and 0x80000000 (the DirectX 8 values) */
 #define D3DPRESENT_INTERVAL_ONE 0x00000001L
 #define D3DPRESENT_INTERVAL_TWO 0x00000002L
 #define D3DPRESENT_INTERVAL_IMMEDIATE 0x80000000L
+/* the original Xbox's own: a vertical blank, or at once for a late frame
+(tuning.present_mode = "adaptive") */
+#define D3DPRESENT_INTERVAL_ONE_OR_IMMEDIATE 0x80000001L
+#define D3DPRESENT_INTERVAL_TWO_OR_IMMEDIATE 0x80000002L
 
 /* GetBackBuffer's buffer type: the only one, 0 (DirectX 8; progress_bar.c
 passes a literal 0 for it) */

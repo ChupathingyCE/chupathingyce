@@ -56,10 +56,6 @@ struct stubbs_special_attack
 
 #ifndef HALO_CONSOLE_NO_STUBBS
 
-/* a unit definition's special attacks (NULL, *count 0, for a unit with
-none), as noted at the map's load */
-struct stubbs_special_attack const *stubbs_special_attacks_get(long unit_definition_index, short *count);
-
 /* a local player's thrown hand (NONE when it is on Stubbs's arm) */
 long stubbs_engine_hand_unit(short local_player_index);
 
@@ -79,6 +75,11 @@ layout has no room for them. The first one of a map forgets the last map's
 hands and bodies */
 void stubbs_engine_note_unit_definition(void const *tag_instance, void const *definition,
 	void const *tag_cache, unsigned long tag_data_size);
+
+/* a map's tags about to be converted (stubbs_mode_convert_tags): its first
+unit definition starts the lists afresh. Each map's, even with no player's
+input between them (the menus' map, then a level) */
+void stubbs_engine_tags_new_map(void);
 
 /* a local player's input of a tick (player_control.c's
 handle_one_player_input): the hand thrown, recalled or put on a human's
@@ -111,8 +112,6 @@ void stubbs_engine_player_move_origin(long from_unit_index, long to_unit_index);
 
 #else
 /* (a console leaves Stubbs mode out: each hook is an empty one here) */
-static __inline struct stubbs_special_attack const *stubbs_special_attacks_get(long unit_definition_index, short *count)
-{ (void)unit_definition_index; *count = 0; return NULL; }
 static __inline long stubbs_engine_hand_unit(short local_player_index) { (void)local_player_index; return NONE; }
 static __inline boolean stubbs_engine_unit_is_thrown(long unit_index) { (void)unit_index; return FALSE; }
 static __inline void stubbs_engine_special_attack_credit(long unit_index, real credit) { (void)unit_index; (void)credit; }
@@ -121,6 +120,7 @@ static __inline void stubbs_engine_hand_rides(short local_player_index, long uni
 static __inline void stubbs_engine_note_unit_definition(void const *tag_instance, void const *definition,
 	void const *tag_cache, unsigned long tag_data_size)
 { (void)tag_instance; (void)definition; (void)tag_cache; (void)tag_data_size; }
+static __inline void stubbs_engine_tags_new_map(void) { }
 static __inline void stubbs_engine_player_input(short local_player_index, unsigned long *player_control_flags,
 	unsigned long hand_button, unsigned long unit_control_flags)
 { (void)local_player_index; (void)player_control_flags; (void)hand_button; (void)unit_control_flags; }

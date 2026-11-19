@@ -15,6 +15,7 @@ BROWSER_C = (ROOT / "port" / "linux" / "src" / "browser.c").read_text(encoding="
 MENUS = (ROOT / "port" / "linux" / "game" / "menu_functions.c").read_text(encoding="utf-8")
 CONFIG = (ROOT / "port" / "linux" / "src" / "port_config.c").read_text(encoding="utf-8")
 README = (ROOT / "port" / "linux" / "README.md").read_text(encoding="utf-8")
+RULES_H = (ROOT / "port" / "linux" / "src" / "game_list_rules.h").read_text(encoding="utf-8")
 
 
 def compiler():
@@ -60,10 +61,15 @@ def test_online_games_filters_its_games():
     named = BROWSER_C[BROWSER_C.index("static int keep_named("):]
     named = named[:named.index("\n}\n")]
     assert "browser_name_blocked(" in named and "show_all" not in named
-    # (an older build's broker listing is left out)
+    # (a broker listing by the same rules as the list's games, old builds'
+    # too: no network floor; a blocked name still left out)
     direct = BROWSER_C[BROWSER_C.index("static int add_direct("):]
-    assert "browser_listing_shown(listing->version)" in direct[:direct.index("\n}\n")]
-    assert "game_list_broker_listed(" in BROWSER_C
+    direct = direct[:direct.index("\n}\n")]
+    assert "browser_version_shown(listing->version)" in direct
+    assert "browser_name_blocked_text(listing->name_utf8)" in direct
+    for source in (BROWSER_C, MENUS, RULES_H):
+        assert "BROKER_MINIMUM" not in source and "broker_listed" not in source
+        assert "browser_listing_shown" not in source
     keep = BROWSER_C[BROWSER_C.index("static int keep_shown("):]
     assert "game_list_joinable(" in keep[:keep.index("\n}\n")]
 
@@ -71,7 +77,7 @@ def test_online_games_filters_its_games():
 def test_server_browser_filters_its_games():
     update = MENUS[MENUS.index("static void lobby_browser_update("):]
     assert re.search(r"lobby_browser_add_listed\(\);\n\tlobby_browser_joinable_games\(\);", update)
-    assert "browser_listing_shown(lobby_browser.games[index].version)" in MENUS
+    assert "browser_version_shown(lobby_browser.games[index].version)" in MENUS
     assert "browser_name_blocked_text(lobby_browser.games[index].name)" in MENUS
 
 

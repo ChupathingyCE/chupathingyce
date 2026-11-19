@@ -1645,6 +1645,19 @@ static int platform_resolution_add(long *widths, long *heights, int count, int m
 	return count;
 }
 
+int platform_display_native_size(long *width, long *height)
+{
+	SDL_DisplayID display;
+
+	*width = *height = 0;
+	if (!platform_sdl_initialize())
+		return 0;
+	display = platform_window ? SDL_GetDisplayForWindow(platform_window) : 0;
+	if (!display)
+		display = SDL_GetPrimaryDisplay();
+	return platform_display_size(display, width, height) ? 1 : 0;
+}
+
 int platform_display_resolutions(long *widths, long *heights, int maximum)
 {
 	SDL_DisplayID display;
@@ -1735,6 +1748,12 @@ int platform_window_sizes(long *widths, long *heights, int maximum)
 }
 
 #else
+int platform_display_native_size(long *width, long *height)
+{
+	*width = *height = 0;
+	return 0;
+}
+
 int platform_display_resolutions(long *widths, long *heights, int maximum)
 {
 	(void)widths;
@@ -2073,6 +2092,15 @@ driver (XWayland, gamescope's own): SDL's Wayland one takes any interval
 above 1 as 1, so there a fraction keeps the clock's limit. Everywhere else
 vsync off is as it was, the clock's limit, for the least latency. Based on
 work by goatbutt and the OpenH1 team. */
+/* tuning.present_mode = "adaptive" (config.toml's [tuning]): with V-Sync, a
+frame that missed the display shown at once, with a tear, rather than a
+whole refresh later (a swap interval of -1, the drivers' late swap tearing).
+Not with VRR, which shows each frame as it is ready anyway. */
+static int platform_present_adaptive(void)
+{
+	return !strcmp(config_string("tuning.present_mode"), "adaptive") && !platform_vrr();
+}
+
 static int platform_swap_interval(int vsync, long maximum)
 {
 #ifdef SWAP_INTERVAL_IN_STEP
@@ -2084,7 +2112,7 @@ static int platform_swap_interval(int vsync, long maximum)
 #endif
 
 	if (vsync)
-		return 1;
+		return platform_present_adaptive() ? -1 : 1;
 #ifdef SWAP_INTERVAL_IN_STEP
 #ifdef HALO_BGFX
 	if (xgpu_bgfx)
@@ -2127,6 +2155,18 @@ static void platform_swap_interval_apply(BOOL force, int vsync, long maximum)
 	if (!platform_gl_context || (!force && wanted == platform_interval_wanted))
 		return;
 	platform_interval_wanted = wanted;
+	if (interval < 0)
+	{
+		if (SDL_GL_SetSwapInterval(interval))
+		{
+			platform_log("tuning: present=adaptive, a late frame shown at once");
+			platform_interval = interval;
+			return;
+		}
+		platform_log("tuning: present=adaptive refused by the driver (%s): each frame waits for the display",
+			SDL_GetError());
+		interval = 1;
+	}
 	if (!SDL_GL_SetSwapInterval(interval))
 	{
 		platform_log("frame rate: a swap interval of %d refused (%s): the clock paces the frames", interval,
@@ -3000,6 +3040,22 @@ static void queue_keystroke(const SDL_KeyboardEvent *event)
 	keystroke_count++;
 }
 
+void platform_test_keystroke(int scancode, int modifiers)
+{
+	SDL_KeyboardEvent event;
+
+	memset(&event, 0, sizeof(event));
+	event.scancode = (SDL_Scancode)scancode;
+	event.key = SDL_GetKeyFromScancode((SDL_Scancode)scancode, (SDL_Keymod)modifiers, false);
+	event.mod = (SDL_Keymod)modifiers;
+	pthread_mutex_lock(&input_lock);
+	event.down = true;
+	queue_keystroke(&event);
+	event.down = false;
+	queue_keystroke(&event);
+	pthread_mutex_unlock(&input_lock);
+}
+
 BOOL platform_next_keystroke(struct platform_keystroke *keystroke)
 {
 	BOOL result = FALSE;
@@ -3414,6 +3470,13 @@ void platform_scoreboard_scroll(int open, long *notches, long *pages)
 (halo_console_features.h) */
 void console_performance_update(void);
 #endif
+
+/* whether this is the thread that has the window and its events (the
+halt screen draws only there: halt_screen.c) */
+int platform_on_event_thread(void)
+{
+	return platform_window && SDL_GetCurrentThreadID() == platform_event_thread;
+}
 
 void platform_pump_events(void)
 {

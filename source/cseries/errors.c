@@ -130,6 +130,62 @@ char *error_get(
 	return error_globals.message_buffer;
 }
 
+/* port: what stopped the game (errors.h) */
+static char error_halt_reason[256];
+static char error_halt_file[160];
+static long error_halt_line = 0;
+
+void error_halt_place_set(
+	char const *reason,
+	char const *file,
+	long line)
+{
+	long index;
+
+	for (index = 0; reason && reason[index] && index < (long)sizeof(error_halt_reason) - 1; index++)
+	{
+		error_halt_reason[index] = reason[index];
+	}
+	/* (a message's own line end left off) */
+	while (index > 0 && (error_halt_reason[index - 1] == '\r' || error_halt_reason[index - 1] == '\n'))
+	{
+		index--;
+	}
+	error_halt_reason[index] = 0;
+	for (index = 0; file && file[index] && index < (long)sizeof(error_halt_file) - 1; index++)
+	{
+		error_halt_file[index] = file[index];
+	}
+	error_halt_file[index] = 0;
+	error_halt_line = line;
+
+	return;
+}
+
+void error_halt_place_clear(
+	void)
+{
+	error_halt_place_set(NULL, NULL, 0);
+
+	return;
+}
+
+char const *error_halt_place(
+	char const **file,
+	long *line)
+{
+	if (file)
+	{
+		*file = error_halt_file;
+	}
+	if (line)
+	{
+		*line = error_halt_line;
+	}
+
+	return error_halt_reason;
+}
+
 /* port: debug.txt's drive: D:, the game's own folder. An Xbox whose D: is
 read-only (an emulator or XeFu running the game from its disc) writes to
 T: instead, the title's own folder on the hard disk; chosen at the first
@@ -707,6 +763,11 @@ void error(
 
 		if (priority == _error_immediate)
 		{
+			/* (port: the halt screen's reason) */
+			if (format)
+			{
+				error_halt_place_set(string, NULL, 0);
+			}
 			system_exit(-4998);
 		}
 		error_globals.recursion_lock = FALSE;

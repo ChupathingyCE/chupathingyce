@@ -354,12 +354,23 @@ with their authors credited in each commit.
   repositories, as Chimera uses them (maps.halonet.net, the HAC2 map
   repository, and its mirrors). Chupathingy's downloader is its own code;
   Chimera showed where the repositories are and how they answer.
-- [Chimera](https://github.com/SnowyMouse/chimera) by SnowyMouse and
-  contributors (GPL-3.0): Halo PC fixes reference and the compressed map
-  format.
+- [Chimera](https://github.com/SnowyMouse/chimera) by SnowyMouse, its
+  current developers Aerocatia and Cambidd, and contributors (GPL-3.0):
+  Halo PC fixes reference, the compressed map format, and the Lua API that
+  mods' scripts use (`lua.scripts`), adapted from Chimera's own in
+  `port/linux/game/lua_chimera_api.c` (GPL-3.0-only).
+- [OpenSauce](https://github.com/HaloMods/OpenSauce) by Kornner Studios
+  (GPL-3.0): its Halo Custom Edition message definitions, the reference for
+  the fields Custom Edition players' clients are sent; its Halo PC object
+  structures and engine addresses, the reference for the memory Lua
+  scripts read (`port/linux/game/lua_twiddlings_objects.c`,
+  `port/linux/game/lua_opensauce.c`); its cache header, tag definitions and
+  memory upgrades, the reference for how OpenSauce maps are read and
+  checked (`port/linux/game/opensauce_map.c`,
+  `port/linux/game/tag_schema_opensauce.c`).
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
-- Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
+- Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, Lua, tomlc17, musl's maths,
   Expat, Monocypher, zlib, Zstandard (BSD-3-Clause), the LZMA SDK's decoder
   (Igor Pavlov, public domain), SMAA, Project Nayuki's QR Code generator
   (MIT), and msdfgen by Viktor Chlumsky (MIT; its algorithms translated to

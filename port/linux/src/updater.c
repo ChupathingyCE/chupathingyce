@@ -160,15 +160,33 @@ test build's or a nightly's: its pre-release's page, updater_page) */
 
 /* ChupathingyCE's releases, or a console port's own (HALO_PORT_UPDATE_API on
 its compile line, its own key in its halo_port_update_keys.h: update_key.h),
-laid out as GitHub's addresses are */
+laid out as GitHub's addresses are; a port on GitHub names its downloads'
+address too (HALO_PORT_UPDATE_DOWNLOADS), since GitHub's API and downloads
+are on different hosts */
 #ifdef HALO_PORT_UPDATE_API
 #define UPDATE_REPOSITORY HALO_PORT_UPDATE_REPOSITORY
 #define UPDATE_API HALO_PORT_UPDATE_API
+#ifdef HALO_PORT_UPDATE_DOWNLOADS
+#define UPDATE_DOWNLOADS HALO_PORT_UPDATE_DOWNLOADS
+#else
 #define UPDATE_DOWNLOADS HALO_PORT_UPDATE_API "/releases/download"
+#endif
+#else
+/* the game's releases, or another GitHub repository's releases of the same
+builds, signed with the same keys (HALO_UPDATE_REPOSITORY, from
+tools/version.py: Chupathingy32's 32-bit Windows and Linux builds) */
+#ifdef HALO_UPDATE_REPOSITORY
+#define UPDATE_REPOSITORY HALO_UPDATE_REPOSITORY
 #else
 #define UPDATE_REPOSITORY "ChupathingyCE/chupathingyce"
+#endif
 #define UPDATE_API "https://api.github.com/repos/" UPDATE_REPOSITORY
 #define UPDATE_DOWNLOADS "https://github.com/" UPDATE_REPOSITORY "/releases/download"
+#endif
+/* the game's own releases, where the 64-bit Windows build is, for a 32-bit
+build that updates from another repository (UPDATER_OFFER_64BIT) */
+#if !defined(HALO_PORT_UPDATE_API) && defined(HALO_UPDATE_REPOSITORY)
+#define UPDATE_GAME_REPOSITORY "ChupathingyCE/chupathingyce"
 #endif
 #if defined(HALO_PORT_UPDATE_PLATFORM)
 /* (a console port's own download: on the game's releases, signed with the
@@ -283,6 +301,11 @@ static struct
 /* the platform whose download is installed: this build's (UPDATE_PLATFORM),
 or the 64-bit Windows build's once the player takes it (UPDATER_OFFER_64BIT) */
 static const char *updater_platform = UPDATE_PLATFORM;
+#ifdef UPDATE_GAME_REPOSITORY
+/* whether the download comes from the game's own releases rather than
+UPDATE_REPOSITORY's: the 64-bit Windows build, once the player takes it */
+static int updater_from_game_releases;
+#endif
 /* whether to ask about the 64-bit build when the check is answered */
 static int updater_offer_64bit;
 
@@ -344,6 +367,14 @@ static void updater_url(char *url, size_t size, int api, const char *path)
 	{
 		snprintf(url, size, "%s/%s/%s", server, api ? "repos/" UPDATE_REPOSITORY : UPDATE_REPOSITORY "/releases/download",
 			path);
+		return;
+	}
+#endif
+#ifdef UPDATE_GAME_REPOSITORY
+	if (updater_from_game_releases)
+	{
+		snprintf(url, size, "%s/%s", api ? "https://api.github.com/repos/" UPDATE_GAME_REPOSITORY
+			: "https://github.com/" UPDATE_GAME_REPOSITORY "/releases/download", path);
 		return;
 	}
 #endif
@@ -2421,7 +2452,13 @@ void updater_poll(SDL_Window *window)
 			/* (returns only if it failed: asked again at the next start) */
 			platform_log("update: switching to the 64-bit build");
 			updater_platform = "windows64";
+#ifdef UPDATE_GAME_REPOSITORY
+			updater_from_game_releases = 1;
+#endif
 			updater_update();
+#ifdef UPDATE_GAME_REPOSITORY
+			updater_from_game_releases = 0;
+#endif
 			updater_platform = UPDATE_PLATFORM;
 			if (fullscreen)
 				SDL_SetWindowFullscreen(window, true);

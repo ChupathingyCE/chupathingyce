@@ -113,7 +113,7 @@ int main(int count, char **arguments)
 				wide[2 * index] = (unsigned char)line[index];
 				wide[2 * index + 1] = 0;
 			}
-			body = crash_report_body("version 0.9.0d\nframe chupathingy+0x10\n", line, length, wide, 2 * length,
+			body = crash_report_body("version 0.9.0d\nbuild_id 4bd9cef9069f96b8\nframe chupathingy+0x10\n", line, length, wide, 2 * length,
 				&body_length);
 			printf("%s\n", body);
 			free(body);
@@ -284,12 +284,31 @@ def test_crash_report_body(program):
 
 
 
+def test_crash_report_build_id(program):
+    """the report's build_id (crash_report.h), which finds its kept symbols"""
+    body = json.loads(run(program, ["a line"], "body")[0])
+    assert body["build_id"] == "4bd9cef9069f96b8"
+    assert body["frames"] == ["chupathingy+0x10"]
+
+
 def test_crash_report_renderer_from_log(program):
     """the report's renderer: the log's last renderer= line (d3d8_gl.c)"""
     body = json.loads(run(program, ["chupathingyce: renderer=gl then renderer=bgfx-vulkan, more"], "body")[0])
     assert body["renderer"] == "bgfx-vulkan"
     body = json.loads(run(program, ["no renderer here; frame_renderer=x"], "body")[0])
     assert "renderer" not in body
+
+def test_crash_report_tuning_from_log(program):
+    """the report's tuning: the log's last "tuning: at=" line, from its
+    "preset=" (port_config.c's config_tuning_summary)"""
+    body = json.loads(run(program, ["tuning: at=boot preset=retail lights=0 present=vblank "
+                                    "then tuning: at=map preset=potato lights=8(preset) particles=512(hand)"], "body")[0])
+    assert body["tuning"] == "preset=potato lights=8(preset) particles=512(hand)"
+    body = json.loads(run(program, ["tuning: change particles=4096->512(hand)"], "body")[0])
+    assert "tuning" not in body
+    body = json.loads(run(program, ["no knobs here"], "body")[0])
+    assert "tuning" not in body
+
 
 def test_every_log_writer_redacts():
     """platform_log and the game's error log (debug.txt) both go through

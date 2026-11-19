@@ -97,6 +97,22 @@ enum halo_perf_phase
 	_halo_perf_objects_lights,
 	_halo_perf_objects_activation,
 	_halo_perf_objects_garbage,
+	/* the bipeds' update split (biped_update), each inside objects
+	bipeds and timed only there: by who drives the biped (this machine's
+	players, other machines' players; the rest, the AI's actors and the
+	empty bodies, are what is left), and by its parts: the unit's own update
+	(unit_update: weapons, aim, the seat), the movement (turning, moving,
+	the air, landing and slipping) with the physics inside it
+	(biped_update_physics), the animation (unit_update_animation), and the
+	collision tests made anywhere in it. The physics is the tick's physics
+	too, beside the vehicles' */
+	_halo_perf_bipeds_local,
+	_halo_perf_bipeds_remote,
+	_halo_perf_bipeds_unit,
+	_halo_perf_bipeds_movement,
+	_halo_perf_bipeds_physics,
+	_halo_perf_bipeds_animation,
+	_halo_perf_bipeds_collision,
 	NUMBER_OF_HALO_PERF_PHASES
 };
 
@@ -116,6 +132,15 @@ enum halo_perf_counter
 	/* the objects updated in the ticks (object_update's calls, children
 	included) */
 	_halo_perf_objects_updated,
+	/* the bipeds updated, and those of them this machine's players' and
+	other machines' players' */
+	_halo_perf_bipeds_updated,
+	_halo_perf_bipeds_local_updated,
+	_halo_perf_bipeds_remote_updated,
+	/* a client's frames the spiral guard held to a few ticks, and the
+	ticks it left unrun (game_time.c) */
+	_halo_perf_tick_guard_frames,
+	_halo_perf_tick_guard_ticks_left,
 	NUMBER_OF_HALO_PERF_COUNTERS
 };
 
@@ -124,7 +149,9 @@ extern int halo_perf_log_on;
 extern unsigned long halo_perf_counters[NUMBER_OF_HALO_PERF_COUNTERS];
 
 /* (a phase may nest in itself, as a collision test made inside another:
-only the outermost is timed) */
+only the outermost is timed. The collision tests count only inside a tick,
+and the bipeds' parts only inside objects bipeds:
+HALO_PERF_PHASE_OUTSIDE) */
 void halo_perf_begin(int phase);
 void halo_perf_end(int phase);
 /* the render's parts follow each other: the one now running (NONE: none) */
@@ -135,6 +162,13 @@ void halo_perf_frame(void);
 the setting is off or no part runs: a console's renderer counts each part's
 draws (the Xbox 360's frame counters) */
 int halo_perf_render_part_now(void);
+
+/* whether a phase is outside what it is timed in, so not timed (the
+backends' halo_perf_begin and halo_perf_end, from their depth counts) */
+#define HALO_PERF_PHASE_OUTSIDE(phase, depth) \
+	(((phase) == _halo_perf_tick_collision && !(depth)[_halo_perf_tick]) || \
+	((phase) >= _halo_perf_bipeds_local && (phase) <= _halo_perf_bipeds_collision && \
+	!(depth)[_halo_perf_objects_bipeds]))
 
 #define HALO_PERF_BEGIN(phase) do { if (halo_perf_log_on) halo_perf_begin(phase); } while (0)
 #define HALO_PERF_END(phase) do { if (halo_perf_log_on) halo_perf_end(phase); } while (0)

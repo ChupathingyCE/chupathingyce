@@ -474,7 +474,10 @@ static int tls_write(mbedtls_ssl_context *ssl, const unsigned char *data, unsign
 	return CONSOLE_HTTPS_OK;
 }
 
-static int tls_read_all(mbedtls_ssl_context *ssl, char *response, unsigned long size, unsigned long *received)
+/* (*first_byte: the millisecond counter when the reply's first byte came,
+if it was 0) */
+static int tls_read_all(mbedtls_ssl_context *ssl, char *response, unsigned long size, unsigned long *received,
+	unsigned long *first_byte)
 {
 	unsigned long total = 0;
 	int headers = 0;
@@ -499,6 +502,8 @@ static int tls_read_all(mbedtls_ssl_context *ssl, char *response, unsigned long 
 			return CONSOLE_HTTPS_ERROR_TIMEOUT;
 		if (count < 0)
 			return CONSOLE_HTTPS_ERROR_RECEIVE;
+		if (!*first_byte)
+			*first_byte = https_port->milliseconds() | 1;
 		*received += (unsigned long)count;
 		if (!headers)
 		{
@@ -610,8 +615,10 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 	mbedtls_ssl_config config;
 	mbedtls_x509_crt roots;
 	struct session session;
-	unsigned long started = 0, handshake = 0;
+	/* (when each step ended, by the port's counter: 0, not reached) */
+	unsigned long started = 0, connected = 0, handshake = 0, sent = 0, first_byte = 0;
 	int result = CONSOLE_HTTPS_OK;
+	int sending = 0;
 	int code;
 
 	mbedtls_ssl_init(&ssl);
@@ -667,6 +674,7 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 		result = CONSOLE_HTTPS_ERROR_CONNECT;
 		goto done;
 	}
+	connected = https_port->milliseconds() | 1;
 	mbedtls_ssl_set_bio(&ssl, &session, bio_send, NULL, bio_receive);
 	while ((code = mbedtls_ssl_handshake(&ssl)) != 0)
 	{
@@ -687,7 +695,7 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 	}
 	if (result == CONSOLE_HTTPS_OK)
 	{
-		handshake = https_port->milliseconds() - started;
+		handshake = https_port->milliseconds() | 1;
 		result = judge(trust, &ssl);
 		if (result != CONSOLE_HTTPS_OK)
 		{
@@ -698,20 +706,45 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 			log_line(line);
 		}
 	}
-	if (result == CONSOLE_HTTPS_OK)
-		result = tls_write(&ssl, (const unsigned char *)request, (unsigned long)request_length);
-	if (result == CONSOLE_HTTPS_OK)
-		result = stream ? tls_read_stream(&ssl, &session, stream, response, size, timeout_ms) :
-			tls_read_all(&ssl, response, size, received);
+	if (result == CONSOLE_HTTPS_OK && https_port->sending)
+	{
+		https_port->sending(1);
+		sending = 1;
+	}
 	if (result == CONSOLE_HTTPS_OK)
 	{
-		char line[128];
+		result = tls_write(&ssl, (const unsigned char *)request, (unsigned long)request_length);
+		if (result == CONSOLE_HTTPS_OK)
+			sent = https_port->milliseconds() | 1;
+	}
+	if (result == CONSOLE_HTTPS_OK)
+		result = stream ? tls_read_stream(&ssl, &session, stream, response, size, timeout_ms) :
+			tls_read_all(&ssl, response, size, received, &first_byte);
+	if (handshake)
+	{
+		char line[224];
+		int length;
 
-		/* (how long a console takes, for its hardware tests) */
-		snprintf(line, sizeof(line), "https: %s: %s, handshake %lu ms, %lu ms in all", trust->host,
-			mbedtls_ssl_get_version(&ssl), handshake, https_port->milliseconds() - started);
+		/* (how long a console takes, for its hardware tests; each step's
+		time from the start, so a reply that came late shows which wait it
+		was: a server that times out reading the request (408), or one slow
+		to answer) */
+		length = snprintf(line, sizeof(line), "https: %s: %s, connect %lu ms, handshake %lu ms", trust->host,
+			mbedtls_ssl_get_version(&ssl), connected - started, handshake - started);
+		if (sent && length > 0 && length < (int)sizeof(line))
+			length += snprintf(line + length, sizeof(line) - (size_t)length, ", sent %lu ms (%d bytes)",
+				sent - started, request_length);
+		if (first_byte && length > 0 && length < (int)sizeof(line))
+			length += snprintf(line + length, sizeof(line) - (size_t)length, ", first byte %lu ms",
+				first_byte - started);
+		if (length > 0 && length < (int)sizeof(line))
+			snprintf(line + length, sizeof(line) - (size_t)length, ", %lu ms in all%s%s",
+				https_port->milliseconds() - started, result == CONSOLE_HTTPS_OK ? "" : ": ",
+				result == CONSOLE_HTTPS_OK ? "" : console_https_error_string(result));
 		log_line(line);
 	}
+	if (sending)
+		https_port->sending(0);
 	if (code == 0)
 		mbedtls_ssl_close_notify(&ssl);
 	https_port->close(session.socket);

@@ -49,10 +49,15 @@ yet (its game runs in a guest, port/android), nor has the dedicated server.
 #include <time.h>
 #include <unistd.h>
 #ifdef __APPLE__
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
 #include <sys/sysctl.h>
 #include <sys/ucontext.h>
 #else
 #include <ucontext.h>
+#endif
+#if defined(__linux__) || defined(__FreeBSD__)
+#include <link.h>
 #endif
 
 void platform_log(const char *format, ...) __attribute__((format(printf, 1, 2)));
@@ -309,6 +314,93 @@ static void system_version(char *text, size_t size)
 #endif
 }
 
+/* the program's build ID (crash_report.h), as its symbols name it: Linux's
+and FreeBSD's GNU build ID note (the linker's --build-id), hex, as
+"readelf -n" prints it; macOS's LC_UUID, as "dwarfdump --uuid" prints it.
+Empty without one */
+#if defined(__linux__) || defined(__FreeBSD__)
+static int build_id_note(struct dl_phdr_info *info, size_t size, void *data)
+{
+	char *text = data;
+	int index;
+
+	(void)size;
+	/* (the program is the first object: the libraries come after it) */
+	for (index = 0; index < info->dlpi_phnum; index++)
+	{
+		const unsigned char *note, *end;
+
+		if (info->dlpi_phdr[index].p_type != PT_NOTE)
+			continue;
+		note = (const unsigned char *)(info->dlpi_addr + info->dlpi_phdr[index].p_vaddr);
+		end = note + info->dlpi_phdr[index].p_memsz;
+		while (note + 12 <= end)
+		{
+			uint32_t name_size, descriptor_size, type;
+			const unsigned char *descriptor;
+
+			memcpy(&name_size, note, 4);
+			memcpy(&descriptor_size, note + 4, 4);
+			memcpy(&type, note + 8, 4);
+			descriptor = note + 12 + ((name_size + 3) & ~3u);
+			if (descriptor > end || descriptor_size > (size_t)(end - descriptor))
+				break;
+			/* (NT_GNU_BUILD_ID) */
+			if (type == 3 && name_size == 4 && !memcmp(note + 12, "GNU", 4) && descriptor_size <= 64)
+			{
+				uint32_t byte;
+
+				for (byte = 0; byte < descriptor_size; byte++)
+					snprintf(text + byte * 2, 3, "%02x", descriptor[byte]);
+				return 1;
+			}
+			note = descriptor + ((descriptor_size + 3) & ~3u);
+		}
+	}
+	return 1;
+}
+#endif
+
+static void build_id(char *text, size_t size)
+{
+	text[0] = 0;
+#if defined(__APPLE__)
+	{
+		const struct mach_header_64 *header = (const struct mach_header_64 *)_dyld_get_image_header(0);
+		const unsigned char *command;
+		uint32_t index;
+
+		if (!header || header->magic != MH_MAGIC_64)
+			return;
+		command = (const unsigned char *)(header + 1);
+		for (index = 0; index < header->ncmds; index++)
+		{
+			const struct load_command *load = (const struct load_command *)command;
+
+			if (load->cmd == LC_UUID)
+			{
+				const unsigned char *uuid = ((const struct uuid_command *)command)->uuid;
+
+				snprintf(text, size, "%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+					uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7], uuid[8], uuid[9],
+					uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
+				return;
+			}
+			command += load->cmdsize;
+		}
+	}
+#elif defined(__linux__) || defined(__FreeBSD__)
+	{
+		char found[129] = { 0 };
+
+		dl_iterate_phdr(build_id_note, found);
+		snprintf(text, size, "%s", found);
+	}
+#else
+	(void)size;
+#endif
+}
+
 int posix_crash_install(const char *folder, const char *log_path, const char *old_folder, const char *old_log_path)
 {
 	struct sigaction action;
@@ -332,6 +424,18 @@ int posix_crash_install(const char *folder, const char *log_path, const char *ol
 	snprintf(crash_header, sizeof(crash_header), "version %s\nchannel %s\ncommit %s\nplatform %s\narchitecture %s\n"
 		"os %s\n", build_identity_version(), build_identity_channel(), build_identity_commit(),
 		build_identity_platform(), build_identity_architecture(), os);
+	/* (which symbols are this build's: crash_report.h) */
+	{
+		char id[136];
+
+		build_id(id, sizeof(id));
+		if (id[0])
+		{
+			size_t used = strlen(crash_header);
+
+			snprintf(crash_header + used, sizeof(crash_header) - used, "build_id %s\n", id);
+		}
+	}
 	if (pipe(probe_pipe))
 		return 0;
 	for (index = 0; index < 2; index++)

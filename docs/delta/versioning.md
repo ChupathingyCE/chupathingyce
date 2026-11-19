@@ -163,6 +163,13 @@ console wire in the wild; `tools/test_delta.py` (`test_console_floor`, in
 CI) fails otherwise. Raise the floor only when every console port has
 shipped a newer wire.
 
+That floor is for our own builds, the ones with a wire. A port of other
+code (a Dreamcast, an N64) has no wire and never moves it. Each platform,
+ports and our consoles alike, can also have a floor of its own in the signed
+table, which moves no other platform's: [Platform floors](#platform-floors).
+Without one, a platform has none at run time, and our consoles keep
+`chupa-32a` here as before.
+
 ## Legacy versions
 
 The network versions our builds know, each with the first release that had
@@ -232,7 +239,8 @@ check it too):
     "chupa-24a": { "announce": 24, "minimum": 11, "maximum": 24 }
   },
   "disabled_capabilities": [],
-  "platform_policy": {}
+  "platform_policy": {},
+  "platform_floors": {"dreamcast": {"network": 42}}
 }
 ```
 
@@ -278,6 +286,10 @@ check it too):
   it was built to allow, so a table can relax a limit only as far as the
   built-in default and tighten it only within the documented bounds. Until
   Delta Peer reads it, builds pass over it.
+- **`platform_floors`** (optional, from 0.9.2): each platform's own floor,
+  the oldest network version a Delta machine of it may say in its HELLO and
+  still play with our hosts ([Platform floors](#platform-floors)). Builds
+  before 0.9.2 pass over it.
 - **`layouts`** (optional, in a row of `chupa-38a` and later wires): facts
   about OpenCE versions the wire's builds read by data ("Layouts", below).
   Builds of older wires, and every build reading another wire's row, pass
@@ -303,7 +315,7 @@ the signature's 128 hex digits, a line feed, then the document's bytes.
 `tools/delta_table.py` makes, signs and checks them:
 
 ```
-delta_table.py make --serial N [--from legacy.json] [--out legacy.json]
+delta_table.py make --serial N [--from legacy.json] [--floor PLATFORM=N] [--out legacy.json]
 delta_table.py sign --key KEY.pem legacy.json        (writes legacy.json.sig)
 delta_table.py verify [--public-key HEX] legacy.json
 delta_table.py keygen --out KEY.pem
@@ -638,6 +650,60 @@ but that is off by default on a
 - **When a build gains one**, set its 1 in `DELTA_HOST_PROTECTIONS` in the
   same change that enforces it, on listen hosts and dedicated servers alike.
 
+### Platform floors
+
+A floor is the oldest version of a platform's builds that our hosts still
+play. Our own builds have one built in, the console floor (above), which
+holds every Chupathingy platform to one pool: a console that never updates
+keeps every new build reaching back to it. A port moving at its own pace
+shouldn't hold back our consoles that way, and our consoles shouldn't hold
+back a port. So the signed table can give a platform a floor of its own,
+apart from every other platform's:
+
+```json
+"platform_floors": {
+  "dreamcast": {"network": 42},
+  "n64": {"network": 40}
+}
+```
+
+- **Keyed by the platform's key** ([registry.md](registry.md#platforms)),
+  each row `{"network": N}`: the oldest network version a Delta machine of
+  that platform may say in its HELLO (the newest version its build plays,
+  [peer.md](peer.md#handshake)) and still play with our hosts. 1 to 65535;
+  `tools/delta_table.py` writes only a number our clients join (11 to 45
+  today).
+- **The host's rule.** A host of ours drops a Delta machine whose HELLO
+  names a platform with a row and says an older number than the row, once
+  its HELLO has come, in the lobby or a game under way, with a notice
+  ("needs a newer build for their platform") and the game's own refusal of
+  a version too old. It drops nothing else for a floor: a machine without
+  Delta, one that names the unknown platform (0), a machine of another
+  platform, and one at or past its floor all play as before.
+- **The client's rule.** A client of ours checks its own platform's row
+  against its own HELLO's number before it joins a Delta host. Under it, it
+  doesn't join, and says "Needs a newer Chupathingy." with the floor. A host
+  without Delta is joined as before: the floor is Delta's alone.
+- **Without the section, or a platform's row,** nothing changes: no
+  platform has a floor at run time, and our hosts play every number from 11
+  on, as they always have. Our consoles keep `chupa-32a`, the build-time
+  console floor, unless a row says otherwise.
+- **Older builds** (before 0.9.2) pass over the section as an unknown key,
+  so a table with it is as good to them as one without.
+- **Checks.** At most 64 rows (a table with more is dropped whole, like any
+  table a build can't read whole), one a platform, each row's `network` a
+  whole number. A row whose key a build doesn't know (a newer platform) is
+  passed over, and so is a row's field it doesn't know. The tool refuses a
+  key `delta.h` doesn't list, the unknown platform, and a field other than
+  `network`.
+- **Adding, raising or taking one away** is a person's decision, signed
+  like any table: `delta_table.py make --from legacy.json --serial N --floor
+  dreamcast=42` (`--floor dreamcast=none` takes it away; a make keeps the
+  other platforms' floors). A port's floor goes up when its developers ask:
+  for example, when their older builds desync with ours and they would
+  rather tell those players to update. It never moves because another
+  platform's did.
+
 ### One listing per host
 
 A host lists its game once, under the number it announces. OpenCE's
@@ -678,7 +744,9 @@ What it can do for builds already released:
 - prove numbers for hosting alone (`hosting`), which hosts then announce on
   their own (auto-announce, from 0.9.0);
 - name the host protections a host must have to announce past its own number
-  (`requires`, read from 0.9.0).
+  (`requires`, read from 0.9.0);
+- give a platform a floor of its own: the oldest network version its Delta
+  machines play our hosts at (`platform_floors`, read from 0.9.2).
 
 `platform_policy` is reserved for per-platform limits; no build reads it
 yet.

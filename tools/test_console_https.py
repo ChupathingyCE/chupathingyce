@@ -312,7 +312,15 @@ def main():
                 finally:
                     server.close()
 
-            serve(site, site_key, "the site's pinned key", SITE, pins, 0, 200, f"GET /index.txt HTTP/1.0|{SITE}|")
+            _, fields = serve(site, site_key, "the site's pinned key", SITE, pins, 0, 200,
+                              f"GET /index.txt HTTP/1.0|{SITE}|")
+            # (warthog-xbox #140: each step's time, and the port told around the send)
+            timing = re.search(r"https: [^:]+: [^,]+, connect \d+ ms, handshake \d+ ms, sent \d+ ms \(\d+ bytes\), "
+                               r"first byte \d+ ms, \d+ ms in all\n", fields["log"])
+            if not timing or fields["log"].find("sending 1") < 0 or \
+                    fields["log"].find("sending 1") > fields["log"].find("sending 0"):
+                failures.append(f"{tag}: the request's timing line or sending hook")
+                print(fields["log"])
             serve(site_other_key, other_key, "another key for the site", SITE, pins, 9)
             # (even a chain to a root it would trust: the site goes by its key)
             # (the backstop: a chain to the site's roots, Let's Encrypt's in the

@@ -192,6 +192,7 @@ sln = SimpleNamespace(
     with_ffmpeg=args.with_ffmpeg,
     console_no_debug_asserts=args.console_no_debug_asserts,
     console_debug_tools=args.console_debug_tools,
+    console_checkpoint_trace=args.console_checkpoint_trace,
     console_players=args.console_players,
     # (every option, a console port's own too, by its name)
     args=args,

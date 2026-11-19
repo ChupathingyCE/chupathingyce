@@ -196,10 +196,16 @@ static long long test_clock(void)
 	return clock_seconds;
 }
 
+/* (the port's sending hook: said in the log, for the timing check) */
+static void test_sending(int started)
+{
+	fprintf(stderr, "sending %d\n", started);
+}
+
 static struct console_https_port test_port =
 {
 	test_connect, test_send, test_receive, test_close, test_random, now_ms, NULL, NULL, test_log, "Warthog/1 (test)",
-	test_plain_get, NULL, NULL,
+	test_plain_get, NULL, NULL, test_sending,
 };
 
 static int hex_digit(char c)

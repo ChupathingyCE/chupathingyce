@@ -25,6 +25,7 @@ asked for only when the server is linked to the site, where it goes.
 #include "game/players.h"
 #include "memory/data.h"
 #include "networking/network_game_globals.h"
+#include "networking/network_server_manager.h"
 #include "dedicated.h"
 #include "server_moderation.h"
 #include "server_reports.h"
@@ -169,6 +170,10 @@ static void who_is(
 	who->player = player_index;
 	who->has_account = server_moderation_machine_account(machine_index, local_player, who->account, handle,
 		sizeof(handle)) ? 1 : 0;
+	/* (an unverified player's machine's address, for the address limit:
+	compared in memory alone) */
+	if (!who->has_account)
+		who->address = network_game_server_machine_address(machine_index);
 }
 
 static int hex_value(

@@ -203,6 +203,36 @@ whose game list sends it), and a console's that sends its own reports
 #define HALO_PORT_GAME_REPORTS
 #endif
 
+/* the game's busiest units read its most called accessors inline, with the
+checks of the functions they call elsewhere: a tag block's element
+(TAG_BLOCK_GET_ELEMENT, source/tag_files/tag_groups.h: the index in the
+block, the block's address set, a Custom Edition map's tag cache bounds), a
+tag (tag_get, the same header: the index a loaded tag's, its salt, its
+group, its data loaded), a datum (datum_get, source/memory/data.h: the array
+valid, the index in it, its salt) and an object (object_get_and_verify_type,
+source/objects/objects.h: the datum's checks and the object's type). Only
+what fails a check calls the function, which checks again and asserts,
+logs or gives what it always gave. The debug decomp's accessors are calls
+at each use, tens of thousands a tick; the retail build had them inline.
+The units are tools/console_build.py's INLINE_ACCESSOR_SOURCES, which it
+builds with HALO_CONSOLE_HOT_UNIT: they make 72 to 92% of each accessor's
+calls counted on Beaver Creek (warthog-xbox #109), for 51 KB of code; the
+inline forms in every unit would cost the original Xbox's 64 MB about
+380 KB. Any console's release-style build (--console-no-debug-asserts: the
+asserts the inline forms skip are compiled out of the functions there too,
+and the memory checks datum_get keeps are in its inline form); the desktop
+builds call the functions, as before. HALO_CONSOLE_ACCESSOR_STATE is such a
+build's every unit: what the inline forms read (cache_files.c's count of
+loaded tags) */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	defined(HALO_CONSOLE_NO_DEBUG_ASSERTS) && !defined(HALO_CONSOLE_ACCESSOR_STATE)
+#define HALO_CONSOLE_ACCESSOR_STATE
+#endif
+#if defined(HALO_CONSOLE_ACCESSOR_STATE) && defined(HALO_CONSOLE_HOT_UNIT) && !defined(HALO_CONSOLE_INLINE_ACCESSORS)
+#define HALO_CONSOLE_INLINE_ACCESSORS
+#endif
+
 /* a filtered HUD meter's darkening faded over its edge, in two more combiner
 stages (source/rasterizer/xbox/rasterizer_xbox_dynavobgeom.c): a console
 draws its meters with retail's four stages, scaled or not. Every console's
@@ -214,6 +244,22 @@ HALO_CONSOLE, and its widescreen HUD drew the six stages */
 #define HALO_CONSOLE_NO_SMOOTH_METER_EDGES
 #endif
 
+/* the settings the game reads each frame or each scoreboard row (the
+particle limit, particles.c; the dynamic and specular light limits,
+object_lights.c; doors blocking light, door_portals.c; the scoreboard's
+icons and quit players, game_engine.c) read again only when the settings
+change (config_changes), as the HUD's are. Each read takes a lock and
+finds the setting by its name; one the build lacks (the original Xbox has
+no particle limit and no doors blocking light) is compared with every
+setting's name each time, then with the names it said it lacks. The same
+values; any console's build (warthog-xbox #109). The desktop builds read
+them each time, as before */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_CONSOLE_SETTINGS_ON_CHANGE)
+#define HALO_CONSOLE_SETTINGS_ON_CHANGE
+#endif
+
 /* the Light effects (display.light_effects, port/linux/game/plasma_lighting.c):
 a desktop's lighting extra, on no console (any console's build, whichever
 switches it sets on its own): its headers give empty hooks, and its sources
@@ -222,6 +268,19 @@ build to nothing (plasma_occlusion.c's fields alone are 130 KB) */
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
 	!defined(HALO_CONSOLE_NO_LIGHT_EFFECTS)
 #define HALO_CONSOLE_NO_LIGHT_EFFECTS
+#endif
+
+/* an object's dark lights left out of the map's clusters (object_lights.c,
+light_port_connect_lit): an attached light whose function is at 0 and whose
+color there is black lights nothing and is not drawn, so it does not join
+its clusters each tick until it lights again. The same picture for less of
+the tick on a console's processor (warthog-xbox #109); the desktop builds
+connect every light, as retail did (their Light effects read them). Any
+console's build, whichever switches it sets on its own */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_CONSOLE_SKIP_DARK_LIGHTS)
+#define HALO_CONSOLE_SKIP_DARK_LIGHTS
 #endif
 
 /* Halo MCC maps (port/linux/game/mcc_*.c, docs/mcc_maps.md): the desktop

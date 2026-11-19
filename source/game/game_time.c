@@ -68,6 +68,7 @@ symbols in this file:
 
 #include "cseries.h"
 #include "cseries_windows.h"
+#include "cseries/errors.h"
 #include "real_math.h"
 #include "game.h"
 #include "player_queues_new.h"
@@ -87,6 +88,9 @@ void determinism_check_tick_end(void);
 enum
 {
 	SOME_LARGE_NUMBER_OF_TICKS = 1000, // 0x03E8
+	/* port: the most ticks a client's frame runs once it has fallen behind
+	(game_time_client_guard_cap) */
+	GAME_TIME_CLIENT_GUARD_TICKS = 5,
 };
 
 /* ---------- macros */
@@ -119,6 +123,24 @@ host, as while Online Games or System Link searches from the main menu): the
 frames drawn meanwhile stay on the last tick (game_time_get_tick_fraction) */
 static boolean game_time_ticks_waiting = FALSE;
 
+/* port: the client's spiral guard (game_time_client_guard_cap) */
+struct game_time_client_guard_state
+{
+	/* the last frame's ticks due and ticks run */
+	long previous_due;
+	long previous_run;
+	/* on: frames run at most the guard's few, until one is due fewer */
+	boolean engaged;
+	/* ticks left unrun since the host's clock was last taken */
+	long ticks_left;
+	/* the few at the game's speed (GAME_TIME_CLIENT_GUARD_TICKS at 1, more
+	when faster: 0 until a frame has run) */
+	long limit;
+	/* this map's line written */
+	boolean logged;
+};
+static struct game_time_client_guard_state game_time_client_guard;
+
 /* ---------- public code */
 
 boolean game_time_initialized(
@@ -143,6 +165,7 @@ void game_time_initialize_for_new_map(
 	memset(game_time_globals, 0, sizeof(*game_time_globals));
 	game_time_globals->initialized = TRUE;
 	game_time_ticks_waiting = FALSE;
+	memset(&game_time_client_guard, 0, sizeof(game_time_client_guard));
 
 	return;
 }
@@ -182,6 +205,7 @@ void game_time_set_distributed(
 	game_time_globals->local_time = time;
 	game_time_globals->server_time = time;
 	game_time_globals->leftover_dt = 0.f;
+	game_time_client_guard.ticks_left = 0;
 
 	return;
 }
@@ -387,6 +411,78 @@ void game_time_start(
 	return;
 }
 
+/* port: the client's spiral guard. A client of the distributed netcode
+ran every tick a frame was due, up to a second's. On a machine that can't
+simulate the game's 30 ticks a second (an original Xbox in a game of more
+than about 24 players: a tick of 30 ms or more, and the frame drawn on
+top), the frame that ran them took longer than the ticks it ran covered,
+so the next was due more: a second's ticks a frame, one frame a second,
+for the rest of the game, the host's clock taken each time it got a second
+ahead. Once a frame was due more than GAME_TIME_CLIENT_GUARD_TICKS, a
+frame that is due more still, and more than the last ran, runs only that
+many, as do the frames after it until one is due fewer. The rest are left
+unrun: the host's units are the host's, and its updates put them where
+they are; the host's clock is taken sooner (game_time_client_catch_up_ticks).
+A machine that keeps up runs the ticks it did before: one long frame (a
+load, a hitch) is followed by shorter ones, and the guard needs two in a
+row with the second due more. Two growing stalls in a row on a machine
+that does keep up hold one frame to the few, and the next frame turns the
+guard off again: the host's clock covers what that frame left, as it did
+for the old cap of a second (tools/harness/tests/test_client_spiral_guard.py).
+Hosts, local games and films never have it. A faster game (an MCC map's
+game speed) is due more ticks a frame at the same frame rate, so the few
+grow with the speed. Five: a client keeps every tick while a tick costs up
+to about 30 ms on the Xbox (five a frame, with the drawing), and a spiral's
+frame of a second becomes about a fifth of one */
+static long game_time_client_guard_cap(
+	long ticks_due,
+	long cap,
+	real speed)
+{
+	struct game_time_client_guard_state *guard = &game_time_client_guard;
+	long limit = (long)ceil(GAME_TIME_CLIENT_GUARD_TICKS * MAX(speed, 1.0f));
+	guard->limit = limit;
+
+	/* (on after two frames running due more than the few, the second more
+	than the first ran; off once a frame is due fewer) */
+	if (ticks_due < limit)
+		guard->engaged = FALSE;
+	else if (guard->previous_due > limit && ticks_due > guard->previous_run && ticks_due > limit)
+		guard->engaged = TRUE;
+	guard->previous_due = ticks_due;
+	if (guard->engaged && ticks_due > limit && cap > limit)
+	{
+		long left = MIN(ticks_due, cap) - limit;
+
+		cap = limit;
+		guard->ticks_left += left;
+		HALO_PERF_COUNT(_halo_perf_tick_guard_frames, 1);
+		HALO_PERF_COUNT(_halo_perf_tick_guard_ticks_left, left);
+		if (!guard->logged)
+		{
+			guard->logged = TRUE;
+			error(_error_log,
+				"game time: this machine can't keep up with the game (%ld ticks due in a frame); "
+				"running %d a frame until it can, the host's clock for the rest",
+				ticks_due, (int)limit);
+		}
+	}
+	guard->previous_run = MIN(ticks_due, cap);
+
+	return cap;
+}
+
+/* port: how many ticks the host's clock may be ahead of a client's before
+the client takes it (network_client_manager.c): a second, or once the
+spiral guard has left ticks unrun, the guard's few */
+long game_time_client_catch_up_ticks(
+	void)
+{
+	if (game_time_client_guard.ticks_left <= 0)
+		return TICKS_PER_SECOND;
+	return game_time_client_guard.limit > 0 ? game_time_client_guard.limit : GAME_TIME_CLIENT_GUARD_TICKS;
+}
+
 void game_time_update(
 	real time_delta_sec)
 {
@@ -461,6 +557,12 @@ void game_time_update(
 			ticks_elapsed_real = (real)floor(game_time*ticks_per_second);
 			ticks_elapsed = (long)(ticks_elapsed_real <= (real)SOME_LARGE_NUMBER_OF_TICKS ?
 				ticks_elapsed_real : (real)SOME_LARGE_NUMBER_OF_TICKS);
+			/* port: a client that has fallen behind runs a few (the guard above;
+			not while its clock waits for the host's first update, which runs no
+			tick: a slow load would read as falling behind) */
+			if (game_connection() == _game_connection_network_client && !game_time_held())
+				connection = game_time_client_guard_cap(ticks_elapsed, connection,
+					ticks_per_second/TICKS_PER_SECOND);
 			if (ticks_elapsed > connection)
 			{
 				ticks_elapsed = connection;

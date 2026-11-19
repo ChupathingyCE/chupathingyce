@@ -498,6 +498,7 @@ boolean collision_test_vector(
 		TEST_FLAG(flags, _collision_test_objects_bit);
 
 	HALO_PERF_BEGIN(_halo_perf_tick_collision);
+	HALO_PERF_BEGIN(_halo_perf_bipeds_collision);
 	if (debug_collision_skip_vectors)
 	{
 		test_environment = FALSE;
@@ -748,6 +749,7 @@ boolean collision_test_vector(
 		scenario_location_from_point(&collision->location, &collision->point);
 	}
 
+	HALO_PERF_END(_halo_perf_bipeds_collision);
 	HALO_PERF_END(_halo_perf_tick_collision);
 	return hit;
 }

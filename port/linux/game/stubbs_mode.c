@@ -30,6 +30,7 @@ packs never take these paths.
 #include "stubbs_mode.h"
 #include "stubbs_engine.h" /* (its special attacks, before the rewrite) */
 #include "stubbs_possession.h" /* (its possession seat, before the rewrite) */
+#include "stubbs_player.h" /* (its HUD's shown special attacks) */
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -848,6 +849,12 @@ void stubbs_mode_convert_tags(
 	stubbs_tags_size = tag_data_size;
 	stubbs_tags_instances = instances;
 	stubbs_tags_count = count;
+	/* (this map's units noted afresh, not added to the last map's: their
+	pointers are into the tag cache this map replaced, so they go even when
+	this map's tags turn out not to be Stubbs's) */
+	stubbs_engine_tags_new_map();
+	stubbs_possession_tags_new_map();
+	stubbs_player_tags_new_map();
 	/* (no more tags than a tag index holds: a count past it would wrap the
 	32-bit size of the index checked below) */
 	if (count > 0xFFFF || !stubbs_host(base, tag_data_size, instances, count * 0x20))

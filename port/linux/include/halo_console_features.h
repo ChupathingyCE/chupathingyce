@@ -46,9 +46,15 @@ HALO_CONSOLE_WIDGET_POOL_SIZE
 	ui_widget.c; console.widget_pool_log logs what the menus use)
 HALO_CONSOLE_MAP_LIST_ROWS
 	the rows of the menus' map list (port/linux/game/ui_map_list.c): the
-	original Xbox's 40, every other console's 256; the desktop builds and
+	original Xbox's 128, every other console's 256; the desktop builds and
 	Android leave it undefined and hold 2560, room for a large Custom
-	Edition folder beside the whole MCC catalog
+	Edition folder beside the whole MCC catalog. A row's map name, names
+	and description are held in pools at their own length
+HALO_CONSOLE_MAP_LIST_TEXT
+	the wide characters of the map list's pooled names and descriptions:
+	the original Xbox's 12288 (24 KB for its 128 rows; a row past it keeps
+	its names but not its description, and one without room for its names
+	is left out, both logged). Without it, room for every row's longest
 HALO_CONSOLE_NO_GUIDE
 	no Guide (port/linux/game/guide.c, over any screen) and no presence
 	sent to the site (browser.c, network.share_presence), their settings
@@ -215,7 +221,9 @@ HALO_CONSOLE_PERFORMANCE_MODE
 	and console_performance_sky, console_performance_object_transparents,
 	console_performance_decoration_distance and
 	console_performance_hud_frames, what else it leaves out (render_sky.c,
-	render_objects.c, hud_draw.c)
+	render_objects.c, hud_draw.c). The objects' transparent parts and the
+	plants are see-through cover, so in a network game a port keeps them
+	unless display.performance_online_cuts is on (port_config.c)
 HALO_CONSOLE_CACHE_SCREEN
 	a console whose cache files are slow to make (a FAT32 stick, which writes
 	them full of zeros): they are made long a little at a time, and
@@ -234,6 +242,12 @@ HALO_CONSOLE_SETUP_SCREENS
 	console_setup_screen_open, console_setup_screen_progress and
 	console_setup_screen_close, and a failure with console_setup_notice
 	(updater.c)
+HALO_CONSOLE_MISSING_MAPS_SCREEN
+	a console with no setup flow before the game: when ui.map is not found
+	the game says so on a plain screen of its own, drawn without any map
+	(source/interface/missing_maps_screen.c), with the folder it looked in
+	and the maps it needs, until the player quits to the system's menu.
+	The menus' error screen is in ui.map itself. Every console
 HALO_CONSOLE_APP_CERTIFICATES
 	a console whose own certificate authorities are too old for today's
 	servers: the app's bundle, which its launch script names in
@@ -255,6 +269,10 @@ HALO_PORT_UPDATE_API, HALO_PORT_UPDATE_REPOSITORY
 	signed with its own key, update_public_keys in the port's
 	halo_port_update_keys.h (update_key.h); the game's release key signs
 	nothing the port's server sends
+HALO_PORT_UPDATE_DOWNLOADS
+	with HALO_PORT_UPDATE_API, where the release's files are downloaded
+	from, when that is not the API's address and /releases/download (a
+	port on GitHub: https://github.com/<owner>/<name>/releases/download)
 HALO_PORT_UPDATE_SCRIPT, HALO_PORT_UPDATE_RESTART_EXIT_CODE
 	the launch script an update replaces with the game, and the code the
 	game exits with after an update for that script to start the new
@@ -358,7 +376,13 @@ HALO_CONSOLE_FRAME_RATE
 	rasterizer_initialize makes it) and whether frames are drawn between
 	the ticks (halo_interpolation_enabled, the same answer for the whole
 	run). At 60 the frame pacer steps down to 30 while a scene can't hold
-	60 and back up when it can (main_update_time's stabilization)
+	60 and back up when it can (main_update_time's stabilization). The
+	port also says the display's refresh rate once the device is made
+	(halo_console_refresh_rate: 60, or 50 on a PAL television without
+	PAL60). The game's clock counts that display's vertical blanks, and
+	its frames are paced to them: at 50 Hz, 60 is a frame every blank (50
+	a second) and 30 a frame each tick, on the first blank after it is due
+	(main_update_time); the ticks stay 30 a second on every display
 HALO_CONSOLE_VIEW_INTERPOLATION
 	the frames between ticks move the view only, with no memory of their
 	own (port/linux/game/render_interpolation.c): on foot in first person
@@ -457,6 +481,7 @@ compile lines: source/cseries/xbox_address.h).
 #ifdef HALO_CONSOLE_FRAME_RATE
 /* (defined by the port) */
 short halo_console_frame_rate(void);
+short halo_console_refresh_rate(void);
 int halo_interpolation_enabled(void);
 /* (a console draws its ticks only, unless its setting asks for more) */
 #define halo_port_frames_between_ticks() (halo_interpolation_enabled() != 0)
@@ -510,6 +535,13 @@ server's, which has no player) */
 #define HALO_GUIDE 1
 #endif
 
+/* the plain missing maps screen (missing_maps_screen.c): every console; the
+desktops check the maps before the game starts (sdl_platform.c) */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_MISSING_MAPS_SCREEN)
+#define HALO_CONSOLE_MISSING_MAPS_SCREEN 1
+#endif
+
 /* a missing Custom Edition map downloaded from the game's host, peer to
 peer, when the player allows it (network.map_downloads_from_host,
 port/linux/src/map_download.c "From the host", map_share_client.c): the
@@ -523,9 +555,18 @@ consoles nor the dedicated server, which downloads nothing */
 #define HALO_HOST_MAP_DOWNLOADS 1
 #endif
 
-/* the menus' map list's rows (ui_map_list.c): a console's own size */
+/* the menus' map list's rows (ui_map_list.c): a console's own size. The
+original Xbox's: its 13, Custom Edition+ and a Custom Edition folder, and a
+pack or two of about 30 maps each (Halo: Not Halo Edition has 29), with room
+to spare; 40 left a pack listed last out (warthog-xbox #145) */
 #if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)
-#define HALO_CONSOLE_MAP_LIST_ROWS 40
+#define HALO_CONSOLE_MAP_LIST_ROWS 128
+#endif
+/* (and their names' and descriptions' wide characters, pooled: 24 KB, about
+100 a row. The Xbox's own rows keep theirs in ui.map, and the maps without
+a description share one) */
+#if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_MAP_LIST_TEXT)
+#define HALO_CONSOLE_MAP_LIST_TEXT 12288
 #endif
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)

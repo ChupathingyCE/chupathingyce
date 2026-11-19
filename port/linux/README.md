@@ -662,6 +662,9 @@ the setting for one start of the game. It has priority over the file.
 | `display.particle_ticks` | `false` (consoles: `true`) | `HALO_PARTICLE_TICKS` | `true`: particles not attached to an object move once a 30 Hz tick, as on the Xbox, and are drawn smoothly between ticks. That saves collision tests. `false`: they move every frame, which is smoother at high refresh rates. Takes effect at the next map. |
 | `display.dynamic_light_limit` | `0` (consoles: `8`; the original Xbox: `0`) | `HALO_DYNAMIC_LIGHT_LIMIT` | The most dynamic lights (muzzle flashes, plasma, explosions) that light the level at once. The biggest on screen light the walls and floor; the rest light only the objects near them. `0`: no limit, as on the Xbox. Changes at once. |
 | `display.specular_light_limit` | `0` (consoles: `2`; the original Xbox: `0`) | `HALO_SPECULAR_LIGHT_LIMIT` | Of those lights, the most that also add their shine to metal and wet floors. The first-person weapon's go first. `0`: no limit, as on the Xbox. Changes at once. |
+| `tuning.preset` | `"retail"` | `HALO_TUNING_PRESET` | Several performance knobs at once. `"retail"`: none changed. `"lan-party"`: `display.dynamic_light_limit` 16, `display.specular_light_limit` 4, `display.particle_limit` 2048, `display.particle_ticks` true, `tuning.present_mode` `"adaptive"`. `"potato"` (the setup screen's PERFORMANCE: POTATO): the limits 8, 2 and 1024, `display.particle_ticks` true, `display.shadow_resolution` 128, `display.anisotropic_filtering` 0, `display.anti_aliasing` `"off"`, `display.per_pixel_lighting` false, `display.light_effects` `"off"`, `display.resolution_scaling` `"original"`. The preset gives a knob its value only where config.toml and the environment don't: those keys stay the one place each value lives, and a preset never raises a build's own limit. Drawing only. Refer to "Tuning". |
+| `tuning.present_mode` | `"vblank"` | `HALO_PRESENT_MODE` | With V-Sync: `"vblank"` waits for the display. `"adaptive"` shows a late frame at once (a swap interval of -1, or the original Xbox's `*_OR_IMMEDIATE` intervals); a driver that refuses it waits, and the log says so. OpenGL on Windows, Linux and Android, and the original Xbox; not with VRR. Read at start. |
+| `tuning.texture_cache` | `"auto"` | none | The original Xbox only: the texture cache in MB, held between 19 MB and what the memory class allows (a 128 or 256 MB console's own size; on a 64 MB console what is free with the main loop's reserve still left). `"auto"`: the console's own. Read at start. |
 | `display.crt_filter` | `false` | `HALO_CRT_FILTER=1` sets `true` | `true`: a CRT look over the picture (scanlines, curvature, a phosphor mask). Only the `bgfx` renderer has it for now. |
 | `display.vulkan_blocklist` | `true` | `HALO_VULKAN_BLOCKLIST` | Windows and Linux, with the `bgfx` renderer: skip Vulkan drivers known to be broken or slow on older computers (nouveau's Vulkan before Turing, NVIDIA older than 470, Mesa's Vulkan for Ivy Bridge, Haswell and Bay Trail, software Vulkan) and draw with OpenGL. `false` tries Vulkan anyway. |
 | `audio.enabled` | `true` | `HALO_NO_AUDIO=1` sets `false` | `false`: no audio device. The sound continues without output. |
@@ -689,7 +692,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.voice_range`, `network.voice_kbps` | `15`, `24` | `HALO_NET_VOICE_RANGE`, `HALO_NET_VOICE_KBPS` | How near is near for proximity voice, in world units (5 to 100), and the voice quality in kbps (8 to 64). Higher quality costs you more upload for each talker and each listener. |
 | `input.mouse_sensitivity` | `1.0` | `HALO_MOUSE_SENSITIVITY` | The multiplier for the mouse aim. |
 | `input.mouse_vertical_sensitivity` | `0.0` | `HALO_MOUSE_VERTICAL_SENSITIVITY` | The multiplier for the vertical mouse aim. `0`: the same as `input.mouse_sensitivity`. |
-| `input.invert_mouse` | `false` | `HALO_MOUSE_INVERT=1` sets `true` | `true`: the vertical mouse aim is inverted. |
+| `input.invert_mouse` | `false` | `HALO_MOUSE_INVERT=1` sets `true` | `true`: the vertical mouse aim is inverted. The Pillar of Autumn's look test sets it too when you answer it with the keyboard and mouse. |
 | `input.keyboard_prompts` | `true` | `HALO_KEYBOARD_PROMPTS` | Not in the menus: every button prompt follows the device used last. While the keyboard or mouse was used last (or, on the desktop, no controller is connected), the prompts show keys, as Halo PC's did: the HUD's messages name the bound key in brackets ("Hold [E] to pick up"), "Hold BACK for score" names the scoreboard key, and the menus' button pictures ("A = SELECT") become key caps of the keys that press them (Enter, Backspace, Tab, E). With the Chupathingy menus the keys are named in capitals, as the Xbox names BACK ("Hold [SPACE] to jump", "Hold TAB for score"); the Xbox's menus keep Halo PC's wording ("[Space]", 'Hold "Tab" for score'). A controller's button press switches them back. `false` keeps the controller's buttons everywhere, whatever was used last. |
 | `input.button_style` | `"auto"` | `HALO_BUTTON_STYLE` | The buttons the prompts show (`src/ui_overlay.c`): `"auto"`, the device used last; else one style for every pad: `"duke"`, `"xbox"`, `"playstation"` or `"switch"` (the keyboard keeps its key caps). The Duke's, and the PlayStation's and Switch's face buttons, are DKrumpp's HD buttons (`port/assets/buttons_hd`, in the builds with `HALO_HD_BUTTONS`); an Xbox pad's are snapchipper's. |
 | `input.button_look` | `"gem"` | `HALO_BUTTON_LOOK` | DKrumpp's buttons in the menus and the Delta Guide: `"gem"` or `"flat"`. |
@@ -717,6 +720,8 @@ the setting for one start of the game. It has priority over the file.
 | `game.language` | `""` | `HALO_LANGUAGE` | The language of the menus: `ja`, `de`, `fr`, `es` or `it`. Empty: English. |
 | `game.unlock_all_levels` | `false` | `HALO_UNLOCK_ALL_LEVELS` | `true`: a profile created afterward starts with all the campaign levels finished on all the difficulties. `false`: a new profile starts at The Pillar of Autumn, and each level opens when you finish the level before it, as on the Xbox. Existing profiles keep their progress. To start a profile over, type `profile_reset_campaign` in the console. |
 | `game.start_with_one_player` | `true` (`false` on the dedicated server) | `HALO_START_WITH_ONE_PLAYER` | A system link, internet or split screen game you host can start with you alone: press START GAME in the lobby. Others can join it in progress. `false` waits for a second machine (split screen: a second player), as on the Xbox. It is in config.toml and the setup screen's ALL, not the menus. Players who had it off are asked once, after an update, whether to use the new default. First written by Mootjuh as `debug.solo_game`. |
+| `lua.scripts` | `false` | `HALO_LUA_SCRIPTS` | Run mods' Lua scripts made for Chimera's Lua API, from the `lua` folder beside `maps` in Chimera's layout (`lua/scripts/global`, `lua/scripts/map/<map>.lua`, `lua/modules`, `lua/data`), and a map pack's own from `lua/<pack>` while its menus are in use (`game.pack_menus`). A script reads and writes files in its own `data` folder only, and loads modules from its own `modules` folder only. What a script asks for that the game does not do yet is written to `debug.txt` once, as `lua: ...`. The desktop builds only. |
+| `lua.twiddlings` | `true` | `HALO_LUA_TWIDDLINGS` | With `lua.scripts`: let the scripts read and change the game's memory through Twiddlings, which turns the Halo PC addresses they use into this game's: a map's tags, and the Halo PC globals the game knows. Any other address reads 0 and a write to it is refused, each written to `debug.txt` once. `false`: every read is 0 and every write is refused. |
 | `paths.data` | `""` | `HALO_DATA_ROOT` | The data root. Refer to "Start the game". |
 | `paths.saves` | `""` | `HALO_SAVE_ROOT` | The save root. Refer to "Files and folders". |
 | `paths.logs` | `""` | `HALO_LOG_ROOT` | The logs folder (`debug.txt`, `halo.log`, `crashes/`). Empty: `logs/` in the save root when `paths.saves` is set, else in the data root. Refer to "Files and folders". |
@@ -823,7 +828,7 @@ the setting for one start of the game. It has priority over the file.
 | `delta.hold_back` | `false` | `HALO_DELTA_HOLD_BACK` | Holding Back (a controller's, or F1) about 0.6 s in the menus opens the Delta Guide. While it is on, the menus get Back only once it is let go (a tap), never for a hold, so a hold on the main menu doesn't also ask to quit. Off by default, as the Xbox's Back acts on press. |
 | `delta.menu_item` | `false` (Android: `true`) | `HALO_DELTA_MENU_ITEM` | The Delta Guide on the main menu (DELTA before QUIT, in the Chupathingy menus), and under ONLINE GAMES in the Multiplayer menu, each opening it on PARTY. Off by default: the Delta Guide is summoned like an overlay (its key, the Guide button, Back held), and the main menu says so instead (`delta.hint_shown`). On by default on Android, where a touch screen has no Guide button. The Delta Guide's SETTINGS has SHOW IN MENUS. It takes effect the next time the menus load. |
 | `delta.hint_shown` | `0` | `HALO_DELTA_HINT_SHOWN` | How many times the main menu has said how to open the Delta Guide ("Press F3 for the Delta Guide", or a controller's way when one was used last: "Hold Back for the Delta Guide" with `delta.hold_back`, else "Press the Guide button", never on a Mac, where macOS often keeps the Home button). It says so the first 3 times the main menu is reached (counted once drawn), then no more, and never with `delta.menu_item` on. |
-| `delta.pause_menu` | `true` | `HALO_DELTA_PAUSE_MENU` | The Delta Guide in the pause menu, after CONTROLS, in both menu sets. |
+| `delta.pause_menu` | `true` | `HALO_DELTA_PAUSE_MENU` | The Delta Guide in the pause menu of a multiplayer game or a network co-op game, after CONTROLS, in both menu sets. A campaign played on one machine (alone or split screen) has none in its pause menu. |
 | `delta.guide_background` | `"auto"` | `HALO_DELTA_GUIDE_BACKGROUND` | What the Delta Guide draws behind its panel: `"plain"`, a dark shade over the game, `"cellwall"`, the Xbox dashboard's cell wall (a mesh inside a slowly turning sphere, as the TeamUIX site draws it) in the theme's colors (the dashboard's own per skin, from Theseus), or `"auto"`, the cell wall with Dashboard Green and the shade with the other themes. The Delta Guide's SETTINGS has BACKGROUND (AUTO, PLAIN, CELLWALL). OpenGL ES 2 builds draw the shade. |
 | `delta.notify_in_game` | `false` | `HALO_DELTA_NOTIFY_IN_GAME` | The Delta Guide's notifications (a new invite or friend request) during a game. They always show in the menus. |
 | `delta.notify_online` | `false` | `HALO_DELTA_NOTIFY_ONLINE` | A notification in the menus when a friend comes online. Never during a game. |
@@ -846,6 +851,56 @@ the setting for one start of the game. It has priority over the file.
 
 With Mesa drivers, the game sends its GL calls through the GL thread of
 Mesa. To stop this, set the environment variable `mesa_glthread=false`.
+
+### Tuning
+
+The `[tuning]` section (`config_tuning_apply` in `port_config.c`) holds the
+performance knobs that change only what is drawn, never the simulation, so
+a game plays the same on every machine whatever they say. Every default is
+the build's own, which is the retail game on the desktop and the original
+Xbox; the Xbox 360, Wii U and Switch already start with their own light and
+particle caps.
+
+The knobs are the settings themselves. `tuning.preset` does not copy them
+into `[tuning]`: it changes what an unset knob means, so
+`display.particle_limit` and the others keep working as before and stay the
+one place each value lives. A knob given by `config.toml` (as a value, not
+commented out) or by its environment variable keeps that value; the others
+take the preset's, or their default. A preset never raises a limit above
+the build's own default (the Xbox 360's 1024 particles stay 1024 in
+`"lan-party"`). Writing a knob from the menus makes it the player's;
+setting it back to its default (Defaults, `config_reset`) makes it follow
+the preset again.
+
+Each knob is checked: a number out of its range is held in it (the light
+limits 0 to the renderer's most, `display.particle_limit` 0 to the particle
+pool, `tuning.texture_cache` 19 to 512 MB before the console's own limit),
+and a word that is none of a knob's is its default, each said once in the
+log. Nothing in it can stop the game from starting.
+
+The log lines, short and the same on every build, so they can be searched:
+
+    tuning: at=boot preset=potato lights=8(preset) specular=2(preset) particles=512(hand) ... present=vblank
+    tuning: differs from the defaults: preset=potato lights=8(preset) specular=2(preset) particles=512(hand) ...
+    tuning: change particles=4096->512(hand)
+    tuning: at=map preset=potato lights=8(preset) ...
+
+A value is followed by where it came from when that is not the default:
+`(preset)`, `(hand)`, `(clamped)` or `(invalid)`. `at=map` is written at each
+map's start (`game_initialize_for_new_map`). A crash report's JSON has the
+log's last line as `"tuning"` (from `preset=`), and Send my logs sends it
+as a `tuning` field and in its note. The dedicated server has no knobs and
+writes none of these lines.
+
+Fairness: in a network game `display.particle_limit` is held at the Xbox's
+1024 or more (`source/effects/particles.c`), since smoke and dust hide
+players, and the log says so once (`tuning: display.particle_limit 512 held
+at 1024 in a network game`). The light limits only choose which lights
+light the level; every light still lights the players near it.
+
+Not knobs yet: explosion particles, effect density, decal draw distance and
+tire tracks. Each needs engine work, sized first by testers'
+`console.perf_log` lines.
 
 ## Updates
 
@@ -1567,6 +1622,67 @@ writes into `maps_quarantine`. `map_download.c` then runs the quick checks
 transfer runs on the game's thread; the checks run on a thread of their
 own. Its progress is the screen's download bar, and B cancels it.
 
+### Server monitor
+
+The server monitor shows how a public game's host really behaves, from one
+quiet guest, so a dip a player sees can be told apart: the host's, the way
+between, or the player's own machine. `tools/server_monitor.py run` starts
+the game headless in a folder of its own (its own HOME, saves and data
+root) with `debug.network_test = "monitor:<listed name>"`
+(`port/linux/game/net_monitor.c`), waits for it, and writes a report (JSON
+and Markdown); `compare` puts reports side by side.
+
+The monitor opens the Online Games screen, finds the game listed under
+that name (the same name, else the same name in any case, else the one game
+whose name holds it), and joins it as A on it does, once. It joins only a
+game with no password, open to joins, of a version it plays, and with
+`debug.monitor_free_slots` free after its own player (2 unless set, 1 at
+least). Its player is named `debug.monitor_name` ("Chupa" unless set) and
+plays nothing: no chat, and no input (this machine's gamepads, keyboard and
+mouse never reach the game); the tool turns voice, profile sharing, map
+downloads, the game list's reports and the lobby off. It leaves when
+`debug.monitor_minutes` are up and the game under way has ended (20
+minutes later at most), after `debug.monitor_games` games (it won't run
+with neither), at once when the game has fewer free slots than it keeps,
+and for good when the host drops it. The tool runs it once a server at a
+time (a lock file), and not again on a server whose join failed or that
+dropped it until it is told to (`--clear-failed`).
+
+Nothing it writes names an address or a player. Games go by their listed
+names (a player's own game, often named after the player, only counted),
+and the server's lines by their channel, length and a hash: a line may
+name players, so its text goes only to a local file beside the output, and
+only with `debug.monitor_keep_text`; a report never has it. The game's log
+reaches a report only as counts of what kind of line it was.
+
+Every ten seconds a line of JSON goes to `debug.monitor_output`:
+
+- the host's ticks as they arrived: new ticks a second, the gaps between
+  them (mean, spread, largest, and counts by length), the ticks skipped,
+  and the host's clock against this machine's;
+- the corrections, by what they moved (this machine's own player, other
+  players, vehicles it drives or not, AI), with how far and how many were
+  snaps. The net health line's `corrections` counts all of these but the
+  host's; its `own` count is this machine's own players alone;
+- the distributed messages each way by kind, and the datagrams and bytes
+  each way;
+- every byte it read, from the join on: each game packet type (stream or
+  datagram: the game's reliable connection is TCP), each distributed kind,
+  the batches' framing, a layout's header bytes (44's checkpoint epoch),
+  Delta Peer's, and each reason a message was dropped; what no layer took
+  up is the report's "unaccounted" row;
+- the server's lines, by how they came (Delta's chat, or the host's
+  notices, OpenCE's servers' server messages, which a Delta client shows
+  on its console), and the players' chat, counted;
+- the players, the bots (on a dedicated server, players sharing a machine:
+  its own plays no one; a player's game's split screen is not counted as
+  bots), and how often the host told this machine of each;
+- this machine's own frames (the longest, those over 50 and 100 ms): a gap
+  in the host's ticks while every frame here was short wasn't this
+  machine's;
+- the warnings: kinds it doesn't know, messages too far from the host's
+  clock, reordered ones, short ones.
+
 ## Map checks
 
 The game reads a map's tags straight into memory and uses them as its own
@@ -1585,6 +1701,15 @@ BSP as it loads:
   Values that the game sets as it runs are reset.
 - Checks that the schema cannot express run last: the BSPs' and the models'
   graphs, vertex and index buffers, and indices into other tags.
+
+Custom Edition and HaloMD maps go through the same checks as their tags
+load, in Halo PC's layout (`game/tag_schema_pc.c`): its own groups
+(gbxmodels and a few the Xbox has no tags of) before the Xbox's, which Halo
+PC's tags share. Their resources' tags are checked with them, after the
+repairs and before the conversions, and each BSP before its vertices are
+compressed. Halo PC's retail tools left some blocks overlapping others.
+In both kinds of map those are checked as their own, as HaloMD does, or
+made empty where the check would write over another tag.
 
 Each correction goes to `debug.txt`. The game's own maps need none.
 `build/linux/map_validate [--strict] map.map...` runs the same checks on map

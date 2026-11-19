@@ -126,6 +126,14 @@ TAG_SCHEMA_END */
 	{ _tag_schema_block, sizeof(struct tag_block), 1, 0, \
 		TAG_SCHEMA_OFFSET(type, field, struct tag_block), (maximum), 0, 0, &(definition), NULL, #field }
 
+/* ... of pc_maximum elements in Halo PC's layout
+(_tag_schema_layout_tool_maxima_kept_bit): a block whose Xbox maximum is
+its tools' alone, no array of the game's, which Halo PC's maps went past
+and Halo PC's engine read as long as it was, to its own limit */
+#define TAG_SCHEMA_PC_BLOCK(type, field, definition, maximum, pc_maximum) \
+	{ _tag_schema_block, sizeof(struct tag_block), 1, 0, \
+		TAG_SCHEMA_OFFSET(type, field, struct tag_block), (maximum), 0, (pc_maximum), &(definition), NULL, #field }
+
 /* ... whose maximum is the editing kit's (_tag_schema_tool_maximum_bit) */
 #define TAG_SCHEMA_TOOL_BLOCK(type, field, definition, maximum) 	{ _tag_schema_block, sizeof(struct tag_block), 1, FLAG(_tag_schema_tool_maximum_bit), 		TAG_SCHEMA_OFFSET(type, field, struct tag_block), (maximum), 0, 0, &(definition), NULL, #field }
 
@@ -170,6 +178,11 @@ target_level names; flags are _tag_schema_none_bit's or 0 */
 #define TAG_SCHEMA_ENUM(type, field, count, flags) \
 	{ _tag_schema_enum, TAG_SCHEMA_FIELD_SIZE(type, field), 1, (flags) | TAG_SCHEMA_UNSIGNED(type, field), \
 		TAG_SCHEMA_INTEGER_OFFSET(type, field), (count), 0, 0, NULL, NULL, #field }
+
+/* ... of pc_count values in Halo PC's layout (_tag_schema_layout_pc_shader_types_bit) */
+#define TAG_SCHEMA_PC_ENUM(type, field, count, pc_count, flags) \
+	{ _tag_schema_enum, TAG_SCHEMA_FIELD_SIZE(type, field), 1, (flags) | TAG_SCHEMA_UNSIGNED(type, field), \
+		TAG_SCHEMA_INTEGER_OFFSET(type, field), (count), 0, (pc_count), NULL, NULL, #field }
 
 #define TAG_SCHEMA_ENUM_ARRAY(type, field, count, flags) \
 	{ _tag_schema_enum, TAG_SCHEMA_FIELD_SIZE(type, field[0]), \
@@ -231,7 +244,9 @@ struct tag_schema_field
 	/* a block index's block: where it is (TAG_SCHEMA_ROOT,
 	TAG_SCHEMA_STRUCTURE, or how many elements up) and its offset there */
 	long target_level;
-	/* a block index's block's offset; a reset's value */
+	/* a block index's block's offset; a reset's value; an enum's values or
+	a block's most elements in Halo PC's layout (TAG_SCHEMA_PC_ENUM,
+	TAG_SCHEMA_PC_BLOCK), or 0 */
 	long target_offset;
 	/* a block's or structure's definition; a reference's or tag index's
 	groups */
@@ -254,6 +269,60 @@ struct tag_schema_group
 	struct tag_schema_definition const *definition;
 };
 
+/* how a map's tags are laid out, which the validator checks them by: the
+groups it knows (looked up in each list in turn, the first found taken), the
+tag cache they are in, and what is the layout's own */
+enum tag_schema_layout_flags
+{
+	/* the tag header is Halo PC's (cache_files.c's cache_file_ce_tag_header:
+	the map's model data, and no vertex or index buffers) */
+	_tag_schema_layout_pc_header_bit = 0,
+	/* a block of the tools' maximum (_tag_schema_tool_maximum_bit) is taken
+	as long as it is, as the game takes it: Halo PC's tools went past them */
+	_tag_schema_layout_tool_maxima_kept_bit,
+	/* data in a file (_tag_schema_file_data, a bitmap's pixels) lies in
+	another file than the map, perhaps (Custom Edition's resource maps),
+	which the loader checks it against: here only its size is */
+	_tag_schema_layout_file_data_elsewhere_bit,
+	/* a structure bsp's lightmaps' vertices are uncompressed, in each
+	material's uncompressed data, and it has no vertex buffers yet (Halo
+	PC's: port/linux/game/ce_bsp.c compresses them once it is checked) */
+	_tag_schema_layout_uncompressed_bsp_vertices_bit,
+	/* a root, block or data overlapping another's (which the Xbox's tools
+	never made, but Halo PC retail's did: HaloMD's maps' fonts, strings
+	and widgets) is checked as its own, walked again within the bounds a
+	shared one's are, rather than refused */
+	_tag_schema_layout_overlaps_walked_bit,
+	/* shaders' types are Halo PC's: its extended chicago shader's is 7, and
+	those the Xbox numbers from 7 on one higher (water 8 to plasma 11);
+	port/linux/game/ce_models.c makes them the Xbox's once they are checked.
+	An enum of TAG_SCHEMA_PC_ENUM takes its Halo PC count */
+	_tag_schema_layout_pc_shader_types_bit,
+	/* OpenSauce's memory upgrades (tag_schema_opensauce.c): a scenario's
+	scripts' syntax is for OpenSauce's 28501 nodes, not 19001 */
+	_tag_schema_layout_opensauce_bit,
+	NUMBER_OF_TAG_SCHEMA_LAYOUT_FLAGS
+};
+
+struct tag_schema_layout
+{
+	char const *name;
+	/* lists of groups, each ending with a 0 group tag, ending with NULL */
+	struct tag_schema_group const *const *group_lists;
+	/* pairs of groups, ending with 0: a tag of the second is taken where
+	one of the first is asked for (a reference, a tag index, a check's
+	tag_validate_tag_get), as the layout's loader makes it one (Halo PC's
+	gbxmodels, models once port/linux/game/ce_models.c converts them) */
+	unsigned long const (*group_aliases)[2];
+	/* the tag cache the tags (and their structure bsps) are in */
+	unsigned long tag_cache_size;
+	unsigned long flags;
+	/* a block's most elements or a data's most bytes in this layout, given
+	the one the checks would take otherwise (the field's): its own where it
+	has one (OpenSauce's memory upgrades), else that one; NULL: that one */
+	long (*field_maximum)(struct tag_schema_field const *field, long maximum);
+};
+
 /* ---------- prototypes/TAG_SCHEMA_*.C */
 
 /* the groups the validator knows: lists of them (each ending with a 0 group
@@ -267,7 +336,36 @@ extern struct tag_schema_group const tag_schema_render_groups[];
 extern struct tag_schema_group const tag_schema_effect_groups[];
 extern struct tag_schema_group const tag_schema_scenario_groups[];
 
+/* the Xbox's maps' layout (tag_schema_groups.c): tag_schema_group_lists */
+extern struct tag_schema_layout const tag_schema_xbox_layout;
+
+#ifdef HALO_CUSTOM_EDITION
+/* Halo PC's (Custom Edition's and HaloMD's maps), tag_schema_pc.c: its own
+groups (gbxmodels and the groups the Xbox's maps have none of) before the
+Xbox's, whose layouts Halo PC's tags share */
+extern struct tag_schema_group const tag_schema_pc_groups[];
+/* (tag_schema_models.c's: a gbxmodel, a model with Halo PC's parts) */
+extern struct tag_schema_definition const tag_schema_gbxmodel_schema;
+/* (its tools' overlapping blocks walked as their own where safe:
+_tag_schema_layout_overlaps_walked_bit) */
+extern struct tag_schema_layout const tag_schema_pc_layout;
+/* OpenSauce's (a map with an OpenSauce header: port/linux/game/opensauce_map.c),
+tag_schema_opensauce.c: Halo PC's with OpenSauce's groups first and its
+memory upgrades */
+extern struct tag_schema_layout const tag_schema_opensauce_layout;
+#endif
+
 /* ---------- prototypes/TAG_VALIDATE.C */
+
+/* room for the tags being checked (tag_validate_tags_layout) past them in
+their tag cache: size bytes, their Xbox address, or 0 if there is none.
+Where a loader gives it (cache_files.c, a Custom Edition or HaloMD map's:
+ce_resources_allocate_tags), a root, block or data whose bytes overlap
+another's in a way the walk could not keep shared is copied there, its own,
+rather than walked where it is, made none or refused: what the game or the
+walk writes in one then never changes what another reads. NULL (the
+Xbox's maps, tools/map_validate.c): they are not */
+extern unsigned long (*tag_validate_room_proc)(unsigned long size);
 
 /* the tags at tag_header (tag_data_size bytes read from a map file of
 file_length bytes): FALSE if they cannot be used. Before anything else
@@ -277,6 +375,22 @@ boolean tag_validate_tags(
 	long tag_data_size,
 	long file_length,
 	char const *map_name);
+
+/* the same for tags of another layout than the Xbox's (tag_validate_tags
+is this with tag_schema_xbox_layout). tag_data_size is all of the tags'
+bytes: a Custom Edition map's own, then its resource maps' tags copied in
+after them (port/linux/game/ce_resources.c) */
+boolean tag_validate_tags_layout(
+	struct tag_schema_layout const *layout,
+	void *tag_header,
+	long tag_data_size,
+	long file_length,
+	char const *map_name);
+
+/* the layout of the tags being checked (for checks: what differs between
+them, tag_schema_layout_flags) */
+unsigned long tag_validate_layout_flags(
+	struct tag_validation *validation);
 
 /* a structure bsp just read (size bytes at base, its header there) as tag
 tag_index: FALSE if it cannot be used */

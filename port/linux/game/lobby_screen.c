@@ -100,6 +100,7 @@ void platform_log(char const *format, ...);
 boolean pc_menus_chupathingy(void);
 boolean invite_prompt_active(void);
 boolean server_ok_to_countdown(struct network_game_server *server);
+boolean network_game_server_lobby_is_open(struct network_game_server *server);
 void network_game_server_dedicated_start_countdown(struct network_game_server *server);
 void network_game_server_keep_menus_variant(struct network_game_server *server);
 boolean ui_widget_port_dispatch_event(struct widget_instance *widget, short event_type, short controller_index,
@@ -574,6 +575,7 @@ static struct network_game *current_game(void)
 
 static void social_read(void)
 {
+#ifndef HALO_CONSOLE_NO_GUIDE
 	unsigned long now = system_milliseconds();
 	struct social_party party;
 	int serial;
@@ -599,6 +601,9 @@ static void social_read(void)
 	serial = lobby.social_serial;
 	browser_social_get(&lobby.social, &serial);
 	lobby.social_serial = serial;
+#endif
+	/* (a build without the Guide, HALO_CONSOLE_NO_GUIDE, has no party or
+	friends to read: browser.c leaves them out) */
 }
 
 static boolean in_party(char const *name)
@@ -839,7 +844,7 @@ static void read_type(struct network_game const *game)
 		long engine = game->variant.game_engine_index;
 
 		copy_text(lobby.type_name, sizeof(lobby.type_name), engine > 0 && engine < (long)NUMBEROF(engines) ?
-			engines[engine] : "New game type");
+			engines[engine] : !engine ? "Co-op" : "New game type");
 		if (engine == 2 && game->variant.universal_variant.teams)
 			copy_text(lobby.type_name, sizeof(lobby.type_name), "Team Slayer");
 	}
@@ -857,12 +862,38 @@ static void fact_set(char const *key, char const *value)
 	copy_text(fact->value, sizeof(fact->value), value);
 }
 
+/* a co-op game's difficulty (the game's 0 Easy to 3 Legendary), or NULL */
+static char const *coop_difficulty_name(long difficulty)
+{
+	static char const *const difficulties[] = { "Easy", "Normal", "Heroic", "Legendary" };
+
+	return difficulty >= 0 && difficulty < (long)NUMBEROF(difficulties) ? difficulties[difficulty] : NULL;
+}
+
+/* a co-op game's facts: its level and difficulty (it has no score, time
+limit or teams) */
+static void coop_facts(char const *map, long difficulty)
+{
+	char value[64];
+
+	lobby.fact_count = 0;
+	fact_set("Level", browser_screen_map_name(map, value, sizeof(value)));
+	if (coop_difficulty_name(difficulty))
+		fact_set("Difficulty", coop_difficulty_name(difficulty));
+}
+
 static void read_facts(struct network_game const *game)
 {
 	char value[40];
 	long score = game->variant.universal_variant.score_to_win;
 	short minutes = game->variant_options.time_limit;
 
+	/* (engine 0: a co-op game, on a campaign level) */
+	if (!game->variant.game_engine_index)
+	{
+		coop_facts(lobby.map, game->difficulty);
+		return;
+	}
 	lobby.fact_count = 0;
 	if (score > 0)
 	{
@@ -1008,7 +1039,15 @@ static void read_menu(struct network_game_server *server)
 	{
 	case _lobby_hosted:
 		if (lobby.started)
-			menu_add(_menu_cancel_start, "CANCEL START", "", TRUE);
+		{
+			/* (A shortens the countdown, as the Xbox's did; cancelling is
+			the row below, and only while the lobby is still open: once
+			the game has begun loading, the start can't be taken back) */
+			boolean open = !server || network_game_server_lobby_is_open(server);
+
+			menu_add(_menu_start_sooner, "START SOONER", "", open);
+			menu_add(_menu_cancel_start, "CANCEL START", "", open);
+		}
 		else
 		{
 			if (not_ready)
@@ -1166,7 +1205,7 @@ static void read_preview(void)
 	upper_text(lobby.map_name);
 	network_rules_engine_name(game->engine, game->teams, lobby.type_name, sizeof(lobby.type_name));
 	if (!lobby.type_name[0])
-		copy_text(lobby.type_name, sizeof(lobby.type_name), "New game type");
+		copy_text(lobby.type_name, sizeof(lobby.type_name), game->difficulty >= 1 ? "Co-op" : "New game type");
 	upper_text(lobby.type_name);
 	lobby.count = 0;
 	for (index = 0; index < game->roster_count && index < BROWSER_LISTED_ROSTER && lobby.count < MAXIMUM_ROWS; index++)
@@ -1207,6 +1246,17 @@ static void read_preview(void)
 	else
 		lobby.chip[0] = 0;
 	lobby.fact_count = 0;
+	/* (a co-op game: the list says its difficulty, 1 Easy to 4 Legendary) */
+	if (game->difficulty >= 1 && coop_difficulty_name(game->difficulty - 1))
+	{
+		coop_facts(game->map, game->difficulty - 1);
+		if (game->region[0])
+			fact_set("Region", game->region);
+		lobby.seconds = 0;
+		read_menu(NULL);
+		read_status(NULL);
+		return;
+	}
 	if (game->score_limit > 0)
 	{
 		snprintf(value, sizeof(value), "%d", game->score_limit);
@@ -1655,7 +1705,16 @@ static void menu_act(short controller)
 	switch (row->action)
 	{
 	case _menu_start: start_game(TRUE); break;
-	case _menu_cancel_start: start_game(FALSE); break;
+	case _menu_cancel_start:
+	{
+		struct network_game_server *server = global_network_game_server_get();
+
+		/* (not once the start went out: the server would sit in its lobby
+		with the start sent, and refuse every change) */
+		if (!server || network_game_server_lobby_is_open(server))
+			start_game(FALSE);
+		break;
+	}
 	case _menu_change_map:
 		if (!lobby.debug)
 		{

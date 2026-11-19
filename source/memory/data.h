@@ -92,6 +92,43 @@ long data_prev_index(struct data_array *data, long index);
 void data_compact(struct data_array *data);
 void data_make_valid(struct data_array *data);
 
+#ifdef HALO_CONSOLE_INLINE_ACCESSORS
+/* port: a console's busiest units' datum_get (halo_port_features.h): the
+datum without the call when the array is valid, the index has a salt or the
+array takes a salt of 0, the index is in the array and its datum is in use
+with that salt (datum_get's asserts, which source/memory keeps, and its
+checks; datum_get_checked gives NULL if not). Anything else is the
+function's, which asserts on it or returns NULL, as always */
+static __inline__ void *datum_get_checked(
+	struct data_array *data,
+	long index)
+{
+	short identifier = index>>16;
+	short absolute_index = index;
+
+	if (data->valid && (identifier || !data->identifier_zero_invalid) &&
+		absolute_index>=0 && absolute_index<data->count)
+	{
+		struct datum_header *header = (struct datum_header *)((byte *)xbox_pointer(data->data)+data->size*absolute_index);
+
+		if (header->identifier && (!identifier || identifier==header->identifier))
+			return header;
+	}
+
+	return NULL;
+}
+
+static __inline__ void *datum_get_fast(
+	struct data_array *data,
+	long index)
+{
+	void *header = datum_get_checked(data, index);
+
+	return header ? header : (datum_get)(data, index);
+}
+#define datum_get(data, index) datum_get_fast((data), (index))
+#endif
+
 
 /* ---------- globals */
 
