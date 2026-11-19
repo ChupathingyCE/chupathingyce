@@ -713,9 +713,10 @@ static boolean ce_map_check_tags(
 		goto done;
 	}
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
-	/* (and on a 64 MB console, below what isn't memory beneath the BSPs) */
+	/* (and on a 64 MB console, below what isn't memory beneath the BSPs:
+	its tags and the zeroes kept after them for its last tag, ce_tags_tail) */
 	end_free = platform_ce_room_end(end_free);
-	if (end_free < CE_IMAGE_TAG_CACHE_BASE + tag_data_size)
+	if (end_free < image.base + image.size)
 	{
 		ce_refusal_explain_room();
 		ce_refuse("its tags and structure BSPs (from %08lx) need more of the tag cache than a 64 MB console has",
