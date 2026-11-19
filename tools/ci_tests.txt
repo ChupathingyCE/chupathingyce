@@ -36,6 +36,7 @@ tools/test_console_shell.py
 tools/test_coop_level_prompt.py
 tools/test_coop_spectate.py
 tools/test_crash_null_call.py
+tools/test_crosshair_position.py
 tools/test_debug_camera.py
 tools/test_delta.py
 tools/test_delta_compat.py

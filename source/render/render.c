@@ -744,6 +744,24 @@ static void render_player_frame(
 
 	render_camera_build_frustum_bounds(camera, &frustum_bounds);
 
+	/* port: display.crosshair_position, the aim point drawn lower (or in the
+	middle of a split screen's view): the view's bounds moved up as far, so
+	the aim stays under the crosshair (crosshairs_draw moves it as much) */
+	{
+		real offset = first_person_aim_offset(
+			window->local_player_index,
+			&camera->viewport_bounds,
+			&camera->window_bounds);
+
+		if (offset != 0.0f)
+		{
+			real shift = 2.0f * offset / (real)(camera->window_bounds.y1 - camera->window_bounds.y0);
+
+			frustum_bounds.y0 += shift;
+			frustum_bounds.y1 += shift;
+		}
+	}
+
 	if (screenshot_combined_index != NULL)
 	{
 		long tile_count;

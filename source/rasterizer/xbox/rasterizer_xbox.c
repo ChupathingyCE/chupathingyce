@@ -2936,8 +2936,19 @@ width; only its x and y, the depth as before */
 		{
 			for (row = 0; row < 4; row++)
 			{
-				vertex_constants[0][row] *= scale;
-				vertex_constants[1][row] *= scale;
+				const real *n = global_window_parameters.frustum.world_to_view.n[row];
+
+				for (column = 0; column < 2; column++)
+				{
+					/* (about where the view's axis is drawn: the middle, or
+					off it with display.crosshair_position or a tiled
+					screenshot's frustum) */
+					real center = n[2] * global_window_parameters.frustum.projection_matrix[2][column];
+
+					vertex_constants[column][row] *= scale;
+					if (center != 0.0f)
+						vertex_constants[column][row] += center * (1.0f - scale);
+				}
 			}
 		}
 	}

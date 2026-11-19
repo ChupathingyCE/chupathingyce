@@ -1416,6 +1416,70 @@ real first_person_weapon_projection_scale(
 	return weapon_scale > 0.0f ? first_person_field_of_view_scale() / weapon_scale : 1.0f;
 }
 
+/* port: display.crosshair_position (#508), how far down (in the window's
+units, a HUD pixel) a local player's aim point is drawn, and the crosshair
+with it, from the middle of its window, where the Xbox draws both ("retail",
+0). "centered" puts them in the middle of the player's view: the same in a
+game alone, but a split screen's views reach the screen's edges past their
+windows (the title-safe frame), so the Xbox's aim is a little off their
+middle. "lowered" puts them a tenth of the view's height below its middle,
+as later Halo games do. The view itself moves (render_player_frame moves
+its frustum's bounds, as a tiled screenshot's are), so the aim stays under
+the crosshair: what is seen and where shots go are the same, only framed
+higher or lower. Not while zoomed (the scope's picture is drawn in the
+middle), nor in a cutscene or a view without the player's aim. 0 on the
+original Xbox */
+real first_person_aim_offset(
+	short local_player_index,
+	rectangle2d const *viewport_bounds,
+	rectangle2d const *window_bounds)
+{
+#ifndef HALO_XBOX_CONSOLE
+	extern int config_text(const char *name, char *text, size_t size);
+	static unsigned long read_at = (unsigned long)-1;
+	static short position = 0;
+	short perspective;
+	real viewport_middle;
+	real window_middle;
+
+	if (read_at != config_changes())
+	{
+		char text[32];
+
+		read_at = config_changes();
+		position = 0;
+		if (config_text("display.crosshair_position", text, sizeof(text)))
+		{
+			if (!strcmp(text, "centered"))
+				position = 1;
+			else if (!strcmp(text, "lowered"))
+				position = 2;
+		}
+	}
+	if (!position ||
+		local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS ||
+		cinematic_in_progress() ||
+		player_control_get_zoom_level(local_player_index) != NONE)
+	{
+		return 0.0f;
+	}
+	perspective = director_get_perspective(local_player_index);
+	if (perspective != _director_perspective_first_person && perspective != _director_perspective_third_person)
+		return 0.0f;
+
+	viewport_middle = (viewport_bounds->y0 + viewport_bounds->y1) * 0.5f;
+	window_middle = (window_bounds->y0 + window_bounds->y1) * 0.5f;
+	if (position == 2)
+		viewport_middle += (viewport_bounds->y1 - viewport_bounds->y0) * 0.1f;
+	return (real)fast_ftol(viewport_middle - window_middle);
+#else
+	(void)local_player_index;
+	(void)viewport_bounds;
+	(void)window_bounds;
+	return 0.0f;
+#endif
+}
+
 /* port: display.reticle_scales_with_fov, what the reticle's size (and its
 items' offsets from the middle) is scaled by in the local player's
 first-person view: the inverse of the field of view's tangent scale, as the

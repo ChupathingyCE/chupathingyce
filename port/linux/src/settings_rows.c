@@ -144,6 +144,9 @@ static const char *const hud_buttons_choices[] = { "classic", "hd", NULL };
 /* the reticle's size (display.reticle_scale), as Video Setup's View shows it */
 static const char *const reticle_size_choices[] = { "0.5", "0.75", "1", "1.25", "1.5", "2", NULL };
 static const char *const reticle_size_names[] = { "50%", "75%", "100%", "125%", "150%", "200%", NULL };
+/* the crosshair's place (display.crosshair_position) */
+static const char *const crosshair_position_choices[] = { "retail", "centered", "lowered", NULL };
+static const char *const crosshair_position_names[] = { "XBOX", "CENTERED", "LOWERED", NULL };
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -188,6 +191,8 @@ static const struct settings_row settings_rows[] =
 	{ _in_display | _in_guide, "PLASMA SPARKS", "display.plasma_sparks", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "RETICLE SIZE", "display.reticle_scale", _kind_choices, reticle_size_choices,
 	  reticle_size_names, 0, 0 },
+	{ _in_display | _in_guide, "CROSSHAIR", "display.crosshair_position", _kind_choices, crosshair_position_choices,
+	  crosshair_position_names, 0, 0 },
 	{ _in_display | _in_guide, "WEAPON MODEL", "display.first_person_weapon", _kind_toggle, NULL, NULL, 0, 0 },
 
 #ifdef HALO_LAUNCHER
