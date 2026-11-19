@@ -232,7 +232,9 @@ The buttons at the top of the screen:
   - "General": the phone's vibration (on by default; it follows the
     vibration setting of the game's profile), aiming with the phone's
     gyroscope (off by default; its motion goes through the same filter as
-    a controller's gyro aim, `port/linux/src/gyro_aim.c`), "Hide or add
+    a controller's gyro aim, `port/linux/src/gyro_aim.c`, with the
+    default deadzone of 0.75 degrees a second: `input.gyro_deadzone` and
+    the other `input.gyro_*` settings are the controllers'), "Hide or add
     buttons" (hide a button, add a copy of a button) and "Edit buttons
     size".
   - "Edit buttons layout": drag the controls to new positions, then push

@@ -82,10 +82,13 @@ public final class TouchControls extends View implements SensorEventListener, In
     private final SharedPreferences preferences;
     private boolean editing, optionsOpen;
     private final SensorManager sensors;
-    private final Sensor gyroscope;
+    private final Sensor gyroscope, accelerometer;
     private final Vibrator vibrator;
     private final GyroscopeAim gyroAim = new GyroscopeAim();
     private final float[] gyroRates = new float[3];
+    /** the latest accelerometer reading (m/s^2, the sensor's axes), for the filter's still check */
+    private final float[] accel = new float[3];
+    private boolean hasAccel;
     private boolean deviceInputActive, gyroRegistered;
     private int lastAmplitude;
     private long lastVibration;
@@ -122,7 +125,8 @@ public final class TouchControls extends View implements SensorEventListener, In
     private static native void nativeLook(float dx, float dy);
     private static native void nativeLookReset();
     /** a gyroscope sample in the display's axes (GyroscopeAim), filtered and added to the view swipe */
-    private static native void nativeGyro(long time, float x, float y, float z, float scale, boolean restart);
+    private static native void nativeGyro(long time, float x, float y, float z, float scale, int restart,
+        boolean hasAccel, float ax, float ay, float az);
     private int dragPointer = -1, dragControl = -1;
     private float dragOffsetX, dragOffsetY;
     private float scale = 1, offsetX, offsetY;
@@ -144,6 +148,7 @@ public final class TouchControls extends View implements SensorEventListener, In
         super(context);
         sensors = (SensorManager) context.getSystemService(Context.SENSOR_SERVICE);
         gyroscope = sensors == null ? null : sensors.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        accelerometer = sensors == null ? null : sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         if (Build.VERSION.SDK_INT >= 31) {
             VibratorManager manager = (VibratorManager) context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
             vibrator = manager == null ? null : manager.getDefaultVibrator();
@@ -497,7 +502,10 @@ public final class TouchControls extends View implements SensorEventListener, In
         boolean needed = deviceInputActive && shown() && layout.gyroscopeEnabled && gyroscope != null;
         if (needed && !gyroRegistered) {
             gyroAim.reset();
+            hasAccel = false;
             gyroRegistered = sensors.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME);
+            if (gyroRegistered && accelerometer != null)
+                sensors.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
         } else if (!needed && gyroRegistered) {
             sensors.unregisterListener(this); gyroRegistered = false; gyroAim.reset();
         }
@@ -514,11 +522,16 @@ public final class TouchControls extends View implements SensorEventListener, In
         if (!deviceInputActive || !shown() || !layout.gyroscopeEnabled || editing || optionsOpen) {
             gyroAim.reset(); return;
         }
+        if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
+            accel[0] = event.values[0]; accel[1] = event.values[1]; accel[2] = event.values[2];
+            hasAccel = true; return;
+        }
         int rotation = ((WindowManager)getContext().getSystemService(Context.WINDOW_SERVICE))
             .getDefaultDisplay().getRotation();
         if (gyroAim.sample(event.timestamp, event.values[0], event.values[1], event.values[2], rotation, gyroRates))
             // as nativeLook, logical pixels (0.0022 radians per pixel).
-            nativeGyro(event.timestamp, gyroRates[0], gyroRates[1], gyroRates[2], sensitivity/0.0022f, gyroAim.restart);
+            nativeGyro(event.timestamp, gyroRates[0], gyroRates[1], gyroRates[2], sensitivity/0.0022f, gyroAim.restart,
+                hasAccel, accel[0], accel[1], accel[2]);
     }
 
     @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}

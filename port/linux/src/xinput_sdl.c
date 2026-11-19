@@ -2372,7 +2372,9 @@ static struct gyro_pad *gyro_pad_add(SDL_JoystickID id)
 	return pad;
 }
 
-/* gyro aim turned off: every pad's sensors off, as the game started */
+/* gyro aim turned off or on: every pad's sensors off, as the game
+started, and every pad forgotten, so that one found with no gyroscope is
+asked again */
 static void gyro_sensors_off(void)
 {
 	SDL_JoystickID ids[GYRO_PADS];
@@ -2398,8 +2400,21 @@ static void gyro_sensors_off(void)
 	}
 }
 
+/* the sensors follow input.gyro_aim, in the menus too (XInputGetState,
+each frame): turned off, every pad's go off at once */
+static void gyro_sensors_follow(void)
+{
+	gyro_settings_read();
+	if (gyro.settings.enabled == gyro_sensors_wanted)
+		return;
+	gyro_sensors_wanted = gyro.settings.enabled;
+	gyro_sensors_off();
+}
+
 /* a pad's sensors on, the first time its turn is asked for; FALSE for a
-pad with no gyroscope */
+pad with no gyroscope. A pad found with none is asked again each time
+(cheap: SDL keeps the answer), so a sensor SDL finds later is used; a
+controller plugged in again is a new ID to SDL, asked anew */
 static BOOL gyro_sensors_on(SDL_Gamepad *gamepad, SDL_JoystickID id)
 {
 	struct gyro_pad *pad;
@@ -2411,7 +2426,13 @@ static BOOL gyro_sensors_on(SDL_Gamepad *gamepad, SDL_JoystickID id)
 	{
 		on = pad->state == _gyro_pad_on;
 		pthread_mutex_unlock(&gyro_lock);
-		return on;
+		if (on || !SDL_GamepadHasSensor(gamepad, SDL_SENSOR_GYRO))
+			return on;
+		pthread_mutex_lock(&gyro_lock);
+		/* (it has one now: asked again below) */
+		pad = gyro_pad_find(id);
+		if (pad)
+			pad->state = _gyro_pad_free;
 	}
 	pthread_mutex_unlock(&gyro_lock);
 	on = SDL_GamepadHasSensor(gamepad, SDL_SENSOR_GYRO) &&
@@ -2484,12 +2505,7 @@ int halo_linux_gyro_look(short gamepad_index, float *yaw, float *pitch)
 	*pitch = 0.0f;
 	gyro_settings_read();
 #ifdef HALO_PORT_GYRO_SDL
-	if (gyro.settings.enabled != gyro_sensors_wanted)
-	{
-		gyro_sensors_wanted = gyro.settings.enabled;
-		if (!gyro_sensors_wanted)
-			gyro_sensors_off();
-	}
+	gyro_sensors_follow();
 #endif
 	if (!gyro.settings.enabled || gamepad_index < 0)
 		return FALSE;
@@ -2847,6 +2863,11 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 	test_virtual_pads_update();
 #endif
 	platform_pump_events();
+#ifdef HALO_PORT_GYRO_SDL
+	/* (gyro aim's sensors off as soon as it is turned off) */
+	if (port == 0)
+		gyro_sensors_follow();
+#endif
 	count = sdl_gamepads(gamepads);
 	if (port == 0)
 	{

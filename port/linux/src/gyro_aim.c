@@ -82,7 +82,8 @@ static void gyro_window_start(struct gyro_filter *filter, const float rate[3], c
 }
 
 /* the bias: learnt from each second the controller lies still (the first
-one taken as it is, later ones halfway) */
+one taken as it is, later ones halfway, and only those within
+GYRO_FILTER_STILL_BIAS_CHANGE of the bias learnt) */
 static void gyro_calibrate(struct gyro_filter *filter, const float rate[3], const float accel[3], float dt)
 {
 	int axis, still = 1;
@@ -123,7 +124,11 @@ static void gyro_calibrate(struct gyro_filter *filter, const float rate[3], cons
 		{
 			float mean = filter->window_sum[axis] / filter->window_time;
 
-			if (gyro_absolute(mean) > GYRO_FILTER_STILL_MEAN)
+			/* (once a bias is learnt, a still second must be near it: a
+			slow steady pan, as smooth as a controller lying still, is not
+			taken for drift) */
+			if (gyro_absolute(mean) > GYRO_FILTER_STILL_MEAN ||
+				(filter->still_count && gyro_absolute(mean - filter->bias[axis]) > GYRO_FILTER_STILL_BIAS_CHANGE))
 				break;
 		}
 		if (axis == 3)

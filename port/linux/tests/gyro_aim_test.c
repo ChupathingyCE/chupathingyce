@@ -114,9 +114,9 @@ static void test_drift(void)
 	memset(angle, 0, sizeof(angle));
 	run(&filter, drift, one_g, 60.0f, 0.0f, angle);
 	NEAR(angle[1], 0.0f, DEGREES(1.0));
-	/* the drift changes (the sensor warmed up): learnt again, halfway each
-	still second */
-	drift[1] = DEGREES(-3.0);
+	/* the drift changes a little (the sensor warmed up): learnt again,
+	halfway each still second */
+	drift[1] = DEGREES(-2.3);
 	run(&filter, drift, one_g, 10.0f, DEGREES(0.75), angle);
 	NEAR(filter.bias[1], drift[1], DEGREES(0.05));
 	/* without the deadzone and without the learnt bias, the same minute
@@ -138,6 +138,28 @@ static void test_drift(void)
 		CHECK(fresh.still_count == 0);
 		NEAR(lost[1], DEGREES(-180.0), DEGREES(1.0));
 	}
+}
+
+/* a slow steady pan, as smooth as a controller lying still (the review's
+probe: 2 seconds at 4 degrees a second), is not learnt as drift once a
+bias is known, so the view does not creep back after it */
+static void test_slow_pan(void)
+{
+	struct gyro_filter filter;
+	float angle[3] = { 0.0f, 0.0f, 0.0f };
+	float still[3] = { 0.0f, 0.0f, 0.0f };
+	float pan[3] = { 0.0f, DEGREES(4.0), 0.0f };
+
+	gyro_filter_reset(&filter);
+	run(&filter, still, one_g, 1.5f, DEGREES(0.75), angle);
+	CHECK(filter.still_count == 1);
+	memset(angle, 0, sizeof(angle));
+	run(&filter, pan, one_g, 2.0f, DEGREES(0.75), angle);
+	NEAR(filter.bias[1], 0.0f, DEGREES(0.05));
+	run(&filter, still, one_g, 10.0f, DEGREES(0.75), angle);
+	NEAR(filter.bias[1], 0.0f, DEGREES(0.05));
+	/* (the pan less the deadzone, and no creep after it) */
+	NEAR(angle[1], DEGREES((4.0 - 0.75) * 2.0), DEGREES(0.5));
 }
 
 /* a real turn is never taken for the bias, and comes through whole */
@@ -317,6 +339,7 @@ int main(int argc, char **argv)
 	test_settings();
 	test_drift();
 	test_turn();
+	test_slow_pan();
 	test_smoothing();
 	test_deadzone();
 	test_gaps();

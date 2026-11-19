@@ -139,12 +139,18 @@ JNIEXPORT void JNICALL Java_com_halo_decomp_TouchControls_nativeLookReset(JNIEnv
 /* a gyroscope sample from the overlay, in the display's axes (x right, y
 up, z out of it; radians a second; GyroscopeAim.java), at time (the
 sensor's nanoseconds); scale is the overlay's logical pixels a radian, its
-sensitivity applied. restart: the first sample, or one after a rotation or
-a gap: the filter starts over */
+sensitivity applied. restart (GyroscopeAim's): 1 after a gap or a pause,
+the time starts over and the bias learnt is kept; 2 after a rotation (or
+the first sample), the filter starts over. The accelerometer's latest
+reading (metres a second squared), when has_accel, tells the filter
+whether the phone lies still. The deadzone is gyro aiming's default:
+input.gyro_deadzone is the controllers' */
 JNIEXPORT void JNICALL Java_com_halo_decomp_TouchControls_nativeGyro(
-	JNIEnv *env, jclass cls, jlong time, jfloat x, jfloat y, jfloat z, jfloat scale, jboolean restart)
+	JNIEnv *env, jclass cls, jlong time, jfloat x, jfloat y, jfloat z, jfloat scale, jint restart,
+	jboolean has_accel, jfloat ax, jfloat ay, jfloat az)
 {
 	float rate[3];
+	float accel[3];
 	float angle[3] = { 0.0f, 0.0f, 0.0f };
 	float dt;
 
@@ -153,15 +159,19 @@ JNIEXPORT void JNICALL Java_com_halo_decomp_TouchControls_nativeGyro(
 	rate[0] = x;
 	rate[1] = y;
 	rate[2] = z;
+	/* (in g: SDL's SDL_STANDARD_GRAVITY) */
+	accel[0] = ax / 9.80665f;
+	accel[1] = ay / 9.80665f;
+	accel[2] = az / 9.80665f;
 	pthread_mutex_lock(&touch_lock);
-	if (restart)
-	{
+	if (restart >= 2)
 		gyro_filter_reset(&phone_gyro);
+	if (restart >= 1)
 		phone_gyro_ns = 0;
-	}
 	dt = phone_gyro_ns && time > phone_gyro_ns ? (float)(time - phone_gyro_ns) * 1.0e-9f : 0.0f;
 	phone_gyro_ns = time;
-	gyro_filter_sample(&phone_gyro, rate, NULL, dt, GYRO_AIM_DEADZONE_DEFAULT * 0.017453292f, angle);
+	gyro_filter_sample(&phone_gyro, rate, has_accel ? accel : NULL, dt, GYRO_AIM_DEADZONE_DEFAULT * 0.017453292f,
+		angle);
 	if (angle[0] != 0.0f || angle[1] != 0.0f)
 	{
 		/* (the turn about the display's y swipes across, about its x up

@@ -82,6 +82,12 @@ time constant (seconds) */
 #define GYRO_FILTER_STILL_SPREAD 0.03491f
 #define GYRO_FILTER_STILL_ACCEL 0.03f
 #define GYRO_FILTER_STILL_MEAN 0.10472f
+/* after the first still second, a later one changes the bias only if its
+mean is within this of it (radians a second: 1 degree). BirchWood's Vita
+took any still second; a slow steady pan, 2 seconds at 4 degrees a second,
+passed for still and was learnt as 3 degrees a second of drift, so the
+view then crept the other way */
+#define GYRO_FILTER_STILL_BIAS_CHANGE 0.01745f
 /* a gap longer than this (seconds) between two samples integrates nothing
 (BirchWood's Vita sampled at 60 Hz or more and had 0.05; a phone's and a
 Bluetooth controller's samples come further apart now and then) */
