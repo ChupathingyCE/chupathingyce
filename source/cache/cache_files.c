@@ -2088,13 +2088,20 @@ long scenario_tags_load(
 					(long)(tags_end - CE_TAG_CACHE_BASE) :
 					(long)own_size;
 
+				extern unsigned long ce_resources_allocate_tags(unsigned long size);
+				boolean tags_valid;
+
 				/* (Custom Edition's and HaloMD's alike, overlapping blocks
-				walked as their own where safe, as HaloMD plays them:
-				tag_schema_pc.c) */
-				if (!tag_validate_tags_layout(
+				given copies of their own past the tags, or walked as their
+				own where safe, as HaloMD plays them: tag_schema_pc.c,
+				ce_resources_allocate_tags) */
+				tag_validate_room_proc = ce_resources_allocate_tags;
+				tags_valid = tag_validate_tags_layout(
 					opensauce_map_active() ? &tag_schema_opensauce_layout : &tag_schema_pc_layout,
 					tag_cache_base_address, tags_size,
-					cache_file_globals.header.file_length, scenario_name))
+					cache_file_globals.header.file_length, scenario_name);
+				tag_validate_room_proc = NULL;
+				if (!tags_valid)
 				{
 					error(_error_silent, "%s map %s: its tags are not %s layout; the map is not loaded",
 						cache_file_globals.header.version == CACHE_FILE_RETAIL_VERSION ? "HaloMD" : "Custom Edition", scenario_name,

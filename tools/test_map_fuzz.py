@@ -773,13 +773,14 @@ def test_conversions_write_nothing_over_the_tag_index(built, tmp_path):
     struct.pack_into("<I", data, offsets["instances"] + 2 * 0x20 + 0x14, base + (shader_address + 2 - 0x38 - 0x800))
     path = tmp_path / "functions_over_index.map"
     path.write_bytes(bytes(data))
-    # (Halo PC's tag schema refuses the map, the damage effect's root over
-    # the tag index, whose corrections never settle; the conversions,
-    # without it, write nothing there)
+    # (Halo PC's tag schema gives the damage effect's root, over the tag
+    # index, a copy of its own past the tags, which its corrections are
+    # made in, and the map loads; the conversions, without the schema,
+    # write nothing there)
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
     assert result.returncode == 0, result.stderr[-4000:]
-    assert "corrections still change others" in result.stderr, result.stderr[-4000:]
-    assert "refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
+    assert "has its own copy made: tag 'fuzz' (jpt!)" in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
     assert result.returncode == 0, result.stderr[-4000:]
     assert "refused" not in result.stderr, result.stderr[-4000:]
@@ -1024,6 +1025,101 @@ def test_stubbs_image_effects_and_vegetation_checked(built, tmp_path):
     assert result.returncode == 0, result.stderr[-4000:]
     assert "(imef): stages has 2 elements" in result.stderr and "outside the tags" in result.stderr, \
         result.stderr[-4000:]
+
+
+def ustr_map_sharing_strings(version):
+    """two unicode string lists of one string each, the second's string
+    starting inside the first's ("Kill penalty: Off" and "Off", as Halo PC
+    retail's tools left the retail UI's strings), and its offsets"""
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"ustr", 0x80), (b"ustr", 0x80)])
+    first, second = offsets["tags"]
+    text = "Kill penalty: Off\0".encode("utf-16-le")
+    for tag in (first, second):
+        # (the list's one entry, 0x10 in, a data of 20 bytes)
+        struct.pack_into("<iII", data, tag, 1, base + tag + 0x10 - 0x800, 0)
+    struct.pack_into("<iiiII", data, first + 0x10, len(text), 0, 0, base + first + 0x24 - 0x800, 0)
+    data[first + 0x24:first + 0x24 + len(text)] = text
+    struct.pack_into("<iiiII", data, second + 0x10, 8, 0, 0, base + first + 0x24 + 14 * 2 - 0x800, 0)
+    struct.pack_into("<i", data, 4, version)
+    return data, offsets
+
+
+def test_pc_strings_sharing_bytes_given_their_own(built, tmp_path):
+    """a Halo PC map's string whose bytes are inside another tag's string
+    (66 HaloMD and Custom Edition maps' var_kill_penalty and HUD strings):
+    given a copy of its own past the tags, not made none, in a Custom
+    Edition map and a HaloMD map alike; the map loads, and its tags as
+    corrected are clean when checked again (map_fuzz.c)"""
+    binaries, _ = built
+    for version in (609, 7):
+        data, _ = ustr_map_sharing_strings(version)
+        path = tmp_path / f"strings_{version}.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "strings[0].string has 8 bytes at" in result.stderr, result.stderr[-4000:]
+        assert "has its own copy made" in result.stderr, result.stderr[-4000:]
+        assert "overlapping another's: none" not in result.stderr, result.stderr[-4000:]
+        assert "1 roots, blocks and data overlapping others' given their own copies (8 bytes)" in result.stderr, \
+            result.stderr[-4000:]
+        assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_block_over_a_root_and_its_string_given_their_own(built, tmp_path):
+    """the same, and an item collection's permutation laid over the second
+    list's root and entry, which it reads as another structure: the
+    permutation is given a copy of its own first, then the string (whose
+    pointer is now in bytes only the list reads), and the map loads"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"ustr", 0x80), (b"itmc", 0x5C), (b"ustr", 0x80)])
+    first, collection, second = offsets["tags"]
+    text = "Kill penalty: Off\0".encode("utf-16-le")
+    for tag in (first, second):
+        struct.pack_into("<iII", data, tag, 1, base + tag + 0x10 - 0x800, 0)
+    struct.pack_into("<iiiII", data, first + 0x10, len(text), 0, 0, base + first + 0x24 - 0x800, 0)
+    data[first + 0x24:first + 0x24 + len(text)] = text
+    struct.pack_into("<iiiII", data, second + 0x10, 8, 0, 0, base + first + 0x24 + 14 * 2 - 0x800, 0)
+    # (one permutation of 0x54 bytes over the second list's root and entry:
+    # its item reference, 0x24 in, none and named as the map's tags are)
+    name = struct.unpack_from("<I", data, offsets["instances"] + 0x10)[0]
+    struct.pack_into("<iI", data, collection, 1, base + second - 0x800)
+    struct.pack_into("<4sIiI", data, second + 0x24, b"\xff\xff\xff\xff", name, 0, 0xFFFFFFFF)
+    path = tmp_path / "strings_in_walked_root.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "(itmc): permutations has 84 bytes at" in result.stderr, result.stderr[-4000:]
+    assert "(ustr): strings[0].string has 8 bytes at" in result.stderr, result.stderr[-4000:]
+    assert "2 roots, blocks and data overlapping others' given their own copies (92 bytes)" in result.stderr, \
+        result.stderr[-4000:]
+    assert "another's: none" not in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_string_over_another_tags_root_copied(built, tmp_path):
+    """a string list's entry, shared by two lists, whose string's bytes are
+    the next tag's root: its check, which terminates the string, wrote in
+    that root's block after the root was checked, and the next check read
+    the block's elements from what it wrote (a crash). The string is given
+    a copy of its own, as it is read as data and the root as a structure,
+    and the map loads"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"ustr", 0x40), (b"ustr", 0x40)])
+    first, second = offsets["tags"]
+    struct.pack_into("<iII", data, first, 1, base + first + 0x10 - 0x800, 0)
+    struct.pack_into("<iII", data, second, 1, base + first + 0x10 - 0x800, 0)
+    # (8 bytes at the second list's root, which a terminator would end)
+    struct.pack_into("<iiiII", data, first + 0x10, 8, 0, 0, base + second - 0x800, 0)
+    path = tmp_path / "string_over_root.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "strings[0].string has 8 bytes at" in result.stderr, result.stderr[-4000:]
+    assert "has its own copy made" in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
 
 
 def test_pc_netgame_flags_and_equipment_past_200(built, tmp_path):

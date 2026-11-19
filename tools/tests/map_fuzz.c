@@ -189,6 +189,8 @@ extern struct tag_schema_layout const tag_schema_opensauce_layout;
 boolean tag_validate_tags_layout(struct tag_schema_layout const *layout, void *tag_header, long tag_data_size,
 	long file_length, char const *map_name);
 unsigned long ce_resources_free_mark(void);
+unsigned long ce_resources_allocate_tags(unsigned long size);
+extern unsigned long (*tag_validate_room_proc)(unsigned long size);
 #endif
 
 boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset, long tag_data_size);
@@ -1175,11 +1177,17 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 		unsigned long opensauce_signature;
 		struct tag_schema_layout const *layout;
 		char const *layout_name;
+		boolean valid_tags;
 
 		memcpy(&opensauce_signature, data + 0x70, sizeof(opensauce_signature));
 		layout = opensauce_signature == 'yelo' ? &tag_schema_opensauce_layout : &tag_schema_pc_layout;
 		layout_name = opensauce_signature == 'yelo' ? "OpenSauce" : "Halo PC";
-		if (!tag_validate_tags_layout(layout, tag_cache, tags_size, header->file_length, "fuzz"))
+		/* (overlapping blocks given copies of their own past the tags, as
+		scenario_tags_load gives them room: ce_resources_allocate_tags) */
+		tag_validate_room_proc = ce_resources_allocate_tags;
+		valid_tags = tag_validate_tags_layout(layout, tag_cache, tags_size, header->file_length, "fuzz");
+		tag_validate_room_proc = NULL;
+		if (!valid_tags)
 		{
 			if (fuzz_verbose)
 				fprintf(stderr, "map_fuzz: the map was refused by %s's tag schema\n", layout_name);
@@ -1190,7 +1198,12 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 				(long)tag_validate_corrections());
 		if (tag_validate_corrections())
 		{
-			boolean valid = tag_validate_tags_layout(layout, tag_cache, tags_size, header->file_length, "fuzz");
+			/* (the copies are the tags' now: in what they take) */
+			unsigned long copies_end = ce_resources_free_mark();
+			long checked_size = copies_end > CE_TAG_CACHE_BASE + (unsigned long)tags_size &&
+				copies_end <= CE_TAG_CACHE_BASE + CE_TAG_CACHE_SIZE ?
+				(long)(copies_end - CE_TAG_CACHE_BASE) : tags_size;
+			boolean valid = tag_validate_tags_layout(layout, tag_cache, checked_size, header->file_length, "fuzz");
 
 			if (!valid || tag_validate_corrections())
 			{

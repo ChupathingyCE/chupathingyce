@@ -178,6 +178,9 @@ address there, 0 while the tag cache's room is used. Allocations only ever
 move up, so a mark (ce_resources_free_mark) is the lowest address of all
 that is allocated after it */
 static unsigned long ce_room_next;
+/* the bytes the tag validator was given right after the tags
+(ce_resources_allocate_tags) */
+static unsigned long ce_tags_room_used;
 /* what the placing of a map's resources wrote in its tags
 (ce_resources_place), hashed as it is written: NULL when not placing */
 static struct mcc_sha256 *ce_resources_written;
@@ -1961,6 +1964,7 @@ boolean ce_resources_tags_loaded(
 	ce_indexed_tag_count = ce_indexed_tags ? tag_count : 0;
 	ce_free_next = ce_free_end = 0;
 	ce_room_next = 0;
+	ce_tags_room_used = 0;
 	/* (the map's own tags, until its resource maps' are copied in after
 	them: what the conversions read is in these, ce_loaded_pointer; and no
 	blocks placed past them yet, the last map's let go) */
@@ -2814,6 +2818,31 @@ unsigned long ce_resources_allocate(
 	if (address > room_end || size > room_end - address)
 		return 0;
 	ce_room_next = (address + size + 15) & ~15UL;
+	return address;
+}
+
+/* size bytes (16-byte aligned) of the map's tag cache right after its tags,
+for the tag validator to copy a root, block or data there whose bytes
+another's overlap (tag_validate.c's tag_validate_room_proc): only before
+anything else is placed past them, below its BSPs, and no more in all than
+the map was checked to leave spare past its models' and BSP's buffers
+(ce_map_checked_spare_room). The tags then end past it, for the
+conversions (ce_loaded_pointer). Its Xbox address, or 0 if there is no room */
+unsigned long ce_resources_allocate_tags(
+	unsigned long size)
+{
+	unsigned long address = ce_free_next;
+	unsigned long spare = ce_map_checked_spare_room();
+	unsigned long aligned = (size + 15) & ~15UL;
+
+	if (!address || ce_room_next || !size || aligned < size || address > ce_free_end ||
+		aligned > ce_free_end - address || ce_tags_room_used > spare || aligned > spare - ce_tags_room_used)
+	{
+		return 0;
+	}
+	ce_free_next = address + aligned;
+	ce_tags_room_used += aligned;
+	ce_loaded_tags_end(ce_free_next);
 	return address;
 }
 

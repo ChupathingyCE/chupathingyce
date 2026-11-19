@@ -357,6 +357,16 @@ extern struct tag_schema_layout const tag_schema_opensauce_layout;
 
 /* ---------- prototypes/TAG_VALIDATE.C */
 
+/* room for the tags being checked (tag_validate_tags_layout) past them in
+their tag cache: size bytes, their Xbox address, or 0 if there is none.
+Where a loader gives it (cache_files.c, a Custom Edition or HaloMD map's:
+ce_resources_allocate_tags), a root, block or data whose bytes overlap
+another's in a way the walk could not keep shared is copied there, its own,
+rather than walked where it is, made none or refused: what the game or the
+walk writes in one then never changes what another reads. NULL (the
+Xbox's maps, tools/map_validate.c): they are not */
+extern unsigned long (*tag_validate_room_proc)(unsigned long size);
+
 /* the tags at tag_header (tag_data_size bytes read from a map file of
 file_length bytes): FALSE if they cannot be used. Before anything else
 reads them; corrections are made in place */
