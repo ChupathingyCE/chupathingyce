@@ -6,10 +6,12 @@ and acknowledge everything for SECONDS, built on the wire of
 tools/test_ce_joins.py (the transport's handshake, its key agreement, the
 cipher and the framing).
 
-Each prints how far it got (playing, refused and why, or closed by the
-server: a drop) and the last roster the server told it (its game settings:
-how many players, and their teams), so a run shows that every client sees
-every player.
+A client told to reconnect (a game's end, the next one up) closes its
+connection and joins again a second later, as a Custom Edition client does.
+Each prints how far it got (playing, refused, or closed by the server: a
+drop), how many games it joined and the fullest roster the server told it
+(its game settings: how many players, and their teams), so a run shows that
+every client sees every player.
 
     python3 tools/ce_stand_in_clients.py --port 2412 --count 16 --seconds 150
 
@@ -30,10 +32,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 try:
     import pytest  # noqa: F401
-except ImportError:  # (test_ce_joins.py's fixtures need it, these clients don't)
-    import types
-    sys.modules["pytest"] = types.SimpleNamespace(fixture=lambda *a, **k: (lambda f: f), raises=None)
-from tools.test_ce_joins import Client, join_request, seal, open_sealed, unframe, update_payload  # noqa: E402
+except ImportError:  # (the tests' decorators need it, these clients don't)
+    import unittest.mock
+    sys.modules["pytest"] = unittest.mock.MagicMock()
+from tools.test_ce_joins import Client, join_request, seal, open_sealed, update_payload  # noqa: E402
 
 GAME_SETTINGS = 33
 UNIVERSAL_WIDTHS = (1, 8, 8, 8, 9, 32, 1, 8, 8, 8, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 8, 32, 1, 32)
@@ -58,13 +60,18 @@ class Bits:
         return "".join(chr(self.get(width)) for _ in range(length))
 
 
+RECONNECT = 33
+MACHINE_REJECTED = 6
+
+
 def roster(payload):
     """the players of a game settings delta at the payload's start (its
     first message: ce_messages.c, ce_payload_put_game_settings), as (name,
-    machine, team); None if the payload starts with another message"""
+    machine, team), and the bit after it; (None, 11) if the payload starts
+    with another message"""
     bits = Bits(payload, 11)
     if len(payload) * 8 < 19 or bits.get(1) != 1 or bits.get(1) != 0 or bits.get(6) != GAME_SETTINGS:
-        return None
+        return None, 11
     bits.text(64, 16)
     bits.get(32)
     bits.text(128, 8)
@@ -81,72 +88,103 @@ def roster(payload):
         bits.get(16 + 16)
         machine, _controller, team, _list = bits.get(8), bits.get(8), bits.get(8), bits.get(8)
         players.append((name, machine, team))
-    return players[:count]
+    bits.get(32 * 3)
+    return players[:count], bits.position
+
+
+def game_messages(payload, position):
+    """the game's messages (each ending in its type) from the bit on, up to
+    the first delta"""
+    bits = Bits(payload, position)
+    out = []
+    while len(payload) * 8 - bits.position >= 17:
+        if bits.get(1):
+            break
+        size = (bits.get(16) >> 4) - 2
+        out.append(bytes(bits.get(8) for _ in range(size)))
+    return out
 
 
 def stand_in(port, number, prefix, seconds, results):
+    """one client: joins, plays until the time is up, and joins the next
+    game when told to reconnect (closing its connection and connecting again
+    a second later, as a Custom Edition client does)"""
     name = f"{prefix}{number:02d}"
-    state = {"name": name, "stage": "connecting", "refused": None, "roster": None, "reliable": 0}
+    state = {"name": name, "stage": "connecting", "refused": None, "roster": None, "reliable": 0, "games": 0}
     results[number] = state
-    client = Client(port)
-    client.rng.seed(1000 + number)
-    try:
-        client.sock.settimeout(3.0)
-        client.handshake()
-        first = client.reliable()
-        map_name = first[0][18:-1].split(b"\0")[0]
-        client.send(b"\xfe\xfe\x64" + struct.pack(">H", client.in_sequence))
-        client.send_messages([join_request(name), b"\x01" + map_name.ljust(256, b"\0") + b"\x15"])
-        state["stage"] = "asked"
-        client.sock.settimeout(0.1)
-        end = time.time() + seconds
-        last_update = 0.0
-        loaded = False
-        yaw = 0.1 * number
-        while time.time() < end:
-            try:
-                packet = client.receive()
-            except OSError:
-                packet = None
-            if packet and packet[:3] == b"\xfe\xfe\x00":
-                sequence, = struct.unpack(">H", packet[3:5])
-                if sequence == client.in_sequence:
-                    client.in_sequence = (client.in_sequence + 1) & 0xFFFF
-                    state["reliable"] += 1
-                    try:
-                        payload = open_sealed(client.key, packet[7:])
-                    except AssertionError:
-                        payload = b""
-                    players = roster(payload) if payload else None
-                    if players is not None:
-                        state["roster"] = players
-                    for message in unframe(payload) if payload else []:
-                        if message[-1] == 6:
-                            state["refused"] = message[1] if len(message) > 1 else -1
-                            state["stage"] = "refused"
-                        elif message[-1] == 10 and state["stage"] == "asked":
-                            state["stage"] = "accepted"
-                client.send(b"\xfe\xfe\x64" + struct.pack(">H", client.in_sequence))
-            elif packet and packet[:3] == b"\xfe\xfe\x68":
-                if state["stage"] != "refused":
-                    state["stage"] = "closed by the server after " + state["stage"]
-                break
-            if state["stage"] == "accepted" and not loaded:
-                client.send_messages([b"\x01\x1a"])
-                loaded = True
-                state["stage"] = "playing"
-            if loaded and time.time() - last_update > 0.1:
-                yaw = (yaw + 0.05) % 6.28
-                client.send(seal(client.key, bytes.fromhex(update_payload(yaw, 0.0))))
-                last_update = time.time()
-    except Exception as exception:  # noqa: BLE001
-        state["stage"] += f" ({exception!r})"
-    finally:
+    end = time.time() + seconds
+    attempt = 0
+    while time.time() < end and state["stage"] in ("connecting", "reconnecting"):
+        attempt += 1
+        client = Client(port)
+        client.rng.seed(1000 * attempt + number)
         try:
-            client.send(b"\xfe\xfe\x68")
-        except OSError:
-            pass
-        client.sock.close()
+            client.sock.settimeout(3.0)
+            client.handshake()
+            first = client.reliable()
+            map_name = first[0][18:-1].split(b"\0")[0]
+            client.send(b"\xfe\xfe\x64" + struct.pack(">H", client.in_sequence))
+            client.send_messages([join_request(name), b"\x01" + map_name.ljust(256, b"\0") + b"\x15"])
+            state["stage"] = "asked"
+            client.sock.settimeout(0.1)
+            last_update = 0.0
+            loaded = False
+            yaw = 0.1 * number
+            while time.time() < end:
+                try:
+                    packet = client.receive()
+                except OSError:
+                    packet = None
+                if packet and packet[:3] == b"\xfe\xfe\x00":
+                    sequence, = struct.unpack(">H", packet[3:5])
+                    if sequence == client.in_sequence:
+                        client.in_sequence = (client.in_sequence + 1) & 0xFFFF
+                        state["reliable"] += 1
+                        try:
+                            payload = open_sealed(client.key, packet[7:])
+                        except AssertionError:
+                            payload = b""
+                        players, position = roster(payload) if payload else (None, 11)
+                        # (the fullest roster: at the run's end the others
+                        # leave first, and the last rosters shrink)
+                        if players is not None and len(players) >= len(state["roster"] or []):
+                            state["roster"] = players
+                        types = [message[-1] for message in game_messages(payload, position)] if payload else []
+                        if MACHINE_REJECTED in types:
+                            state["refused"] = True
+                            state["stage"] = "refused"
+                        elif RECONNECT in types:
+                            state["stage"] = "reconnecting"
+                        # (the join's answer, taken: the game settings and
+                        # the begin game)
+                        elif state["stage"] == "asked" and players is not None:
+                            state["stage"] = "accepted"
+                    client.send(b"\xfe\xfe\x64" + struct.pack(">H", client.in_sequence))
+                elif packet and packet[:3] == b"\xfe\xfe\x68":
+                    if state["stage"] not in ("refused", "reconnecting"):
+                        state["stage"] = "closed by the server after " + state["stage"]
+                    break
+                if state["stage"] in ("refused", "reconnecting"):
+                    break
+                if state["stage"] == "accepted" and not loaded:
+                    client.send_messages([b"\x01\x1a"])
+                    loaded = True
+                    state["stage"] = "playing"
+                    state["games"] += 1
+                if loaded and time.time() - last_update > 0.1:
+                    yaw = (yaw + 0.05) % 6.28
+                    client.send(seal(client.key, bytes.fromhex(update_payload(yaw, 0.0))))
+                    last_update = time.time()
+        except Exception as exception:  # noqa: BLE001
+            state["stage"] += f" ({exception!r})"
+        finally:
+            try:
+                client.send(b"\xfe\xfe\x68")
+            except OSError:
+                pass
+            client.sock.close()
+        if state["stage"] == "reconnecting":
+            time.sleep(1.0)
 
 
 def main():
@@ -174,7 +212,7 @@ def main():
         state = results[number]
         players = state["roster"] or []
         teams = Counter(team for _, _, team in players)
-        print(f"{state['name']}: {state['stage']}, refused={state['refused']}, {state['reliable']} reliable, "
+        print(f"{state['name']}: {state['stage']}, games {state['games']}, {state['reliable']} reliable, "
               f"roster {len(players)} players, teams {dict(sorted(teams.items()))}")
         good += state["stage"] == "playing" and len(players) == expected
     print(f"playing with all {expected} players seen: {good} of {arguments.count}")
