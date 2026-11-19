@@ -1762,6 +1762,24 @@ static void cache_file_windows_thread_proc(
 			{
 				struct cache_file_request *request = cache_request_get(request_index);
 
+#ifdef HALO_CONSOLE_READ_PRIORITY
+				/* port: a read the game waits for first (cache_file_promote_read),
+				then the lowest in the file. Retail kept the first pending read
+				unless a later one was lower in the file and not waited for, so
+				a texture the frame waited on sat behind every predicted read
+				queued before it: on slow storage, megabytes of them at a level's
+				start. Only the order of the reads changes (from Lord
+				BirchWood's Vita port) */
+				if (request->pending &&
+					!request->running &&
+					(!best_request ||
+						(request->blocking && !best_request->blocking) ||
+						(!request->blocking == !best_request->blocking &&
+							request->overlapped.Offset < best_request->overlapped.Offset)))
+				{
+					best_request = request;
+				}
+#else
 				if (request->pending &&
 					!request->running &&
 					(!best_request ||
@@ -1770,6 +1788,7 @@ static void cache_file_windows_thread_proc(
 				{
 					best_request = request;
 				}
+#endif
 			}
 
 			if (!best_request)
