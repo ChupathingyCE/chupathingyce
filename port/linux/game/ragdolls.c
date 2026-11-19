@@ -3456,11 +3456,11 @@ boolean ragdolls_command(
 		ragdoll_test_stats();
 		return TRUE;
 	}
-	/* (the tests: debug.ragdolls, in a game this machine runs, not one it
-	joined) */
-	if (!ragdolls_debug() || game_connection() == _game_connection_network_client)
+	/* (the tests: debug.ragdolls, in a local game only: not one it joined,
+	nor one it hosts, where they would kill or hurt other people's players) */
+	if (!ragdolls_debug() || game_connection() != _game_connection_local)
 	{
-		platform_log("ragdolls: \"%s\": the tests need debug.ragdolls and a game this machine runs", arguments);
+		platform_log("ragdolls: \"%s\": the tests need debug.ragdolls and a local game", arguments);
 		return FALSE;
 	}
 	if (!strcmp(word, "boom") || !strcmp(word, "shoot") || !strcmp(word, "punch") || !strcmp(word, "kill"))

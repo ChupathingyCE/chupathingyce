@@ -1942,7 +1942,7 @@ static const struct config_setting config_settings[] =
 	{ "debug.ragdolls", _config_integer, "0", "HALO_RAGDOLLS_DEBUG", _environment_value, _platform_desktop,
 		"1: a line in debug.txt each time a ragdoll starts, sleeps, wakes or is\n"
 		"let go, and their cost every ten seconds; 2: each one's rig too. Also\n"
-		"lets the console's ragdolls tests run in a game this machine runs\n"
+		"lets the console's ragdolls tests run in a local game\n"
 		"(port/linux/game/ragdolls.c). 0 for none." },
 #endif
 	{ "debug.determinism", _config_string, "\"\"", "HALO_DETERMINISM", _environment_value, _platform_all,

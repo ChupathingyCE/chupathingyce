@@ -130,6 +130,16 @@ def test_link_check_lets_only_jolts_units_call_wide_functions():
     assert not allowed.search("build/freebsd64/obj/port/linux/src/posix_files.o")
 
 
+def test_console_tests_only_in_a_local_game():
+    """the ragdolls' test commands (kill, boom, shoot, punch) hurt players:
+    never in a network game, hosted or joined"""
+    source = read("port/linux/game/ragdolls.c")
+    body = source[source.index("boolean ragdolls_command("):]
+    gate = body[:body.index('!strcmp(word, "boom")')]
+    assert "game_connection() != _game_connection_local" in gate
+    assert "_game_connection_network_client" not in gate
+
+
 def test_ragdolls_on_and_off_replay_alike(tmp_path):
     """the same game, ragdolls off and on: identical tick for tick"""
     import pytest
