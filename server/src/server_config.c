@@ -298,6 +298,8 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"Tell each OpenCE player once, in their chat, that this is a Chupathingy server" },
 	{ "opence_welcome_text", SERVER_FIELD_STRING, 0, SERVER_SETTINGS_OPENCE_WELCOME_SIZE - 1,
 		"HALO_DEDICATED_OPENCE_WELCOME_TEXT", "The line OpenCE players get (63 characters at most; empty: the built-in one)" },
+	{ "air_turn_aim", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_AIR_TURN_AIM",
+		"A shot fired while turned around in mid-air goes where the player aims (off: as on the Xbox)" },
 };
 
 /* ---------- private code */

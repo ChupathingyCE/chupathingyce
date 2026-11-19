@@ -707,6 +707,9 @@ symbols in this file:
 #include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 #include "mcc_campaign.h" /* port: an MCC map's unlimited ammunition */
 #include "halo_perf_log.h" /* port: console.perf_log */
+#ifdef HALO_GAME_BROWSER
+#include "host_rules.h" /* port: network.air_turn_aim */
+#endif
 
 /* port: the control and animation impulses the host's actors give their
 units go to the clients' copies (port/linux/game/network_actors.c) */
@@ -5016,6 +5019,42 @@ void unit_scripting_exit_vehicle(
 	return;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: the 180 glitch, fixed where the host's rule says so
+(network.air_turn_aim, host_rules.c; off by default, as on the Xbox). A
+unit's aim is held within its body's aiming bounds
+(unit_clip_to_aiming_bounds), and a body turned away in mid-air doesn't turn
+back until it lands, so a player's shot left at the bound's angle, not where
+the view (its desired aim) looked. With the rule, a player on foot whose
+unit has no aiming speed limits (its aim is its desired aim, held within
+the bounds) shoots along its desired aim. TRUE if the rule applies */
+static boolean unit_air_turn_aim(
+	struct unit_datum const *unit,
+	real_vector3d *direction)
+{
+	struct unit_definition const *definition;
+	real_vector3d desired;
+
+	if (unit->unit.player_index == NONE ||
+		unit->object.parent_object_index != NONE ||
+		!host_rules_air_turn_aim())
+	{
+		return FALSE;
+	}
+	definition = unit_definition_get(unit->definition_index);
+	if (definition->unit.aiming_velocity_maximum != 0.f ||
+		definition->unit.aiming_acceleration_maximum != 0.f)
+	{
+		return FALSE;
+	}
+	desired = unit->unit.desired_aiming_vector;
+	if (normalize3d(&desired) == 0.f)
+		return FALSE;
+	*direction = desired;
+	return TRUE;
+}
+#endif
+
 void unit_adjust_projectile_ray(
 	long unit_index,
 	real_point3d *origin,
@@ -5027,11 +5066,17 @@ void unit_adjust_projectile_ray(
 	struct unit_datum *unit;
 	real projection;
 	real_vector3d relative;
+#ifdef HALO_GAME_BROWSER
+	boolean air_turn_aim = FALSE;
+#endif
 
 	unit = unit_get(unit_index);
 	if (use_aiming_vector)
 	{
 		*direction = unit->unit.aiming_vector;
+#ifdef HALO_GAME_BROWSER
+		air_turn_aim = unit_air_turn_aim(unit, direction);
+#endif
 	}
 
 	if (adjust_origin)
@@ -5043,6 +5088,12 @@ void unit_adjust_projectile_ray(
 		projection =
 			((relative.i*direction->i + relative.k*direction->k) +
 			 relative.j*direction->j);
+#ifdef HALO_GAME_BROWSER
+		/* port: (network.air_turn_aim) a body turned away has its gun behind
+		the eye: the shot starts at the eye, not behind it */
+		if (air_turn_aim && projection < 0.f)
+			projection = 0.f;
+#endif
 		point_from_line3d(&camera_position, direction, projection, origin);
 	}
 
