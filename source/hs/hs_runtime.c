@@ -783,6 +783,7 @@ evaluation, as before */
 demand, and a console's header gives the empty one) */
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
+#include "opensauce_scripts.h" /* port: port/linux/game/opensauce_scripts.c */
 
 void hs_runtime_initialize(
 	void)
@@ -894,6 +895,17 @@ void hs_runtime_initialize_for_new_map(
 		}
 
 		hs_thread_delete(internal_thread_index);
+
+		/* port: OpenSauce's and Halo PC's globals an OpenSauce map's scripts
+		use, after the scenario's, at their starting values (none on any
+		other map: port/linux/game/opensauce_scripts.c) */
+		for (global_index = 0; global_index<opensauce_script_global_count(); global_index++)
+		{
+			global_datum_index = hs_external_global_count+scenario->hs_globals.count+global_index;
+			datum_new_at_index(hs_global_data, DATUM_INDEX_NEW(global_datum_index, 0xaced));
+			global_datum = datum_get(hs_global_data, global_datum_index);
+			global_datum->value = opensauce_script_global_initial(global_index);
+		}
 
 		for (script_index = 0;
 			script_index<scenario->hs_scripts.count;

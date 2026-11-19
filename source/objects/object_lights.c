@@ -145,6 +145,7 @@ symbols in this file:
 #define OBJECTS_H_FILE "c:\\halo\\source\\objects\\objects.h"
 
 #include "cseries/cseries.h"
+#include "opensauce.h" /* port: port/linux/game/opensauce_map.c */
 #include "cseries/errors.h"
 #include "cseries/profile.h"
 #include "bitmaps/bitmaps.h"
@@ -1432,7 +1433,9 @@ void lights_preprocess_scene(
 						light_definition_get(light->definition_index)->flags,
 						_light_definition_dont_fade_active_camouflage_bit))
 				{
-					lens_flare_scale = 1.0f - parent_unit->unit.active_camouflage;
+					/* port: as drawn (an OpenSauce map's scripts may set it
+					past 1: port/linux/game/opensauce_map.c) */
+					lens_flare_scale = 1.0f - opensauce_map_drawn_camouflage(parent_unit->unit.active_camouflage);
 					light->color.red *= lens_flare_scale;
 					light->color.green *= lens_flare_scale;
 					light->color.blue *= lens_flare_scale;
