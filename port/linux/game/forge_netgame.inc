@@ -34,7 +34,7 @@ Forge game or a layout played, the monitor and the Spartan alike, in
 its channel's colour: the sender with a second ring and a filled centre, the
 receiver a plain ring, its chevron where a player sent there faces.
 
-The layout's game type objects (the panel's OBJECTIVES: a CTF flag's spot,
+The layout's game type objects (the Forge menu's OBJECTIVES: a CTF flag's spot,
 a King of the Hill hill's point, an oddball's spawn, a race checkpoint) are
 netgame flags of the engine's own types the same way (a CTF flag's team
 index its team, a hill point's its hill, a ball spawn's its ball, a

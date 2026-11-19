@@ -2,12 +2,14 @@
 FORGE.H
 
 Forge (forge.c): an editor in a multiplayer map. In a local game started in
-Forge mode ("forge start <map>") the player is the monitor, flying, and
+Forge mode (the Multiplayer menu's FORGE, forge_menu.c, or "forge start
+<map>") the player is the monitor, flying, and
 spawns, grabs, turns and deletes the map's objects and places the layout's
 spawn points, teleporters and game type objects within a budget, or plays
 the map as the Spartan, Back and the right stick's click together flipping
 between them. A layout saved (forge_files.h, forge_store.h) is played as a
-local game of a game type ("forge play <map> <layout> <type>"). Off unless
+local game of a game type (the lobby's PLAY, or "forge play <map> <layout>
+<type>"). Off unless
 game.forge is true: nothing of it runs until then.
 */
 
@@ -30,11 +32,9 @@ enum
 	teleporters, game type objects), within the objects' budget */
 	FORGE_MAXIMUM_SPAWNS = 64,
 	FORGE_SPAWN_TABLE = FORGE_MAXIMUM_SPAWNS,
-	/* (forge_panel.inc) the panel's rows shown at once */
-	FORGE_PANEL_ROWS = 12,
 };
 
-/* the panel's categories, in its order */
+/* the Forge menu's OBJECTS categories (forge_menu.c), in its order */
 enum
 {
 	_forge_category_vehicles = 0,
@@ -89,7 +89,7 @@ enum
 /* (forge_netgame.inc) a teleporter's channels (forge_files.h's) */
 #define FORGE_TELEPORTER_CHANNELS 16
 
-/* an object's properties (the panel's PROPERTIES rows, in its order): its
+/* an object's properties (the Forge menu's PROPERTIES rows, in its order): its
 team, respawn time, whether it is placed at the start, its exact angles
 (yaw, pitch, roll: stepped by rotate mode's snapping, 15 degrees with none)
 and their reset, its physics. A marker's rows are the first four: its team
@@ -150,7 +150,7 @@ struct forge_camera_input
 	real_vector3d translation;
 };
 
-/* an object the panel offers */
+/* an object the Forge menu's OBJECTS offers */
 struct forge_item
 {
 	/* its readable name (UTF-8) */
@@ -193,7 +193,7 @@ void forge_map_loaded(
 	char const *scenario_name);
 
 /* (hud.c, as the HUD draws) the monitor's HUD: the map, the budget, the
-crosshair and what it is on, the notices, the panel */
+crosshair and what it is on, the notices, the prompts */
 void forge_draw(
 	short local_player_index);
 
@@ -271,7 +271,7 @@ void forge_level_name(
 	char *name,
 	short size);
 
-/* how many of the layout's are in one of the panel's categories */
+/* how many of the layout's are in one of the Forge menu's categories */
 short forge_group_placed_count(
 	short category);
 
@@ -297,7 +297,7 @@ boolean forge_variant_playing(
 boolean forge_monitor_hides_prompt(
 	short local_player_index);
 
-/* the panel's lists: a category's name, how many items it has, each
+/* the Forge menu's OBJECTS: a category's name, how many items it has, each
 item's name and placed count (FALSE past the end) */
 char const *forge_category_name(
 	short category);
@@ -312,6 +312,86 @@ boolean forge_category_item(
 not) */
 short forge_budget_objects(
 	void);
+
+/* ---------- prototypes/FORGE_MENU_LINK.INC
+
+The Forge menu (forge_menu.c) and the session: what it shows, and what it
+asks, done by forge_update before the next tick */
+
+/* what the menu asks */
+enum
+{
+	/* an item of a category (first: the category, second: the item) placed
+	in the monitor's hand */
+	_forge_menu_ask_place = 0,
+	/* a property of what is held (first: _forge_property_*) stepped by
+	second (1 or -1) */
+	_forge_menu_ask_property,
+	_forge_menu_ask_undo,
+	_forge_menu_ask_redo,
+	_forge_menu_ask_snap,
+	/* the movement speed and rotate mode's snapping, stepped by first */
+	_forge_menu_ask_speed,
+	_forge_menu_ask_rotate_snap,
+	_forge_menu_ask_round,
+	_forge_menu_ask_spartan,
+	/* the layout saved under its title (a new one's: "<map> Layout"), or
+	as a new layout titled file (the menu's "<map> Layout 2"...) */
+	_forge_menu_ask_save,
+	_forge_menu_ask_save_new,
+	/* a layout of the session's map (file) loaded in place of this one, or
+	deleted */
+	_forge_menu_ask_load,
+	_forge_menu_ask_delete,
+	NUMBER_OF_FORGE_MENU_ASKS
+};
+
+/* the session as the menu shows it */
+struct forge_menu_view
+{
+	/* a Forge game (not a layout played), and whether the monitor flies
+	(else the Spartan plays) and holds something */
+	boolean session;
+	boolean monitor;
+	boolean holding;
+	/* the session's map (NONE: none), the budget's objects */
+	short map_index;
+	short objects;
+	short undo, redo;
+	boolean snap;
+	short speed;
+	char rotate_snap[16];
+	/* the layout's title and file ("" for none yet), the title SAVE gives
+	it, and the map's name as Forge says it */
+	char title[FORGE_FILE_TITLE_SIZE];
+	char file[FORGE_FILE_NAME_SIZE];
+	char save_title[FORGE_FILE_TITLE_SIZE];
+	char level[FORGE_NAME_SIZE];
+	/* what the last thing asked came to, and when (system_milliseconds) */
+	char status[160];
+	unsigned long status_time;
+};
+
+void forge_menu_view_get(
+	struct forge_menu_view *view);
+void forge_menu_ask(
+	short ask,
+	short first,
+	short second,
+	char const *file);
+/* a movement speed's name (SLOW, NORMAL, FAST) */
+char const *forge_speed_name(
+	short speed);
+/* the PROPERTIES rows of what is held (0: nothing of the layout's), each
+one's label and value ("" for an action, RESET ROTATION) */
+short forge_property_count(
+	void);
+boolean forge_property_text(
+	short row,
+	char *label,
+	int label_size,
+	char *value,
+	int value_size);
 
 /* ---------- prototypes/FORGE_SPAWNS.INC */
 

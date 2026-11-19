@@ -17,24 +17,28 @@ nothing of a game, its objects or what is sent changes. Network games are
 never Forge's: a Forge game is a local game, and a layout played is placed
 by the machine that hosts a local game alone (forge_session_update).
 
-The session: "forge start <map>" (the console, init.txt) starts a local
-game of a multiplayer map in Forge mode (forge_game_start): free for all
-slayer with no score that can be reached and no time limit, the map's own
-vehicles and weapons, no saved game read or written. When the map's tags
-load (forge_map_loaded) the session is that map's, and as soon as the
-player has spawned it is the monitor. Another map, or the main menu, ends
-it. "forge start <map> <layout>" starts it with a saved layout placed;
-"forge play <map> <layout> [game type]" plays one as a game of that type.
+The session: FORGE in the Multiplayer menu (the Chupathingy menus, with
+game.forge on: forge_menu.c's lobby), or "forge start <map>" in the console,
+starts a local game of a multiplayer map in Forge mode (forge_game_start):
+free for all slayer with no score that can be reached and no time limit,
+the map's own vehicles and weapons, no saved game read or written. When the
+map's tags load (forge_map_loaded) the session is that map's, and as soon as
+the player has spawned it is the monitor. Another map, or the main menu,
+ends it. The lobby (or "forge start <map> <layout>") starts it with a saved
+layout placed; its PLAY (or "forge play <map> <layout> [game type]") plays
+one as a game of that type.
 
 The monitor and the Spartan, flipped by Back and the right stick's click
-together (or "forge" alone): as the monitor the player's unit stays where
-it stood, hidden and unhurt, its controls not read, and the director flies
-the flying camera from where the player's eyes were, by the monitor's
-controls (forge_camera_input). Flipped back, the Spartan stands where the
-monitor was and plays as ever.
+together (controls.forge_monitor on the keyboard, or "forge" alone): as the
+monitor the player's unit stays where it stood, hidden and unhurt, its
+controls not read, and the director flies the flying camera from where the
+player's eyes were, by the monitor's controls (forge_camera_input). Flipped
+back, the Spartan stands where the monitor was and plays as ever.
 
-The monitor's controls, in the Xbox's terms (the keyboard's are the
-game's own bindings of these buttons):
+The monitor's controls, in the Xbox's terms; the keyboard and mouse have
+keys of their own for each (config.toml's controls.forge_*, halo_keyboard.h's
+halo_forge_key, read as the actions' keys are), the movement keys fly and
+the mouse looks:
 - left stick: fly; right stick (or the mouse): look; A: fly up; the left
   stick's click: fly down;
 - left trigger held: thrust (four times as fast); holding an object,
@@ -46,16 +50,19 @@ game's own bindings of these buttons):
 - right trigger: grab the object or marker under the crosshair, and let
   go of the one held (it falls where it is let go);
 - Y: delete the object held, or the one under the crosshair;
-- X: the Forge panel (forge_panel.inc): the map's objects by category, the
-  one chosen spawned in the monitor's hand, and the Forge menu's rows
-  (undo, redo, snap, save, new round, Spartan); holding an object, its
-  properties;
+- X: the Forge menu (forge_menu.c): OBJECTS (the map's objects by
+  category, the one chosen spawned in the monitor's hand), PROPERTIES (of
+  what is held: it opens there), LAYOUTS (save, save as new, load, delete)
+  and OPTIONS (snap, speed, rotation snap, undo, redo, new round, Spartan,
+  the controls); what it asks is done here (forge_menu_link.inc);
 - B: a copy of the object held or under the crosshair, held;
 - White: the movement speed (slow, normal, fast); in rotate mode, its
   snapping;
 - Black: the object held (or under the crosshair) set upright.
+The HUD's prompts (forge_draw_prompts) say what the buttons do now, in the
+prompts' buttons or the keyboard's keys.
 
-The palette is every tag of the loaded map that the panel offers, with a
+The palette is every tag of the loaded map that the Forge menu offers, with a
 readable name each (forge_names: our own names for the multiplayer maps'
 objects; else the tag's own name made words): vehicles, weapons (grenades
 among them; not a vehicle's gun, the flag, the ball or the unfinished
@@ -71,11 +78,11 @@ weapon on the ground, which has no collision model a line would meet, by
 its bounding sphere). The budget (forge_placed, the layout) counts the
 objects and markers this session placed and has not deleted - one gone in
 play (picked up, destroyed) is still the layout's, back with the next
-round - at most FORGE_MAXIMUM_OBJECTS: past it the panel's choice is
+round - at most FORGE_MAXIMUM_OBJECTS: past it the Forge menu's choice is
 refused, said on the screen. Its table is a fixed array, each index
 checked.
 
-NEW ROUND (the panel's) resets the map as the engine's map_reset does; the
+NEW ROUND (the Forge menu's) resets the map as the engine's map_reset does; the
 layout, each object at its placed spot (where the editor put it, not where
 play took it), is taken as the game's state goes (forge_map_resetting) and
 placed again once the player has spawned.
@@ -83,7 +90,7 @@ placed again once the player has spawned.
 Threads: forge_update runs on the main thread after the cameras update and
 before the tick runs (main.c), so no object is touched while the tick
 runs. forge_draw reads only what forge_update wrote (the HUD's lines and
-the panel's), never an object; forge_render_world draws the markers.
+the Forge menu's), never an object; forge_render_world draws the markers.
 
 The console's commands (forge_command; each logs what it did, "forge: ..."):
   forge [on|off]           the monitor, flipped or set (a Forge game)
@@ -116,7 +123,7 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
   forge camera x y z yaw pitch   the monitor's camera put there (degrees)
   forge press <buttons> [frames] | stick lx ly rx ry [frames] | look y p
                            the tests' controller
-  forge panel [open|close|up|down|left|right|choose]  the tests' panel
+  forge menu open|close    the Forge menu opened or closed, as X does
   forge where | budget | objects | spawns | netflags  the state in the log
   forge shot               (tests) a screenshot, as the screenshot key
 */
@@ -164,6 +171,9 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
 #include "forge.h"
 #include "forge_files.h"
 #include "../src/forge_store.h"
+#include "../src/ui_overlay.h"
+#include "forge_menu.h"
+#include "halo_keyboard.h"
 
 #include <math.h>
 #include <stdarg.h>
@@ -178,6 +188,8 @@ int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch);
 int config_boolean(char const *name);
 long hud_get_font_index(void);
 unsigned long system_milliseconds(void);
+/* ui_widget.c's: a menu, or a screen of code over them, takes the input */
+boolean ui_widgets_take_input(void);
 /* game_engine.c's built-in game types */
 struct game_variant *build_game_variant_slayer(struct game_variant *variant);
 struct game_variant *build_game_variant_team_slayer(struct game_variant *variant);
@@ -225,6 +237,8 @@ enum
 over its ring */
 #define FORGE_MARKER_PICK_RADIUS 0.45f
 #define FORGE_PUSH_RATE 3.f
+/* (the keyboard's wheel: a notch's push or pull) */
+#define FORGE_WHEEL_STEP 0.5f
 #define FORGE_MOUSE_TURN 1.f
 #define FORGE_MINIMUM_HOLD_DISTANCE 0.5f
 #define FORGE_MAXIMUM_HOLD_DISTANCE 40.f
@@ -286,7 +300,7 @@ enum
 {
 	_forge_button_fly_up = _gamepad_analog_button_a,
 	_forge_button_duplicate = _gamepad_analog_button_b,
-	_forge_button_panel = _gamepad_analog_button_x,
+	_forge_button_menu = _gamepad_analog_button_x,
 	_forge_button_delete = _gamepad_analog_button_y,
 	_forge_button_straighten = _gamepad_analog_button_black,
 	_forge_button_speed = _gamepad_analog_button_white,
@@ -295,7 +309,7 @@ enum
 	_forge_button_fly_down = _gamepad_binary_button_left_thumb,
 };
 
-/* the panel's categories' names (forge.h's order) */
+/* the Forge menu's categories' names (forge.h's order) */
 static char const *const forge_category_names[NUMBER_OF_FORGE_CATEGORIES] =
 {
 	"VEHICLES", "WEAPONS", "EQUIPMENT", "SCENERY", "TELEPORTERS", "OBJECTIVES", "SPAWNING",
@@ -463,11 +477,17 @@ struct forge_pad
 	real look_yaw;
 	real look_pitch;
 	/* the monitor and the Spartan's combo held (Back + the right stick's
-	click) */
+	click, or controls.forge_monitor) */
 	boolean toggle;
+	/* the keyboard's: controls.forge_fast held (thrust, as the left trigger
+	is with nothing held), and controls.forge_nearer and _farther's wheel
+	(what is held brought nearer, or sent away) */
+	boolean fast;
+	boolean nearer;
+	boolean farther;
 };
 
-/* a tag the panel offers */
+/* a tag the Forge menu offers */
 struct forge_palette_entry
 {
 	long tag_index;
@@ -609,6 +629,8 @@ static struct
 	/* the buttons down last frame */
 	boolean was_down[NUMBER_OF_GAMEPAD_BUTTONS];
 	boolean toggle_was_down;
+	boolean nearer_was_down;
+	boolean farther_was_down;
 	/* (forge press, forge stick) the buttons and sticks the tests hold */
 	boolean test_down[NUMBER_OF_GAMEPAD_BUTTONS];
 	boolean test_toggle;
@@ -650,7 +672,7 @@ static struct
 	char variant_title[FORGE_FILE_TITLE_SIZE];
 	char variant_file[FORGE_FILE_NAME_SIZE];
 	boolean variant_pending;
-	/* what the last thing asked from the panel's menu came to */
+	/* what the last thing asked from the Forge menu came to */
 	char menu_status[FORGE_STORE_WHY_SIZE];
 	/* the undo history: undo_count steps, the first undo_cursor of them
 	done (undo takes the one before the cursor, redo the one at it); the
@@ -703,19 +725,8 @@ static struct
 	real_vector3d held_nudge;
 	long nudge_object;
 	boolean nudge_flicked[3];
-	/* (forge_panel.inc) the panel: open, its page, its category and row,
-	what it shows (written by forge_update for forge_draw) */
-	boolean panel_open;
-	short panel_page;
-	short panel_category;
-	short panel_row;
-	short panel_first_row;
-	short panel_row_count;
-	char panel_title[FORGE_LINE_SIZE];
-	char panel_rows[FORGE_PANEL_ROWS][FORGE_LINE_SIZE];
-	char panel_hint[FORGE_LINE_SIZE];
-	/* (forge panel <step>) the tests' panel step, taken once */
-	short test_panel_step;
+	/* (the Forge menu's status line: when menu_status was written) */
+	unsigned long menu_status_time;
 } forge_globals = { FALSE, "", FALSE, FALSE, FALSE, 0, NONE, FALSE, NONE, 0.f, { 0.f }, { 0.f }, _forge_speed_normal };
 
 /* ---------- private code */
@@ -766,10 +777,11 @@ static short forge_spawn_points(void);
 static void forge_spawn_grounded(real_point3d *position);
 static void forge_draw_line(long font_index, rectangle2d const *bounds, short justification, real red, real green,
 	real blue, char const *text);
-/* ---- the panel (forge_panel.inc) */
-static void forge_panel_update(struct forge_pad const *pad, boolean const pressed[NUMBER_OF_GAMEPAD_BUTTONS]);
-static void forge_panel_draw(long font_index, short height);
-static void forge_panel_close(void);
+/* ---- the Forge menu's asks (forge_menu_link.inc) */
+static void forge_menu_asks_run(void);
+static void forge_category_choose(short category, short item_index);
+static short forge_map_of_level(char const *level_name);
+static void forge_rotate_snap_text(char *text, size_t size);
 
 static char const *forge_tag_leaf(
 	long tag_index)
@@ -911,7 +923,7 @@ static int forge_palette_compare(
 	return strcmp(left->name, right->name);
 }
 
-/* the palette: every tag the panel offers of the loaded map, category by
+/* the palette: every tag the Forge menu offers of the loaded map, category by
 category, each by its readable name (the same name twice numbered) */
 static void forge_palette_build(
 	void)
@@ -1095,6 +1107,7 @@ static void forge_menu_notice(
 	va_start(arguments, format);
 	vsnprintf(forge_globals.menu_status, sizeof(forge_globals.menu_status), format, arguments);
 	va_end(arguments);
+	forge_globals.menu_status_time = system_milliseconds();
 	forge_notice("%s", forge_globals.menu_status);
 }
 
@@ -1386,7 +1399,7 @@ short forge_group_placed_count(
 	return count;
 }
 
-/* (DELETE ALL) every object of the layout in one of the panel's categories
+/* (DELETE ALL) every object of the layout in one of the Forge menu's categories
 taken out of the layout and the world: they do not come back with the next
 round, a layout saved after has them not, the history's steps that name
 them go. A category of markers: its spawn points, teleporters or game type
@@ -1507,6 +1520,43 @@ static void forge_pad_get(
 	/* (Back and the right stick's click together: the monitor and the
 	Spartan flipped) */
 	pad->toggle = pad->down[_gamepad_binary_button_back] && pad->down[_gamepad_binary_button_right_thumb];
+	/* (the keyboard and mouse, the first controller's: Forge's own keys,
+	controls.forge_*, as the buttons they stand for, and the movement keys
+	as the left stick) */
+	if (player_index != NONE && player_get(player_index)->local_player_index == 0)
+	{
+		unsigned long keys = halo_forge_keys();
+		unsigned long actions = halo_keyboard_actions(0);
+		boolean holding = object_try_and_get(forge_globals.held_object_index) != NULL;
+
+		pad->down[_forge_button_fly_up] |= TEST_FLAG(keys, HALO_FORGE_KEY_UP) != 0;
+		pad->down[_forge_button_fly_down] |= TEST_FLAG(keys, HALO_FORGE_KEY_DOWN) != 0;
+		pad->down[_forge_button_grab] |= TEST_FLAG(keys, HALO_FORGE_KEY_GRAB) != 0;
+		/* (rotate mode is the left trigger's with an object held) */
+		pad->down[_forge_button_alternate] |= holding && TEST_FLAG(keys, HALO_FORGE_KEY_ROTATE);
+		pad->down[_forge_button_duplicate] |= TEST_FLAG(keys, HALO_FORGE_KEY_COPY) != 0;
+		pad->down[_forge_button_delete] |= TEST_FLAG(keys, HALO_FORGE_KEY_DELETE) != 0;
+		pad->down[_forge_button_straighten] |= TEST_FLAG(keys, HALO_FORGE_KEY_UPRIGHT) != 0;
+		pad->down[_forge_button_speed] |= TEST_FLAG(keys, HALO_FORGE_KEY_SPEED) != 0;
+		pad->down[_forge_button_menu] |= TEST_FLAG(keys, HALO_FORGE_KEY_MENU) != 0;
+		/* (nudge mode: rotate mode's right stick click) */
+		pad->down[_gamepad_binary_button_right_thumb] |= TEST_FLAG(keys, HALO_FORGE_KEY_NUDGE) != 0;
+		pad->toggle |= TEST_FLAG(keys, HALO_FORGE_KEY_MONITOR) != 0;
+		pad->fast = TEST_FLAG(keys, HALO_FORGE_KEY_FAST) != 0;
+		pad->nearer = TEST_FLAG(keys, HALO_FORGE_KEY_NEARER) != 0;
+		pad->farther = TEST_FLAG(keys, HALO_FORGE_KEY_FARTHER) != 0;
+		if (pad->sticks[_gamepad_stick_left][0] == 0.f && pad->sticks[_gamepad_stick_left][1] == 0.f)
+		{
+			real across = (TEST_FLAG(actions, HALO_KEYBOARD_STRAFE_RIGHT) ? 1.f : 0.f) -
+				(TEST_FLAG(actions, HALO_KEYBOARD_STRAFE_LEFT) ? 1.f : 0.f);
+			real ahead = (TEST_FLAG(actions, HALO_KEYBOARD_MOVE_FORWARD) ? 1.f : 0.f) -
+				(TEST_FLAG(actions, HALO_KEYBOARD_MOVE_BACKWARD) ? 1.f : 0.f);
+			real length = across != 0.f && ahead != 0.f ? 0.70710678f : 1.f;
+
+			pad->sticks[_gamepad_stick_left][0] = across * length;
+			pad->sticks[_gamepad_stick_left][1] = ahead * length;
+		}
+	}
 	/* (forge press, forge stick) */
 	if (forge_globals.test_buttons_frames > 0)
 	{
@@ -2328,7 +2378,7 @@ static void forge_end(
 	director_forge_camera(forge_globals.local_player_index, FALSE, NULL, NULL);
 	forge_globals.active = FALSE;
 	forge_monitor_flying = 0;
-	forge_panel_close();
+	forge_menu_game_close();
 	if (unit)
 	{
 		platform_log("forge: player mode at %.2f %.2f %.2f, %s (%ld spawned, %ld deleted)", unit->object.position.x,
@@ -2729,7 +2779,7 @@ static void forge_undo_step(
 	}
 }
 
-/* ---- snapping (the panel's SNAP): the object held on a grid of
+/* ---- snapping (the Forge menu's SNAP): the object held on a grid of
 FORGE_SNAP_GRID along the ground, and turned in steps of FORGE_SNAP_ANGLE */
 
 /* the nearest whole number (within the world's +-5000 over the grid) */
@@ -2761,7 +2811,7 @@ static void forge_snapped(
 	rotate_vector_about_axis(up, &axis, sine(turn), cosine(turn));
 }
 
-/* ---- object properties (the panel's PROPERTIES page, X while holding an
+/* ---- object properties (the Forge menu's PROPERTIES, X while holding an
 object): its team, respawn time, whether it is placed at the start and its
 physics, kept in its placed entry and saved in the layout; its exact angles
 (yaw, pitch, roll, forge_angles_from_facing's: the layout keeps all three)
@@ -3035,7 +3085,7 @@ static boolean forge_variant_capture(
 		record->respawn_seconds = (unsigned short)MIN(placed->respawn_seconds, FORGE_FILE_MAXIMUM_RESPAWN_SECONDS);
 		record->count = 1;
 		record->flags = (unsigned char)(placed->flags & FORGE_RECORD_FLAGS_KNOWN);
-		/* (no character's settings: the panel places no characters) */
+		/* (no character's settings: the Forge menu places no characters) */
 		record->flags &= (unsigned char)~(FORGE_RECORD_AI_OFF | FORGE_RECORD_AI_RESPAWN);
 		/* (an object's physics: version 7, never both) */
 		if ((record->flags & FORGE_RECORD_PHYSICS_MASK) == FORGE_RECORD_PHYSICS_MASK)
@@ -3104,7 +3154,7 @@ static boolean forge_variant_save(
 		{
 			snprintf(forge_globals.variant_title, sizeof(forge_globals.variant_title), "%s", title);
 			snprintf(forge_globals.variant_file, sizeof(forge_globals.variant_file), "%s", saved);
-			snprintf(status, sizeof(status), "Saved \"%s\": %d objects and markers.", title, forge_variant_layout.record_count);
+			snprintf(status, sizeof(status), "Saved \"%s\".", title);
 			platform_log("forge: layout \"%s\" saved as %s/%s, %d records", title, forge_variant_layout.map_name, saved,
 				forge_variant_layout.record_count);
 			done = TRUE;
@@ -3320,7 +3370,7 @@ static void forge_session_update(
 	}
 }
 
-/* (forge_update, the panel's NEW ROUND, no menu over the game) the
+/* (forge_update, the Forge menu's NEW ROUND, no menu over the game) the
 map reset by the engine, as its own map_reset does it: forge_map_resetting
 takes the layout as the game's state goes, forge_map_reset and the session
 place it again */
@@ -3681,7 +3731,7 @@ void forge_map_reset(
 	forge_globals.undo_cursor = 0;
 	forge_globals.round_requested = FALSE;
 	forge_globals.round_resetting = FALSE;
-	forge_panel_close();
+	forge_menu_game_close();
 	/* (the markers kept; a new round's first spawns at its initial spawns
 	again) */
 	forge_globals.spawns_spawned = 0;
@@ -3716,7 +3766,7 @@ void forge_map_loaded(
 	forge_globals.round_requested = FALSE;
 	forge_globals.round_resetting = FALSE;
 	forge_globals.round_pending = FALSE;
-	forge_panel_close();
+	forge_menu_game_close();
 	if (forge_globals.active)
 	{
 		/* (the director starts over with the map) */
@@ -3825,7 +3875,7 @@ boolean forge_category_item(
 	return TRUE;
 }
 
-/* (the panel's choice, forge_update's) an item of a category spawned in the
+/* (the Forge menu's choice, forge_update's) an item of a category spawned in the
 monitor's hand, or a marker of its kind held */
 static void forge_category_choose(
 	short category,
@@ -3861,9 +3911,9 @@ boolean forge_camera_input(
 	if (!forge_globals.active || local_player_index != forge_globals.local_player_index)
 		return FALSE;
 	csmemset(input, 0, sizeof(*input));
-	/* (the panel open, or a menu over the game, has the buttons: the camera
+	/* (the Forge menu open, or a menu over the game, has the buttons: the camera
 	stays) */
-	if (forge_globals.panel_open || forge_globals.hud_hidden)
+	if (forge_menu_game_open() || forge_globals.hud_hidden)
 		return TRUE;
 	forge_pad_get(&pad);
 	/* (forge look: as the mouse's look, once) */
@@ -3873,7 +3923,7 @@ boolean forge_camera_input(
 	forge_globals.test_look_pitch = 0.f;
 	turning_object = pad.down[_forge_button_alternate] && object_try_and_get(forge_globals.held_object_index);
 	speed = forge_speeds[PIN(forge_globals.speed, 0, NUMBER_OF_FORGE_SPEEDS - 1)] * seconds;
-	if (pad.down[_forge_button_alternate] && !turning_object)
+	if ((pad.down[_forge_button_alternate] && !turning_object) || pad.fast)
 		speed *= FORGE_CAMERA_THRUST;
 	/* (rotate mode: the left stick pushes and pulls the object, the right
 	one turns it - forge_rotate_update -; the camera stays) */
@@ -4021,7 +4071,6 @@ void forge_update(
 	boolean toggle_pressed;
 	short button;
 	real seconds = 1.f / 30.f;
-	boolean panel_was_open;
 	long player_index;
 
 	if (!forge_globals.game_active && !forge_globals.game_requested)
@@ -4034,7 +4083,7 @@ void forge_update(
 	/* (the layout's teleporters and flags the engine's, before the tick) */
 	forge_netgame_update();
 	/* (a layout played: the layout kept, nothing of Forge's asked for or
-	shown - no monitor, panel, save or round of its own) */
+	shown - no monitor, menu, save or round of its own) */
 	if (forge_globals.game_active && forge_globals.playing)
 	{
 		forge_globals.round_requested = FALSE;
@@ -4052,7 +4101,7 @@ void forge_update(
 	if (!forge_globals.game_active)
 		return;
 	forge_item_life_update();
-	/* (NEW ROUND: once the panel has gone and the game runs - the engine
+	/* (NEW ROUND: once the Forge menu has closed and the game runs - the engine
 	resets a map only then) */
 	if (forge_globals.round_requested)
 	{
@@ -4060,7 +4109,7 @@ void forge_update(
 		{
 			forge_globals.round_requested = FALSE;
 		}
-		else if (!forge_globals.panel_open && !game_time_get_paused())
+		else if (!forge_menu_game_open() && !game_time_get_paused())
 		{
 			forge_globals.round_requested = FALSE;
 			forge_new_round_start();
@@ -4077,7 +4126,7 @@ void forge_update(
 			forge_monitor_flying = 0;
 			forge_globals.held_object_index = NONE;
 			forge_globals.unit_index = NONE;
-			forge_panel_close();
+			forge_menu_game_close();
 			if (player_index != NONE)
 				director_forge_camera(forge_globals.local_player_index, FALSE, NULL, NULL);
 			platform_log("forge: the monitor is gone (a new map, or no player)");
@@ -4093,6 +4142,22 @@ void forge_update(
 	}
 	toggle_pressed = pad.toggle && !forge_globals.toggle_was_down;
 	forge_globals.toggle_was_down = pad.toggle;
+	/* (the keyboard's wheel: what is held nearer or farther, a step a
+	notch) */
+	{
+		boolean nearer_pressed = pad.nearer && !forge_globals.nearer_was_down;
+		boolean farther_pressed = pad.farther && !forge_globals.farther_was_down;
+
+		forge_globals.nearer_was_down = pad.nearer;
+		forge_globals.farther_was_down = pad.farther;
+		if (forge_globals.active && !forge_menu_game_open() &&
+			(object_try_and_get(forge_globals.held_object_index) || forge_globals.held_marker_id) &&
+			(nearer_pressed || farther_pressed))
+		{
+			forge_globals.held_distance = PIN(forge_globals.held_distance + (farther_pressed ? FORGE_WHEEL_STEP :
+				-FORGE_WHEEL_STEP), FORGE_MINIMUM_HOLD_DISTANCE, FORGE_MAXIMUM_HOLD_DISTANCE);
+		}
+	}
 	/* (a menu of the game's over it, pausing it: no HUD, no controls) */
 	forge_globals.hud_hidden = game_time_get_paused();
 	if (forge_globals.hud_hidden)
@@ -4126,13 +4191,15 @@ void forge_update(
 		forge_end();
 		return;
 	}
-	/* (the panel: its buttons are its own while it is open; the press that
-	closes it is not the monitor's too) */
-	panel_was_open = forge_globals.panel_open;
-	forge_panel_update(&pad, pressed);
+	/* (the Forge menu's asks, done here before the tick; X opens it - on
+	PROPERTIES holding something -, and while it is open its buttons are its
+	own: forge_menu.c takes the controller and the keyboard) */
+	forge_menu_asks_run();
 	if (!forge_globals.active)
 		return;
-	if (panel_was_open || forge_globals.panel_open)
+	if (!forge_menu_game_open() && pressed[_forge_button_menu])
+		forge_menu_game_open_now();
+	if (forge_menu_game_open())
 	{
 		forge_globals.rotating = FALSE;
 	}
@@ -4307,6 +4374,62 @@ static short forge_font_height(
 	return (short)(font->ascending_height + font->descending_height);
 }
 
+/* the monitor's prompts along the bottom of the view (forge_menu.c draws
+them in the prompts' buttons, or the keyboard's keys): what its buttons do
+now; the Spartan's, how to be the monitor again */
+static void forge_draw_prompts(
+	void)
+{
+	static char speed[32];
+	static char snap[32];
+	struct forge_hud_prompt prompts[6];
+	short count = 0;
+	boolean holding = object_try_and_get(forge_globals.held_object_index) != NULL || forge_globals.held_marker_id != 0;
+
+	/* (a menu over the game, the pause menu's: its prompts alone) */
+	if (ui_widgets_take_input())
+		return;
+#define FORGE_PROMPT(button_, key_, word_) \
+	do { prompts[count].button = (button_); prompts[count].key = (key_); prompts[count++].word = (word_); } while (0)
+	if (!forge_globals.active)
+	{
+		FORGE_PROMPT(UI_BUTTON_BACK, HALO_FORGE_KEY_MONITOR, "+ RS: MONITOR");
+	}
+	else if (forge_globals.rotating)
+	{
+		char text[16];
+
+		forge_rotate_snap_text(text, sizeof(text));
+		snprintf(snap, sizeof(snap), "SNAP: %s", text);
+		FORGE_PROMPT(UI_BUTTON_LEFT_SHOULDER, HALO_FORGE_KEY_SPEED, forge_globals.nudge_mode ? "NUDGE STEP" : snap);
+		FORGE_PROMPT(NONE, HALO_FORGE_KEY_NUDGE, forge_globals.nudge_mode ? "RS: ROTATE" : "RS: NUDGE");
+		FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, "DELETE");
+	}
+	else if (holding)
+	{
+		FORGE_PROMPT(UI_BUTTON_RIGHT_TRIGGER, HALO_FORGE_KEY_GRAB, "LET GO");
+		FORGE_PROMPT(UI_BUTTON_LEFT_TRIGGER, HALO_FORGE_KEY_ROTATE, "ROTATE");
+		FORGE_PROMPT(UI_BUTTON_B, HALO_FORGE_KEY_COPY, "COPY");
+		FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, "DELETE");
+		FORGE_PROMPT(UI_BUTTON_X, HALO_FORGE_KEY_MENU, "PROPERTIES");
+	}
+	else
+	{
+		snprintf(speed, sizeof(speed), "SPEED: %s", forge_speed_name(forge_globals.speed));
+		FORGE_PROMPT(UI_BUTTON_RIGHT_TRIGGER, HALO_FORGE_KEY_GRAB, "GRAB");
+		if (forge_globals.hud_label[0])
+		{
+			FORGE_PROMPT(UI_BUTTON_B, HALO_FORGE_KEY_COPY, "COPY");
+			FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, "DELETE");
+		}
+		FORGE_PROMPT(UI_BUTTON_X, HALO_FORGE_KEY_MENU, "FORGE MENU");
+		FORGE_PROMPT(UI_BUTTON_LEFT_SHOULDER, HALO_FORGE_KEY_SPEED, speed);
+		FORGE_PROMPT(UI_BUTTON_BACK, HALO_FORGE_KEY_MONITOR, "+ RS: SPARTAN");
+	}
+#undef FORGE_PROMPT
+	forge_menu_draw_prompts(prompts, count);
+}
+
 void forge_draw(
 	short local_player_index)
 {
@@ -4315,8 +4438,15 @@ void forge_draw(
 	rectangle2d window;
 	short height;
 
-	if (!forge_globals.active || local_player_index != forge_globals.local_player_index || forge_globals.hud_hidden)
+	if (local_player_index != forge_globals.local_player_index || forge_globals.hud_hidden)
 		return;
+	/* (the Spartan of a Forge game: how to be the monitor again) */
+	if (!forge_globals.active)
+	{
+		if (forge_globals.game_active && !forge_globals.playing && !forge_globals.game_requested)
+			forge_draw_prompts();
+		return;
+	}
 	font_index = hud_get_font_index();
 	if (font_index == NONE)
 		return;
@@ -4339,12 +4469,10 @@ void forge_draw(
 		bounds.y1 = (short)(bounds.y0 + height);
 		forge_draw_line(font_index, &bounds, 0, 0.62f, 0.82f, 1.f, forge_globals.notice);
 	}
-	/* (the panel: over the left of the view) */
-	if (forge_globals.panel_open)
-	{
-		forge_panel_draw(font_index, height);
+	/* (the Forge menu over the view: its own) */
+	if (forge_menu_game_open())
 		return;
-	}
+	forge_draw_prompts();
 
 	/* the crosshair, and under it what it is on (ice blue) or what is
 	held (orange) */
@@ -4722,17 +4850,15 @@ boolean forge_command(
 		platform_log("forge: %s: not the monitor (a Forge game: forge start <map>, then forge on)", word);
 		return FALSE;
 	}
-	if (!strcmp(word, "panel"))
+	if (!strcmp(word, "menu"))
 	{
-		/* (the tests' panel: open, close, or a step as its D-pad's and A's) */
-		static char const *const steps[] = { "open", "close", "up", "down", "left", "right", "choose", "back" };
-		short step;
-
-		for (step = 0; step < (short)NUMBEROF(steps) && strcmp(rest, steps[step]); step++)
-			;
-		if (step >= (short)NUMBEROF(steps))
+		/* (the Forge menu opened or closed, as X and B do) */
+		if (!strcmp(rest, "open"))
+			forge_menu_game_open_now();
+		else if (!strcmp(rest, "close"))
+			forge_menu_game_close();
+		else
 			return FALSE;
-		forge_globals.test_panel_step = (short)(step + 1);
 		return TRUE;
 	}
 	if (!strcmp(word, "save"))
@@ -4955,12 +5081,12 @@ boolean forge_command(
 	return FALSE;
 }
 
-/* ---------- the markers and the panel (their statics shared with this
-file's) */
+/* ---------- the markers and the Forge menu's link (their statics shared
+with this file's) */
 
 #include "forge_markers.inc"
 #include "forge_spawns.inc"
 #include "forge_netgame.inc"
 #include "forge_physics.inc"
 #include "forge_precision.inc"
-#include "forge_panel.inc"
+#include "forge_menu_link.inc"

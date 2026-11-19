@@ -1,7 +1,7 @@
 /*
 FORGE_SPAWNS.INC
 
-Forge's markers (included by forge.c, for its statics): the panel's
+Forge's markers (included by forge.c, for its statics): the Forge menu's
 SPAWNING category places a RESPAWN POINT (where players come back) or an
 INITIAL SPAWN (where they start a round), each with a TEAM (any, red,
 blue), a GAME TYPE (all, or one of slayer, CTF, oddball, king of the hill,
@@ -57,7 +57,7 @@ static struct
 	{ FORGE_FILE_GAME_TYPE_RACE, ("RACE"), "race" },
 };
 
-/* (forge_spawn_kind_names and its log's names: forge.c's, the panel's) */
+/* (forge_spawn_kind_names and its log's names: forge.c's, the Forge menu's) */
 
 /* ---------- private code */
 
@@ -665,7 +665,7 @@ static void forge_spawn_grounded(
 	}
 }
 
-/* (the panel's SPAWNING, TELEPORTERS, OBJECTIVES) a marker of the kind
+/* (the Forge menu's SPAWNING, TELEPORTERS, OBJECTIVES) a marker of the kind
 placed in front of the camera, facing the way it looks, and held */
 static void forge_spawn_choose(
 	short kind)
