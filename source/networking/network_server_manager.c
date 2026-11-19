@@ -3993,6 +3993,19 @@ boolean server_needs_more_teams(
 {
 	boolean needs_more_teams = FALSE;
 
+#ifdef HALO_SERVER
+	{
+		/* port: a dedicated server with Custom Edition players starts a team
+		game with one team, as Custom Edition's own server plays its game
+		whoever is in it: a Custom Edition client can't wait in a lobby (it
+		gives up on its join in about 15 seconds), so the first one into an
+		empty team game was turned away (server/src/server_ce.c) */
+		boolean server_ce_players_present(void);
+
+		if (server_ce_players_present())
+			return FALSE;
+	}
+#endif
 	if (server->game.variant.universal_variant.teams
 		&& !network_game_solo_game())
 	{

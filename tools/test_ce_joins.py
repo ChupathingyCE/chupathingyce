@@ -650,6 +650,25 @@ def test_joins_held_to_host_limits():
     assert "if (game->player_count >= 16 && server_ce_players_present())" in manager
 
 
+def test_lone_player_starts_a_team_game():
+    """a Custom Edition player alone in an empty team game's lobby gets a
+    game: its client gives up on a join in about 15 seconds, so the lobby
+    doesn't wait for the other team while one is in (it did, and the first
+    player into an empty Team Slayer or CTF server was turned away); without
+    Custom Edition players the lobby waits for both teams, as the Xbox's
+    does"""
+    source = (ROOT / "source/networking/network_server_manager.c").read_text(encoding="utf-8")
+    teams = _function(source, "boolean server_needs_more_teams")
+    guard = teams.index("if (server_ce_players_present())\n\t\t\treturn FALSE;")
+    assert teams.index("#ifdef HALO_SERVER") < guard < teams.index("universal_variant.teams")
+    assert teams.count("#ifdef HALO_SERVER") == teams.count("#endif") == 1
+    # (the countdown asks it)
+    assert "boolean teams_full = !server_needs_more_teams(server);" in _function(source, "boolean server_ok_to_countdown")
+    # (and the lobby's join is answered once that game plays)
+    ce = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    assert "dedicated_server_start_soon();" in _function(ce, "static boolean join")
+
+
 # (our capture of Custom Edition 1.0.10's server ending a game for
 # sv_map_next: the step after the scores came up, alone in its payload, and
 # the step before them with game over, its data packet, after it)
