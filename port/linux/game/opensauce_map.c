@@ -223,7 +223,15 @@ void opensauce_map_opened(
 	char const *map_name)
 {
 	opensauce_gravity_restore();
+#ifdef HALO_CONSOLE_NO_TAG_VALIDATE
+	/* (a build without the tag validator, a console's, can't check a map's
+	tags against OpenSauce's layout: its OpenSauce maps play as Custom
+	Edition maps, as they did before this module) */
+	(void)cache_header;
+	opensauce_globals.active = FALSE;
+#else
 	opensauce_globals.active = opensauce_header_read(cache_header, &opensauce_globals.header);
+#endif
 	snprintf(opensauce_globals.map_name, sizeof(opensauce_globals.map_name), "%s", map_name ? map_name : "");
 	if (opensauce_globals.active)
 	{
