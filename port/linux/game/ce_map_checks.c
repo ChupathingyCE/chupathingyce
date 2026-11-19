@@ -1109,9 +1109,10 @@ tag cache (where its tags, resources, models and BSP are), but from zeroed
 bytes of their own, and logged; else, as always, the address */
 #define CE_TAGS_SCRATCH_LIMIT 0x40000UL
 #ifdef HALO_CUSTOM_EDITION
-/* (the bounds the consoles' inline TAG_BLOCK_GET_ELEMENT checks: tag_groups.h) */
+/* (the bounds the consoles' inline TAG_BLOCK_GET_ELEMENT checks: tag_groups.h;
+Custom Edition's, as no console maps OpenSauce's larger window) */
 typedef char ce_tags_inline_bounds_assert[
-	TAG_GROUPS_CE_TAG_CACHE_BASE == CE_IMAGE_TAG_CACHE_BASE && TAG_GROUPS_CE_TAG_CACHE_SIZE == CE_IMAGE_TAG_CACHE_SIZE ? 1 : -1];
+	TAG_GROUPS_CE_TAG_CACHE_BASE == CE_IMAGE_TAG_CACHE_BASE && TAG_GROUPS_CE_TAG_CACHE_SIZE == CE_IMAGE_TAG_CACHE_STOCK_SIZE ? 1 : -1];
 #endif
 
 void *ce_tags_pointer(
