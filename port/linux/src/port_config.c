@@ -122,6 +122,17 @@ struct config_setting
 #define DEFAULT_FULLSCREEN "true"
 #endif
 
+/* display.hud_safe_zone's default: "auto" (the Xbox's margins in a game
+alone, Halo PC's in split screen) on the desktop and Android; the Xbox's own
+("xbox") on the consoles, which play on televisions that overscan, where
+tighter margins can push the HUD off the picture */
+#if defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)
+#define DEFAULT_HUD_SAFE_ZONE "\"xbox\""
+#else
+#define DEFAULT_HUD_SAFE_ZONE "\"auto\""
+#endif
+
 /* macOS's audio cuts out with SDL's 512-frame buffer when the mixer is late
 (a 10.6 ms budget at 48 kHz); 2048 frames (43 ms) rides that out. Android's
 mixer runs on a phone's cores, often a slower one, so it has 1024 (21 ms).
@@ -421,6 +432,12 @@ static const struct config_setting config_settings[] =
 		"view; only different in split screen) or \"lowered\" (a tenth of the\n"
 		"view's height below the middle). The view moves with it, so shots\n"
 		"still go where the crosshair is. Zoomed, it's in the middle." },
+	{ "display.hud_safe_zone", _config_string, DEFAULT_HUD_SAFE_ZONE, "HALO_HUD_SAFE_ZONE", _environment_value,
+		_platform_all | _platform_xbox,
+		"How far the HUD sits from the screen's edges: \"xbox\" (48 and 36\n"
+		"in, as on the Xbox), \"pc\" (8 in, as Halo PC), \"auto\" (the Xbox's\n"
+		"alone, Halo PC's in split screen) or two numbers, \"24 18\" (8 to\n"
+		"48 across, 8 to 36 down). As Chimera's chimera_safe_zones." },
 	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
 		_platform_all,
 		"Draw your weapon and arms. false hides them." },
@@ -4713,6 +4730,9 @@ static const struct
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
 	{ "display.crosshair_position", { "retail", "centered", "lowered", NULL }, "\"retail\"" },
+	/* (two numbers, "24 18", are taken too: the log line for anything else
+	is hud_draw.c's hud_safe_zone_margins) */
+	{ "display.hud_safe_zone", { "xbox", "pc", "auto", NULL }, NULL },
 	/* (the log line for another word is config_tuning_apply's, which uses the default) */
 	{ "tuning.preset", { "retail", "lan-party", "potato", NULL }, NULL },
 	{ "tuning.present_mode", { "vblank", "adaptive", NULL }, NULL },

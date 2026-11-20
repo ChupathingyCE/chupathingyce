@@ -1961,8 +1961,11 @@ void hud_messaging_update(
 				pixel_color = real_argb_color_to_pixel32(&state_color);
 			}
 
+			/* port: to display.hud_safe_zone's right edge ("xbox": the
+			window's) */
+			hud_safe_zone_bounds(&line_bounds);
 			line_bounds.x0 = screen_point.x;
-			line_bounds.x1 = render.camera.window_bounds.x1 -
+			line_bounds.x1 = line_bounds.x1 -
 				render.camera.viewport_bounds.x0;
 			line_bounds.y0 = line_top;
 			line_bounds.y1 = line_top + 5 * line_height;
@@ -2385,9 +2388,11 @@ void hud_messaging_update(
 				text_color.alpha *= (real)pow((double)fade, 1.9f);
 			}
 
-			message_bounds = render.camera.window_bounds;
+			/* port: to display.hud_safe_zone's right edge ("xbox": the
+			window's) */
+			hud_safe_zone_bounds(&message_bounds);
 			message_bounds.x0 = screen_point.x;
-			message_bounds.x1 = render.camera.window_bounds.x1 -
+			message_bounds.x1 = message_bounds.x1 -
 				render.camera.viewport_bounds.x0;
 			message_bounds.y0 = line_top;
 			message_bounds.y1 = line_top + line_height;
