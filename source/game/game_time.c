@@ -76,6 +76,7 @@ symbols in this file:
 #include "networking/network_game_globals.h"
 #include "networking/network_server_manager.h"
 #include "saved games/game_state.h"
+#include "interface/ui_widget.h" /* port: main_menu_is_active, for debug.freeze_at_tick */
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "mcc_game_speed.h" /* port: port/linux/game/mcc_game_speed.c */
 #include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
@@ -141,6 +142,23 @@ struct game_time_client_guard_state
 	boolean logged;
 };
 static struct game_time_client_guard_state game_time_client_guard;
+
+/* port: debug.freeze_at_tick (0: never), read once */
+static long game_time_freeze_tick(
+	void)
+{
+	static long freeze_tick = -1;
+
+	if (freeze_tick < 0)
+	{
+		long config_integer(char const *name);
+
+		freeze_tick = config_integer("debug.freeze_at_tick");
+		if (freeze_tick < 0)
+			freeze_tick = 0;
+	}
+	return freeze_tick;
+}
 
 /* ---------- public code */
 
@@ -617,6 +635,17 @@ void game_time_update(
 
 					for (update_index = 0; update_index < server_updates; update_index++)
 					{
+						/* port: debug.freeze_at_tick stops the game at that tick,
+						as game_speed 0 would, so that every run draws the same
+						moment (tools/renderer_gate.py's pictures); never the main
+						menu's scene, whose lobby has to count down */
+						if (game_time_freeze_tick() > 0 &&
+							game_time_globals->server_time >= game_time_freeze_tick() && !main_menu_is_active())
+						{
+							game_time_globals->speed = 0.f;
+							game_time_globals->leftover_dt = 0.f;
+							break;
+						}
 						HALO_PERF_BEGIN(_halo_perf_tick);
 						game_tick();
 						HALO_PERF_END(_halo_perf_tick);

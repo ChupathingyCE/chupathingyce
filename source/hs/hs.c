@@ -16701,6 +16701,31 @@ static boolean hs_compile_and_evaluate_command(
 		}
 	}
 #endif
+#ifdef HALO_CAPTURE
+	/* port: "screenshot" and "screenshot <name>": the next frame saved as
+	the screenshot key saves it, to screenshots/<name>.png when named
+	(capture.c; tools/renderer_gate.py's pictures). It changes nothing of
+	the game */
+	{
+		char const *text = hs_host_player_command(expression, "screenshot");
+
+		if (text)
+		{
+			void capture_request_screenshot_named(const char *name);
+			char name[64];
+			long length = 0;
+
+			while (*text == ' ' || *text == '\t' || *text == '"')
+				text++;
+			while (*text && *text != ' ' && *text != '\t' && *text != '"' && *text != ')' &&
+				length < (long)sizeof(name) - 1)
+				name[length++] = *text++;
+			name[length] = 0;
+			capture_request_screenshot_named(name);
+			return TRUE;
+		}
+	}
+#endif
 	/* port: profile_reset_campaign, which clears the first player's
 	profile's campaign progress (player_ui_reset_campaign_progress) once
 	confirmed: "profile_reset_campaign yes" */
