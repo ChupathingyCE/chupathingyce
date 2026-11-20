@@ -16,8 +16,10 @@ PARTY, PLAYERS HERE, RECENT, SERVICE RECORD and SETTINGS.
   in this game (the identity capability's roster, delta_peer.h) also gets
   ADD FRIEND (Y); a name alone never does. No address is ever shown.
 - SETTINGS has the Guide's own settings (settings_rows.c's rows, which the
-  setup screen's Settings shares), then ABOUT: the About screen (about.c),
-  which the menus' ABOUT rows open too (guide_about_open).
+  setup screen's Settings shares) in pages, DISPLAY, SOUND, GAME, GUIDE
+  and ABOUT (LT and RT), each in blocks under a caption; ABOUT's has the
+  logs' rows and ABOUT: the About screen (about.c), which the menus' ABOUT
+  rows open too (guide_about_open).
 - FRIENDS is the site's friends (browser.c polls them, social.h): the
   invites, the friends online, the offline ones (a row that shows them),
   the friend requests. A on a row opens its options: a friend's JOIN (the
@@ -329,6 +331,8 @@ enum
 	_target_modal,
 	/* SEND MY LOGS' window's buttons (index 0 the left one) */
 	_target_logs,
+	/* SETTINGS' page tabs (index: the page) */
+	_target_settings_page,
 };
 
 /* RECENT's options on a player */
@@ -503,6 +507,8 @@ static struct
 	/* the first row shown of a long list, and of SETTINGS */
 	short first_row;
 	short settings_first;
+	/* SETTINGS' page shown (_settings_page_*) */
+	short settings_page;
 	/* SETTINGS' scroll bar, as last drawn, for the mouse */
 	struct guide_scroll_bar settings_bar;
 	unsigned int held;
@@ -1333,6 +1339,271 @@ static void extra_row_activate(short row)
 	}
 	else
 		device_row_activate((short)(row - settings_count()));
+}
+
+/* ---------- SETTINGS' pages: its rows in pages (LT and RT), each page's
+rows in blocks under a caption */
+
+enum
+{
+	_settings_page_display,
+	_settings_page_sound,
+	_settings_page_game,
+	_settings_page_guide,
+	_settings_page_about,
+	NUMBER_OF_SETTINGS_PAGES,
+
+	/* the page a row no page lists goes on, at its end */
+	SETTINGS_PAGE_OTHER = _settings_page_game,
+	MAXIMUM_SETTINGS_LINES = 72,
+	SETTINGS_CAPTION_HEIGHT = 18,
+	SETTINGS_PAGE_TABS_HEIGHT = 20,
+};
+
+static char const *const settings_page_names[NUMBER_OF_SETTINGS_PAGES] =
+{
+	"DISPLAY", "SOUND", "GAME", "GUIDE", "ABOUT",
+};
+
+/* each page's lines: "#" and a caption, else a row by its key (a setting's
+config.toml key, or one of the Guide's own: "@devices", "@link",
+"@logs0", "@logs1", "@about"). A caption shows only with a row under it
+in this build; a row in no page goes at the end of SETTINGS_PAGE_OTHER */
+static char const *const settings_display_lines[] =
+{
+	"#MENUS", "display.menus", "display.theme", "delta.guide_background",
+	"#BUTTONS", "input.button_style", "input.button_look", "input.hud_buttons",
+	"#HUD", "display.reticle_scale", "display.crosshair_position", "display.ping_meter", "display.scoreboard_icons",
+	"#EFFECTS", "display.first_person_weapon", "display.camo_weapon_fix", "display.plasma_sparks", "display.ragdolls",
+	NULL
+};
+static char const *const settings_sound_lines[] =
+{
+	"audio.hit_sounds",
+	"#VOICE", "audio.voice_chat", "audio.voice_channel", "audio.voice_positional", "display.voice_speakers",
+	"#VOLUME", "audio.voice_volume", "audio.voice_volume_party", "audio.voice_volume_team",
+	"audio.voice_volume_proximity", "audio.voice_volume_everyone",
+	NULL
+};
+static char const *const settings_game_lines[] =
+{
+	"game.forge", "game.mods",
+	"#WORKSHOP", "game.workshop_steam", "paths.steam_downloads", "game.workshop_maps", "network.workshop_downloads",
+	"game.mcc_campaigns",
+	NULL
+};
+static char const *const settings_guide_lines[] =
+{
+	"#OPENING", "controls.delta", "controls.delta_button", "delta.menu_item",
+	"#NOTIFICATIONS", "delta.notify_in_game", "delta.notify_online",
+	"#PRIVACY", "network.share_presence",
+	"#DEVICES", "@devices", "@link",
+	NULL
+};
+static char const *const settings_about_lines[] =
+{
+	"#LOGS", "@logs0", "@logs1",
+	"#CHUPATHINGY", "@about",
+	NULL
+};
+static char const *const *const settings_page_lines[NUMBER_OF_SETTINGS_PAGES] =
+{
+	settings_display_lines, settings_sound_lines, settings_game_lines, settings_guide_lines, settings_about_lines,
+};
+
+/* a SETTINGS line: a caption, or a row (its index in SETTINGS' rows) */
+struct settings_line
+{
+	short kind;
+	short row;
+	char const *caption;
+};
+
+/* a SETTINGS row's key, as the pages name it */
+static char const *settings_row_name(short row, char *text, int size)
+{
+	struct settings_row const *setting = row < shared_settings_count() ? settings_row_at(SETTINGS_GROUP_GUIDE, row) :
+		NULL;
+
+	if (setting)
+		return settings_row_key(setting);
+#ifdef HALO_PORT_VOICE_AUDIO
+	if (voice_setting_of(row) != NONE)
+		return voice_setting_keys[voice_setting_of(row)];
+#endif
+	if (row == about_row())
+		return "@about";
+	if (row >= logs_row())
+		snprintf(text, (size_t)size, "@logs%d", row - logs_row());
+	else
+		snprintf(text, (size_t)size, "%s", row - settings_count() == _device_row_devices ? "@devices" : "@link");
+	return text;
+}
+
+/* the row named key (NONE: not in this build) */
+static short settings_row_named(char const *key)
+{
+	short row, rows = settings_rows();
+	char text[16];
+
+	for (row = 0; row < rows; row++)
+	{
+		if (!strcmp(settings_row_name(row, text, sizeof(text)), key))
+			return row;
+	}
+	return NONE;
+}
+
+/* whether some page lists key */
+static boolean settings_key_listed(char const *key)
+{
+	short page;
+	char const *const *line;
+
+	for (page = 0; page < NUMBER_OF_SETTINGS_PAGES; page++)
+	{
+		for (line = settings_page_lines[page]; *line; line++)
+		{
+			if (!strcmp(*line, key))
+				return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* a page's lines, top to bottom: their count */
+static short settings_lines(short page, struct settings_line *lines)
+{
+	char const *const *entry;
+	char const *caption = NULL;
+	short count = 0;
+
+	for (entry = settings_page_lines[page]; *entry && count < MAXIMUM_SETTINGS_LINES - 1; entry++)
+	{
+		short row;
+
+		if ((*entry)[0] == '#')
+		{
+			caption = *entry + 1;
+			continue;
+		}
+		row = settings_row_named(*entry);
+		if (row == NONE)
+			continue;
+		if (caption)
+		{
+			lines[count].kind = GUIDE_LINE_CAPTION;
+			lines[count].row = NONE;
+			lines[count++].caption = caption;
+			caption = NULL;
+		}
+		lines[count].kind = GUIDE_LINE_ACTION;
+		lines[count].row = row;
+		lines[count++].caption = NULL;
+	}
+	if (page == SETTINGS_PAGE_OTHER)
+	{
+		short row, rows = settings_rows();
+		char text[16];
+
+		for (row = 0; row < rows && count < MAXIMUM_SETTINGS_LINES; row++)
+		{
+			if (settings_key_listed(settings_row_name(row, text, sizeof(text))))
+				continue;
+			lines[count].kind = GUIDE_LINE_ACTION;
+			lines[count].row = row;
+			lines[count++].caption = NULL;
+		}
+	}
+	return count;
+}
+
+/* the page a row is on */
+static short settings_row_page(short row)
+{
+	char text[16];
+	char const *key = settings_row_name(row, text, sizeof(text));
+	short page;
+	char const *const *line;
+
+	for (page = 0; page < NUMBER_OF_SETTINGS_PAGES; page++)
+	{
+		for (line = settings_page_lines[page]; *line; line++)
+		{
+			if (!strcmp(*line, key))
+				return page;
+		}
+	}
+	return SETTINGS_PAGE_OTHER;
+}
+
+/* a page's lines' kinds, for guide_layout's lines; the line of row (NONE:
+not on it) */
+static short settings_line_kinds(struct settings_line const *lines, short count, int *kinds, short row)
+{
+	short line, at = NONE;
+
+	for (line = 0; line < count; line++)
+	{
+		kinds[line] = lines[line].kind;
+		if (lines[line].row == row && lines[line].kind == GUIDE_LINE_ACTION)
+			at = line;
+	}
+	return at;
+}
+
+/* the chosen row kept on the page shown: its first row when it isn't */
+static void settings_keep_on_page(void)
+{
+	struct settings_line lines[MAXIMUM_SETTINGS_LINES];
+	int kinds[MAXIMUM_SETTINGS_LINES];
+	short count = settings_lines(guide.settings_page, lines);
+	short at = settings_line_kinds(lines, count, kinds, guide.row[SOCIAL_SECTION_SETTINGS]);
+
+	short row = guide.row[SOCIAL_SECTION_SETTINGS];
+
+	if (at != NONE)
+		return;
+	/* (a row chosen from elsewhere, guide_open_setting's: its page) */
+	if (row >= 0 && row < settings_rows())
+	{
+		guide.settings_page = settings_row_page(row);
+		guide.settings_first = 0;
+		return;
+	}
+	at = (short)guide_lines_snap(kinds, count, 0, 1);
+	if (at != NONE)
+		guide.row[SOCIAL_SECTION_SETTINGS] = lines[at].row;
+}
+
+/* another page (step -1 or 1, LT or RT; it wraps), on its first row */
+static void settings_page_go(short page)
+{
+	guide.settings_page = (short)((page + NUMBER_OF_SETTINGS_PAGES) % NUMBER_OF_SETTINGS_PAGES);
+	guide.settings_first = 0;
+	guide.row[SOCIAL_SECTION_SETTINGS] = NONE;
+	settings_keep_on_page();
+	guide.message[0] = 0;
+}
+
+/* a row chosen, on its page */
+static void settings_choose(short row)
+{
+	guide.settings_page = settings_row_page(row);
+	guide.row[SOCIAL_SECTION_SETTINGS] = row;
+}
+
+/* up or down SETTINGS' page, past its captions */
+static void settings_move(short step)
+{
+	struct settings_line lines[MAXIMUM_SETTINGS_LINES];
+	int kinds[MAXIMUM_SETTINGS_LINES];
+	short count = settings_lines(guide.settings_page, lines);
+	short at = settings_line_kinds(lines, count, kinds, guide.row[SOCIAL_SECTION_SETTINGS]);
+
+	at = (short)guide_lines_move(kinds, count, at == NONE ? 0 : at, step);
+	if (at != NONE)
+		guide.row[SOCIAL_SECTION_SETTINGS] = lines[at].row;
 }
 
 /* ---------- SIGN IN: Quick Connect's code, shown here */
@@ -3603,6 +3874,11 @@ static void move(short step)
 		clan_move(step);
 		return;
 	}
+	if (guide.section == SOCIAL_SECTION_SETTINGS)
+	{
+		settings_move(step);
+		return;
+	}
 	*row = (short)PIN(*row + step, 0, rows - 1);
 	guide.party_armed = NONE;
 }
@@ -4371,28 +4647,48 @@ static void render_recent(void)
 
 static void render_settings(void)
 {
-	short setting, chosen = guide.row[SOCIAL_SECTION_SETTINGS];
-	float y = BODY_Y;
-	/* (the rows that fit above the help line, scrolled to the chosen one) */
-	short shown = (short)((BODY_BOTTOM - BODY_Y - 18) / (SETTING_HEIGHT + ROW_GAP));
-	short rows = settings_rows();
-	short first = guide.settings_first;
+	struct settings_line lines[MAXIMUM_SETTINGS_LINES];
+	int kinds[MAXIMUM_SETTINGS_LINES];
+	float heights[MAXIMUM_SETTINGS_LINES];
+	float starts[NUMBER_OF_SETTINGS_PAGES], ends[NUMBER_OF_SETTINGS_PAGES];
+	short count, line, chosen_line, shown, first;
+	short chosen;
+	float top = BODY_Y + SETTINGS_PAGE_TABS_HEIGHT + 8, y;
+	/* (the lines that fit above the help line) */
+	float room = BODY_BOTTOM - top - 18 + ROW_GAP;
 
-	/* (the window moves only when the chosen row leaves it) */
-	if (chosen < first)
-		first = chosen;
-	else if (chosen >= first + shown)
-		first = (short)(chosen - shown + 1);
-	if (first > rows - shown)
-		first = (short)(rows - shown);
-	if (first < 0)
-		first = 0;
+	/* (its pages, LT and RT) */
+	ui_style_tabs_buttons(UI_BUTTON_LEFT_TRIGGER, UI_BUTTON_RIGHT_TRIGGER);
+	ui_style_tabs(CONTENT_LEFT, CONTENT_RIGHT, BODY_Y, SETTINGS_PAGE_TABS_HEIGHT, settings_page_names,
+		NUMBER_OF_SETTINGS_PAGES, guide.settings_page, "PGUP", "PGDN", starts, ends);
+	for (line = 0; line < NUMBER_OF_SETTINGS_PAGES; line++)
+		target_add(starts[line], BODY_Y, ends[line], BODY_Y + SETTINGS_PAGE_TABS_HEIGHT, _target_settings_page, line);
+	settings_keep_on_page();
+	chosen = guide.row[SOCIAL_SECTION_SETTINGS];
+	count = settings_lines(guide.settings_page, lines);
+	chosen_line = settings_line_kinds(lines, count, kinds, chosen);
+	for (line = 0; line < count; line++)
+		heights[line] = kinds[line] == GUIDE_LINE_CAPTION ? SETTINGS_CAPTION_HEIGHT : SETTING_HEIGHT + ROW_GAP;
+	/* (the window moves only when the chosen row leaves it, its block's
+	caption with it) */
+	first = (short)guide_lines_scroll(kinds, heights, count, chosen_line, guide.settings_first, room);
+	shown = (short)guide_lines_shown(kinds, heights, count, first, room);
 	guide.settings_first = first;
-	for (setting = first; setting < rows && setting < first + shown; setting++)
+	y = top;
+	for (line = first; line < count && line < first + shown; line++)
 	{
-		struct settings_row const *row = settings_row_at(SETTINGS_GROUP_GUIDE, setting);
+		short setting = lines[line].row;
+		struct settings_row const *row;
 		boolean on = setting == chosen;
 
+		if (lines[line].kind == GUIDE_LINE_CAPTION)
+		{
+			ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT + 2, y + (line == first ? 2 : 6), UI_ALIGN_LEFT,
+				lines[line].caption);
+			y += heights[line];
+			continue;
+		}
+		row = setting < shared_settings_count() ? settings_row_at(SETTINGS_GROUP_GUIDE, setting) : NULL;
 		if (row)
 		{
 			char value[96];
@@ -4416,19 +4712,19 @@ static void render_settings(void)
 				extra_row_label(setting), NULL, NULL, on);
 		}
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
-		y += SETTING_HEIGHT + ROW_GAP;
+		y += heights[line];
 	}
 	/* (more rows than show: a slim bar in the panel's edge beside them, where
 	no row's value is) */
 	guide.settings_bar.thumb.height = 0;
-	if (shown < rows)
+	if (shown < count)
 	{
 		struct guide_scroll_bar *bar = &guide.settings_bar;
-		struct guide_rect track = { CONTENT_RIGHT + 6, BODY_Y, 3, shown * (SETTING_HEIGHT + ROW_GAP) - ROW_GAP };
+		struct guide_rect track = { CONTENT_RIGHT + 6, top, 3, room - ROW_GAP };
 
-		guide_layout_scroll_thumb(track, rows, shown, first, 12.0f, &bar->thumb);
+		guide_layout_scroll_thumb(track, count, shown, first, 12.0f, &bar->thumb);
 		bar->track = track;
-		bar->count = rows;
+		bar->count = count;
 		bar->shown = shown;
 		ui_overlay_rect(track.x, track.y, track.width, track.height, 1.5f, 0xFFFFFF1A);
 		/* (under the pointer or dragged: wider and brighter) */
@@ -5301,7 +5597,7 @@ void guide_open_setting(char const *key)
 	{
 		if (!strcmp(settings_row_key(row), key))
 		{
-			guide.row[SOCIAL_SECTION_SETTINGS] = index;
+			settings_choose(index);
 			break;
 		}
 	}
@@ -5667,6 +5963,9 @@ static void handle_pressed(unsigned int pressed)
 			guide_workshop_link_modal_move((pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 		return;
 	}
+	/* (SETTINGS: LT and RT, Page Up and Page Down, its pages) */
+	if (guide.section == SOCIAL_SECTION_SETTINGS && (pressed & (GUIDE_INPUT_LEFT_TRIGGER | GUIDE_INPUT_RIGHT_TRIGGER)))
+		settings_page_go((short)(guide.settings_page + ((pressed & GUIDE_INPUT_RIGHT_TRIGGER) ? 1 : -1)));
 	/* (WORKSHOP: LT and RT, Page Up and Page Down, a page of Steam's list on or back) */
 	if (guide.section == SOCIAL_SECTION_WORKSHOP && (pressed & (GUIDE_INPUT_LEFT_TRIGGER | GUIDE_INPUT_RIGHT_TRIGGER)))
 		guide_workshop_page_step((pressed & GUIDE_INPUT_RIGHT_TRIGGER) ? 1 : -1);
@@ -5797,9 +6096,20 @@ static boolean scroll_bars_pointer(struct halo_ui_pointer const *pointer)
 		pointer->left_down, pointer->left_clicks > 0, pointer->click_x, pointer->click_y, &taken);
 	if (scroll >= 0)
 	{
+		struct settings_line lines[MAXIMUM_SETTINGS_LINES];
+		int kinds[MAXIMUM_SETTINGS_LINES];
+		short count = settings_lines(guide.settings_page, lines);
+		short at = settings_line_kinds(lines, count, kinds, guide.row[SOCIAL_SECTION_SETTINGS]);
+		short last = (short)(scroll + guide.settings_bar.shown - 1);
+
 		guide.settings_first = (short)scroll;
-		guide.row[SOCIAL_SECTION_SETTINGS] = (short)PIN(guide.row[SOCIAL_SECTION_SETTINGS], scroll,
-			scroll + guide.settings_bar.shown - 1);
+		/* (the chosen row kept among those shown: the nearest one in them) */
+		if (at < scroll || at > last)
+		{
+			at = (short)guide_lines_snap(kinds, count, at < scroll ? scroll : last, at < scroll ? 1 : -1);
+			if (at != NONE)
+				guide.row[SOCIAL_SECTION_SETTINGS] = lines[at].row;
+		}
 	}
 	return taken != 0;
 }
@@ -5940,6 +6250,9 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			if (guide.row[guide.section] == target->index && pointer->touch)
 				activate();
 			guide.row[guide.section] = target->index;
+			break;
+		case _target_settings_page:
+			settings_page_go(target->index);
 			break;
 		case _target_setting:
 			guide.row[guide.section] = target->index;

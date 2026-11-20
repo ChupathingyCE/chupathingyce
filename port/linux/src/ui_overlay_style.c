@@ -742,12 +742,23 @@ static float bumper(int button, const char *key, float size, float x, float y, i
 	return measure_only ? ui_overlay_button_width(button, size) : ui_overlay_button(button, size, x, y, 0xFFFFFFFF);
 }
 
+/* the next ui_style_tabs' end buttons (ui_style_tabs_buttons); the bumpers
+when unset */
+static int tabs_left_button = UI_BUTTON_LEFT_SHOULDER, tabs_right_button = UI_BUTTON_RIGHT_SHOULDER;
+
+void ui_style_tabs_buttons(int left_button, int right_button)
+{
+	tabs_left_button = left_button;
+	tabs_right_button = right_button;
+}
+
 void ui_style_tabs(float left, float right, float y, float height, const char *const *names, int count,
 	int selected, const char *left_key, const char *right_key, float *starts, float *ends)
 {
 	float size = height * 0.45f, pad = height * 0.4f, gap = 3.0f, total = 0.0f, x;
 	float glyph = height * 0.64f;
 	int index;
+	int left_button = tabs_left_button, right_button = tabs_right_button;
 
 	float text = 0.0f, room;
 
@@ -755,8 +766,8 @@ void ui_style_tabs(float left, float right, float y, float height, const char *c
 		text += ui_overlay_text_width(UI_FONT_MENU, size, names[index]);
 	/* (more tabs than fit between the bumpers: their padding narrowed, then
 	their text made smaller, so none runs under a bumper) */
-	room = right - left - bumper(UI_BUTTON_LEFT_SHOULDER, left_key, glyph, 0, 0, 1) -
-		bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph, 0, 0, 1) - 4 * gap;
+	room = right - left - bumper(left_button, left_key, glyph, 0, 0, 1) -
+		bumper(right_button, right_key, glyph, 0, 0, 1) - 4 * gap;
 	if (count > 0 && text + count * 2 * pad + (count - 1) * gap > room)
 	{
 		pad = (room - text - (count - 1) * gap) / (2.0f * count);
@@ -769,10 +780,12 @@ void ui_style_tabs(float left, float right, float y, float height, const char *c
 				text += ui_overlay_text_width(UI_FONT_MENU, size, names[index]);
 		}
 	}
+	tabs_left_button = UI_BUTTON_LEFT_SHOULDER;
+	tabs_right_button = UI_BUTTON_RIGHT_SHOULDER;
 	total = text + count * 2 * pad + (count - 1) * gap;
-	bumper(UI_BUTTON_LEFT_SHOULDER, left_key, glyph, left, y + (height - glyph) * 0.5f, 0);
-	bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph,
-		right - bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph, 0, 0, 1), y + (height - glyph) * 0.5f, 0);
+	bumper(left_button, left_key, glyph, left, y + (height - glyph) * 0.5f, 0);
+	bumper(right_button, right_key, glyph,
+		right - bumper(right_button, right_key, glyph, 0, 0, 1), y + (height - glyph) * 0.5f, 0);
 	x = (left + right) * 0.5f - total * 0.5f;
 	for (index = 0; index < count; index++)
 	{

@@ -132,4 +132,37 @@ when the bar didn't change it. *taken is set when the press was the bar's
 int guide_layout_scroll_bar_pointer(struct guide_scroll_bar *bar, int scroll, float x, float y, int down,
 	int pressed, float press_x, float press_y, int *taken);
 
+/* a page of lines read top to bottom (SETTINGS' rows under their
+captions): what each line is. Only an action takes the cursor; the others
+are read past */
+enum
+{
+	/* a row A does something on */
+	GUIDE_LINE_ACTION,
+	/* a label and its value: read, not pressed */
+	GUIDE_LINE_INFO,
+	/* a block's small heading */
+	GUIDE_LINE_CAPTION,
+	/* words, wrapped */
+	GUIDE_LINE_TEXT,
+};
+/* whether line is an action */
+int guide_lines_focusable(const int *kinds, int count, int line);
+/* the action step actions on from at (down for a positive step), stopping
+at the last one there is that way; at when there's none that way, -1 when
+there's none at all */
+int guide_lines_move(const int *kinds, int count, int at, int step);
+/* at when it is an action, else the nearest action looking direction
+first (1 down, -1 up), then the other way; -1 when there's none */
+int guide_lines_snap(const int *kinds, int count, int at, int direction);
+/* the lines from first that show in room (heights: each line's, its gap
+under it included): as many as fit, a caption left out when the line
+under it wouldn't fit too. At least one */
+int guide_lines_shown(const int *kinds, const float *heights, int count, int first, float room);
+/* the first line shown: first moved as little as it takes for chosen (-1:
+none) to show, with the captions and text over it when it is its block's
+first action and they fit too; never so far down that room shows space
+under the last line */
+int guide_lines_scroll(const int *kinds, const float *heights, int count, int chosen, int first, float room);
+
 #endif
