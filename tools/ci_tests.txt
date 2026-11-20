@@ -54,6 +54,7 @@ tools/test_discord_activity.py
 tools/test_discord_register.py
 tools/test_duct_tape_logo.py
 tools/test_event_log.py
+tools/test_fog_screen_camera.py
 tools/test_footer_prompts.py
 tools/test_forge_files.py
 tools/test_game_list_rules.py
