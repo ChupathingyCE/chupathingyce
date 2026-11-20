@@ -1410,11 +1410,16 @@ static void bg_cache_write(Uint64 hash, unsigned long uniform_size, const char *
 	file = fopen(temporary, "wb");
 	if (!file)
 		return;
-	/* (SDL_RenamePath: Windows' rename does not replace a file that is
-	there, and a failed one would leave the temporary file) */
-	if (!(fwrite(&header, sizeof(header), 1, file) == 1 && fwrite(msl, 1, header.length, file) == header.length &&
-		fclose(file) == 0 && SDL_RenamePath(temporary, path)))
-		remove(temporary);
+	{
+		BOOL written = fwrite(&header, sizeof(header), 1, file) == 1 &&
+			fwrite(msl, 1, header.length, file) == header.length;
+
+		/* (closed first, written or not: an open file can't be removed on
+		Windows. SDL_RenamePath: Windows' rename does not replace a file
+		that is there, and a failed one would leave the temporary file) */
+		if (!(fclose(file) == 0 && written && SDL_RenamePath(temporary, path)))
+			remove(temporary);
+	}
 }
 
 /* the backend's code for a shader's Vulkan GLSL (malloc'd, *size its

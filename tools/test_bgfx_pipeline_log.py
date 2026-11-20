@@ -70,4 +70,6 @@ def test_cache_files_replaced_on_windows():
 	assert "rename(temporary" not in pipeline.replace("SDL_RenamePath(temporary", "")
 	shader = function_body(source, "static void bg_cache_write(")
 	assert "SDL_RenamePath(temporary, path)" in shader
+	# (closed even when a write fails: Windows can't remove an open file)
+	assert "fclose(file) == 0 && written && SDL_RenamePath(temporary, path)" in shader
 	assert "rename(temporary" not in shader.replace("SDL_RenamePath(temporary", "")
