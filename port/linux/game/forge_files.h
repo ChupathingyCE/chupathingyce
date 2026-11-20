@@ -101,6 +101,10 @@ at all:
 Tag paths are never trusted to exist: when a layout is placed (forge.c),
 a record whose tag the map does not have is skipped, and the budget
 (FORGE_MAXIMUM_OBJECTS) and the map's bounds are checked again there.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef __FORGE_FILES_H
@@ -379,7 +383,9 @@ int forge_file_path_valid(
 	char const *path,
 	int length);
 
-/* whether a map's short name is [a-z0-9_], 1 to 31 characters */
+/* whether a map's short name is [a-z0-9_], 1 to 31 characters, and not a
+name Windows keeps for a device (forge_file_name_reserved: it names the
+map's layout folder) */
 int forge_file_map_name_valid(
 	char const *name);
 
@@ -390,12 +396,20 @@ int forge_file_text_valid(
 	int maximum);
 
 /* whether a file name is a layout's: <stem>.hmv, the stem 1 to 28 of
-[a-z0-9_-]; nothing else is ever opened in the Forge folder */
+[a-z0-9_-] and not a name Windows keeps for a device; nothing else is ever
+opened in the Forge folder */
 int forge_file_name_valid(
 	char const *file_name);
 
+/* whether a name is one Windows keeps for a device, in any case and with or
+without an extension: con, prn, aux, nul, com1 to com9, lpt1 to lpt9
+("nul.hmv" or "COM1.txt" open the device, not a file) */
+int forge_file_name_reserved(
+	char const *name);
+
 /* a file name made from a title (lower case letters and digits, the rest
-'_', at most 22), with a number after it when number > 1: "gulch_2.hmv" */
+'_', at most 22), with a number after it when number > 1: "gulch_2.hmv";
+a stem Windows keeps for a device is numbered too: "con_1.hmv" */
 void forge_file_name_from_title(
 	char const *title,
 	int number,

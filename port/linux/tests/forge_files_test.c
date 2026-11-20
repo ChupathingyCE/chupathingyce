@@ -12,6 +12,10 @@ tools/test_forge_files.py with a scratch folder as its argument (with
 AddressSanitizer and UndefinedBehaviorSanitizer when the compiler has
 them); exits nonzero on a failure. Everything it writes is under that
 folder.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "../game/forge_files.h"
@@ -788,6 +792,41 @@ static void test_store(void)
 	CHECK(!strcmp(saved, "my_map_3.hmv"));
 	forge_file_name_from_title("***", 1, saved, sizeof(saved));
 	CHECK(!strcmp(saved, "variant.hmv"));
+	/* (names Windows keeps for a device, in any case, with or without an
+	extension: never a layout's or a map folder's) */
+	{
+		static char const *const reserved[] = { "con", "PRN", "Aux", "nul", "com1", "COM9", "lpt1", "Lpt9",
+			"con.hmv", "nul.txt", "COM1.hmv", "lpt9.tar.gz", "aux." };
+		static char const *const allowed[] = { "cons", "nul_", "com0", "com10", "lpt", "comx", "console", "xcon",
+			"lpt0.hmv", "conn.hmv", "", ".con" };
+		int index;
+
+		for (index = 0; index < (int)(sizeof(reserved) / sizeof(reserved[0])); index++)
+			CHECK(forge_file_name_reserved(reserved[index]));
+		for (index = 0; index < (int)(sizeof(allowed) / sizeof(allowed[0])); index++)
+			CHECK(!forge_file_name_reserved(allowed[index]));
+		CHECK(!forge_file_name_reserved(NULL));
+	}
+	CHECK(!forge_file_name_valid("con.hmv") && !forge_file_name_valid("nul.hmv") && !forge_file_name_valid("com1.hmv") &&
+		!forge_file_name_valid("lpt9.hmv") && forge_file_name_valid("con_1.hmv") && forge_file_name_valid("com10.hmv"));
+	CHECK(!forge_file_map_name_valid("aux") && !forge_file_map_name_valid("com3") && forge_file_map_name_valid("auxiliary"));
+	forge_file_name_from_title("CON", 1, saved, sizeof(saved));
+	CHECK(!strcmp(saved, "con_1.hmv") && forge_file_name_valid(saved));
+	forge_file_name_from_title("  Com1 ", 2, saved, sizeof(saved));
+	CHECK(!strcmp(saved, "com1_2.hmv"));
+	forge_file_name_from_title("Console", 1, saved, sizeof(saved));
+	CHECK(!strcmp(saved, "console.hmv"));
+	/* (a layout titled after a device saves under a numbered name; one
+	given a device's name is refused, nothing written) */
+	sample_layout(&layout_a);
+	snprintf(layout_a.title, sizeof(layout_a.title), "NUL");
+	CHECK(forge_store_save(&layout_a, NULL, saved, sizeof(saved), why, sizeof(why)) && !strcmp(saved, "nul_1.hmv") &&
+		forge_store_exists("bloodgulch", "nul_1.hmv"));
+	CHECK(forge_store_delete("bloodgulch", "nul_1.hmv"));
+	CHECK(!forge_store_save(&layout_a, "nul.hmv", NULL, 0, why, sizeof(why)) && !forge_store_exists("bloodgulch", "nul.hmv"));
+	CHECK(!forge_store_load("bloodgulch", "con.hmv", &layout_b, why, sizeof(why)));
+	snprintf(layout_a.map_name, sizeof(layout_a.map_name), "aux");
+	CHECK(!forge_store_save(&layout_a, NULL, saved, sizeof(saved), why, sizeof(why)));
 	forge_store_date_now(saved, sizeof(saved));
 	CHECK(strlen(saved) == 16 && saved[4] == '-' && saved[13] == ':');
 }

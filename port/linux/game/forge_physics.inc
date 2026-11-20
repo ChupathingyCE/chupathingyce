@@ -19,12 +19,16 @@ properties' PHYSICS row - NORMAL, FIXED, PHASED - for any placed object.
   projectile's line still meets it: the engine's vector test does not read
   the switch, as for a scripted object; so a PHASED object also carries
   _object_forge_phased_bit, which the vector tests of collisions.c read: shots
-  pass it, a scripted object's behaviour as it was. The monitor's crosshair
+  pass it, a scripted object's behavior as it was. The monitor's crosshair
   asks for it, _collision_test_forge_phased_objects_bit: it is still grabbed.)
 
 Saved in the layout as version 7's flags (forge_files.h
 FORGE_RECORD_PHYSICS_*). Nothing of a game that is not Forge or a layout
 played is touched.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 /* ---------- constants */

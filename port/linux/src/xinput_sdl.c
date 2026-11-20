@@ -1157,6 +1157,24 @@ int halo_linux_debug_camera_input(short gamepad_index, int free_camera, int *up,
 	return middle;
 }
 
+/* whether Forge is on (game.forge): its monitor's keys are read only then */
+static BOOL forge_keys_wanted(void)
+{
+#ifdef HALO_CONSOLE_NO_FORGE
+	return FALSE;
+#else
+	static BOOL on;
+	static unsigned long read_at = (unsigned long)-1;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		on = config_boolean("game.forge") != 0;
+	}
+	return on;
+#endif
+}
+
 /* in the game: the actions held, and the controller's Start and Back for
 the pause menu and the scoreboard */
 static void keyboard_controls(const struct platform_input_state *input, XINPUT_GAMEPAD *pad)
@@ -1194,14 +1212,18 @@ static void keyboard_controls(const struct platform_input_state *input, XINPUT_G
 	if (held & (1UL << HALO_KEYBOARD_SCOREBOARD))
 		pad->wButtons |= XINPUT_GAMEPAD_BACK;
 	keyboard_actions_held = held;
-	/* (Forge's keys: the monitor's, which only Forge reads) */
+	/* (Forge's keys: the monitor's, which only Forge reads, and only while
+	Forge is on) */
 	held = 0;
-	for (action = 0; action < NUMBER_OF_HALO_FORGE_KEYS; action++)
+	if (forge_keys_wanted())
 	{
-		for (slot = 0; slot < MAXIMUM_BINDINGS; slot++)
+		for (action = 0; action < NUMBER_OF_HALO_FORGE_KEYS; action++)
 		{
-			if (input_held(input, forge_bindings[action][slot]))
-				held |= 1UL << action;
+			for (slot = 0; slot < MAXIMUM_BINDINGS; slot++)
+			{
+				if (input_held(input, forge_bindings[action][slot]))
+					held |= 1UL << action;
+			}
 		}
 	}
 	forge_keys_held = held;
