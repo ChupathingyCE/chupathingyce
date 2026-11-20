@@ -843,6 +843,34 @@ static const struct config_setting config_settings[] =
 		"instead of waiting for the next. OpenGL on Windows, Linux and Android,\n"
 		"and the original Xbox; elsewhere it waits. Takes effect at the next\n"
 		"start." },
+	/* (the drawing's knobs: render.c's render_tuning, which holds them in
+	network games) */
+	{ "tuning.particle_thinning", _config_integer, "1", "HALO_PARTICLE_THINNING", _environment_value,
+		_platform_all | _platform_xbox,
+		"Draw one in this many of the loose particles in the world: sparks,\n"
+		"debris, dust and the puffs of explosions, from 1 to 4. 1 draws every\n"
+		"one, as the Xbox. Particles on a weapon, player or vehicle are always\n"
+		"drawn. In a network game you never see fewer than the Xbox would.\n"
+		"Changes at once." },
+	{ "tuning.effects", _config_string, "\"full\"", "HALO_TUNING_EFFECTS", _environment_value,
+		_platform_all | _platform_xbox,
+		"\"full\" draws every pass, as the Xbox. \"reduced\" leaves out the\n"
+		"shine of lights, metal and water, mirrors and the grass on the ground.\n"
+		"\"minimal\" also leaves out decals, rain and snow, contrails and lens\n"
+		"flares. In a network game the grass, rain, snow, contrails and flares\n"
+		"are always drawn. Changes at once." },
+	{ "tuning.shadow_pixels", _config_integer, "30", "HALO_SHADOW_PIXELS", _environment_value,
+		_platform_all | _platform_xbox,
+		"How big an object must look, in pixels across, to cast a shadow, from\n"
+		"30 to 400. 30 is the Xbox's. Higher keeps the shadows of near objects\n"
+		"only. Changes at once." },
+	{ "tuning.object_cull_pixels", _config_integer, "0", "HALO_OBJECT_CULL_PIXELS", _environment_value,
+		_platform_all | _platform_xbox,
+		"Leave out objects that look smaller than this, in pixels across,\n"
+		"before they are lit, from 0 to 16. 0 draws every one, as the Xbox. In\n"
+		"a network game only weapons, equipment and debris lying around are\n"
+		"left out: never players, vehicles, projectiles or cover. Changes at\n"
+		"once." },
 	{ "tuning.texture_cache", _config_string, "\"auto\"", NULL, _environment_value, _platform_xbox,
 		"The texture cache's size in MB, like \"20\", or \"auto\" for the\n"
 		"console's own. It is held between 19 MB and what the console's memory\n"
@@ -4684,6 +4712,7 @@ static const struct
 	/* (the log line for another word is config_tuning_apply's, which uses the default) */
 	{ "tuning.preset", { "retail", "lan-party", "potato", NULL }, NULL },
 	{ "tuning.present_mode", { "vblank", "adaptive", NULL }, NULL },
+	{ "tuning.effects", { "full", "reduced", "minimal", NULL }, NULL },
 	{ "audio.resampling", { "xbox", "sinc", "linear", NULL }, "\"xbox\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
 	{ "game.console_log", { "important", "all", "none", NULL }, "\"important\"" },
@@ -4816,8 +4845,10 @@ the others stay where they were, the one place each value lives, and a
 preset only changes what "unset" means. Every knob changes only what is
 drawn, never the simulation, so a game plays the same whatever they say
 (display.particle_limit is held at the Xbox's 1024 or more in a network
-game: particles.c). A value out of a knob's range is held in it, and a word
-that is none of a knob's is its default, each said in the log.
+game: particles.c; and the drawing's knobs never hide players, vehicles,
+projectiles or cover there: render.c's render_tuning). A value out of a
+knob's range is held in it, and a word that is none of a knob's is its
+default, each said in the log.
 
 The log has every knob's value and where it came from at the start
 ("tuning: at=boot", with a line of those that differ from the defaults),
@@ -4826,8 +4857,8 @@ at each map's start ("tuning: at=map", config_tuning_log) and at each change
 (crash_report.c, log_send.c).
 
 Not knobs yet, needing engine work sized by testers' console.perf_log lines
-first: the explosions' particles, the effects' density, the decals' draw
-distance and the tire tracks. */
+first: the explosions' particles, the decals' draw distance and the tire
+tracks. */
 
 enum
 {
@@ -4899,6 +4930,10 @@ static const struct
 	{ "display.light_effects", "light_effects", 0, 0, 0, { NULL, NULL, "off" } },
 	{ "display.resolution_scaling", "scaling", 0, 0, 0, { NULL, NULL, "original" } },
 	{ "tuning.present_mode", "present", _tuning_words, 0, 0, { NULL, "adaptive", NULL } },
+	{ "tuning.particle_thinning", "thinning", 0, 1, 4, { NULL, NULL, NULL } },
+	{ "tuning.effects", "effects", _tuning_words, 0, 0, { NULL, NULL, NULL } },
+	{ "tuning.shadow_pixels", "shadow_pixels", 0, 30, 400, { NULL, NULL, NULL } },
+	{ "tuning.object_cull_pixels", "cull_pixels", 0, 0, 16, { NULL, NULL, NULL } },
 	{ "tuning.texture_cache", "texture_cache", _tuning_megabytes, 19, 512, { NULL, NULL, NULL } },
 };
 

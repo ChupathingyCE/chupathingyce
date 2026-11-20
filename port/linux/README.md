@@ -666,6 +666,10 @@ the setting for one start of the game. It has priority over the file.
 | `display.specular_light_limit` | `0` (consoles: `2`; the original Xbox: `0`) | `HALO_SPECULAR_LIGHT_LIMIT` | Of those lights, the most that also add their shine to metal and wet floors. The first-person weapon's go first. `0`: no limit, as on the Xbox. Changes at once. |
 | `tuning.preset` | `"retail"` | `HALO_TUNING_PRESET` | Several performance knobs at once. `"retail"`: none changed. `"lan-party"`: `display.dynamic_light_limit` 16, `display.specular_light_limit` 4, `display.particle_limit` 2048, `display.particle_ticks` true, `tuning.present_mode` `"adaptive"`. `"potato"` (the setup screen's PERFORMANCE: POTATO): the limits 8, 2 and 1024, `display.particle_ticks` true, `display.shadow_resolution` 128, `display.anisotropic_filtering` 0, `display.anti_aliasing` `"off"`, `display.per_pixel_lighting` false, `display.light_effects` `"off"`, `display.resolution_scaling` `"original"`. The preset gives a knob its value only where config.toml and the environment don't: those keys stay the one place each value lives, and a preset never raises a build's own limit. Drawing only. Refer to "Tuning". |
 | `tuning.present_mode` | `"vblank"` | `HALO_PRESENT_MODE` | With V-Sync: `"vblank"` waits for the display. `"adaptive"` shows a late frame at once (a swap interval of -1, or the original Xbox's `*_OR_IMMEDIATE` intervals); a driver that refuses it waits, and the log says so. OpenGL on Windows, Linux and Android, and the original Xbox; not with VRR. Read at start. |
+| `tuning.particle_thinning` | `1` | `HALO_PARTICLE_THINNING` | Draws one in this many (1 to 4) of the loose particles in view: on no object, nor the first-person weapon (`render_particles.c`), and the particles of particle systems on no object (`particle_systems.c`). Chosen by the particle's slot, so each is drawn or not for its whole life. A thinned particle still counts as drawn (the game deletes one not drawn for a while) and takes its first sprite's local random number as before: only its sprite is not built. In a network game it thins only past 1024 loose particles in view, and never a particle system's. Changes at once. |
+| `tuning.effects` | `"full"` | `HALO_TUNING_EFFECTS` | `"reduced"` leaves out `lights_render_specular`, the specular lightmaps, the reflection masks, mirrors (and the mirror's own view) and reflections, and the detail objects. `"minimal"` also leaves out the decals (all five layers), the weather's sprites (after its update), the contrails and the lens flares with their occlusion tests. In a network game the detail objects, weather, contrails and lens flares are drawn. Changes at once. |
+| `tuning.shadow_pixels` | `30` | `HALO_SHADOW_PIXELS` | The size (30 to 400) an object must look on screen, in pixels across, to cast a shadow: the Xbox's `OBJECT_SHADOW_MINIMUM_PIXELS` by default. Above 30 an object too small for one is passed over before its lighting is prepared, and a shadow fades in over 15 pixels from the new size. Changes at once. |
+| `tuning.object_cull_pixels` | `0` | `HALO_OBJECT_CULL_PIXELS` | Objects that look smaller than this (0 to 16 pixels across) are left out of the rendered list (`find_rendered_objects`), before they are lit or cast a shadow. Never one with a child or a widget, nor the camera's own. In a network game only items (weapons, equipment, garbage). `0` keeps every one. Changes at once. |
 | `tuning.texture_cache` | `"auto"` | none | The original Xbox only: the texture cache in MB, held between 19 MB and what the memory class allows (a 128 or 256 MB console's own size; on a 64 MB console what is free with the main loop's reserve still left). `"auto"`: the console's own. Read at start. |
 | `display.crt_filter` | `false` | `HALO_CRT_FILTER=1` sets `true` | `true`: a CRT look over the picture (scanlines, curvature, a phosphor mask). Only the `bgfx` renderer has it for now. |
 | `display.vulkan_blocklist` | `true` | `HALO_VULKAN_BLOCKLIST` | Windows and Linux, with the `bgfx` renderer: skip Vulkan drivers known to be broken or slow on older computers (nouveau's Vulkan before Turing, NVIDIA older than 470, Mesa's Vulkan for Ivy Bridge, Haswell and Bay Trail, software Vulkan) and draw with OpenGL. `false` tries Vulkan anyway. |
@@ -906,7 +910,28 @@ players, and the log says so once (`tuning: display.particle_limit 512 held
 at 1024 in a network game`). The light limits only choose which lights
 light the level; every light still lights the players near it.
 
-Not knobs yet: explosion particles, effect density, decal draw distance and
+The drawing knobs (`render_tuning` in `source/render/render.c`, read again
+when the settings change) are held the same way in a network game:
+`tuning.particle_thinning` only thins past the Xbox's 1024 loose particles
+in view and never a particle system's mist, steam or smoke;
+`tuning.effects` always draws the detail objects, weather, contrails and
+lens flares; and `tuning.object_cull_pixels` leaves out only items lying
+around, never a player, vehicle, projectile or anything that could be
+cover. The decals, the shine and reflections that `tuning.effects` leaves
+out and `tuning.shadow_pixels` are not held: they are cosmetic, local
+and never sent. Each holding is said once a value (`tuning: effects=minimal draws
+the grass, weather, contrails and lens flares in a network game`). A
+determinism replay (`debug.determinism`) counts as a local game for them,
+so `tools/test_determinism.py --tuning-most` and `tools/bench.py` see all
+they do. They leave out only sprites and passes, after the game's own
+bookkeeping for them, so the simulation is the same: `--tuning-most`
+replays a retail recording with every knob at its most and checks every
+tick's hashes.
+
+The ideas for these four come from Bruno Santana's modified build of Lord
+BirchWood's Vita port. The code here is our own.
+
+Not knobs yet: explosion particles, decal draw distance and
 tire tracks. Each needs engine work, sized first by testers'
 `console.perf_log` lines.
 

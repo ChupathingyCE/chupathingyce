@@ -141,6 +141,10 @@ only what is drawn. Leave it alone and nothing changes.
 | --- | --- |
 | `tuning.preset` | `"retail"` (the default) changes nothing. `"lan-party"` caps the lights and particles of a big firefight (16 lights, 4 with shine, 2048 particles, particles moved once a tick) and shows a late frame at once (`present_mode = "adaptive"`). `"potato"` is the setup screen's POTATO: 8 lights, 2 with shine, 1024 particles, smaller shadows, no anti-aliasing, the Xbox's own lighting and the picture drawn at 640x480. A preset never raises a build's own limit. |
 | `tuning.present_mode` | With V-Sync on: `"vblank"` (the default) waits for the display before every frame. `"adaptive"` shows a frame that missed the display at once, with a tear, rather than a whole refresh later. OpenGL on Windows, Linux and Android, and the original Xbox. Elsewhere it waits. Read at start. |
+| `tuning.particle_thinning` | Draws one in this many of the loose particles in the world (sparks, debris, dust, the puffs of explosions), from 1 to 4. `1` (the default) draws every one. Particles on a weapon, player or vehicle are always drawn, and every particle still moves as before. |
+| `tuning.effects` | `"full"` (the default) draws every pass. `"reduced"` leaves out the shine of lights, metal and water, the reflections and mirrors, and the grass on the ground. `"minimal"` also leaves out decals, rain and snow, contrails and lens flares. |
+| `tuning.shadow_pixels` | How big an object must look on screen, in pixels across, to cast a shadow, from 30 to 400. `30` (the default) is the Xbox's. Higher keeps only the shadows of near objects. |
+| `tuning.object_cull_pixels` | Leaves out objects that look smaller than this, in pixels across, before they're lit, from 0 to 16. `0` (the default) draws every one. An object with something attached (a player with a weapon, a flag) is always drawn. |
 | `tuning.texture_cache` | Original Xbox only: the texture cache's size in MB, like `"20"`, or `"auto"` (the default) for the console's own. It's held between 19 MB and what the console's memory has room for. Read at start. |
 
 A preset fills in the settings it names only where you haven't set them
@@ -156,8 +160,28 @@ starting `tuning:`. That file also says what every knob was at start
 changes (`tuning: change`). A crash report and Send my logs carry the same
 line.
 
-In a network game nobody sees fewer particles than the Xbox kept (1024).
-Smoke and dust can hide players, and a lower limit would take them away.
+In a network game nobody sees less of the other players than the Xbox would
+show them:
+
+- Particles: nobody sees fewer than the Xbox kept (1024). Smoke and dust can
+  hide players, and a lower limit would take them away. `particle_thinning`
+  only thins past 1024 loose particles in view, and never the mist, steam
+  and smoke of the level's particle systems.
+- `effects`: the grass, rain and snow, contrails and lens flares are always
+  drawn. They can hide a player, show where a shot came from, or blind.
+- `object_cull_pixels` leaves out only weapons, equipment and debris lying
+  around. Players, vehicles, projectiles and anything that could be cover
+  are always drawn.
+- Your own decals, shine, reflections and shadow size stay your choice
+  online. They are cosmetic, drawn only on your screen and never sent.
+
+The log says once when a knob is held (`tuning: effects=minimal draws the
+grass, weather, contrails and lens flares in a network game`).
+
+Thanks to Bruno Santana and Lord BirchWood: the particle thinning, the
+effects levels, the shadow size and leaving small objects out early follow
+the ideas in Bruno Santana's modified build of BirchWood's Vita port. Our
+versions are written from scratch.
 
 ### Every knob, and what the presets do on the original Xbox
 
@@ -175,6 +199,12 @@ own limits are already where the presets would put them, so:
 - In big games (more than about 24 players) the original Xbox is held back
   by the game tick, not the drawing, so no preset can make those games run
   faster there.
+- `particle_thinning`, `effects`, `shadow_pixels` and `object_cull_pixels`
+  work on the original Xbox too, but no preset sets them yet. On a Mac, in
+  a Blood Gulch game, each one alone saved less than we could measure; all
+  four at their most saved about half a millisecond a frame. They wait for
+  testers' `console.perf_log` lines from the console before a preset uses
+  them. Set them by hand to try them.
 
 The table is made from the code by `tools/tuning_table.py`
 (`tools/test_tuning_table.py` checks it).
@@ -194,12 +224,16 @@ The table is made from the code by `tools/tuning_table.py`
 | `display.light_effects` | nothing | `off` | no | | | | Drawing: the projectile, muzzle and emitter lights, and their wall tests. |
 | `display.resolution_scaling` | nothing | `original` | no | | | | Drawing: "original" fills 640x480 instead of the window. |
 | `tuning.present_mode` | `adaptive` | nothing | yes | `vblank`; `vblank` or `adaptive` | `adaptive` | nothing | Waiting, not work: "adaptive" shows a late frame at once, with a tear, instead of a refresh later. |
+| `tuning.particle_thinning` | nothing | nothing | yes | `1`; 1 to 4 | nothing | nothing | Drawing: fewer sprites of loose particles; each is still moved and counted as before. In a network game only past the Xbox's 1024. |
+| `tuning.effects` | nothing | nothing | yes | `full`; `full` or `reduced` or `minimal` | nothing | nothing | Drawing: "reduced" skips the shine, reflection and grass passes; "minimal" also decals, weather, contrails and lens flares. A network game keeps the grass, weather, contrails and flares. |
+| `tuning.shadow_pixels` | nothing | nothing | yes | `30`; 30 to 400 | nothing | nothing | Drawing: each object's shadow redraws the level under it; an object too small for one is not lit for it either. |
+| `tuning.object_cull_pixels` | nothing | nothing | yes | `0`; 0 to 16 | nothing | nothing | Drawing, and CPU a frame: small objects are neither lit nor drawn. In a network game only items lying around. |
 | `tuning.texture_cache` | nothing | nothing | yes | `auto`; "auto", or 19 to 512 MB (and what memory has room for) | nothing | nothing | Memory: a bigger cache loads fewer textures from the disc, and leaves less free. |
 
 <!-- end of tuning table -->
 
-More knobs (explosion particles, effect density, decal distance, tire
-tracks) come once testers' `console.perf_log` lines show what they'd save.
+More knobs (explosion particles, decal distance, tire tracks) come once
+testers' `console.perf_log` lines show what they'd save.
 
 <a id="a-new-renderer-to-test"></a>
 
