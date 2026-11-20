@@ -28652,7 +28652,8 @@ boolean h2_level_textures_missing(void)
 
 void h2_level_folder_create(void)
 {
-	CreateDirectoryA("d:\\halo2", NULL);
+	/* (port, Halo 2 mode: the save folder's cache alone, z:\\halo2; nothing is
+	written in the data root) */
 	CreateDirectoryA(H2_LEVEL_FOLDER, NULL);
 }
 
