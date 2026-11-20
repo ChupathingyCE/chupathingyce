@@ -326,4 +326,16 @@ shared code calls into no-ops, and the MCC sources build to nothing */
 #endif
 #endif
 
+/* ragdolls (port/linux/game/ragdolls.c, display.ragdolls): a dead body's
+pose drawn from a rigid body ragdoll on Jolt Physics. The builds that
+compile Jolt (HALO_JOLT: the desktop build scripts set it), and on no
+console (any console's build, whichever switches it sets on its own) nor a
+dedicated server, which draws nothing. A console's build may also set
+HALO_CONSOLE_NO_RAGDOLLS */
+#if defined(HALO_JOLT) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE_NO_RAGDOLLS) && \
+	!(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER))
+#define HALO_PORT_RAGDOLLS
+#endif
+
 #endif /* __HALO_PORT_FEATURES_H */

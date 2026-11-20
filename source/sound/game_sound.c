@@ -953,6 +953,24 @@ static long obstruction_cache_slot(
 }
 #endif
 
+/* port: whether both clusters are the current structure BSP's (see
+compute_sound_obstruction) */
+static boolean sound_obstruction_clusters_valid(
+	short source_cluster_index,
+	short camera_cluster_index)
+{
+	short cluster_count = global_structure_bsp_get()->clusters.count;
+	boolean valid = source_cluster_index < cluster_count &&
+		camera_cluster_index < cluster_count;
+
+	match_warn(
+		"c:\\halo\\SOURCE\\sound\\game_sound.c",
+		888,
+		valid);
+
+	return valid;
+}
+
 void compute_sound_obstruction(
 	short local_player_index,
 	struct sound_source *source,
@@ -990,8 +1008,17 @@ void compute_sound_obstruction(
 		887,
 		source->spatialization_mode==_sound_spatialization_mode_absolute);
 
+	/* port: and both clusters the structure BSP's. A sound whose location
+	still names a cluster of the structure before a switch would be looked
+	up past the end of the cluster sound distances and PVS (a halt in a
+	debug build). It is muffled as a sound with no cluster until its
+	location is made again; sound_reconnect_to_structure_bsp makes the
+	locations again, and a debug build notes a sound it missed */
 	if (source->location.game_location.cluster_index != NONE &&
-		camera->location.cluster_index != NONE)
+		camera->location.cluster_index != NONE &&
+		sound_obstruction_clusters_valid(
+			source->location.game_location.cluster_index,
+			camera->location.cluster_index))
 	{
 		struct structure_bsp *structure_bsp = global_structure_bsp_get();
 		byte encoded_distance = structure_bsp_get_cluster_encoded_sound_distance(

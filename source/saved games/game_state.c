@@ -127,6 +127,7 @@ symbols in this file:
 #include "mcc_checkpoint.h"
 #include "stubbs_regions.h"
 #include "opensauce_scripts.h"
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_invalidate(void);
 /* port: hs_runtime.c's and hs_globals_external.c's (game_state_image_accept) */
@@ -204,6 +205,11 @@ static game_state_before_load_proc before_load_procs[] =
 	cluster_partitions_port_forget,
 	/* port: (the objects are put back: object_bounds_cache.c) */
 	object_bounds_cache_invalidate,
+#ifdef HALO_PORT_RAGDOLLS
+	/* port: the ragdolls let go: their bodies are not these
+	(port/linux/game/ragdolls.c) */
+	ragdolls_reset,
+#endif
 };
 
 static game_state_after_load_proc after_load_procs[] =

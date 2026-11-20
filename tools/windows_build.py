@@ -39,7 +39,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence
 
 from .version import VERSION_SOURCES, identity_defines, release_build, resource_version, version
-from .linux_build import (LUA_DEFINES, LUA_DIR, lua_sources, LZMA_DIR, OPUS_DIR, VOICE_SOURCE, opus_cflags, opus_sources, COMPRESSED_MAP_DEFINES, MODS_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
+from .linux_build import (JOLT_CXX_FLAGS, JOLT_DEFINES, JOLT_DIR, jolt_sources, LUA_DEFINES, LUA_DIR, lua_sources, LZMA_DIR, OPUS_DIR, VOICE_SOURCE, opus_cflags, opus_sources, COMPRESSED_MAP_DEFINES, MODS_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
@@ -527,9 +527,12 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     # checks its stack frames (/GS), and stops at the first one overrun, as
     # at the first failed assertion; a release build does not, so that an
     # overrun nobody has met cannot end a game)
+    # the ragdolls' Jolt Physics (linux_build.py, JOLT_DIR): the game's, not
+    # the dedicated server's
+    use_jolt = not target.server
     abi = " ".join(target.abi_flags + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False)
                                                            else ["-fstack-protector-strong"])
-                   + game_browser_defines(sln))
+                   + game_browser_defines(sln) + (["-DHALO_JOLT"] if use_jolt else []))
     sdl_include = SDL_DIR / "include"
     # the movies' FFmpeg (port/linux/src/bink_ffmpeg.c), static, built with
     # the same clang for the same target (tools/ffmpeg_build.py); with
@@ -751,6 +754,15 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         # (port/include/halo_math.h)
         for source in musl_math_sources():
             add_object(source, musl_math_cflags(abi))
+        # the ragdolls' Jolt Physics and its C face, C++ with the C runtime's
+        # own C++ library (no exceptions, as bgfx's)
+        if use_jolt:
+            jolt_flags = " ".join([f"--target={target.triple}", march_flag(sln), "-gcodeview", "-D_HAS_EXCEPTIONS=0",
+                                   "-D_CRT_SECURE_NO_WARNINGS", *(flag for flag in JOLT_CXX_FLAGS
+                                                                  if not flag.startswith("-D_GLIBCXX")),
+                                   *JOLT_DEFINES, f"-I{JOLT_DIR}"])
+            for source in jolt_sources():
+                add_object(source, jolt_flags)
 
         n.build(
             outputs=output,

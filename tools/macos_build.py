@@ -165,6 +165,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             name="macos",
             compressed_maps=True,
             lua=True,
+            jolt=True,
             target_flags=[target],
             game_flags=MACOS_GAME_FLAGS,
             posix_flags=MACOS_POSIX_FLAGS,
@@ -178,7 +179,8 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
 
         libraries = config.get("libraries", [])
         frameworks = config.get("frameworks", [])
-        bgfx_libs = []
+        # (Jolt's C++, and bgfx's: the system's libc++)
+        bgfx_libs = ["-lc++"]
         if use_bgfx:
             frameworks = [*frameworks, "Metal", "QuartzCore", "Cocoa", "IOKit"]
             bgfx_libs = [*(str(library) for library in bgfx_libraries), "-lc++", "-lobjc"]
