@@ -413,6 +413,11 @@ static struct
 		double translate_seconds, load_seconds, vertex_seconds;
 		uint32_t libraries, pipelines;
 		double library_seconds, pipeline_seconds;
+		/* Vulkan's pipelines made with the cache folder's data, and written
+		to it (bg_callback_cache_read, bg_callback_cache_write) */
+		uint32_t pipelines_cached, pipelines_written;
+		/* the time in bgfx_frame */
+		double frame_seconds;
 	} account;
 
 	/* debug.screenshot_every's copy of the back buffer, read back */
@@ -1405,10 +1410,10 @@ static void bg_cache_write(Uint64 hash, unsigned long uniform_size, const char *
 	file = fopen(temporary, "wb");
 	if (!file)
 		return;
-	if (fwrite(&header, sizeof(header), 1, file) == 1 && fwrite(msl, 1, header.length, file) == header.length &&
-		fclose(file) == 0)
-		rename(temporary, path);
-	else
+	/* (SDL_RenamePath: Windows' rename does not replace a file that is
+	there, and a failed one would leave the temporary file) */
+	if (!(fwrite(&header, sizeof(header), 1, file) == 1 && fwrite(msl, 1, header.length, file) == header.length &&
+		fclose(file) == 0 && SDL_RenamePath(temporary, path)))
 		remove(temporary);
 }
 
@@ -1919,6 +1924,46 @@ static void bg_map_loaded(const char *map)
 
 static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_shader *fragment);
 
+/* the pipelines bgfx's Vulkan renderer made while a map was loaded, its
+loading screen included: each is timed from bgfx asking for the cache
+folder's data (bg_callback_cache_read_size, the first thing it does for a
+draw state it has not made a pipeline for this run) to its handing the
+driver's data back (bg_callback_cache_write), the driver's compile in
+between. Logged when the next map loads (bg_warm), so a log says how much of
+a map's time went to them without debug.gpu_stats; a frame's are in
+bg.account */
+static struct
+{
+	unsigned long made, cached, written;
+	double seconds, worst, started;
+	/* the frame that spent the most on them */
+	unsigned long frame_made;
+	double frame_seconds, frame_worst;
+	unsigned long frame_worst_made;
+} bg_pipelines;
+
+static void bg_pipelines_log(const char *map)
+{
+	if (bg_vulkan && bg_pipelines.made && *map)
+		platform_log("bgfx: %s made %lu Vulkan pipelines, %.0f ms in all (the slowest %.1f ms; %lu in one frame, "
+			"%.0f ms), %lu with the cache folder's data, %lu written to it", map, bg_pipelines.made,
+			bg_pipelines.seconds * 1000.0, bg_pipelines.worst * 1000.0, bg_pipelines.frame_worst_made,
+			bg_pipelines.frame_worst * 1000.0, bg_pipelines.cached, bg_pipelines.written);
+	memset(&bg_pipelines, 0, sizeof(bg_pipelines));
+}
+
+/* after bgfx_frame: the frame that spent the most on pipelines so far */
+static void bg_pipelines_frame_end(void)
+{
+	if (bg_pipelines.frame_seconds > bg_pipelines.frame_worst)
+	{
+		bg_pipelines.frame_worst = bg_pipelines.frame_seconds;
+		bg_pipelines.frame_worst_made = bg_pipelines.frame_made;
+	}
+	bg_pipelines.frame_made = 0;
+	bg_pipelines.frame_seconds = 0.0;
+}
+
 /* a map has loaded since bgfx started (the main menu's ui.map is the first):
 the Vulkan start note's frames are counted from it (bg_frame_out) */
 static BOOL bg_map_seen;
@@ -1940,6 +1985,8 @@ static void bg_warm(void)
 		bg_jobs.warm_pending = FALSE;
 		pthread_mutex_unlock(&bg_jobs.lock);
 		bg_map_seen = TRUE;
+		/* (the last map's pipelines: its name is still bg_jobs.map) */
+		bg_pipelines_log(bg_jobs.map);
 		/* the list of the map now loaded */
 		if (bg_jobs.pairs_file)
 			fclose(bg_jobs.pairs_file);
@@ -5051,15 +5098,20 @@ reads it */
 extern int bgfx_vk_gpu_timer;
 
 /* this frame's shader and vertex work, for debug.gpu_stats's slow frames
-(D3DDevice_Present, after the frame); the next frame's starts */
+(D3DDevice_Present, after the frame); the next frame's starts. Pipelines are
+Metal's (its compile stats) or Vulkan's (bgfx's cache callbacks: the ones it
+made this frame, how many it had the cache folder's data for, and how many
+it wrote there); in bgfx_frame is the frame's submit, drawing and present */
 static void bg_frame_account(char *text, size_t size)
 {
 	snprintf(text, size, "; bgfx: %lu shaders translated %.1f ms, %lu from disk %.1f ms, %lu programs, "
-		"Metal %u libraries %.1f ms, %u pipelines %.1f ms; vertices converted %.1f ms",
+		"%u pipelines %.1f ms (%u from the cache folder, %u written), Metal %u libraries %.1f ms; "
+		"vertices converted %.1f ms; in bgfx_frame %.1f ms",
 		bg.account.translated, bg.account.translate_seconds * 1000.0, bg.account.loaded,
-		bg.account.load_seconds * 1000.0, bg.account.programs, bg.account.libraries,
-		bg.account.library_seconds * 1000.0, bg.account.pipelines, bg.account.pipeline_seconds * 1000.0,
-		bg.account.vertex_seconds * 1000.0);
+		bg.account.load_seconds * 1000.0, bg.account.programs, bg.account.pipelines,
+		bg.account.pipeline_seconds * 1000.0, bg.account.pipelines_cached, bg.account.pipelines_written,
+		bg.account.libraries, bg.account.library_seconds * 1000.0, bg.account.vertex_seconds * 1000.0,
+		bg.account.frame_seconds * 1000.0);
 	memset(&bg.account, 0, sizeof(bg.account));
 }
 
@@ -5411,6 +5463,8 @@ static void bg_present(void)
 	}
 	frame_end = stats_seconds();
 	bg.stat_frame_wait += frame_end - frame_start;
+	bg.account.frame_seconds += frame_end - frame_start;
+	bg_pipelines_frame_end();
 	if (window)
 		bg_window_presented(frame_start, frame_end);
 	/* (a covered or minimized window: bgfx shows nothing then, so nothing
@@ -5586,6 +5640,11 @@ static uint32_t bg_callback_cache_read_size(bgfx_callback_interface_t *self, uin
 	SDL_PathInfo info;
 
 	(void)self;
+	/* (a pipeline bgfx is about to make: bg_pipelines) */
+	bg_pipelines.started = stats_seconds();
+	bg_pipelines.made++;
+	bg_pipelines.frame_made++;
+	bg.account.pipelines++;
 	if (!*bg_jobs.folder)
 		return 0;
 	bg_pipeline_path(path, sizeof(path), id);
@@ -5616,35 +5675,63 @@ static bool bg_callback_cache_read(bgfx_callback_interface_t *self, uint64_t id,
 			entry->size = size;
 			entry->check = bg_hash(data, size, 14695981039346656037ULL);
 		}
+		bg_pipelines.cached++;
+		bg.account.pipelines_cached++;
 	}
 	return read;
 }
 
-static void bg_callback_cache_write(bgfx_callback_interface_t *self, uint64_t id, const void *data, uint32_t size)
+/* a pipeline's data written to the cache folder: whether it was */
+static BOOL bg_pipeline_write(uint64_t id, const void *data, uint32_t size)
 {
 	char path[1100], temporary[1120];
 	FILE *file;
 
-	(void)self;
 	if (!*bg_jobs.folder || !size)
-		return;
+		return FALSE;
 	{
 		struct bg_pipeline_read *entry = bg_pipeline_read_find(id, FALSE);
 
 		if (entry && entry->size == size && entry->check == bg_hash(data, size, 14695981039346656037ULL))
-			return;
+			return FALSE;
 	}
 	bg_pipeline_path(path, sizeof(path), id);
 	snprintf(temporary, sizeof(temporary), "%s.tmp", path);
 	if (!(file = fopen(temporary, "wb")))
-		return;
+		return FALSE;
 	{
 		BOOL written = fwrite(data, 1, size, file) == size;
 
-		if (fclose(file) == 0 && written)
-			rename(temporary, path);
-		else
-			remove(temporary);
+		/* (SDL_RenamePath: Windows' rename does not replace a file that is
+		there, so a pipeline whose data changed, after a driver update, kept
+		the old file, which the driver turns down, and was made from scratch
+		and written again in every run) */
+		if (fclose(file) == 0 && written && SDL_RenamePath(temporary, path))
+			return TRUE;
+		remove(temporary);
+	}
+	return FALSE;
+}
+
+static void bg_callback_cache_write(bgfx_callback_interface_t *self, uint64_t id, const void *data, uint32_t size)
+{
+	(void)self;
+	if (bg_pipeline_write(id, data, size))
+	{
+		bg_pipelines.written++;
+		bg.account.pipelines_written++;
+	}
+	/* (the pipeline's time: the driver's compile and the write) */
+	if (bg_pipelines.started > 0.0)
+	{
+		double seconds = stats_seconds() - bg_pipelines.started;
+
+		bg_pipelines.started = 0.0;
+		bg_pipelines.seconds += seconds;
+		bg_pipelines.frame_seconds += seconds;
+		if (seconds > bg_pipelines.worst)
+			bg_pipelines.worst = seconds;
+		bg.account.pipeline_seconds += seconds;
 	}
 }
 
