@@ -1358,6 +1358,7 @@ enum
 	MAXIMUM_SETTINGS_LINES = 72,
 	SETTINGS_CAPTION_HEIGHT = 18,
 	SETTINGS_PAGE_TABS_HEIGHT = 20,
+	SETTINGS_INFO_HEIGHT = 22,
 };
 
 static char const *const settings_page_names[NUMBER_OF_SETTINGS_PAGES] =
@@ -1365,9 +1366,10 @@ static char const *const settings_page_names[NUMBER_OF_SETTINGS_PAGES] =
 	"DISPLAY", "SOUND", "GAME", "GUIDE", "ABOUT",
 };
 
-/* each page's lines: "#" and a caption, else a row by its key (a setting's
-config.toml key, or one of the Guide's own: "@devices", "@link",
-"@logs0", "@logs1", "@about"). A caption shows only with a row under it
+/* each page's lines: "#" and a caption, "=" and a line of information
+(=version, =platform: read, not pressed), else a row by its key (a
+setting's config.toml key, or one of the Guide's own: "@devices", "@link",
+"@logs0", "@logs1", "@about"). A caption shows only with a line under it
 in this build; a row in no page goes at the end of SETTINGS_PAGE_OTHER */
 static char const *const settings_display_lines[] =
 {
@@ -1402,8 +1404,8 @@ static char const *const settings_guide_lines[] =
 };
 static char const *const settings_about_lines[] =
 {
+	"#CHUPATHINGY", "=version", "=platform", "@about",
 	"#LOGS", "@logs0", "@logs1",
-	"#CHUPATHINGY", "@about",
 	NULL
 };
 static char const *const *const settings_page_lines[NUMBER_OF_SETTINGS_PAGES] =
@@ -1411,13 +1413,29 @@ static char const *const *const settings_page_lines[NUMBER_OF_SETTINGS_PAGES] =
 	settings_display_lines, settings_sound_lines, settings_game_lines, settings_guide_lines, settings_about_lines,
 };
 
-/* a SETTINGS line: a caption, or a row (its index in SETTINGS' rows) */
+/* a SETTINGS line: a caption (its words), a line of information (its
+key, "version"), or a row (its index in SETTINGS' rows) */
 struct settings_line
 {
 	short kind;
 	short row;
 	char const *caption;
 };
+
+/* a line of information: its label and value */
+static void settings_info(char const *key, char const **label, char *value, int size)
+{
+	if (!strcmp(key, "version"))
+	{
+		*label = "VERSION";
+		about_version(value, size);
+	}
+	else
+	{
+		*label = "PLATFORM";
+		about_platform(value, size);
+	}
+}
 
 /* a SETTINGS row's key, as the pages name it */
 static char const *settings_row_name(short row, char *text, int size)
@@ -1487,8 +1505,8 @@ static short settings_lines(short page, struct settings_line *lines)
 			caption = *entry + 1;
 			continue;
 		}
-		row = settings_row_named(*entry);
-		if (row == NONE)
+		row = (*entry)[0] == '=' ? NONE : settings_row_named(*entry);
+		if (row == NONE && (*entry)[0] != '=')
 			continue;
 		if (caption)
 		{
@@ -1497,9 +1515,9 @@ static short settings_lines(short page, struct settings_line *lines)
 			lines[count++].caption = caption;
 			caption = NULL;
 		}
-		lines[count].kind = GUIDE_LINE_ACTION;
+		lines[count].kind = (*entry)[0] == '=' ? GUIDE_LINE_INFO : GUIDE_LINE_ACTION;
 		lines[count].row = row;
-		lines[count++].caption = NULL;
+		lines[count++].caption = (*entry)[0] == '=' ? *entry + 1 : NULL;
 	}
 	if (page == SETTINGS_PAGE_OTHER)
 	{
@@ -4043,8 +4061,13 @@ static void render_players(void)
 	char heading[48];
 	float y = BODY_Y + 16;
 
+	/* (in the menus: nobody to list, and it says so) */
 	if (!count)
+	{
+		ui_style_text(UI_TEXT_LINE, (CONTENT_LEFT + CONTENT_RIGHT) * 0.5f, (BODY_Y + BODY_BOTTOM) * 0.5f - 6,
+			UI_ALIGN_CENTER, "Not in a game");
 		return;
+	}
 	snprintf(heading, sizeof(heading), "PLAYERS (%d)", count);
 	ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, BODY_Y, UI_ALIGN_LEFT, heading);
 	visible = (short)((BODY_BOTTOM - y + ROW_GAP) / (ROW_HEIGHT + ROW_GAP));
@@ -4668,7 +4691,10 @@ static void render_settings(void)
 	count = settings_lines(guide.settings_page, lines);
 	chosen_line = settings_line_kinds(lines, count, kinds, chosen);
 	for (line = 0; line < count; line++)
-		heights[line] = kinds[line] == GUIDE_LINE_CAPTION ? SETTINGS_CAPTION_HEIGHT : SETTING_HEIGHT + ROW_GAP;
+	{
+		heights[line] = kinds[line] == GUIDE_LINE_CAPTION ? SETTINGS_CAPTION_HEIGHT : kinds[line] == GUIDE_LINE_INFO ?
+			SETTINGS_INFO_HEIGHT : SETTING_HEIGHT + ROW_GAP;
+	}
 	/* (the window moves only when the chosen row leaves it, its block's
 	caption with it) */
 	first = (short)guide_lines_scroll(kinds, heights, count, chosen_line, guide.settings_first, room);
@@ -4685,6 +4711,18 @@ static void render_settings(void)
 		{
 			ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT + 2, y + (line == first ? 2 : 6), UI_ALIGN_LEFT,
 				lines[line].caption);
+			y += heights[line];
+			continue;
+		}
+		/* (information: a line, not a button) */
+		if (lines[line].kind == GUIDE_LINE_INFO)
+		{
+			char value[160];
+			char const *label;
+
+			settings_info(lines[line].caption, &label, value, sizeof(value));
+			ui_style_info(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTINGS_INFO_HEIGHT - 2, label, value,
+				line + 1 < first + shown && kinds[line + 1] == GUIDE_LINE_INFO);
 			y += heights[line];
 			continue;
 		}

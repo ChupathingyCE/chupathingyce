@@ -584,6 +584,15 @@ static void check_lines(void)
 	/* (a block's first action brings its caption with it) */
 	CHECK(guide_lines_scroll(kinds, heights, count, 5, 6, 160.0f) == 4, "back up to line 5: its caption shows");
 	CHECK(guide_lines_scroll(kinds, heights, count, 1, 3, 160.0f) == 0, "the first block's caption too");
+	/* (information over a block's first action comes with it too) */
+	{
+		static const int about[] = { C, I, I, A, C, A, A };
+		static const float about_heights[] = { 18, 20, 20, 30, 18, 30, 30 };
+
+		CHECK(guide_lines_snap(about, 7, 0, 1) == 3, "the first action under the information");
+		CHECK(guide_lines_scroll(about, about_heights, 7, 3, 3, 120.0f) == 0, "its caption and lines show with it");
+		CHECK(guide_lines_scroll(about, about_heights, 7, 3, 3, 60.0f) == 2, "as many of them as fit");
+	}
 	/* (the end never floats up: a first past the last full start is pulled back) */
 	first = guide_lines_scroll(kinds, heights, count, -1, 15, 160.0f);
 	CHECK(lines_height(heights, first, count - first) <= 160.5f && first > 0 &&

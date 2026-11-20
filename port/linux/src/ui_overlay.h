@@ -362,6 +362,11 @@ at the arrow's place, its value (if any) alone before it */
 void ui_style_setting_opens(void);
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected);
+/* a line of information, read and not pressed (no capsule): its label at
+the left in the labels' color and its value at the right, made smaller to
+fit and then cut; a faint rule under it when rule is set (another line of
+its block follows) */
+void ui_style_info(float x, float y, float width, float height, const char *label, const char *value, int rule);
 /* a chevron at the right end of a row from x, width wide, height tall,
 its text size high: a row that opens something (a list, a screen); the
 room it takes from the row's right edge */

@@ -765,13 +765,13 @@ int guide_lines_scroll(const int *kinds, const float *heights, int count, int ch
 	{
 		if (chosen < first)
 			first = chosen;
-		/* (its block's caption and words with it, when it is the block's
-		first action and they fit with it) */
+		/* (its block's caption, words and lines over it with it, when it
+		is the block's first action and they fit with it) */
 		if (first == chosen)
 		{
 			line = chosen;
 			used = heights[chosen];
-			while (line > 0 && (kinds[line - 1] == GUIDE_LINE_CAPTION || kinds[line - 1] == GUIDE_LINE_TEXT) &&
+			while (line > 0 && kinds[line - 1] != GUIDE_LINE_ACTION &&
 				used + heights[line - 1] <= room + slack)
 			{
 				used += heights[--line];

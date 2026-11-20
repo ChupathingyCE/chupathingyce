@@ -160,8 +160,8 @@ under it included): as many as fit, a caption left out when the line
 under it wouldn't fit too. At least one */
 int guide_lines_shown(const int *kinds, const float *heights, int count, int first, float room);
 /* the first line shown: first moved as little as it takes for chosen (-1:
-none) to show, with the captions and text over it when it is its block's
-first action and they fit too; never so far down that room shows space
+none) to show, with the captions, text and information over it when it
+is its block's first action and they fit too; never so far down that room shows space
 under the last line */
 int guide_lines_scroll(const int *kinds, const float *heights, int count, int chosen, int first, float room);
 

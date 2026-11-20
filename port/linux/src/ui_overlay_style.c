@@ -666,6 +666,27 @@ void ui_style_setting_opens(void)
 	setting_opens = 1;
 }
 
+void ui_style_info(float x, float y, float width, float height, const char *label, const char *value, int rule)
+{
+	float size = ui_style_text_size(UI_TEXT_NAME), scale = 1.0f, label_end, room, value_width;
+	float right = x + width - size * 1.2f;
+	char shown[160];
+
+	label_end = x + size * 1.1f + ui_style_text(UI_TEXT_LABEL, x + size * 1.1f, y + (height -
+		ui_style_text_size(UI_TEXT_LABEL)) * 0.5f, UI_ALIGN_LEFT, label);
+	if (rule)
+		ui_overlay_rect(x + size * 0.6f, y + height - 1, width - size * 1.2f, 1, 0, fade(PALETTE(RULE), 0.5f));
+	if (!value || !value[0])
+		return;
+	/* (a long value, a nightly's version: smaller, then cut) */
+	room = right - (label_end + size * 1.5f);
+	value_width = ui_overlay_text_width(UI_FONT_MENU, size, value);
+	if (value_width > room && room > 0)
+		scale = room / value_width < 0.75f ? 0.75f : room / value_width;
+	value_fit(value, size * scale, room, shown, sizeof(shown));
+	ui_style_text_scaled(UI_TEXT_NAME, scale, right, y + (height - size * scale) * 0.5f, UI_ALIGN_RIGHT, shown);
+}
+
 float ui_style_row_chevron(float x, float y, float width, float height, float size)
 {
 	float right = x + width - size * 0.6f;
