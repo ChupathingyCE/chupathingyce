@@ -847,7 +847,9 @@ void model_node_matrices_from_orientations(
 address (the callers pass string literals and tag strings, whose addresses
 hold). A hit is returned only when the marker it names bears the name asked
 for, so an entry that is stale, torn (another thread asking at once: there
-is no lock) or shared by two lookups can only miss */
+is no lock) or shared by two lookups can only miss. Forgotten as a map's
+tags go (model_marker_lookups_forget), so a remembered index is always one
+this map's own search found */
 enum
 {
 	MODEL_MARKER_LOOKUPS = 128
@@ -858,6 +860,14 @@ static struct
 	char const *name;
 	short marker_index;
 } model_marker_lookups[MODEL_MARKER_LOOKUPS];
+
+void model_marker_lookups_forget(
+	void)
+{
+	csmemset(model_marker_lookups, 0, sizeof(model_marker_lookups));
+
+	return;
+}
 #endif
 
 short model_find_marker(
