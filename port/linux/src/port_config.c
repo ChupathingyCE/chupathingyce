@@ -763,15 +763,16 @@ static const struct config_setting config_settings[] =
 		"and floor. The rest light only the objects near them. 0 means no limit,\n"
 		"as on the Xbox. Each light redraws the level it reaches twice, and in a\n"
 		"big firefight that is most of the GPU's time. The default is 0 on the\n"
-		"desktop, and 8 on the consoles. Changes at once." },
+		"desktop, and 8 on the consoles. A network game never goes under 8.\n"
+		"Changes at once." },
 	{ "display.specular_light_limit", _config_integer, DEFAULT_SPECULAR_LIGHT_LIMIT, "HALO_SPECULAR_LIGHT_LIMIT",
 		_environment_value, _platform_all | _platform_xbox,
 		"Of those lights, the most that also add their shine to metal and wet\n"
 		"floors. The first-person weapon's go first, then the biggest on screen.\n"
 		"The others still light the level, without the shine. 0 means no limit,\n"
 		"as on the Xbox. Near lights' shine is the costliest pass in a firefight.\n"
-		"The default is 0 on the desktop, and 2 on the consoles. Changes at\n"
-		"once." },
+		"The default is 0 on the desktop, and 2 on the consoles. A network game\n"
+		"never goes under 2. Changes at once." },
 	{ "display.texture_decode", _config_string, "\"auto\"", "HALO_TEXTURE_DECODE", _environment_value,
 		_platform_android,
 		"Where compressed textures are unpacked: \"gpu\" or \"cpu\". \"cpu\"\n"
@@ -877,9 +878,9 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"\"full\" draws every pass, as the Xbox. \"reduced\" leaves out the\n"
 		"shine of lights, metal and water, mirrors and the grass on the ground.\n"
-		"\"minimal\" also leaves out decals, rain and snow, contrails and lens\n"
-		"flares. In a network game the grass, rain, snow, contrails and flares\n"
-		"are always drawn. Changes at once." },
+		"\"minimal\" also leaves out decals, rain and snow. Lens flares and\n"
+		"contrails are always drawn, and in a network game the grass, rain and\n"
+		"snow too. Changes at once." },
 	{ "tuning.shadow_pixels", _config_integer, "30", "HALO_SHADOW_PIXELS", _environment_value,
 		_platform_all | _platform_xbox,
 		"How big an object must look, in pixels across, to cast a shadow, from\n"
@@ -888,10 +889,10 @@ static const struct config_setting config_settings[] =
 	{ "tuning.object_cull_pixels", _config_integer, "0", "HALO_OBJECT_CULL_PIXELS", _environment_value,
 		_platform_all | _platform_xbox,
 		"Leave out objects that look smaller than this, in pixels across,\n"
-		"before they are lit, from 0 to 16. 0 draws every one, as the Xbox. In\n"
-		"a network game only weapons, equipment and debris lying around are\n"
-		"left out: never players, vehicles, projectiles or cover. Changes at\n"
-		"once." },
+		"before they are lit, from 0 to 16. 0 draws every one, as the Xbox.\n"
+		"Players, AI, vehicles, shots and grenades are always drawn. In a\n"
+		"network game only debris is left out: never weapons, power-ups or\n"
+		"cover. Changes at once." },
 	{ "tuning.texture_cache", _config_string, "\"auto\"", NULL, _environment_value, _platform_xbox,
 		"The texture cache's size in MB, like \"20\", or \"auto\" for the\n"
 		"console's own. It is held between 19 MB and what the console's memory\n"
@@ -4869,8 +4870,9 @@ the others stay where they were, the one place each value lives, and a
 preset only changes what "unset" means. Every knob changes only what is
 drawn, never the simulation, so a game plays the same whatever they say
 (display.particle_limit is held at the Xbox's 1024 or more in a network
-game: particles.c; and the drawing's knobs never hide players, vehicles,
-projectiles or cover there: render.c's render_tuning). A value out of a
+game: particles.c; the light limits at the consoles' 8 and 2:
+object_lights.c; and the drawing's knobs never hide players, vehicles,
+projectiles, pickups or cover there: render.c's render_tuning). A value out of a
 knob's range is held in it, and a word that is none of a knob's is its
 default, each said in the log.
 
@@ -4943,12 +4945,12 @@ static const struct
 	const char *preset[NUMBER_OF_TUNING_PRESETS];
 	/* the original Xbox's, whose own limits are already where the PC's
 	presets would put them: there "lan-party" is for big network games
-	(fewer lights and shadows, no shine or reflections, a late frame shown
-	at once: none of it held in one), and "potato" goes further below the
+	(smaller shadows, no shine or reflections, a late frame shown at once;
+	its fewer lights only outside one), and "potato" goes further below the
 	Xbox's own drawing (fewer particles, every other loose one drawn, the
-	decals and, outside network games, the grass, weather, contrails and
-	lens flares left out). A network game holds the knobs that could hide
-	a player (particles.c, render.c's render_tuning) */
+	decals and, outside network games, the grass and weather left out). A
+	network game holds the knobs that could hide a player or show one
+	(particles.c, object_lights.c, render.c's render_tuning) */
 	const char *xbox_preset[NUMBER_OF_TUNING_PRESETS];
 } config_tuning_knobs[] =
 {
