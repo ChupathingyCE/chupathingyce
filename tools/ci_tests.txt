@@ -57,6 +57,7 @@ tools/test_event_log.py
 tools/test_fog_screen_camera.py
 tools/test_footer_prompts.py
 tools/test_forge_files.py
+tools/test_forge_mouse_look.py
 tools/test_game_list_rules.py
 tools/test_gamespy_listing.py
 tools/test_guide_layout.py
