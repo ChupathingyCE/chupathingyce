@@ -2370,11 +2370,15 @@ static void port_dynamic_lights_choose(
 		{
 			port_dynamic_light_kept[index] = FALSE;
 			counted_dropped++;
+			render_tuning_count(_render_tuning_lights_count, 1);
 		}
 		if ((specular_limit > 0 && rank >= specular_limit) || !port_dynamic_light_kept[index])
 		{
 			if (port_dynamic_light_kept[index])
+			{
 				counted_unshone++;
+				render_tuning_count(_render_tuning_shine_count, 1);
+			}
 			port_dynamic_light_specular[index] = FALSE;
 		}
 	}

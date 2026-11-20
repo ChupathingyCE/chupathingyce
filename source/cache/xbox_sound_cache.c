@@ -764,7 +764,12 @@ boolean _sound_cache_sound_request(
 
 				result = TRUE;
 			}
-			else
+			/* port: the yield only while this waits (block). A request that
+			doesn't wait came here once for each sound still loading, every
+			sound update, and gave the core away for an answer that is the
+			same the moment after: about 1 ms a sound on the Vita, whose yield
+			sleeps (Lord BirchWood's fix) */
+			else if (block)
 			{
 				SwitchToThread();
 			}

@@ -37,9 +37,9 @@ the port's zlib (port/third_party/zlib: a menus folder's PNGs are anyone's).
 /* the game's (port/linux/game/hud_hires_tags.c) */
 long hud_hires_asset_at(unsigned long address, long width, long height);
 
-/* (the HUD's and both sets of titles: 84, 35 and 35 now; the titles made
-from the player's files are counted apart) */
-#define MAXIMUM_TEXTURES 192
+/* (the HUD's, both sets of titles and the MCC maps' sheets: 84, 35, 35
+and 80 now; the titles made from the player's files are counted apart) */
+#define MAXIMUM_TEXTURES 256
 /* a PNG's inflated rows and its texels, which are held at once: 128 MB for
 a 4096 by 4096 sheet (the largest shipped, 2048 by 2048, takes 32 MB), and
 no more for a small file that names a large size (a menus folder's) */
@@ -100,6 +100,19 @@ long hud_hires_asset_fits(long asset, long width, long height)
 
 	return width > 0 && height > 0 && embedded->width % width == 0 && embedded->height % height == 0 &&
 		embedded->width / width == embedded->height / height && embedded->width / width > 1;
+}
+
+long hud_hires_asset_mcc(long asset)
+{
+	return asset >= 0 && asset < hud_hires_asset_count() && hud_hires_embedded[asset].mcc;
+}
+
+long hud_hires_asset_fits_mcc(long asset, long width, long height)
+{
+	const struct hud_hires_embedded *embedded = &hud_hires_embedded[asset];
+
+	return hud_hires_asset_mcc(asset) && width > 0 && height > 0 && embedded->width % width == 0 &&
+		embedded->height % height == 0 && embedded->width / width == embedded->height / height;
 }
 
 static int hud_enabled, titles_enabled, titles_cyborg, titles_from_files;
@@ -543,6 +556,9 @@ unsigned int hud_hires_override_texture(long asset, unsigned long *levels)
 		pthread_mutex_unlock(&decode_lock);
 		if (!decoded)
 			pixels = png_decode((const unsigned char *)embedded->png, embedded->png_size, &width, &height);
+		/* (an MCC sheet's cells that stay the map's own) */
+		if (pixels && embedded->mcc && embedded->keep_count)
+			hud_hires_mcc_keep(asset, pixels, width, height);
 		textures[asset].texture = png_pixels_texture(pixels, width, height, &textures[asset].levels);
 	}
 	if (!textures[asset].texture)
