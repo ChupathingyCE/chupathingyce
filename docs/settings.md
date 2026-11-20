@@ -159,7 +159,8 @@ starting `tuning:`. That file also says what every knob was at start
 changes (`tuning: change`). A crash report and Send my logs carry the same
 line.
 
-In a network game nobody sees less than the Xbox would show them:
+In a network game nobody sees less of the other players than the Xbox would
+show them:
 
 - Particles: nobody sees fewer than the Xbox kept (1024). Smoke and dust can
   hide players, and a lower limit would take them away. `particle_thinning`
@@ -170,6 +171,8 @@ In a network game nobody sees less than the Xbox would show them:
 - `object_cull_pixels` leaves out only weapons, equipment and debris lying
   around. Players, vehicles, projectiles and anything that could be cover
   are always drawn.
+- Your own decals, shine, reflections and shadow size stay your choice
+  online. They are cosmetic, drawn only on your screen and never sent.
 
 The log says once when a knob is held (`tuning: effects=minimal draws the
 grass, weather, contrails and lens flares in a network game`).

@@ -920,7 +920,9 @@ in view and never a particle system's mist, steam or smoke;
 `tuning.effects` always draws the detail objects, weather, contrails and
 lens flares; and `tuning.object_cull_pixels` leaves out only items lying
 around, never a player, vehicle, projectile or anything that could be
-cover. Each holding is said once a value (`tuning: effects=minimal draws
+cover. The decals, the shine and reflections that `tuning.effects` leaves
+out and `tuning.shadow_pixels` are not held: they are cosmetic, local
+and never sent. Each holding is said once a value (`tuning: effects=minimal draws
 the grass, weather, contrails and lens flares in a network game`). A
 determinism replay (`debug.determinism`) counts as a local game for them,
 so `tools/test_determinism.py --tuning-most` and `tools/bench.py` see all
