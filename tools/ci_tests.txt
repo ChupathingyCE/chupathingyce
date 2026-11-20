@@ -11,6 +11,7 @@ tools/test_audio_balance.py
 tools/test_bgfx_build_patches.py
 tools/test_bgfx_formats.py
 tools/test_bgfx_overlay_textures.py
+tools/test_bgfx_pipeline_log.py
 tools/test_bgfx_present.py
 tools/test_bgfx_vulkan_start.py
 tools/test_bgfx_window_pacing.py
