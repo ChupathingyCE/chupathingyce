@@ -654,6 +654,8 @@ struct xbox_mod_map
 };
 
 #include "../game/xbox_mod_maps.h"
+#include "ark_files.h"
+#include "ark_names.h"
 
 /* the known pack whose folder (maps_<name>) this is, by its id or one of
 its aliases; NULL for none */
@@ -1222,6 +1224,13 @@ static void modes_find(void)
 	}
 	if (directory)
 		posix_directory_close(directory);
+#ifdef HALO_ARK
+	/* (Project Ark, early: port/linux/game/ark_mode.c. No ui.map: the menus
+	stay the game's own. Only with the player's own files here, in maps_ark,
+	never a download) */
+	mode_add(ARK_FILES_MODE_ID, ARK_MODE_DISPLAY_NAME, ARK_MODE_DISPLAY_TAG, ARK_FILES_FOLDER,
+		ark_files_folder(NULL, 1024));
+#endif
 	for (index = 0; index < sizeof(xbox_mod_packs) / sizeof(*xbox_mod_packs); index++)
 	{
 		char folder[64];
@@ -3071,6 +3080,12 @@ static void act(const struct row *row)
 		{
 			launcher.section = _section_maps;
 			enter_screen(_screen_maps);
+#ifdef HALO_ARK
+			if (!strcmp(launcher.modes[row->argument].id, ARK_FILES_MODE_ID))
+				set_status(COLOR_AMBER, "Copy your own files from MCC to %s, then check again.",
+					launcher.modes[row->argument].folder);
+			else
+#endif
 			set_status(COLOR_AMBER, "Put the %s maps in %s, with its ui.map, then check again.",
 				launcher.modes[row->argument].title, launcher.modes[row->argument].folder);
 			break;

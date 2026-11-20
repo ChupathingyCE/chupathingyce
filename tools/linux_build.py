@@ -967,7 +967,10 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                          # configure.py --packaged and --console-limits (game_browser_defines),
                          # which the game's own units (source/) take too
                          + (["-DHALO_PACKAGED"] if getattr(sln, "packaged", False) else [])
-                         + (["-DHALO_CONSOLE_LIMITS"] if getattr(sln, "console_limits", False) else []))
+                         + (["-DHALO_CONSOLE_LIMITS"] if getattr(sln, "console_limits", False) else [])
+                         # configure.py --ark: Project Ark, an early mode
+                         # (port/linux/game/ark_mode.c); this build only for now
+                         + (["-DHALO_ARK"] if getattr(sln, "ark", False) else []))
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
              implicit_inputs: List[Path], validator: Optional[Path] = None) -> None:
