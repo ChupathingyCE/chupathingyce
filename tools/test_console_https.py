@@ -17,7 +17,9 @@ What it checks:
   naming another host refused;
 - a host it does not know, no random numbers, no port, an answer larger
   than the caller's buffer: each refused with its own error;
-- a POST's body and headers as the server saw them;
+- a POST's body and headers as the server saw them, and a 20-player game
+  report (several KB, larger than the client's 2 KB request headers) arrived
+  whole, its Content-Length its size (warthog-xbox #140);
 - Mbed TLS's arena: its peak under CONSOLE_HTTPS_ARENA_SIZE, and empty at
   the end of every request; nothing on the heap (the client's own malloc
   is never called: the library has no other).
@@ -27,6 +29,7 @@ Needs a C compiler. Usage: test_console_https.py [--cc clang] [--keep DIR]
 
 import argparse
 import concurrent.futures
+import json
 import os
 import re
 import shutil
@@ -162,6 +165,8 @@ class Server:
                     self.seen.append((lines[0], headers, body.decode()))
                     if "/big" in lines[0]:
                         answer = b"x" * 6000
+                    elif "/v1/client_report" in lines[0]:
+                        answer = b"ok 42 unverified\n"
                     else:
                         answer = f"{lines[0]}|{headers.get('Host')}|{headers.get('User-Agent')}|{body.decode()}".encode()
                     tls.sendall(b"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s" %
@@ -213,6 +218,24 @@ def publish_pins(folder, key, serial, pin, sign_other=None):
         (target / "pins.sig").write_text((folder / "other.json.sig").read_text())
     else:
         pins_tool("sign", "--key", key, document)
+
+
+def fake_report(players=20):
+    """a joined game's report as a console sends it (port/linux/src/game_report.c's
+    shape), every line in full: several KB"""
+    lines = []
+    for index in range(players):
+        lines.append({
+            "name": f"Player {index:02d}", "team": index & 1, "place": index + 1, "score": 25 - index,
+            "kills": 25 - index, "deaths": index, "assists": index % 4, "shots_fired": 300 + index,
+            "shots_hit": 100 + index, "joined": 0, "best_spree": index % 6,
+            "medals": {"double_kill": index % 3, "killing_spree": index % 2},
+            "weapons": {"assault rifle": {"kills": 5, "shots_fired": 200, "shots_hit": 60},
+                        "pistol": {"kills": 3, "shots_fired": 40, "shots_hit": 20}},
+        })
+    report = {"key": "0" * 64, "platform": "xbox", "invite": "1" * 64, "teams": 1, "red_score": 50,
+              "blue_score": 48, "duration": 900, "map": "bloodgulch", "gametype": "Slayer", "players": lines}
+    return json.dumps(report)
 
 
 def request(client, port, host, *options):
@@ -352,6 +375,19 @@ def main():
             server, fields = serve(site, site_key, "a POST", SITE,
                                    pins + ["--path", "/v1/console/link/start", "--body", '{"key":"00"}'], 0, 200,
                                    'POST /v1/console/link/start HTTP/1.0|stats.chupathingy.org|Warthog/1 (test)|{"key":"00"}')
+            # (warthog-xbox #140: a 20-player report, larger than the request's
+            # 2 KB of headers, arrives whole)
+            report = fake_report()
+            server, fields = serve(site, site_key, "a 20-player game report", SITE,
+                                   pins + ["--path", "/v1/client_report", "--body", report], 0, 200,
+                                   "ok 42 unverified")
+            if len(report) <= 4096 or not server.seen or server.seen[-1][2] != report or \
+                    server.seen[-1][1].get("Content-Length") != str(len(report)):
+                failures.append(f"{tag}: a 20-player game report did not arrive whole "
+                                f"({len(server.seen[-1][2]) if server.seen else 0} of {len(report)} bytes)")
+            sent = re.search(r"sent \d+ ms \((\d+) bytes\)", fields["log"])
+            if not sent or int(sent.group(1)) <= len(report):
+                failures.append(f"{tag}: a 20-player game report: the sent line does not count the body")
             serve(site, site_key, "an answer larger than the buffer", SITE, pins + ["--path", "/big", "--size", "1000"],
                   13)
 
