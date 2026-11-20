@@ -2101,6 +2101,10 @@ static const struct config_setting config_settings[] =
 		"at a time, separated by ; (up, down, left, right, a, b, x, y, lb, rb,\n"
 		"start, back, lt, rt), for tests.\n"
 		"Debug builds only: a release build ignores it." },
+	{ "debug.battery", _config_string, "\"\"", "HALO_BATTERY", _environment_value, _platform_all,
+		"A battery for the Delta Guide's card to show, for screenshots: its\n"
+		"percent, with c after it while charging (\"40\", \"40c\"). Leave it\n"
+		"empty for the real one." },
 	{ "debug.delta_sample", _config_boolean, "false", "HALO_DELTA_SAMPLE", _environment_set_is_true, _platform_all,
 		"The Delta Guide signed in with made-up friends and a party, nothing\n"
 		"asked of the site, for screenshots. Debug builds only: a release build\n"
