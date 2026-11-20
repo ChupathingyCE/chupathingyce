@@ -638,11 +638,28 @@ void errors_initialize(
 }
 
 /* port: a line error() wrote moments ago, said again, is counted, not
-written; every 1000th repeat says so. A script or a binding that errs
-every tick or frame wrote and flushed debug.txt each time, on whatever
-thread said it, which costs milliseconds a line on a slow card. The four
+written. A script or a binding that errs every tick or frame wrote and
+flushed debug.txt each time, on whatever thread said it, which costs
+milliseconds a line on a slow card. The four
 latest lines are remembered, so two that alternate are held too; a line
-not seen for 5 seconds is written again */
+not seen for 5 seconds is written again. The repeats are told in a line
+of their own every 1000, and the rest when the line is written again or
+its place is taken by another, so none goes uncounted. An EXCEPTION line
+is always written */
+static void error_repeats_told(
+	unsigned long repeats,
+	char const *text)
+{
+	char line[200];
+	size_t length = strcspn(text, "\r\n");
+
+	snprintf(line, sizeof(line), "(the line \"%.*s%s\" was said %lu more times)\r\n",
+		(int)MIN(length, 80), text, length > 80 ? "..." : "", repeats);
+	write_to_error_file(line, TRUE);
+
+	return;
+}
+
 static boolean error_repeat_held(
 	char const *string)
 {
@@ -663,26 +680,35 @@ static boolean error_repeat_held(
 	char const *c;
 	int k;
 
+	/* (what stops the game is always written) */
+	if (!strncmp(string, "EXCEPTION", 9))
+		return FALSE;
 	for (c = string; *c; c++)
 		hash = (hash ^ (unsigned char)*c) * 16777619UL;
 	for (k = 0; k < RECENT_LINES; k++)
 	{
-		if (recent[k].hash == hash && !strncmp(recent[k].text, string, sizeof(recent[k].text) - 1) &&
-			strlen(string) < sizeof(recent[k].text) && (unsigned long)(now - recent[k].seen) < 5000)
+		if (recent[k].hash == hash && strlen(string) < sizeof(recent[k].text) &&
+			!strncmp(recent[k].text, string, sizeof(recent[k].text) - 1))
 		{
-			recent[k].seen = now;
-			if (++recent[k].repeats % 1000 == 0)
+			if ((unsigned long)(now - recent[k].seen) < 5000)
 			{
-				char line[200];
-
-				snprintf(line, sizeof(line), "(the line before was said %lu more times: \"%.80s\")\r\n",
-					recent[k].repeats, string);
-				write_to_error_file(line, TRUE);
+				recent[k].seen = now;
+				if (++recent[k].repeats % 1000 == 0)
+					error_repeats_told(1000, string);
+				return TRUE;
 			}
-			return TRUE;
+			/* (not seen for 5 seconds: its last repeats told, and written) */
+			if (recent[k].repeats % 1000)
+				error_repeats_told(recent[k].repeats % 1000, string);
+			recent[k].repeats = 0;
+			recent[k].seen = now;
+			return FALSE;
 		}
 	}
 	k = (int)(next++ % RECENT_LINES);
+	/* (the repeats of the line this slot held that no line has told yet) */
+	if (recent[k].repeats % 1000)
+		error_repeats_told(recent[k].repeats % 1000, recent[k].text);
 	recent[k].hash = hash;
 	recent[k].repeats = 0;
 	recent[k].seen = now;
