@@ -188,6 +188,22 @@ frames without decoding them */
 #endif
 #endif
 
+/* gyro aiming (port/linux/src/gyro_aim.c, xinput_sdl.c; input.gyro_*): the
+desktop builds' and Android's, and the Switch's, whose host reads its
+controllers' sensors itself; no other console's, and not the dedicated
+server's, which has no player at the machine. HALO_PORT_GYRO_SDL reads the
+sensors through SDL 3 (SDL_SetGamepadSensorEnabled and its sensor events):
+not the Switch (its host has SDL 2 and its own reading) nor Android's
+32-bit guest build, whose SDL is host imports without the sensors */
+#if !defined(HALO_SERVER) && (defined(HALO_SWITCH_CONSOLE) || \
+	!(defined(HALO_CONSOLE) || defined(HALO_WIIU_CONSOLE) || defined(HALO_XBOX_CONSOLE) || \
+	defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)))
+#define HALO_PORT_GYRO_AIM
+#if !defined(HALO_SWITCH_CONSOLE) && (!defined(HALO_ANDROID) || defined(__ANDROID__) || defined(HALO_IOS))
+#define HALO_PORT_GYRO_SDL
+#endif
+#endif
+
 /* text chat (port/linux/game/chat.c): the desktop builds' (HALO_GAME_BROWSER),
 and a console's with Delta Peer as a client (HALO_CONSOLE_DELTA), the
 client's part only, unless it sets HALO_CONSOLE_NO_CHAT */

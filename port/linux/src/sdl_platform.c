@@ -3803,6 +3803,13 @@ void platform_pump_events(void)
 		case SDL_EVENT_GAMEPAD_AXIS_MOTION:
 			gamepad_trigger_moved(event.gaxis.which, event.gaxis.axis, event.gaxis.value);
 			break;
+#ifdef HALO_PORT_GYRO_SDL
+		/* (gyro aim: only the pads whose sensors it turned on send these) */
+		case SDL_EVENT_GAMEPAD_SENSOR_UPDATE:
+			platform_gamepad_sensor(event.gsensor.which, event.gsensor.sensor, event.gsensor.data,
+				event.gsensor.sensor_timestamp ? event.gsensor.sensor_timestamp : event.gsensor.timestamp);
+			break;
+#endif
 		case SDL_EVENT_GAMEPAD_ADDED:
 #if defined(HALO_ANDROID) && !defined(HALO_IOS)
 			/* (the guest reaches SDL only through host_imports.list, which
