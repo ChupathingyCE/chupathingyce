@@ -1193,6 +1193,11 @@ static const struct config_setting config_settings[] =
 		"Open the Delta Guide with the controller's Guide button, where\n"
 		"Chupathingy can read it (Steam and the Xbox Game Bar may keep it for\n"
 		"themselves)." },
+	{ "delta.confirm_button", _config_string, "\"bottom\"", "HALO_DELTA_CONFIRM_BUTTON", _environment_value,
+		_platform_all,
+		"The button that picks in the Delta Guide: \"bottom\", the Xbox's A,\n"
+		"or \"right\", as Nintendo's pads have it (the bottom one goes back).\n"
+		"The game's own menus keep the Xbox's." },
 	{ "delta.hold_back", _config_boolean, "false", "HALO_DELTA_HOLD_BACK", _environment_value, _platform_all,
 		"Open the Delta Guide by holding Back for about half a second in the\n"
 		"menus. While on, the menus get a Back tap once it is let go, never a\n"
@@ -4778,6 +4783,7 @@ static const struct
 	{ "display.theme", { "blue", "red", "green", "orange", "live", NULL }, "\"blue\"" },
 	{ "delta.guide_background", { "auto", "plain", "cellwall", NULL }, "\"auto\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
+	{ "delta.confirm_button", { "bottom", "right", NULL }, "\"bottom\"" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.vrr", { "off", "on", "auto", NULL }, "\"off\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },

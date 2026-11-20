@@ -1253,6 +1253,10 @@ static void setting_change(short setting, short direction)
 	if (row)
 	{
 		settings_row_change(row, direction < 0 ? -1 : 1);
+		/* (CONFIRM BUTTON: the button still down may be the other one now;
+		neither counts until let go) */
+		if (!strcmp(settings_row_key(row), "delta.confirm_button"))
+			guide.held |= GUIDE_INPUT_A | GUIDE_INPUT_B;
 		/* (the menus' DELTA rows, and the Multiplayer menu's FORGE, are put in
 		as the menus load) */
 		if (!strcmp(settings_row_key(row), "delta.menu_item") || !strcmp(settings_row_key(row), "display.menus") ||
@@ -1401,6 +1405,7 @@ static char const *const settings_game_lines[] =
 static char const *const settings_guide_lines[] =
 {
 	"#OPENING", "controls.delta", "controls.delta_button", "delta.menu_item",
+	"#CONTROLLER", "delta.confirm_button",
 	"#NOTIFICATIONS", "delta.notify_in_game", "delta.notify_online",
 	"#PRIVACY", "network.share_presence",
 	"#DEVICES", "@devices", "@link",
@@ -6424,7 +6429,18 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 	}
 }
 
+static void guide_render_frame(void);
+
 void guide_render(void)
+{
+	/* (CONFIRM BUTTON: RIGHT, delta.confirm_button: its A and B drawn as
+	the buttons that press them, the Guide's prompts alone) */
+	ui_overlay_set_confirm_swap(!strcmp(config_string("delta.confirm_button"), "right"));
+	guide_render_frame();
+	ui_overlay_set_confirm_swap(0);
+}
+
+static void guide_render_frame(void)
 {
 	if (!ui_overlay_available())
 		return;
