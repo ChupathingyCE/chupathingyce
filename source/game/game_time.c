@@ -79,7 +79,7 @@ symbols in this file:
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "mcc_game_speed.h" /* port: port/linux/game/mcc_game_speed.c */
 #include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
-#include "scenario/scenario.h" /* port: global_structure_bsp_get */
+#include "scenario/scenario.h" /* port: global_structure_bsp_try_and_get */
 /* port/linux/game/network_distributed.c's */
 void network_distributed_tick(void);
 /* port/linux/game/determinism_check.c's */
@@ -497,7 +497,7 @@ void game_time_update(
 	(scenario_switch_structure_bsp). No tick or frame of the game runs until
 	it loads: the world's sounds, the antennas and the AI's encounters look
 	up clusters in the bsp, and crashed */
-	if (!global_structure_bsp_get())
+	if (!global_structure_bsp_try_and_get())
 	{
 		game_time_globals->last_local_time_elapsed = 0;
 		return;
@@ -654,7 +654,7 @@ void game_time_update(
 #endif
 						/* port: a tick whose bsp switch failed (above): none
 						after it, and no frame */
-						if (!global_structure_bsp_get())
+						if (!global_structure_bsp_try_and_get())
 							break;
 					}
 				}
@@ -671,7 +671,7 @@ void game_time_update(
 		(port/linux/game/render_interpolation.c). The frames of one tick share
 		the fraction, so what they hang off is drawn where they put it. */
 		render_interpolation_frame_begin();
-		if (global_structure_bsp_get())
+		if (global_structure_bsp_try_and_get())
 			game_frame(game_time_get_speed()*time_delta_sec);
 		render_interpolation_frame_end();
 	}

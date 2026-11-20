@@ -4733,12 +4733,12 @@ void main_loop(
 					nothing is drawn, and the camera and Forge's monitor don't
 					move, in a bsp that isn't there (game_time_update runs no
 					tick either) */
-					if (!global_structure_bsp_get())
+					if (!global_structure_bsp_try_and_get())
 						render_frame = FALSE;
 
 					MAIN_STAGE("collision_log_continue_period");
 					collision_log_continue_period(1);
-					if (global_structure_bsp_get())
+					if (global_structure_bsp_try_and_get())
 					{
 					MAIN_STAGE("director_update");
 					director_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
