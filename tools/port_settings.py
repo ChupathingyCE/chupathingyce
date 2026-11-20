@@ -181,6 +181,10 @@ SCREENS = {
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
+                # (port/linux/game/ragdolls.c: the builds with Jolt Physics,
+                # HALO_PORT_RAGDOLLS)
+                ("RAGDOLLS:", "display.ragdolls", ON_OFF,
+                 "Dead bodies fall limp and come to rest.\nOff looks like the Xbox.", "desktop"),
             ]),
             # (the menus, text, buttons, HUD and scoreboard in one list:
             # more rows than fit above the help line, so it scrolls:

@@ -57,6 +57,7 @@ frame a tick) nothing is behind.
 #include "render/render_cameras.h"
 #include "units/units.h"
 #include "lua_scripting.h" /* (a pose a mod's Lua script set) */
+#include "ragdolls.h" /* (a dead body's ragdoll's pose: ragdolls.c) */
 
 /* port/linux/src/port_config.c */
 int config_boolean(const char *name);
@@ -279,6 +280,11 @@ static boolean smoothed_flashlights_ready;
 
 static long interpolation_frame;
 static boolean interpolation_rendering;
+#ifdef HALO_PORT_RAGDOLLS
+/* between render_interpolation_frame_begin and _end, whether between ticks or
+not (a dead body's ragdoll drawn) */
+static boolean frame_drawing;
+#endif
 static real interpolation_fraction = 1.0f;
 #ifdef HALO_CONSOLE_VIEW_INTERPOLATION
 /* the last tick a frame was drawn between ticks in (the console is drawing
@@ -624,6 +630,11 @@ void render_interpolation_tick(void)
 			record->nodes + record->latest * record->node_capacity,
 			object_get_node_matrices(iterator.index),
 			node_count * sizeof(real_matrix4x3));
+#ifdef HALO_PORT_RAGDOLLS
+		/* (a dead body's ragdoll: its pose drawn, blended as any, the
+		game's kept: ragdolls.c) */
+		ragdolls_pose(iterator.index, record->nodes + record->latest * record->node_capacity, node_count);
+#endif
 #ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 		memcpy(
 			record->function_values[record->latest],
@@ -688,6 +699,11 @@ void render_interpolation_reset(void)
 
 void render_interpolation_frame_begin(void)
 {
+#ifdef HALO_PORT_RAGDOLLS
+	/* (the dead bodies drawn as their ragdolls lie: ragdolls.c) */
+	frame_drawing = TRUE;
+	ragdolls_frame_begin();
+#endif
 	interpolation_rendering = halo_interpolation_enabled();
 	interpolation_frame++;
 	interpolation_fraction = game_time_get_tick_fraction();
@@ -707,6 +723,10 @@ void render_interpolation_frame_begin(void)
 
 void render_interpolation_frame_end(void)
 {
+#ifdef HALO_PORT_RAGDOLLS
+	ragdolls_frame_end();
+	frame_drawing = FALSE;
+#endif
 	interpolation_rendering = FALSE;
 }
 
@@ -726,6 +746,27 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 	struct interpolated_object *record;
 	long absolute_index;
 
+#ifdef HALO_PORT_RAGDOLLS
+	/* (a dead body's ragdoll, drawn as it lies: while a frame is drawn,
+	whether the frames are between ticks or not; ragdolls.c) */
+	if (frame_drawing && object_index != NONE && !lua_scripting_object_posed(object_index))
+	{
+		real_matrix4x3 *ragdoll = ragdolls_drawn_pose(object_index);
+
+		if (ragdoll && !interpolation_rendering)
+			return ragdoll;
+		if (ragdoll && interpolated_objects)
+		{
+			absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index);
+			record = absolute_index < MAXIMUM_INTERPOLATED_OBJECTS ? &interpolated_objects[absolute_index] : NULL;
+			if (!record || record->object_index != object_index || record->tick != interpolation_tick ||
+				!record->has_previous)
+			{
+				return ragdoll;
+			}
+		}
+	}
+#endif
 	if (!interpolation_rendering || !interpolated_objects || object_index == NONE)
 		return NULL;
 	/* (a pose a mod's Lua script set this frame, drawn as it set it) */

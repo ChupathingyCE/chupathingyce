@@ -145,6 +145,15 @@ Elsewhere 512 keeps the latency low. */
 #define DEFAULT_AUDIO_BUFFER_FRAMES "512"
 #endif
 
+/* The level's surfaces culled before they are drawn
+(port/linux/game/structure_culling.c), but on a console whose processor is
+what holds its frame rate (HALO_CONSOLE_NO_STRUCTURE_CULLING) */
+#ifdef HALO_CONSOLE_NO_STRUCTURE_CULLING
+#define DEFAULT_STRUCTURE_CULLING "false"
+#else
+#define DEFAULT_STRUCTURE_CULLING "true"
+#endif
+
 /* Headphone 3D (the Xbox's HRTF, dsound_sdl.c), on as the original Xbox
 had it: its DirectSound filtered every 3D voice through its HRTFs, on TV
 stereo too (DirectSoundUseFullHRTF). Surround output ignores it. A
@@ -740,6 +749,15 @@ static const struct config_setting config_settings[] =
 		"The blue sparks off a live plasma grenade, which the Xbox never drew\n"
 		"(at 30 frames a second they end before they are drawn). false: as on\n"
 		"the Xbox, at any frame rate. Thanks to ugoboom for the idea." },
+#ifdef HALO_PORT_RAGDOLLS
+	/* (port/linux/game/ragdolls.c; Video Setup's RAGDOLLS. Live) */
+	{ "display.ragdolls", _config_boolean, "false", "HALO_RAGDOLLS", _environment_value, _platform_desktop,
+		"true: a character killed falls limp, thrown by the blow that killed\n"
+		"it, and comes to rest where it lands (Jolt Physics). false (the\n"
+		"default): its death animation, as on the Xbox. Drawing only: the\n"
+		"body, hit boxes, saved games and the network are as before. The idea\n"
+		"is from jojoxdk's Halo 1 MCC Box3D Physics Mod." },
+#endif
 	{ "display.particle_limit", _config_integer, DEFAULT_PARTICLE_LIMIT, "HALO_PARTICLE_LIMIT", _environment_value,
 		_platform_all | _platform_xbox,
 		"The most particles alive at once: sparks, smoke, casings and debris.\n"
@@ -2008,7 +2026,7 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_corrupt_after", _config_real, "0.0", "HALO_NETWORK_CORRUPT_AFTER", _environment_value,
 		_platform_all | _platform_server,
 		"Seconds after the start before anything is damaged." },
-	{ "debug.structure_culling", _config_boolean, "true", "HALO_STRUCTURE_CULLING", _environment_value, _platform_all,
+	{ "debug.structure_culling", _config_boolean, DEFAULT_STRUCTURE_CULLING, "HALO_STRUCTURE_CULLING", _environment_value, _platform_all,
 		"Skip the level's surfaces that are off screen or face away. Turn it off\n"
 		"to draw them as the original game does, to check a missing wall." },
 	{ "debug.touch_targets", _config_boolean, "false", "HALO_TOUCH_TARGETS", _environment_set_is_true, _platform_all,
@@ -2022,6 +2040,13 @@ static const struct config_setting config_settings[] =
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"Scripted input on controller 1: \"bot:<seed>\" or \"look:<seed>\". Leave\n"
 		"it empty for none." },
+#ifdef HALO_PORT_RAGDOLLS
+	{ "debug.ragdolls", _config_integer, "0", "HALO_RAGDOLLS_DEBUG", _environment_value, _platform_desktop,
+		"1: a line in debug.txt each time a ragdoll starts, sleeps, wakes or is\n"
+		"let go, and their cost every ten seconds; 2: each one's rig too. Also\n"
+		"lets the console's ragdolls tests run in a local game\n"
+		"(port/linux/game/ragdolls.c). 0 for none." },
+#endif
 	{ "debug.determinism", _config_string, "\"\"", "HALO_DETERMINISM", _environment_value, _platform_all,
 		"The input replay check (tools/test_determinism.py). \"record:<file>\"\n"
 		"writes each tick's player actions to the file. \"replay:<file>\" plays\n"

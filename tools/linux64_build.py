@@ -119,6 +119,7 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
         name="linux64",
         compressed_maps=True,
         lua=True,
+        jolt=True,
         target_flags=[LINUX64_TARGET, march_flag(sln), *(sdl.cflags if sdl else [])],
         game_flags=LINUX64_GAME_FLAGS,
         posix_flags=LINUX64_POSIX_FLAGS,
@@ -144,10 +145,10 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
             # of a crash report's calls, in debug.txt, are the executable's
             # own, the same from run to run)
             "ldflags": " ".join([LINUX64_TARGET, "-g", "-no-pie", *(sdl.ldflags if sdl else []), *lto_ldflags]),
-            # (bgfx's C++: the system's libstdc++, which every distribution has)
+            # (bgfx's and Jolt's C++: the system's libstdc++, which every
+            # distribution has)
             "libs": " ".join([*(str(library) for library in bgfx_libraries), *ffmpeg_libs,
-                              *(f"-l{lib}" for lib in config.get("libraries", [])),
-                              *(["-lstdc++"] if use_bgfx else [])]),
+                              *(f"-l{lib}" for lib in config.get("libraries", [])), "-lstdc++"]),
         },
         implicit=[Path("tools/linux_link_check.py"), *([sdl.libsdl] if sdl else []), *ffmpeg_inputs, *bgfx_libraries],
     )

@@ -145,6 +145,7 @@ symbols in this file:
 #include "stubbs_regions.h" /* port: port/linux/game/stubbs_regions.c */
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 #include "game/game_modes.h" /* port: SWAT's headshots (docs/modes.md) */
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1061,6 +1062,11 @@ static void object_damage_aftermath(
 
 	/* port: (a client's replay of the host's nonlethal damage too) */
 	damage_data_validate_owner(damage);
+#ifdef HALO_PORT_RAGDOLLS
+	/* port: the blow, for the ragdoll of a death it brings or one it strikes
+	(port/linux/game/ragdolls.c; only the picture) */
+	ragdolls_note_damage(object_index, damage);
+#endif
 
 	if (object_definition->object.acceleration_scale > _real_epsilon)
 	{

@@ -116,6 +116,7 @@ symbols in this file:
 #include "game/game_engine.h"
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_looks.h" /* port: port/linux/game/stubbs_looks.c */
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 
 /* ---------- constants */
 
@@ -470,6 +471,16 @@ static void find_rendered_objects(
 		object_get_render_bounding_sphere,
 		object_unmarked_function,
 		object_mark_function);
+
+#ifdef HALO_PORT_RAGDOLLS
+	/* port: the dead bodies' ragdolls, found in the clusters they lie in,
+	wherever the game has their bodies (port/linux/game/ragdolls.c) */
+	render_object_globals.rendered_object_count += ragdolls_find_rendered(
+		&render_object_globals.rendered_object_indices[render_object_globals.rendered_object_count],
+		MAXIMUM_RENDERED_OBJECTS - render_object_globals.rendered_object_count,
+		object_unmarked_function,
+		object_mark_function);
+#endif
 
 	object_marker_end();
 
