@@ -2251,6 +2251,10 @@ static const struct config_setting config_settings[] =
 		"Pixel shaders show their first texture." },
 	{ "debug.gpu_debug_flat", _config_boolean, "false", "HALO_GPU_DEBUG_FLAT", _environment_set_is_true, _platform_all,
 		"Pixel shaders show their vertex color." },
+	{ "debug.freeze_at_tick", _config_integer, "0", "HALO_FREEZE_AT_TICK", _environment_value, _platform_all,
+		"Stop the game at this tick of a map, as game_speed 0 does, and keep\n"
+		"drawing it: every run then shows the same moment, for comparing\n"
+		"pictures (tools/renderer_gate.py). 0 for never." },
 	{ "debug.screenshot_directory", _config_string, "\"\"", "HALO_SCREENSHOT_DIR", _environment_value, _platform_all,
 		"A folder to save frames to, with debug.screenshot_every. Leave it empty\n"
 		"for none." },

@@ -1,0 +1,64 @@
+# Views for tools/renderer_gate.py (docs/renderer-gate.md).
+#
+#   <map> <name> player                     the player's own view: HUD, weapon
+#   <map> <name> spawn <turn> [pitch]       the debug camera at the player's
+#                                           eyes, turned (degrees), no HUD
+#   <map> <name> camera x y z yaw pitch     the debug camera at a spot, no HUD
+#   map <map> tick=<n>                      the tick this map stops at
+#
+# action:<map> is an Xbox multiplayer map in the recorded game of
+# tools/test_determinism.py (its scripted bot playing, recorded once and
+# played back on each renderer), stopped at its tick: shots, muzzle flashes,
+# shells, the effects the static views have none of.
+#
+# A map is as init.txt's map_name: a Custom Edition map is name@ce (from
+# maps_ce, --maps-ce), an MCC Workshop level mcc_maps\<item>\<level>
+# (from maps_mcc, --maps-mcc). Every map's game stops at --tick (300, ten
+# seconds in) unless its map line says otherwise.
+
+# Blood Gulch: daylight, terrain, lightmaps, detail maps, sky, distant fog
+bloodgulch player player
+bloodgulch red_cliffs_wide camera 92 -154 4 0 0
+bloodgulch mid_far_cliffs camera 68 -118 5 200 6
+bloodgulch blue_canyon camera 44 -86 3 -54 2
+bloodgulch spawn_back spawn 180
+
+# Blood Gulch with the scripted bot firing: muzzle flash, tracers, effects
+map action:bloodgulch tick=420
+action:bloodgulch player player
+
+# Damnation: indoor, dynamic and lightmapped light, glass, water fall
+damnation player player
+damnation spawn_left spawn 90
+damnation spawn_back spawn 180
+
+# Chill Out: indoor, glowing panels, teleporters, environment maps
+chillout player player
+chillout spawn_back spawn 180
+
+# The Pillar of Autumn: a campaign set piece, indoor, lights and effects
+map a10 tick=1500
+a10 player player
+a10 spawn_left spawn 90
+a10 spawn_back spawn 180
+
+# The Silent Cartographer: the beach, water, the sky, Marines and the Pelican
+map b30 tick=3600
+b30 player player
+b30 spawn_left spawn 90
+b30 spawn_back spawn 180
+
+# 343 Guilty Spark: night, swamp fog, flashlight-dark interiors
+map c10 tick=2700
+c10 player player
+c10 spawn_back spawn 180
+
+# Timberland (Custom Edition): trees, cliffs, fog, CE shaders
+timberland@ce player player
+timberland@ce center_north camera 0 0 10 0 -10
+timberland@ce center_east camera 0 0 10 90 -10
+
+# Combat Revolved's Pillar of Autumn (MCC Workshop 2886943774): MCC content
+map mcc_maps\2886943774\a10 tick=1500
+mcc_maps\2886943774\a10 player player
+mcc_maps\2886943774\a10 spawn_back spawn 180
