@@ -887,9 +887,15 @@ static boolean shared_as_others_unchanged(
 	return TRUE;
 }
 
-/* whether the walk writes to an element of definition as it checks it: a
-runtime value it resets, a block's or data's definition it clears, or
-what a check of it may correct */
+/* whether the walk may write to an element of definition as it checks it:
+a runtime value it resets, a block's or data's definition it clears, what
+a check of it may correct, or a value it corrects (validate_value: a
+reference's name, tag and group, a tag index, a block index, an enum, a
+string's terminator). Only an element it never writes to may be walked
+where another's bytes are (overlap_walked): a correction there would change
+bytes the other was already checked to read (a block's or data's pointer
+or count), and a later check, or the game, would read through them
+unchecked */
 static boolean definition_writes(
 	struct tag_schema_definition const *definition,
 	short depth)
@@ -900,12 +906,10 @@ static boolean definition_writes(
 		return TRUE;
 	for (field = definition->fields; field->type != _tag_schema_terminator; field++)
 	{
-		if (field->type == _tag_schema_reset || field->type == _tag_schema_block || field->type == _tag_schema_data ||
-			field->type == _tag_schema_file_data || field->type == _tag_schema_check ||
-			(field->type == _tag_schema_struct && definition_writes(field->definition, depth + 1)))
-		{
+		/* (every field the schema lists is one the walk checks, and
+		corrects where it is wrong; a structure's are its fields') */
+		if (field->type != _tag_schema_struct || definition_writes(field->definition, depth + 1))
 			return TRUE;
-		}
 	}
 
 	return FALSE;
@@ -926,8 +930,8 @@ static boolean overlap_walked(
 	unsigned long first = (unsigned long)((byte const *)address - tag_cache);
 	unsigned long bit;
 
-	/* (not one the walk writes to, a runtime value or a block's or data's
-	definition: what it writes would change what the other reads) */
+	/* (not one the walk may write to, definition_writes: what it writes
+	would change what the other reads after it was checked) */
 	if (!TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_overlaps_walked_bit) ||
 		definition_writes(definition, 0) ||
 		first > tag_validate_globals.tag_cache_size || size > tag_validate_globals.tag_cache_size - first ||
