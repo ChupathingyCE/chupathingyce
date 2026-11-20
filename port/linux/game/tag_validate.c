@@ -915,6 +915,29 @@ static boolean definition_writes(
 	return FALSE;
 }
 
+/* whether an element of definition has a check (its structures' too): a
+check may correct what it reads in the element's blocks, those with no
+fields of their own too (a collision bsp's leaves) */
+static boolean definition_checks(
+	struct tag_schema_definition const *definition,
+	short depth)
+{
+	struct tag_schema_field const *field;
+
+	if (depth > MAXIMUM_VALIDATION_DEPTH)
+		return TRUE;
+	for (field = definition->fields; field->type != _tag_schema_terminator; field++)
+	{
+		if (field->type == _tag_schema_check ||
+			(field->type == _tag_schema_struct && definition_checks(field->definition, depth + 1)))
+		{
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
 /* whether size bytes at address, which overlap bytes already claimed in a
 way shared_extent_overlap does not let them, may be walked as their own: in
 a layout whose tools overlapped them (_tag_schema_layout_overlaps_walked_bit:
@@ -929,9 +952,16 @@ static boolean overlap_walked(
 	byte const *tag_cache = (byte const *)tag_validate_globals.header;
 	unsigned long first = (unsigned long)((byte const *)address - tag_cache);
 	unsigned long bit;
+	short depth;
 
-	/* (not one the walk may write to, definition_writes: what it writes
-	would change what the other reads after it was checked) */
+	/* (not one the walk may write to, definition_writes, nor one in an
+	element whose check may, definition_checks: what it writes would change
+	what the other reads after it was checked) */
+	for (depth = 0; depth < validation->depth; depth++)
+	{
+		if (definition_checks(validation->frames[depth].definition, 0))
+			return FALSE;
+	}
 	if (!TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_overlaps_walked_bit) ||
 		definition_writes(definition, 0) ||
 		first > tag_validate_globals.tag_cache_size || size > tag_validate_globals.tag_cache_size - first ||

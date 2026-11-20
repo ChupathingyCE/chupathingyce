@@ -1342,6 +1342,35 @@ def test_pc_bsp_block_over_its_collision_never_walked_where_it_writes(built, tmp
     assert "not clean when checked again" not in result.stderr, result.stderr[-4000:]
 
 
+def test_pc_bsp_block_its_check_corrects_never_walked_where_it_writes(built, tmp_path):
+    """a block with no fields of its own is still written to by its
+    element's check: a collision BSP's leaves, laid over the collision BSP's
+    nodes block, a leaf's bsp2d references there, which the collision check
+    corrects. They are made none, not walked where that correction would
+    change the nodes' pointer after the nodes were checked; the BSP as
+    corrected needs no more correction (map_fuzz.c)"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data = bytearray(ce_map())
+    instances = struct.unpack_from("<I", data, 0x800)[0] - base
+    scenario = struct.unpack_from("<I", data, 0x800 + instances + 0x14)[0] - base
+    bsps = struct.unpack_from("<I", data, 0x800 + scenario + 0x5A8)[0] - base
+    bsp_offset, _, bsp_base = struct.unpack_from("<iiI", data, 0x800 + bsps)
+    # (ce_bsp's collision BSP: its nodes block at 0, its leaves block at
+    # 0x18; a leaf 2 bytes in has its bsp2d reference count and first
+    # reference in the nodes' pointer)
+    collision = 0x18 + 0x288 + 0x40
+    struct.pack_into("<iI", data, bsp_offset + collision + 0x18, 1, bsp_base + collision + 0x02)
+    path = tmp_path / "bsp_leaves_over_nodes.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "collision_bsp[0].leaves has 1 elements of 8 bytes at" in result.stderr, result.stderr[-4000:]
+    assert "which overlap another's: none" in result.stderr, result.stderr[-4000:]
+    assert "bsp2d references from" not in result.stderr, result.stderr[-4000:]
+    assert "not clean when checked again" not in result.stderr, result.stderr[-4000:]
+
+
 def test_split_flag_is_the_loaders_alone(built, tmp_path):
     """the flag the loader gives a sound it split (bit 31 of its flags), which
     an impulse sound then plays through: a map's own is cleared as it loads,
@@ -1647,3 +1676,4 @@ def test_pc_actor_variant_grenade_type_past_the_games(built, tmp_path):
 
 if __name__ == "__main__":
     main()
+
