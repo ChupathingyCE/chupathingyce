@@ -201,6 +201,9 @@ keep fewer (the Switch's particles, HALO_CONSOLE_PARTICLE_TICKS and
 HALO_CONSOLE_LIGHT_LIMITS); the desktop has the Xbox's look, unlimited */
 #if defined(HALO_CONSOLE_PARTICLE_LIMIT)
 #define DEFAULT_PARTICLE_LIMIT HALO_CONSOLE_PARTICLE_LIMIT
+#elif defined(HALO_XBOX_CONSOLE)
+/* (the original Xbox's own pool, which holds no more: particles.c) */
+#define DEFAULT_PARTICLE_LIMIT "1024"
 #elif defined(HALO_SWITCH_CONSOLE)
 #define DEFAULT_PARTICLE_LIMIT "2048"
 #else
@@ -721,12 +724,13 @@ static const struct config_setting config_settings[] =
 		"(at 30 frames a second they end before they are drawn). false: as on\n"
 		"the Xbox, at any frame rate. Thanks to ugoboom for the idea." },
 	{ "display.particle_limit", _config_integer, DEFAULT_PARTICLE_LIMIT, "HALO_PARTICLE_LIMIT", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"The most particles alive at once: sparks, smoke, casings and debris.\n"
 		"When it is full, the oldest goes to make room for a new one. The Xbox's\n"
 		"limit was 1024. 0 uses the port's own 8192, which a 64-player firefight\n"
 		"fills. Every particle costs CPU and GPU time. The default is 2048 on the\n"
-		"Switch and 4096 elsewhere. Changes at once." },
+		"Switch, 1024 (its most) on the original Xbox and 4096 elsewhere. A\n"
+		"network game never goes under 1024. Changes at once." },
 	{ "display.particle_ticks", _config_boolean, DEFAULT_PARTICLE_TICKS, "HALO_PARTICLE_TICKS", _environment_value,
 		_platform_all,
 		"Move the particles that are not attached to an object once a 30 Hz\n"
@@ -4917,24 +4921,49 @@ static const struct
 	long minimum, maximum;
 	/* the value each preset gives it (retail none): NULL leaves the default */
 	const char *preset[NUMBER_OF_TUNING_PRESETS];
+	/* the original Xbox's, whose own limits are already where the PC's
+	presets would put them: there "lan-party" is for big network games
+	(fewer lights and shadows, no shine or reflections, a late frame shown
+	at once: none of it held in one), and "potato" goes further below the
+	Xbox's own drawing (fewer particles, every other loose one drawn, the
+	decals and, outside network games, the grass, weather, contrails and
+	lens flares left out). A network game holds the knobs that could hide
+	a player (particles.c, render.c's render_tuning) */
+	const char *xbox_preset[NUMBER_OF_TUNING_PRESETS];
 } config_tuning_knobs[] =
 {
-	{ "display.dynamic_light_limit", "lights", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "16", "8" } },
-	{ "display.specular_light_limit", "specular", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "4", "2" } },
-	{ "display.particle_limit", "particles", _tuning_limit, 0, TUNING_MAXIMUM_PARTICLES, { NULL, "2048", "1024" } },
-	{ "display.particle_ticks", "particle_ticks", 0, 0, 0, { NULL, "true", "true" } },
-	{ "display.shadow_resolution", "shadows", 0, 0, 0, { NULL, NULL, "128" } },
-	{ "display.anisotropic_filtering", "aniso", 0, 0, 0, { NULL, NULL, "0" } },
-	{ "display.anti_aliasing", "aa", 0, 0, 0, { NULL, NULL, "off" } },
-	{ "display.per_pixel_lighting", "per_pixel", 0, 0, 0, { NULL, NULL, "false" } },
-	{ "display.light_effects", "light_effects", 0, 0, 0, { NULL, NULL, "off" } },
-	{ "display.resolution_scaling", "scaling", 0, 0, 0, { NULL, NULL, "original" } },
-	{ "tuning.present_mode", "present", _tuning_words, 0, 0, { NULL, "adaptive", NULL } },
-	{ "tuning.particle_thinning", "thinning", 0, 1, 4, { NULL, NULL, NULL } },
-	{ "tuning.effects", "effects", _tuning_words, 0, 0, { NULL, NULL, NULL } },
-	{ "tuning.shadow_pixels", "shadow_pixels", 0, 30, 400, { NULL, NULL, NULL } },
-	{ "tuning.object_cull_pixels", "cull_pixels", 0, 0, 16, { NULL, NULL, NULL } },
-	{ "tuning.texture_cache", "texture_cache", _tuning_megabytes, 19, 512, { NULL, NULL, NULL } },
+	{ "display.dynamic_light_limit", "lights", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "16", "8" },
+		{ NULL, "4", "2" } },
+	{ "display.specular_light_limit", "specular", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "4", "2" },
+		{ NULL, "1", "1" } },
+	{ "display.particle_limit", "particles", _tuning_limit, 0, TUNING_MAXIMUM_PARTICLES, { NULL, "2048", "1024" },
+		{ NULL, NULL, "512" } },
+	{ "display.particle_ticks", "particle_ticks", 0, 0, 0, { NULL, "true", "true" },
+		{ NULL, NULL, NULL } },
+	{ "display.shadow_resolution", "shadows", 0, 0, 0, { NULL, NULL, "128" },
+		{ NULL, NULL, NULL } },
+	{ "display.anisotropic_filtering", "aniso", 0, 0, 0, { NULL, NULL, "0" },
+		{ NULL, NULL, NULL } },
+	{ "display.anti_aliasing", "aa", 0, 0, 0, { NULL, NULL, "off" },
+		{ NULL, NULL, NULL } },
+	{ "display.per_pixel_lighting", "per_pixel", 0, 0, 0, { NULL, NULL, "false" },
+		{ NULL, NULL, NULL } },
+	{ "display.light_effects", "light_effects", 0, 0, 0, { NULL, NULL, "off" },
+		{ NULL, NULL, NULL } },
+	{ "display.resolution_scaling", "scaling", 0, 0, 0, { NULL, NULL, "original" },
+		{ NULL, NULL, NULL } },
+	{ "tuning.present_mode", "present", _tuning_words, 0, 0, { NULL, "adaptive", NULL },
+		{ NULL, "adaptive", "adaptive" } },
+	{ "tuning.particle_thinning", "thinning", 0, 1, 4, { NULL, NULL, NULL },
+		{ NULL, NULL, "2" } },
+	{ "tuning.effects", "effects", _tuning_words, 0, 0, { NULL, NULL, NULL },
+		{ NULL, "reduced", "minimal" } },
+	{ "tuning.shadow_pixels", "shadow_pixels", 0, 30, 400, { NULL, NULL, NULL },
+		{ NULL, "60", "120" } },
+	{ "tuning.object_cull_pixels", "cull_pixels", 0, 0, 16, { NULL, NULL, NULL },
+		{ NULL, "4", "8" } },
+	{ "tuning.texture_cache", "texture_cache", _tuning_megabytes, 19, 512, { NULL, NULL, NULL },
+		{ NULL, NULL, NULL } },
 };
 
 #define NUMBER_OF_TUNING_KNOBS (sizeof(config_tuning_knobs) / sizeof(config_tuning_knobs[0]))
@@ -4952,6 +4981,16 @@ static int config_tuning_said_preset = -1;
 player chose since the file was read (config_given stays the file's and
 the environment's, which config_chosen answers) */
 static signed char config_touched[NUMBER_OF_CONFIG_SETTINGS];
+
+/* the value a preset gives a knob on this build (NULL: its default) */
+static const char *config_tuning_knob_preset(size_t knob, int preset)
+{
+#ifdef HALO_XBOX_CONSOLE
+	return config_tuning_knobs[knob].xbox_preset[preset];
+#else
+	return config_tuning_knobs[knob].preset[preset];
+#endif
+}
 
 /* a knob's setting, or -1 for one that is not this build's */
 static long config_tuning_setting(size_t knob)
@@ -5117,7 +5156,7 @@ static void config_tuning_apply(long changed)
 		}
 		else if (!given)
 		{
-			const char *preset_value = config_tuning_knobs[knob].preset[preset];
+			const char *preset_value = config_tuning_knob_preset(knob, preset);
 
 			if (preset_value && (flags & _tuning_limit))
 			{
@@ -5203,9 +5242,9 @@ static void config_tuning_apply(long changed)
 			platform_log("tuning: change preset=%s->%s", config_tuning_presets[config_tuning_said_preset < 0 ?
 				_tuning_preset_retail : config_tuning_said_preset], config_tuning_presets[preset]);
 		}
-		/* a preset that sets nothing on this build (on the original Xbox,
-		potato: its limits are the console's own, the rest not its
-		settings) says so, rather than look like it did something */
+		/* a preset that sets nothing on this build (every knob it names
+		set by hand, or its limits this build's own) says so, rather than
+		look like it did something */
 		if (preset != _tuning_preset_retail && (start || config_tuning_said_preset != preset))
 		{
 			int preset_set = 0;
@@ -6375,7 +6414,7 @@ const char *config_tuning_preset_value(const char *preset, const char *name)
 	for (knob = 0; knob < NUMBER_OF_TUNING_KNOBS; knob++)
 	{
 		if (!strcmp(config_tuning_knobs[knob].name, name))
-			return config_tuning_knobs[knob].preset[index];
+			return config_tuning_knob_preset(knob, index);
 	}
 	return NULL;
 }

@@ -1376,20 +1376,24 @@ DRAWING_KNOBS = ("tuning.particle_thinning", "tuning.effects", "tuning.shadow_pi
 
 def test_xbox_tuning(program, directory):
 	"""The original Xbox's [tuning]: config.toml is its only screen. The
-	knobs it has are in its file (tuning.texture_cache its own), the ones it
-	hasn't are not; a preset never raises the console's own limit; the
-	texture cache is "auto" or MB in range."""
+	knobs it has are in its file (tuning.texture_cache its own, and
+	display.particle_limit at its pool's 1024), the ones it hasn't are not;
+	its presets are its own column, below its own limits, and each sets
+	something (none says it changes nothing); the texture cache is "auto"
+	or MB in range."""
 	case = Case(program, directory / "xbox_tuning")
 	case.path = case.folder / "d:\\config.toml"
 	text = fresh_file(case, "xbox")
-	for line in ('# preset = "retail"', '# present_mode = "vblank"', '# texture_cache = "auto"'):
+	for line in ('# preset = "retail"', '# present_mode = "vblank"', '# texture_cache = "auto"', "# particle_limit = 1024"):
 		check(line in text, f"xbox/tuning: no {line}")
-	check("particle_limit" not in text and "shadow_resolution" not in text, "xbox/tuning: a desktop knob in the file")
+	check("particle_ticks" not in text and "shadow_resolution" not in text and "light_effects" not in text,
+		"xbox/tuning: a desktop knob in the file")
 	values, output = case.get("display.dynamic_light_limit")
 	lines = tuning_lines(output)
 	check(re.fullmatch(rf"tuning: at=boot {TUNING_SUMMARY}", lines[0]), f"xbox/tuning: {lines}")
-	check(set(tuning_knobs(lines[0])) == {"preset", "lights", "specular", "present", "thinning", "effects",
+	check(set(tuning_knobs(lines[0])) == {"preset", "lights", "specular", "particles", "present", "thinning", "effects",
 		"shadow_pixels", "cull_pixels", "texture_cache"}, f"xbox/tuning: knobs {lines[0]}")
+	check(lines[1] == "tuning: differs from the defaults: none", f"xbox/tuning: retail {lines}")
 	own = int(values["display.dynamic_light_limit"])
 	for texture, wanted, source in (('"auto"', "auto", "(hand)"), ('"24"', "24", "(hand)"), ('"4"', "19", "(clamped)"),
 			('"600"', "512", "(clamped)"), ('"lots"', "auto", "(invalid)")):
@@ -1402,23 +1406,50 @@ def test_xbox_tuning(program, directory):
 			f"xbox/tuning: texture_cache {texture}: {values} {knobs}")
 		differs = next(line for line in tuning_lines(output) if line.startswith("tuning: differs"))
 		check(("texture_cache=" in differs) == (wanted != "auto"), f"xbox/tuning: {differs}")
-		# (lan-party's 16 lights never more than the console's own)
+		# (lan-party's lights are the Xbox column's 4, under the console's own)
 		lights = int(values["display.dynamic_light_limit"])
-		check(lights == 16 if own == 0 else lights == min(own, 16), f"xbox/tuning: lights {lights}, own {own}")
-		# (lan-party sets the present mode here: nothing to own up to)
+		check(own == 8 and lights == 4 and knobs["lights"] == ("4", "(preset)"), f"xbox/tuning: lights {lights}, own {own}")
 		check(not any("changes nothing" in line for line in tuning_lines(output)), f"xbox/tuning: {tuning_lines(output)}")
-	# potato on the Xbox: its limits are the console's own and the rest not
-	# its settings, so it sets nothing, and says so in one line at boot
-	for preset, honest in (('"potato"', 1), ('"retail"', 0), ('"lan-party"', 0)):
+	# each preset's own values on the Xbox, every one marked as the preset's
+	wanted = {
+		'"lan-party"': {"display.dynamic_light_limit": "4", "display.specular_light_limit": "1",
+			"display.particle_limit": "1024", "tuning.particle_thinning": "1", "tuning.effects": "reduced",
+			"tuning.shadow_pixels": "60", "tuning.object_cull_pixels": "4", "tuning.present_mode": "adaptive"},
+		'"potato"': {"display.dynamic_light_limit": "2", "display.specular_light_limit": "1",
+			"display.particle_limit": "512", "tuning.particle_thinning": "2", "tuning.effects": "minimal",
+			"tuning.shadow_pixels": "120", "tuning.object_cull_pixels": "8", "tuning.present_mode": "adaptive"},
+		'"retail"': {"display.dynamic_light_limit": "8", "display.specular_light_limit": "2",
+			"display.particle_limit": "1024", "tuning.particle_thinning": "1", "tuning.effects": "full",
+			"tuning.shadow_pixels": "30", "tuning.object_cull_pixels": "0", "tuning.present_mode": "vblank"},
+	}
+	for preset, settings in wanted.items():
 		text = re.sub(r"^#? ?texture_cache = .*$", '# texture_cache = "auto"', case.text(), flags=re.M)
 		text = re.sub(r"^#? ?preset = .*$", f"preset = {preset}", text, flags=re.M)
 		case.path.write_text(text)
-		_, output = case.get("display.dynamic_light_limit")
-		said = [line for line in tuning_lines(output) if "changes nothing" in line]
-		check(len(said) == honest, f"xbox/tuning: {preset}: {said}")
-		if honest:
-			check(said[0].startswith(f"tuning: preset={preset.strip(chr(34))} changes nothing on this console"),
-				f"xbox/tuning: {said}")
+		values, output = case.get(*settings)
+		check(values == settings, f"xbox/tuning: {preset}: {values}")
+		lines = tuning_lines(output)
+		check(not any("changes nothing" in line for line in lines), f"xbox/tuning: {preset}: {lines}")
+		differs = next(line for line in lines if line.startswith("tuning: differs"))
+		if preset == '"retail"':
+			check(differs == "tuning: differs from the defaults: none", f"xbox/tuning: {preset}: {differs}")
+		else:
+			check(differs.startswith(f"tuning: differs from the defaults: preset={preset.strip(chr(34))} ") and
+				"lights=" in differs and "(preset)" in differs and "(hand)" not in differs, f"xbox/tuning: {differs}")
+	# the player's own value wins over the Xbox's potato
+	text = re.sub(r"^#? ?particle_limit = .*$", "particle_limit = 768", case.text(), flags=re.M)
+	text = re.sub(r"^#? ?preset = .*$", 'preset = "potato"', text, flags=re.M)
+	case.path.write_text(text)
+	values, output = case.get("display.particle_limit", "display.dynamic_light_limit")
+	knobs = tuning_knobs(next(line for line in tuning_lines(output) if line.startswith("tuning: at=boot")))
+	check(values == {"display.particle_limit": "768", "display.dynamic_light_limit": "2"} and
+		knobs["particles"] == ("768", "(hand)") and knobs["lights"] == ("2", "(preset)"), f"xbox/tuning: hand {values} {knobs}")
+	# (out of the pool: held at 1024)
+	case.path.write_text(re.sub(r"^particle_limit = .*$", "particle_limit = 4096", case.text(), flags=re.M))
+	values, output = case.get("display.particle_limit")
+	check(values["display.particle_limit"] == "1024" and
+		any("display.particle_limit = 4096 is out of 0 to 1024" in line for line in tuning_lines(output)),
+		f"xbox/tuning: particles {values} {tuning_lines(output)}")
 
 
 def test_xbox_follows_new_defaults(program, directory):

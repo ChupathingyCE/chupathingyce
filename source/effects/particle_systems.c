@@ -1609,6 +1609,7 @@ static void particle_system_render(
 					{
 						state_weight = 0.0f;
 						transition_weight = 0.0f;
+						render_tuning_count(_render_tuning_sprites_count, 1);
 					}
 
 					if (state_weight > 0.01f)

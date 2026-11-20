@@ -533,6 +533,8 @@ static void find_rendered_objects(
 					render_object_globals.rendered_object_indices[kept++] = object_index;
 				}
 			}
+			render_tuning_count(_render_tuning_objects_count,
+				render_object_globals.rendered_object_count - kept);
 			render_object_globals.rendered_object_count = kept;
 		}
 	}
@@ -1241,6 +1243,9 @@ static void render_object(
 			if (shadow_pixels > OBJECT_SHADOW_MINIMUM_PIXELS &&
 				object_get_level_of_detail_pixels(data->object_index) <= shadow_pixels)
 			{
+				/* (counted only where the Xbox's 30 would have cast one) */
+				if (object_get_level_of_detail_pixels(data->object_index) > OBJECT_SHADOW_MINIMUM_PIXELS)
+					render_tuning_count(_render_tuning_shadows_count, 1);
 				return;
 			}
 
