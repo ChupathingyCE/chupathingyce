@@ -113,6 +113,31 @@ struct unit_seat
 	long unused3[5];
 };
 
+/* port: (Halo 2's boarding, a made Halo 2 level's vehicles) a boarding seat:
+its unused[0] this and the seat it boards (its index, the low byte);
+units.c's unit_seat_boarding_target */
+#define UNIT_SEAT_BOARDING_MAGIC 0x42524400UL
+/* port: (a made Halo 2 level's tank) a boarding seat on its hull, whose
+boarder beats on the hatch or drops a grenade in rather than throwing the
+rider out (the Wraith's, the Scorpion's): its unused[0] this and the seat
+it boards - port/linux/game/h2_vehicle_damage.c's h2_vehicle_hull_boarder */
+#define UNIT_SEAT_BEATING_MAGIC 0x42454100UL
+/* port: (a made Halo 2 level's boarding seat) its unused2[1] this: its
+unused2[0] Halo 2's seat's maximum relative velocity, a tick's (a real) -
+units.c's unit_boarding_allowed */
+#define UNIT_SEAT_BOARDING_SPEED_MAGIC 0x42535044UL
+/* port: (a made Halo 2 level's vehicle) a seat's unused[2] this: its
+unused[1] Halo 2's seat flags (bit 9 not valid without a driver, 16
+invalid for a player) - units.c's unit_can_enter_seat */
+#define UNIT_SEAT_H2_FLAGS_MAGIC 0x48325346UL
+#define UNIT_SEAT_H2_NOT_VALID_WITHOUT_DRIVER_BIT 9
+#define UNIT_SEAT_H2_INVALID_FOR_PLAYER_BIT 16
+/* port: (a made Halo 2 level's vehicle) its vehicle definition's unused
+0x348 this, then Halo 2's collision damage transfer scale and the players'
+minimum and maximum collision force and damage scale (reals) - physics.c's
+splatter on a Halo 2 level */
+#define H2_VEHICLE_SPLATTER_MAGIC 0x48325350UL
+
 struct powered_seat_definition
 {
 	long pad;

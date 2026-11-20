@@ -1,0 +1,514 @@
+/*
+CUSTOM_EDITION_CACHE.H
+
+What the native builds' cache file loader (source/cache/cache_files.c and
+cache_files_windows.c) does with Halo Custom Edition caches, OpenSauce ".yelo"
+caches among them. By default it finds them, says what they are, and refuses
+them. With HALO_CUSTOM_EDITION set it loads and runs them instead, which is
+experimental: their tags are laid out for Halo PC, and custom_edition_cache.c
+and custom_edition_geometry.c convert what they know to differ
+(docs/custom_edition_caches.md). The format itself is read by
+cache_file_formats.c.
+*/
+
+#ifndef __CUSTOM_EDITION_CACHE_H
+#define __CUSTOM_EDITION_CACHE_H
+
+/* ---------- constants */
+
+/* A Custom Edition campaign map's level name (one of a solo scenario,
+played alone or as network co-op) is this and its file's name:
+custom_maps\firefight-airlock for firefight-airlock.map in the maps folder,
+which the cache file loader finds by the last part, as it finds every map.
+None of the game's own levels is named so, so nothing takes such a map for
+one of the campaign's (saved games, the profile's progress, the next level:
+main_get_solo_level_from_name). From OpenCE's custom_edition_cache.h (CC0,
+ce41b41d), whose maps all have such names; here only the campaign maps, the
+multiplayer ones keeping levels\test\<name>\<name> (custom_edition_maps.c),
+which 1.0.3's players know. */
+#define CUSTOM_EDITION_LEVEL_NAME_PREFIX "custom_maps\\"
+
+/* ---------- structures */
+
+struct cache_file_tag_header;
+struct custom_edition_load_report;
+struct scenario_object_datum;
+struct structure_bsp;
+
+/* ---------- prototypes/CUSTOM_EDITION_CACHE.C */
+
+/* When `header` (CACHE_FILE_HEADER_BYTES bytes, with `build` its build
+string field) is a Custom Edition cache header, logs what it is, asserts when
+`fatal` as cache_file_header_verify does, and returns TRUE. */
+boolean custom_edition_cache_refuse(
+	void const *header,
+	char const *build,
+	char const *scenario_name,
+	boolean fatal);
+
+/* When the ".map" file `path` names does not exist but an OpenSauce ".yelo"
+file of the same name does, makes `path` (`path_size` characters) name that
+instead. */
+void opensauce_cache_path_find(
+	char *path,
+	long path_size);
+
+/* TRUE when Custom Edition maps may run (HALO_CUSTOM_EDITION) and the map
+`map_name` names is a Custom Edition cache whose resource maps are present:
+it is then read in place, never copied to the cache partition. */
+boolean custom_edition_cache_playable(
+	char const *map_name);
+/* The same, for a map of a multiplayer scenario (the multiplayer menus,
+custom_edition_maps.c). */
+boolean custom_edition_cache_multiplayer(
+	char const *map_name);
+/* The same, for a Custom Edition map of a solo scenario: a campaign map,
+played alone or as network co-op (the campaign's level list,
+custom_edition_maps.c). */
+boolean custom_edition_cache_campaign(
+	char const *map_name);
+/* Whether `level_name` is a Custom Edition campaign map's
+(CUSTOM_EDITION_LEVEL_NAME_PREFIX and a file name map sharing would take,
+map_share_name_valid): no file is looked at. */
+boolean custom_edition_level_name(
+	char const *level_name);
+/* TRUE when the map `map_name` names is a Custom Edition cache, whether or
+not Custom Edition maps may run (the multiplayer join check: a joiner with
+PC maps off cannot load one, network_client_manager.c). */
+boolean custom_edition_cache_is_custom_edition(
+	char const *map_name);
+/* TRUE when the map `map_name` names is a Custom Edition cache that takes
+tags from resource maps (bitmaps.map, sounds.map, loc.map, or an OpenSauce
+mod set's) not in the maps folder, which are then named in `missing`
+(`missing_size` characters, ", " between them): it cannot be loaded. A
+quick look at its tag index (cache_file_formats.c,
+custom_edition_cache_resource_maps_used). */
+boolean custom_edition_cache_missing_resource_maps(
+	char const *map_name,
+	char *missing,
+	long missing_size);
+/* TRUE when the map `map_name` names is an Xbox cache of a multiplayer
+scenario that the cache partition can take (no longer than the Xbox's
+multiplayer maps): a modded or newly built Xbox map for the level list
+(custom_edition_maps.c); it needs no setting. A copy a player renamed
+(cursed-bloodgulch.map, named bloodgulch inside) is taken by its file's
+name, which the cache partition then knows it by
+(cache_files_windows.c, cache_file_read_header_from_dvd): not one named as
+an Xbox level, whose name must be the one inside. */
+boolean custom_edition_cache_xbox_multiplayer(
+	char const *map_name);
+/* TRUE when the map `map_name` names is such an Xbox cache named inside as
+another map (a renamed copy): never shared (custom_edition_maps_shareable),
+as map sharing knows an Xbox map by the name inside it
+(map_share_protocol.c). */
+boolean custom_edition_cache_xbox_renamed(
+	char const *map_name);
+/* What tells this machine's copy of the map `map_name` names from another
+(an Xbox or Custom Edition cache): its header checksum with its length, or
+the CRC-32 of the whole file when the header has none; 0 when there is no
+such map. Never 0 for a map. */
+unsigned long custom_edition_cache_map_identity(
+	char const *map_name);
+/* What this machine's file of the map file `file_name` (a name without a
+folder or extension, crossplay_map_name_parse's) is, for the crossplay join
+(crossplay_maps.h), of the host's version `host_version` (its file of that
+version when it has one, <name>.map or <name>_<digits>.map, else its
+<name>.map): absent, an Xbox cache (and whether a multiplayer map the cache
+partition takes), a Custom Edition cache (its version, its hash's first 32
+bits), or a file this game cannot take (why: its cache_file_status); and
+whether PC maps is on. */
+struct crossplay_local_map;
+/* (crossplay) the PC host's Custom Edition map the join's check found
+playable here, by its file name, and its version: the cache loader takes
+the file of that version for it until the client's game record says
+otherwise (custom_edition_maps_crossplay_check) */
+void custom_edition_cache_crossplay_map_chosen(
+	char const *file_name,
+	unsigned long version);
+void custom_edition_cache_crossplay_facts(
+	char const *file_name,
+	unsigned long host_version,
+	struct crossplay_local_map *local);
+/* The file of the map `map_name` names, in the maps folder: its ".map",
+else its OpenSauce ".yelo" (`path_size` characters); FALSE when there is
+none. */
+boolean custom_edition_cache_map_file_path(
+	char const *map_name,
+	char *path,
+	long path_size);
+/* Forgets what custom_edition_cache_map_identity worked out for the map
+`map_name` names (a downloaded copy took the place of the file: map_share.c). */
+void custom_edition_cache_map_identity_forget(
+	char const *map_name);
+
+/* Loads the Custom Edition map `map_name` names into its tag cache and
+converts its tags for this build, copying its cache header to `header`
+(CACHE_FILE_HEADER_BYTES bytes); returns its tag index header, or NULL after
+logging why the map cannot be loaded. */
+struct cache_file_tag_header *custom_edition_cache_tags_load(
+	char const *map_name,
+	void *header);
+
+/* Gives the player's reason the map being loaded (or its structure BSP)
+cannot be, when custom_edition_cache.c's own does not say it better. */
+void custom_edition_cache_load_failure_note(
+	char const *reason);
+
+/* port: record that the loader refused a map as damaged or unsupported, so
+main_new_map shows the player a message and returns to the menu rather than
+stopping the game (cache_files.c's Xbox-cache refusals). */
+void halo_map_load_refused(
+	char const *map_name,
+	char const *reason);
+/* When the last load of the Custom Edition map `map_name` names failed,
+tells the player why (platform_show_message) and returns TRUE: the caller
+then leaves for the menu rather than stopping the game (also declared for
+the game in halo_linux_source_fixups.h). */
+boolean custom_edition_cache_load_failure_show(
+	char const *map_name);
+/* A read of the map being loaded, made on the load's reader thread
+(custom_edition_cache.c) while the loading thread goes on: submitted, then
+waited for (the loading screen drawn meanwhile). */
+enum
+{
+	_custom_edition_read_job_idle,
+	_custom_edition_read_job_queued,
+	_custom_edition_read_job_done,
+	_custom_edition_read_job_failed,
+};
+
+struct custom_edition_read_job
+{
+	void *context;
+	unsigned long offset;
+	unsigned long size;
+	void *buffer;
+	int crc_kind;
+	unsigned long crc;
+	volatile int state;
+};
+
+void custom_edition_read_job_submit(
+	struct custom_edition_read_job *job);
+/* TRUE once read, FALSE when the map could not be read */
+boolean custom_edition_read_job_wait(
+	struct custom_edition_read_job *job);
+
+/* Reads `size` bytes at `offset` in the model data of the map being loaded
+(the report's), for custom_edition_models_convert; FALSE when they are not
+in it or cannot be read. What it reads counts towards the map's checksum.
+custom_edition_cache_model_data_submit starts the read, `job`'s, to be
+waited for (custom_edition_read_job_wait); FALSE, and nothing read, when the
+range is not in the model data. */
+boolean custom_edition_cache_model_data_read(
+	struct custom_edition_load_report const *report,
+	unsigned long offset,
+	unsigned long size,
+	void *buffer);
+boolean custom_edition_cache_model_data_submit(
+	struct custom_edition_load_report const *report,
+	unsigned long offset,
+	unsigned long size,
+	void *buffer,
+	struct custom_edition_read_job *job);
+
+/* the load's progress for the loading screen, 0..1, with a frame of it if
+one is due (the loading thread's) */
+void custom_edition_load_progress_set(
+	real progress);
+/* whether the map loaded is MCC's own ui.map (an MCC-only install's menus) */
+boolean custom_edition_cache_mcc_menus(
+	void);
+/* whether the player wants the Xbox maps folder's files before MCC's (paths.content_prefer, HALO_CONTENT_PREFER
+"xbox"); the default, 1.2.0: MCC's first */
+boolean custom_edition_cache_prefer_xbox(
+	void);
+boolean custom_edition_cache_tags_loaded(
+	void);
+/* (port) whether scene packs (scene_packs.c) may be put beside the map
+loaded: one of MCC's own (the Halo content folder's: its levels and its
+menus), every offset of its combined offset space (the map, bitmaps.map,
+the sound bank) below first_offset, where the packs' file offsets begin.
+FALSE with none loaded, and for any other Custom Edition map */
+boolean custom_edition_cache_packs_allowed(
+	unsigned long first_offset);
+/* Whether the Custom Edition map loaded relies on a Halo PC behaviour (enum
+custom_edition_behaviour, cache_file_formats.h); FALSE when none is loaded. */
+boolean custom_edition_cache_relies_on(
+	short behaviour);
+/* (port) Whether the loaded map's HUD is Halo: CE Anniversary's, made for
+MCC's canvas twice the Xbox's: its placements were brought to the Xbox's
+canvas as it loaded (cache_file_formats.c mcc_hud_placements_convert), and
+hud_draw.c draws what no placement scales (hud_mcc_bitmap_scale); FALSE
+when no Custom Edition map is loaded. */
+boolean custom_edition_cache_hud_mcc_canvas(
+	void);
+/* The tag cache the loaded map's tags are in and its size, in bytes
+(cache_file_tag_cache_contains); NULL and 0 when none is loaded. */
+void *custom_edition_cache_tag_cache(
+	unsigned long *size);
+/* A structure BSP of the loaded map was just read to `structure_bsp` from
+`file_offset`: its pointers are moved there too when the tags were
+(custom_edition_cache.c); (port) a Halo: CE Anniversary map's from where the
+map links it, its header made Custom Edition's (or, should it not be one
+the map was checked with, made no header at all). */
+void custom_edition_cache_structure_bsp_moved(
+	void *structure_bsp,
+	long size,
+	long file_offset);
+/* (port) Where in the loaded Halo: CE Anniversary map's file the vertices of
+the structure BSP just read are (custom_edition_geometry.c); FALSE for any
+other map's. */
+boolean custom_edition_cache_structure_bsp_vertices(
+	unsigned long *offset,
+	unsigned long *size);
+/* (port) Whether the map loaded is a mod's Halo: CE Anniversary map. */
+boolean custom_edition_cache_mcc_cea(
+	void);
+/* (port) Whether the file at `path` (a mod's map, custom_edition_mods.c) is
+a Halo: CE Anniversary cache of a solo scenario this build loads (its
+header and tag index alone are read); logs why not. */
+boolean custom_edition_cache_mod_map_identify(
+	char const *path);
+/* (port) The loader the Halo content folder's map file at `path` asks for
+by its header (mcc_content.h's table: enum content_library_loader), and its
+game's index into `game_index` (may be NULL): none for a file that cannot
+be read or that no loader of this build plays. */
+short custom_edition_cache_content_loader(
+	char const *path,
+	int *game_index);
+/* (port) What the file at `path` is, by the cache file loader's own check of
+its header and tag index (cache_file_identify): its status (enum
+cache_file_status; _cache_file_status_read_failed for a file that cannot be
+opened), its format (enum cache_file_format), its scenario type (NONE when
+unknown) and the name its header gives it (`inside_name`, `inside_name_size`
+characters). Nothing is loaded: the mod manager's check (mod_manager.c). */
+short custom_edition_cache_file_check(
+	char const *path,
+	short *format,
+	short *scenario_type,
+	char *inside_name,
+	long inside_name_size);
+void custom_edition_cache_tags_unload(
+	void);
+
+/* Reads `size` bytes of the loaded map at `offset`, which counts in the
+combined space of the map, its bitmaps.map and its sounds.map
+(custom_edition_cache_combine_resource_offsets), for the tag `tag_index` as
+cache_file_read names it (NONE, or a tag handle, or for sounds whatever the
+permutation holds); bitmap pixels are converted as they arrive. FALSE when
+they could not be read (the buffer then holds zeros). */
+boolean custom_edition_cache_read(
+	long tag_index,
+	long offset,
+	long size,
+	void *buffer);
+
+/* (port) The loaded map and its sounds.map opened again for a reader of
+its own (custom_edition_sounds.c's thread), read in the combined space with
+positioned reads and no lock: only sounds' samples, which need no
+conversion. */
+struct custom_edition_cache_reader
+{
+	boolean opened;
+	void *map;
+	unsigned long map_bytes;
+	void *sounds;
+	unsigned long sounds_bytes;
+};
+boolean custom_edition_cache_reader_open(
+	struct custom_edition_cache_reader *reader);
+boolean custom_edition_cache_reader_read(
+	struct custom_edition_cache_reader const *reader,
+	unsigned long offset,
+	unsigned long size,
+	void *buffer);
+void custom_edition_cache_reader_close(
+	struct custom_edition_cache_reader *reader);
+
+/* (port) Where the loaded map's sound cache is kept (custom_edition_sounds.c):
+a mod's map's in its mod's folder, d:\mods\<mod>\cache\<map>.sndcache, a
+maps folder map's in d:\sound_cache\<map>.sndcache; the folder into
+`directory`, the file into `path`, and what the map is into `source`. FALSE
+for a map whose file's name is not letters, digits, '_' and '-'. */
+#define CUSTOM_EDITION_SOUND_CACHE_DIRECTORY "d:\\sound_cache"
+#define CUSTOM_EDITION_SOUND_CACHE_EXTENSION ".sndcache"
+#define CUSTOM_EDITION_SOUND_CACHE_NAME_BYTES 32
+struct custom_edition_sound_cache_source
+{
+	/* the map file's name, lower case, and its size and header's CRC-32,
+	and sounds.map's size (0 without one) */
+	char name[CUSTOM_EDITION_SOUND_CACHE_NAME_BYTES];
+	unsigned long map_bytes;
+	unsigned long map_header_crc;
+	unsigned long sounds_bytes;
+};
+boolean custom_edition_cache_sound_cache_path(
+	char *path,
+	long path_size,
+	char *directory,
+	long directory_size,
+	struct custom_edition_sound_cache_source *source);
+
+/* ---------- prototypes/CUSTOM_EDITION_SOUNDS.C */
+
+struct sound_permutation;
+
+/* Whether the sound cache loads `permutation` by having it made Xbox ADPCM
+(a Custom Edition map's Ogg Vorbis stream, compression 3, or its 16-bit
+PCM, compression none) rather than reading it. */
+boolean custom_edition_sound_is_transcoded(
+	struct sound_permutation const *permutation);
+/* The bytes the sound cache holds for `permutation`: its samples' size, or
+for an Ogg Vorbis or 16-bit PCM one its Xbox ADPCM's (for Ogg Vorbis
+worked out from the stream's first and last pages the first time, when the
+map's own word was not plausible); 0 when it cannot be played. Called by
+the sound cache and the channels that play what it holds. */
+long custom_edition_sound_cache_bytes(
+	struct sound_permutation *permutation);
+/* Has an Ogg Vorbis or 16-bit PCM permutation made Xbox ADPCM into
+`destination` (its cache block, `destination_bytes` long) on the decoding
+thread, which sets `*loaded` when it is done; FALSE when it could not be
+asked for (the block is silence, and loaded, at once). */
+boolean custom_edition_sound_load(
+	struct sound_permutation const *permutation,
+	void *destination,
+	long destination_bytes,
+	boolean *loaded);
+/* The cache block whose loaded flag is `loaded` is being deleted: its
+decoding is forgotten if it waits, and if it runs writes nothing more into
+the block (it is not waited for). */
+void custom_edition_sound_cancel(
+	boolean *loaded);
+/* (port) The map's tags are loaded (scenario_tags_load): its Ogg Vorbis
+permutations are listed and its sound cache file opened on the decoding
+thread (HALO_SOUND_CACHE=0: not), then each Ogg Vorbis or 16-bit PCM
+permutation longer than the sound cache gives one
+(OGG_SOUND_MAXIMUM_ADPCM_BYTES) is made a chain of permutations, as Halo's
+own music is, so that it plays whole (its links are made as they load, and
+kept in no sound cache file); nothing is decoded. */
+void custom_edition_sounds_map_loaded(
+	void);
+/* Whether `permutation` is a link of such a chain (its first included),
+which an impulse sound plays on through as a looping sound plays any
+chain (sound_manager.c). */
+boolean custom_edition_sound_is_chained(
+	struct sound_permutation const *permutation);
+/* The map is going: the waiting decodings are forgotten, the one running
+waited for, the sound cache file closed, and the decoder's working memory
+and the chains given back (after the sound cache has closed: its blocks
+name the chains' links). */
+void custom_edition_sounds_stop(
+	void);
+
+/* ---------- prototypes/CUSTOM_EDITION_BITMAPS.C */
+
+/* Whether this build can draw every bitmap of a tag cache
+custom_edition_cache_load filled (`loaded_bytes` of it in use) from
+Custom Edition pixels; logs the first it cannot. */
+boolean custom_edition_bitmaps_verify(
+	byte *tag_cache,
+	unsigned long loaded_bytes);
+
+/* Draws the large 2D textures of a tag cache custom_edition_cache_load
+filled from their second level (HALO_CE_TEXTURE_LEVEL_KB), and logs how
+many it changed. */
+void custom_edition_bitmaps_reduce(
+	byte *tag_cache,
+	unsigned long loaded_bytes);
+
+/* Finds the bitmaps of a tag cache custom_edition_cache_load filled whose
+channels Halo PC keeps elsewhere (multipurpose maps and HUD meters), which
+the renderer is to sample in this build's order as their pixels arrive;
+FALSE after logging why it cannot. custom_edition_bitmaps_dispose forgets
+them either way. */
+boolean custom_edition_reordered_bitmaps_find(
+	byte *tag_cache,
+	unsigned long loaded_bytes);
+void custom_edition_bitmaps_dispose(
+	void);
+
+/* Called when `pixels` were read from `offset` for the tag `tag_index`
+names: when those are the pixels of one of its bitmaps, lays them out as
+the texture cache expects of an Xbox bitmap. */
+void custom_edition_bitmap_pixels_arrived(
+	byte *tag_cache,
+	unsigned long loaded_bytes,
+	long tag_index,
+	long offset,
+	void *pixels);
+
+/* ---------- prototypes/CUSTOM_EDITION_SCRIPTS.C */
+
+/* Gives every function call and engine global reference of the scripts of
+a tag cache custom_edition_cache_load filled this build's index for the
+name the script keeps; FALSE after logging why when a script uses one this
+build does not have or does not keep its name. */
+boolean custom_edition_scripts_convert(
+	byte *tag_cache,
+	unsigned long loaded_bytes);
+
+/* ---------- prototypes/CUSTOM_EDITION_OBJECTS.C */
+
+/* Whether a Custom Edition map is running a multiplayer game whose vehicles
+are chosen by their placements' spawn flags (also declared for the game in
+halo_linux_source_fixups.h). */
+boolean custom_edition_vehicles_by_placement(
+	void);
+/* Whether the vehicle placement `placement` is placed at the start of the
+running game. */
+boolean custom_edition_vehicle_placement_allowed(
+	struct scenario_object_datum const *placement);
+/* Whether a Custom Edition map's local game places every type of vehicle
+its placements choose (PC map vehicles "pc" or "all"), Banshees, Rocket
+Warthogs and gun turrets too, where an Xbox variant's sets keep Warthogs,
+Ghosts and Scorpions (also declared in halo_linux_source_fixups.h). */
+boolean custom_edition_vehicles_every_type(
+	void);
+
+/* ---------- prototypes/CUSTOM_EDITION_GEOMETRY.C */
+
+/* Gives every model of a tag cache custom_edition_cache_load filled
+(`loaded_bytes` of it in use) this build's layout and compressed geometry in
+buffers of its own, made from the model data the report describes, which is
+read a part at a time (custom_edition_cache_model_data_read). Returns FALSE
+after logging why when a model cannot be converted: the tags are then partly
+converted and must not be used. custom_edition_models_dispose releases the
+buffers either way. */
+boolean custom_edition_models_convert(
+	byte *tag_cache,
+	unsigned long loaded_bytes,
+	struct custom_edition_load_report const *report);
+void custom_edition_models_dispose(
+	void);
+
+/* (the renderer, rasterizer_xbox.c) A model of at least
+custom_edition_part_palette_nodes() nodes - more than the vertex shader's
+constants hold, RASTERIZER_MAXIMUM_NODES_PER_MODEL - 1, up to Halo PC's
+MAXIMUM_NODES_PER_MODEL - is drawn a part's own nodes at a time: for the
+part whose vertex buffer is `vertex_buffer`, the model's nodes its vertices
+name by their place (`*nodes`), and their count; 0 for any other vertex
+buffer. From DamnationCE (xshxdex98, CC0). */
+short custom_edition_part_palette_nodes(
+	void);
+short custom_edition_part_palette(
+	struct vertex_buffer const *vertex_buffer,
+	byte const **nodes);
+/* (port) a part palette of a model another builder made (a Halo 2 level's
+characters, h2_biped.c): looked up as the conversion's are; a NULL
+vertex_buffer clears them all (each map's load) */
+void custom_edition_part_palette_add(
+	struct vertex_buffer const *vertex_buffer,
+	byte const *nodes,
+	short node_count);
+
+/* Called by scenario_structure_bsp_load and scenario_structure_bsp_unload
+for the structure BSPs of a Custom Edition map: gives its materials
+compressed vertices and buffers, or releases them. The load returns FALSE
+after logging why when that fails. */
+boolean custom_edition_structure_bsp_load(
+	struct structure_bsp *structure_bsp);
+void custom_edition_structure_bsp_unload(
+	void);
+
+#endif

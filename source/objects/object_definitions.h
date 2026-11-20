@@ -24,6 +24,10 @@ enum
 	NUMBER_OF_INCOMING_OBJECT_FUNCTIONS = 4,
 	MAXIMUM_NUMBER_OF_ATTACHMENTS_PER_OBJECT = 8,
 	MAXIMUM_REGIONS_PER_OBJECT = 8,
+	/* port: the regions an object keeps state of - its datum's
+	MAXIMUM_REGIONS_PER_OBJECT and a side table's past them (objects.c: a
+	Halo 2 model's, the Enforcer's 10); a damage resistance holds as many */
+	OBJECT_REGIONS_WITH_STATE = 16,
 };
 
 enum

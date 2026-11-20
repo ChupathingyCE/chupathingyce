@@ -118,6 +118,11 @@ enum
 	_unit_control_throw_grenade_bit,
 	_unit_control_swap_weapons_bit,
 	NUMBER_OF_UNIT_CONTROL_FLAGS,
+	/* port: (Halo 2's dual wielding, units/dual_wield.h) the player takes
+	the weapon nearby in its left hand: a player's action's (player_control.c
+	sets it, players.c takes it off before the unit's controls are set),
+	sent to the host as the other buttons are */
+	_unit_control_dual_wield_bit = NUMBER_OF_UNIT_CONTROL_FLAGS,
 
 	UNIT_CONTROL_DRIVER_MASK =
 		FLAG(_unit_control_crouch_modifier_bit) |
@@ -308,6 +313,60 @@ enum
 	_unit_weapon_class_animation_unused12,
 	_unit_weapon_class_animation_unused13,
 	NUMBER_OF_UNIT_WEAPON_CLASS_ANIMATIONS,
+};
+
+#ifdef HALO_ARK
+/* port: Halo 2's gestures, which its vocalizations play (the dialogue
+globals' vocalization "animation impulse": shakefist, cheer, taunt, point,
+hold, wave, advance, fallback) - slots after this engine's, which only a
+made Halo 2 level's graphs have (port/linux/game/h2_animation.c); units.c
+plays them as animation impulses 14.. (h2_ai.c h2_ai_vocalization_animation) */
+enum
+{
+	_unit_weapon_class_animation_h2_shakefist = NUMBER_OF_UNIT_WEAPON_CLASS_ANIMATIONS,
+	_unit_weapon_class_animation_h2_cheer,
+	_unit_weapon_class_animation_h2_taunt,
+	_unit_weapon_class_animation_h2_point,
+	_unit_weapon_class_animation_h2_hold,
+	_unit_weapon_class_animation_h2_wave,
+	_unit_weapon_class_animation_h2_advance,
+	_unit_weapon_class_animation_h2_fallback,
+	NUMBER_OF_UNIT_WEAPON_CLASS_ANIMATIONS_H2,
+
+	/* (the animation impulses that play them, after this engine's 14) */
+	_unit_animation_impulse_h2_first_gesture = 14,
+	NUMBER_OF_UNIT_ANIMATION_IMPULSES_H2 = _unit_animation_impulse_h2_first_gesture +
+		(NUMBER_OF_UNIT_WEAPON_CLASS_ANIMATIONS_H2 - NUMBER_OF_UNIT_WEAPON_CLASS_ANIMATIONS),
+};
+#endif
+
+/* port: Halo 2's overlays a weapon type has after this engine's ten (only a
+made Halo 2 level's graphs have them: port/linux/game/h2_animation.c), and
+the seat's grip in its unused slot; units.c plays them */
+enum
+{
+	_unit_weapon_type_animation_h2_grip = 10,
+	_unit_weapon_type_animation_h2_fire_left,
+	_unit_weapon_type_animation_h2_reload_left,
+	_unit_weapon_type_animation_h2_arm_offsets,
+	_unit_weapon_type_animation_h2_chamber_left,
+	_unit_weapon_type_animation_h2_overheated_exit,
+	_unit_weapon_type_animation_h2_overcharged,
+	_unit_weapon_type_animation_h2_overheating,
+	_unit_weapon_type_animation_h2_ready_left,
+	/* (Halo 2's class actions a type may have of its own, the plasma
+	rifle's: the grenade throw as Halo 2's replacement - the type's or its
+	class's - and the type's own ready, put away, idle and aim overlays,
+	read before the class's) */
+	_unit_weapon_type_animation_h2_throw_grenade,
+	_unit_weapon_type_animation_h2_ready,
+	_unit_weapon_type_animation_h2_put_away,
+	_unit_weapon_type_animation_h2_idle,
+	_unit_weapon_type_animation_h2_aiming_still,
+	_unit_weapon_type_animation_h2_aiming_moving,
+	NUMBER_OF_UNIT_WEAPON_TYPE_ANIMATIONS_H2,
+
+	_unit_seat_animation_h2_grip = _unit_seat_animation_unused3,
 };
 
 
@@ -886,6 +945,16 @@ short unit_get_animation_frames_remaining(
 	short *animation_state);
 boolean unit_overcharged(
 	long unit_index);
+/* port: (Halo 2's boarding: units.c) */
+short unit_seat_boarding_target(long vehicle_index, short seat_index);
+boolean unit_seat_boarding_beats(long vehicle_index, short seat_index);
+short unit_seat_boarding_seat(long vehicle_index, short seat_index);
+long unit_seat_occupant(long vehicle_index, short seat_index);
+boolean unit_enter_seat_ignoring_enemies(long unit_index, long target_unit_index, short seat_index);
+boolean unit_boarding_allowed(long unit_index, long occupant_index);
+void units_boarding_update(void);
+void unit_boarding_face_vehicle(long unit_index, long vehicle_index);
+
 short unit_find_nearby_seat(
 	long unit_index,
 	long target_unit_index,
@@ -1051,6 +1120,9 @@ void unit_handle_weapon_state_change(
 	short new_state);
 void unit_cause_player_melee_damage(
 	long unit_index);
+void unit_cause_player_melee_damage_lunge(
+	long unit_index,
+	boolean lunge);
 short unit_update_animation(
 	long unit_index,
 	struct unit_animation_update_data *data);
