@@ -195,6 +195,7 @@ struct game_options;
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "game_modes.h" /* port: the game modes layer (docs/modes.md) */
 #include "lua_scripting.h" /* port: mods' Lua scripts (port/linux/game/lua_scripting.c) */
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -723,6 +724,11 @@ void game_initialize_for_new_map(
 	the host's indices, not its own objects' of the last game's */
 	network_distributed_new_game();
 	render_interpolation_reset();
+#ifdef HALO_PORT_RAGDOLLS
+	/* port: the last map's ragdolls let go, and its level's mesh
+	(port/linux/game/ragdolls.c) */
+	ragdolls_new_map();
+#endif
 	render_initialize_for_new_map();
 	structures_initialize_for_new_map();
 	breakable_surfaces_initialize_for_new_map();
@@ -738,6 +744,16 @@ void game_initialize_for_new_map(
 	game_sound_initialize_for_new_map();
 	weather_particle_systems_initialize_for_new_map();
 	point_physics_initialize_for_new_map();
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge game's or a layout's teleporters (and game type
+	objects) as the map's netgame flags, before the game type reads them
+	(port/linux/game/forge_netgame.inc); any other game the map's own */
+	{
+		extern void forge_netgame_flags_prepare(void);
+
+		forge_netgame_flags_prepare();
+	}
+#endif
 	game_engine_initialize_for_new_map();
 	game_statistics_start();
 	update_server_new();

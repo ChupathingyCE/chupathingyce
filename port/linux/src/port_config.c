@@ -145,6 +145,15 @@ Elsewhere 512 keeps the latency low. */
 #define DEFAULT_AUDIO_BUFFER_FRAMES "512"
 #endif
 
+/* The level's surfaces culled before they are drawn
+(port/linux/game/structure_culling.c), but on a console whose processor is
+what holds its frame rate (HALO_CONSOLE_NO_STRUCTURE_CULLING) */
+#ifdef HALO_CONSOLE_NO_STRUCTURE_CULLING
+#define DEFAULT_STRUCTURE_CULLING "false"
+#else
+#define DEFAULT_STRUCTURE_CULLING "true"
+#endif
+
 /* Headphone 3D (the Xbox's HRTF, dsound_sdl.c), on as the original Xbox
 had it: its DirectSound filtered every 3D voice through its HRTFs, on TV
 stereo too (DirectSoundUseFullHRTF). Surround output ignores it. A
@@ -740,6 +749,15 @@ static const struct config_setting config_settings[] =
 		"The blue sparks off a live plasma grenade, which the Xbox never drew\n"
 		"(at 30 frames a second they end before they are drawn). false: as on\n"
 		"the Xbox, at any frame rate. Thanks to ugoboom for the idea." },
+#ifdef HALO_PORT_RAGDOLLS
+	/* (port/linux/game/ragdolls.c; Video Setup's RAGDOLLS. Live) */
+	{ "display.ragdolls", _config_boolean, "false", "HALO_RAGDOLLS", _environment_value, _platform_desktop,
+		"true: a character killed falls limp, thrown by the blow that killed\n"
+		"it, and comes to rest where it lands (Jolt Physics). false (the\n"
+		"default): its death animation, as on the Xbox. Drawing only: the\n"
+		"body, hit boxes, saved games and the network are as before. The idea\n"
+		"is from jojoxdk's Halo 1 MCC Box3D Physics Mod." },
+#endif
 	{ "display.particle_limit", _config_integer, DEFAULT_PARTICLE_LIMIT, "HALO_PARTICLE_LIMIT", _environment_value,
 		_platform_all | _platform_xbox,
 		"The most particles alive at once: sparks, smoke, casings and debris.\n"
@@ -1118,6 +1136,40 @@ static const struct config_setting config_settings[] =
 		"The Custom controller layout from the Controls screen. It is a list of\n"
 		"action and button pairs separated by commas, like \"jump=B,melee=RB\".\n"
 		"Leave it empty for the default." },
+#endif
+
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* ---- Forge's monitor's keys (port/linux/game/forge.c, halo_keyboard.h's
+	halo_forge_key): only Forge reads them, and only while its player is the
+	monitor, so they may share the actions' keys */
+	{ "controls.forge_up", _config_string, "\"Space\"", "HALO_KEY_FORGE_UP", _environment_value, _platform_desktop,
+		"Forge's monitor: fly up." },
+	{ "controls.forge_down", _config_string, "\"Left Ctrl, C\"", "HALO_KEY_FORGE_DOWN", _environment_value, _platform_desktop,
+		"Forge's monitor: fly down." },
+	{ "controls.forge_fast", _config_string, "\"Left Shift\"", "HALO_KEY_FORGE_FAST", _environment_value, _platform_desktop,
+		"Forge's monitor: fly four times as fast while held." },
+	{ "controls.forge_grab", _config_string, "\"Mouse Left\"", "HALO_KEY_FORGE_GRAB", _environment_value, _platform_desktop,
+		"Forge's monitor: grab what the crosshair is on, and let go of what is\nheld." },
+	{ "controls.forge_rotate", _config_string, "\"Mouse Right\"", "HALO_KEY_FORGE_ROTATE", _environment_value, _platform_desktop,
+		"Forge's monitor: while held with something held, the mouse turns it\n(rotate mode)." },
+	{ "controls.forge_nearer", _config_string, "\"Wheel Down\"", "HALO_KEY_FORGE_NEARER", _environment_value, _platform_desktop,
+		"Forge's monitor: what is held comes nearer." },
+	{ "controls.forge_farther", _config_string, "\"Wheel Up\"", "HALO_KEY_FORGE_FARTHER", _environment_value, _platform_desktop,
+		"Forge's monitor: what is held goes farther away." },
+	{ "controls.forge_copy", _config_string, "\"F\"", "HALO_KEY_FORGE_COPY", _environment_value, _platform_desktop,
+		"Forge's monitor: a copy of what is held or aimed at, held." },
+	{ "controls.forge_delete", _config_string, "\"Delete, X\"", "HALO_KEY_FORGE_DELETE", _environment_value, _platform_desktop,
+		"Forge's monitor: delete what is held or aimed at." },
+	{ "controls.forge_upright", _config_string, "\"U\"", "HALO_KEY_FORGE_UPRIGHT", _environment_value, _platform_desktop,
+		"Forge's monitor: set what is held or aimed at upright." },
+	{ "controls.forge_speed", _config_string, "\"Q\"", "HALO_KEY_FORGE_SPEED", _environment_value, _platform_desktop,
+		"Forge's monitor: the next flying speed; in rotate mode, the next\nrotation snap." },
+	{ "controls.forge_nudge", _config_string, "\"N\"", "HALO_KEY_FORGE_NUDGE", _environment_value, _platform_desktop,
+		"Forge's monitor: in rotate mode, nudge mode on or off." },
+	{ "controls.forge_menu", _config_string, "\"E\"", "HALO_KEY_FORGE_MENU", _environment_value, _platform_desktop,
+		"Forge's monitor: the Forge menu (objects, properties, layouts, options)." },
+	{ "controls.forge_monitor", _config_string, "\"M\"", "HALO_KEY_FORGE_MONITOR", _environment_value, _platform_desktop,
+		"Forge: switch between the monitor and playing." },
 #endif
 
 #ifdef HALO_GUIDE
@@ -1704,6 +1756,12 @@ static const struct config_setting config_settings[] =
 		"(sounds for now) over a map's own, as a resource pack. Nothing happens\n"
 		"while the folder is empty. Local games only: a network game plays the\n"
 		"map's own tags. See docs/mods.md." },
+#ifndef HALO_CONSOLE_NO_FORGE
+	{ "game.forge", _config_boolean, "false", "HALO_FORGE", _environment_value, _platform_desktop,
+		"Forge, the layout editor of the multiplayer maps: FORGE in the\n"
+		"Multiplayer menu, and the console's forge commands. Local games only.\n"
+		"FORGE in the Delta Guide's SETTINGS. See docs/forge.md." },
+#endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
 		"Workshop campaign maps are listed either way. Reopen the map list after\n"
@@ -1968,7 +2026,7 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_corrupt_after", _config_real, "0.0", "HALO_NETWORK_CORRUPT_AFTER", _environment_value,
 		_platform_all | _platform_server,
 		"Seconds after the start before anything is damaged." },
-	{ "debug.structure_culling", _config_boolean, "true", "HALO_STRUCTURE_CULLING", _environment_value, _platform_all,
+	{ "debug.structure_culling", _config_boolean, DEFAULT_STRUCTURE_CULLING, "HALO_STRUCTURE_CULLING", _environment_value, _platform_all,
 		"Skip the level's surfaces that are off screen or face away. Turn it off\n"
 		"to draw them as the original game does, to check a missing wall." },
 	{ "debug.touch_targets", _config_boolean, "false", "HALO_TOUCH_TARGETS", _environment_set_is_true, _platform_all,
@@ -1982,6 +2040,13 @@ static const struct config_setting config_settings[] =
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"Scripted input on controller 1: \"bot:<seed>\" or \"look:<seed>\". Leave\n"
 		"it empty for none." },
+#ifdef HALO_PORT_RAGDOLLS
+	{ "debug.ragdolls", _config_integer, "0", "HALO_RAGDOLLS_DEBUG", _environment_value, _platform_desktop,
+		"1: a line in debug.txt each time a ragdoll starts, sleeps, wakes or is\n"
+		"let go, and their cost every ten seconds; 2: each one's rig too. Also\n"
+		"lets the console's ragdolls tests run in a local game\n"
+		"(port/linux/game/ragdolls.c). 0 for none." },
+#endif
 	{ "debug.determinism", _config_string, "\"\"", "HALO_DETERMINISM", _environment_value, _platform_all,
 		"The input replay check (tools/test_determinism.py). \"record:<file>\"\n"
 		"writes each tick's player actions to the file. \"replay:<file>\" plays\n"

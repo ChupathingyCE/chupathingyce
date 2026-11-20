@@ -247,6 +247,7 @@ def generate_unix64_build(n: Writer, sln: Any) -> None:
         host_sources=[UNIX_HOST_SOURCE],
         ffmpeg_cflags=ffmpeg_cflags,
         lua=True,
+        jolt=True,
     )
     # Link-time optimisation of the units with the Xbox's ABI, as in the Linux
     # builds (the host-ABI units have a 32-bit wchar_t and stay native objects)
@@ -255,6 +256,8 @@ def generate_unix64_build(n: Writer, sln: Any) -> None:
     # (port.json's libraries are Linux's)
     libraries = [library for library in config.get("libraries", []) if library not in host.drop_libraries]
     libraries += host.add_libraries
+    # (Jolt's C++: the system's C++ library, libc++ on FreeBSD)
+    libraries += ["c++"]
     n.build(
         outputs=output,
         rule=f"{name}_link",

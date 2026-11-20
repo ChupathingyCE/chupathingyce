@@ -341,6 +341,24 @@
       ]
     },
     {
+      "name": "Jolt Physics",
+      "use": "The ragdolls' physics (display.ragdolls).",
+      "source": "https://github.com/jrouwe/JoltPhysics (release 5.5.0)",
+      "copyright": [
+        "Copyright 2021 Jorrit Rouwe"
+      ],
+      "license": "MIT",
+      "files": [
+        "port/third_party/jolt/LICENSE"
+      ],
+      "packages": [
+        "game"
+      ],
+      "covers": [
+        "port/third_party/jolt"
+      ]
+    },
+    {
       "name": "SMAA",
       "use": "Anti-aliasing (its shader and lookup textures).",
       "source": "https://github.com/iryoku/smaa",

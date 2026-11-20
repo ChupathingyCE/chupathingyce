@@ -3573,11 +3573,23 @@ static void main_reset_map_private(
 {
 	if (!game_time_get_paused())
 	{
+#ifndef HALO_CONSOLE_NO_FORGE
+		/* (port: a Forge game's layout taken while its objects are there,
+		placed again once the reset map's player has spawned:
+		port/linux/game/forge.c, the Forge panel's NEW ROUND) */
+		void forge_map_resetting(void);
+		void forge_map_reset(void);
+
+		forge_map_resetting();
+#endif
 		scenario_switch_structure_bsp(0);
 		game_dispose_from_old_map();
 		input_flush();
 		game_initialize_for_new_map();
 		create_local_players();
+#ifndef HALO_CONSOLE_NO_FORGE
+		forge_map_reset();
+#endif
 		game_time_start();
 		game_initial_pulse();
 		ui_widgets_disable_pause_game(30);
@@ -4722,6 +4734,16 @@ void main_loop(
 					director_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
 					MAIN_STAGE("observer_update");
 					observer_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
+#ifndef HALO_CONSOLE_NO_FORGE
+					/* (port: Forge's monitor: what it holds goes where the
+					camera just went, before the tick starts;
+					port/linux/game/forge.c) */
+					{
+						void forge_update(void);
+
+						forge_update();
+					}
+#endif
 					MAIN_STAGE("collision_log_end_period");
 					collision_log_end_period();
 					MAIN_STAGE("game_engine_update_non_deterministic");
