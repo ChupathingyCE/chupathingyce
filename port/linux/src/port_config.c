@@ -1198,6 +1198,9 @@ static const struct config_setting config_settings[] =
 		"The button that picks in the Delta Guide: \"bottom\", the Xbox's A,\n"
 		"or \"right\", as Nintendo's pads have it (the bottom one goes back).\n"
 		"The game's own menus keep the Xbox's." },
+	{ "delta.rumble", _config_boolean, "false", "HALO_DELTA_RUMBLE", _environment_value, _platform_all,
+		"A short buzz on the controller when a press in the Delta Guide can do\n"
+		"nothing there. Off by default, as the game's own menus have none." },
 	{ "delta.hold_back", _config_boolean, "false", "HALO_DELTA_HOLD_BACK", _environment_value, _platform_all,
 		"Open the Delta Guide by holding Back for about half a second in the\n"
 		"menus. While on, the menus get a Back tap once it is let go, never a\n"
