@@ -1487,7 +1487,8 @@ static short forge_placed_of_tag(
 /* ---- the controller */
 
 static void forge_pad_get(
-	struct forge_pad *pad)
+	struct forge_pad *pad,
+	boolean mouse)
 {
 	long player_index = local_player_get_player_index(forge_globals.local_player_index);
 	short button;
@@ -1510,8 +1511,9 @@ static void forge_pad_get(
 				pad->sticks[stick][0] = (real)gamepad->sticks[stick].x / 32767.f;
 				pad->sticks[stick][1] = (real)gamepad->sticks[stick].y / 32767.f;
 			}
-			/* (the mouse, on the keyboard's port) */
-			if (halo_linux_mouse_look(gamepad_index, &yaw, &pitch))
+			/* (the mouse, on the keyboard's port: its motion since the last
+			read, taken by this read, so only the camera's input asks) */
+			if (mouse && halo_linux_mouse_look(gamepad_index, &yaw, &pitch))
 			{
 				pad->look_yaw = yaw;
 				pad->look_pitch = pitch;
@@ -3833,6 +3835,16 @@ boolean forge_monitor_hides_prompt(
 	return forge_globals.active && local_player_index == forge_globals.local_player_index;
 }
 
+/* whether the mouse's look is the monitor's for local player
+`local_player_index`: the player's own input (player_control.c) runs before
+the cameras each frame, and took the motion the monitor's camera
+(forge_camera_input) reads, for the hidden unit (#1587) */
+boolean forge_monitor_takes_mouse(
+	short local_player_index)
+{
+	return forge_globals.active && local_player_index == forge_globals.local_player_index;
+}
+
 char const *forge_category_name(
 	short category)
 {
@@ -3916,7 +3928,7 @@ boolean forge_camera_input(
 	stays) */
 	if (forge_menu_game_open() || forge_globals.hud_hidden)
 		return TRUE;
-	forge_pad_get(&pad);
+	forge_pad_get(&pad, TRUE);
 	/* (forge look: as the mouse's look, once) */
 	pad.look_yaw += forge_globals.test_look_yaw;
 	pad.look_pitch += forge_globals.test_look_pitch;
@@ -4135,7 +4147,8 @@ void forge_update(
 		return;
 	}
 
-	forge_pad_get(&pad);
+	/* (the buttons and sticks: the mouse's look is the camera's) */
+	forge_pad_get(&pad, FALSE);
 	for (button = 0; button < NUMBER_OF_GAMEPAD_BUTTONS; button++)
 	{
 		pressed[button] = pad.down[button] && !forge_globals.was_down[button];
