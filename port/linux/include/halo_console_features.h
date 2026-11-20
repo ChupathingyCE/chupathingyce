@@ -336,6 +336,12 @@ HALO_CONSOLE_FEWER_WALKS
 	the 64 decals after the last one made, not among all 2048
 	(lruv_set_search_window, rasterizer_xbox_decals.c), so an old decal
 	that goes may not be the oldest of all. From Lord BirchWood's Vita port
+HALO_CONSOLE_COLLISION_CACHES
+	the collision tests' caches (#1559): the sound obstruction rays stop at
+	the first thing they meet and keep a repeated ray's structure test
+	(collision_test_vector_obstructed, source/physics/collisions.c), with
+	the same answers. The desktop builds test every ray in full until they
+	opt in. From Lord BirchWood's Vita port
 HALO_CONSOLE_XBOX_MAP_SIZES
 	a console that plays the Xbox's own maps only (no Custom Edition or
 	Halo PC maps): tables the desktop builds size for those maps are sized
@@ -476,6 +482,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "wiiu"
 #define HALO_CONSOLE_FEWER_WALKS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
@@ -499,6 +506,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_FLICKER_FILTER 1
 #define HALO_CONSOLE_WAITED_VISIBILITY_TESTS 1
 #define HALO_CONSOLE_FEWER_WALKS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
 #endif
 
 #if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
@@ -546,6 +554,7 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "x360"
 #define HALO_CONSOLE_FEWER_WALKS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
 /* (its shadow maps: 512x512 at most, beside the screen in its 10 MB of EDRAM;
 d3d8_gl.c) */
 #define HALO_CONSOLE_SHADOW_MAP_MAXIMUM 512
