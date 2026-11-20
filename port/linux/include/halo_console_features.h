@@ -325,6 +325,12 @@ HALO_CONSOLE_PARTICLE_TICKS
 	their collision tests spared at 60 frames a second. The desktop builds
 	default to moving them at every frame drawn, smooth at high refresh
 	rates, and opt in
+HALO_CONSOLE_ANIMATION_FRAMES
+	an animation's frame index taken from a real frame index by truncation
+	when it is not negative, the same integer as floor's, without the
+	library's floor (source/models/model_animations.c): the keyframe
+	readers take one for each node of each animation a tick. A negative
+	index or a NaN goes through floor as before. From Lord BirchWood's work
 HALO_CONSOLE_FEWER_WALKS
 	fewer walks over a whole array for a few of its entries, with the same
 	results: a deleted object's references cleared by visiting only the
@@ -483,6 +489,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "wiiu"
+#define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
 #endif
@@ -507,6 +514,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_VIEW_INTERPOLATION 1
 #define HALO_CONSOLE_FLICKER_FILTER 1
 #define HALO_CONSOLE_WAITED_VISIBILITY_TESTS 1
+#define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
 #endif
@@ -555,6 +563,7 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "x360"
+#define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
 /* (its shadow maps: 512x512 at most, beside the screen in its 10 MB of EDRAM;
