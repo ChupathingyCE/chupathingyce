@@ -1120,6 +1120,40 @@ static const struct config_setting config_settings[] =
 		"Leave it empty for the default." },
 #endif
 
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* ---- Forge's monitor's keys (port/linux/game/forge.c, halo_keyboard.h's
+	halo_forge_key): only Forge reads them, and only while its player is the
+	monitor, so they may share the actions' keys */
+	{ "controls.forge_up", _config_string, "\"Space\"", "HALO_KEY_FORGE_UP", _environment_value, _platform_desktop,
+		"Forge's monitor: fly up." },
+	{ "controls.forge_down", _config_string, "\"Left Ctrl, C\"", "HALO_KEY_FORGE_DOWN", _environment_value, _platform_desktop,
+		"Forge's monitor: fly down." },
+	{ "controls.forge_fast", _config_string, "\"Left Shift\"", "HALO_KEY_FORGE_FAST", _environment_value, _platform_desktop,
+		"Forge's monitor: fly four times as fast while held." },
+	{ "controls.forge_grab", _config_string, "\"Mouse Left\"", "HALO_KEY_FORGE_GRAB", _environment_value, _platform_desktop,
+		"Forge's monitor: grab what the crosshair is on, and let go of what is\nheld." },
+	{ "controls.forge_rotate", _config_string, "\"Mouse Right\"", "HALO_KEY_FORGE_ROTATE", _environment_value, _platform_desktop,
+		"Forge's monitor: while held with something held, the mouse turns it\n(rotate mode)." },
+	{ "controls.forge_nearer", _config_string, "\"Wheel Down\"", "HALO_KEY_FORGE_NEARER", _environment_value, _platform_desktop,
+		"Forge's monitor: what is held comes nearer." },
+	{ "controls.forge_farther", _config_string, "\"Wheel Up\"", "HALO_KEY_FORGE_FARTHER", _environment_value, _platform_desktop,
+		"Forge's monitor: what is held goes farther away." },
+	{ "controls.forge_copy", _config_string, "\"F\"", "HALO_KEY_FORGE_COPY", _environment_value, _platform_desktop,
+		"Forge's monitor: a copy of what is held or aimed at, held." },
+	{ "controls.forge_delete", _config_string, "\"Delete, X\"", "HALO_KEY_FORGE_DELETE", _environment_value, _platform_desktop,
+		"Forge's monitor: delete what is held or aimed at." },
+	{ "controls.forge_upright", _config_string, "\"U\"", "HALO_KEY_FORGE_UPRIGHT", _environment_value, _platform_desktop,
+		"Forge's monitor: set what is held or aimed at upright." },
+	{ "controls.forge_speed", _config_string, "\"Q\"", "HALO_KEY_FORGE_SPEED", _environment_value, _platform_desktop,
+		"Forge's monitor: the next flying speed; in rotate mode, the next\nrotation snap." },
+	{ "controls.forge_nudge", _config_string, "\"N\"", "HALO_KEY_FORGE_NUDGE", _environment_value, _platform_desktop,
+		"Forge's monitor: in rotate mode, nudge mode on or off." },
+	{ "controls.forge_menu", _config_string, "\"E\"", "HALO_KEY_FORGE_MENU", _environment_value, _platform_desktop,
+		"Forge's monitor: the Forge menu (objects, properties, layouts, options)." },
+	{ "controls.forge_monitor", _config_string, "\"M\"", "HALO_KEY_FORGE_MONITOR", _environment_value, _platform_desktop,
+		"Forge: switch between the monitor and playing." },
+#endif
+
 #ifdef HALO_GUIDE
 	/* ---- DELTA (port/linux/game/guide.c); an older version's guide.* and
 	controls.guide names go on under these (config_renamed) */
@@ -1704,6 +1738,12 @@ static const struct config_setting config_settings[] =
 		"(sounds for now) over a map's own, as a resource pack. Nothing happens\n"
 		"while the folder is empty. Local games only: a network game plays the\n"
 		"map's own tags. See docs/mods.md." },
+#ifndef HALO_CONSOLE_NO_FORGE
+	{ "game.forge", _config_boolean, "false", "HALO_FORGE", _environment_value, _platform_desktop,
+		"Forge, the layout editor of the multiplayer maps: FORGE in the\n"
+		"Multiplayer menu, and the console's forge commands. Local games only.\n"
+		"FORGE in the Delta Guide's SETTINGS. See docs/forge.md." },
+#endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
 		"Workshop campaign maps are listed either way. Reopen the map list after\n"

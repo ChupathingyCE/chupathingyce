@@ -738,6 +738,16 @@ void game_initialize_for_new_map(
 	game_sound_initialize_for_new_map();
 	weather_particle_systems_initialize_for_new_map();
 	point_physics_initialize_for_new_map();
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge game's or a layout's teleporters (and game type
+	objects) as the map's netgame flags, before the game type reads them
+	(port/linux/game/forge_netgame.inc); any other game the map's own */
+	{
+		extern void forge_netgame_flags_prepare(void);
+
+		forge_netgame_flags_prepare();
+	}
+#endif
 	game_engine_initialize_for_new_map();
 	game_statistics_start();
 	update_server_new();
