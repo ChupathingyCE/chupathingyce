@@ -871,9 +871,75 @@ static void forge_tag_readable_name(
 		forge_name_words(leaf, name, size);
 }
 
+/* whether no trigger of a weapon tag can be aimed (each fires along its
+"primary trigger" marker, where the gun points in the holder's hands, not
+where the holder looks: weapons.c weapon_trigger_fire) */
+static boolean forge_weapon_cannot_be_aimed(
+	long tag_index)
+{
+	struct weapon_definition *definition = weapon_definition_get(tag_index);
+	long trigger_index;
+
+	if (!definition || definition->weapon.triggers.count <= 0)
+		return FALSE;
+	for (trigger_index = 0; trigger_index < definition->weapon.triggers.count; trigger_index++)
+	{
+		struct weapon_trigger_definition *trigger = TAG_BLOCK_GET_ELEMENT(&definition->weapon.triggers,
+			trigger_index, struct weapon_trigger_definition);
+
+		if (!TEST_FLAG(trigger->flags, _weapon_trigger_projectiles_cannot_be_aimed_bit))
+			return FALSE;
+	}
+	return TRUE;
+}
+
+/* whether an equipment tag is only the ammunition of weapons nobody can aim
+(forge_weapon_cannot_be_aimed): their magazines' ammunition, and no other
+weapon's */
+static boolean forge_equipment_only_unaimed_ammunition(
+	long tag_index)
+{
+	struct tag_iterator iterator;
+	long weapon_tag_index;
+	boolean found = FALSE;
+
+	tag_iterator_new(&iterator, WEAPON_DEFINITION_TAG);
+	while ((weapon_tag_index = tag_iterator_next(&iterator)) != NONE)
+	{
+		struct weapon_definition *definition;
+		long magazine_index;
+		boolean feeds = FALSE;
+
+		if (tag_get_group_tag(weapon_tag_index) != WEAPON_DEFINITION_TAG)
+			continue;
+		definition = weapon_definition_get(weapon_tag_index);
+		for (magazine_index = 0; !feeds && magazine_index < definition->weapon.magazines.count; magazine_index++)
+		{
+			struct weapon_magazine_definition *magazine = TAG_BLOCK_GET_ELEMENT(&definition->weapon.magazines,
+				magazine_index, struct weapon_magazine_definition);
+			long object_index;
+
+			for (object_index = 0; !feeds && object_index < magazine->ammunition_objects.count; object_index++)
+			{
+				struct weapon_ammunition_object *ammunition = TAG_BLOCK_GET_ELEMENT(&magazine->ammunition_objects,
+					object_index, struct weapon_ammunition_object);
+
+				feeds = ammunition->object.index == tag_index;
+			}
+		}
+		if (!feeds)
+			continue;
+		if (!forge_weapon_cannot_be_aimed(weapon_tag_index))
+			return FALSE;
+		found = TRUE;
+	}
+	return found;
+}
+
 /* the browser's category of a tag of the loaded map, NONE if it offers
 none of it: a vehicle's gun, the flag and the ball (the game's), anything
-of a cinematic's, a character that names no unit (a vehicle's crew) */
+of a cinematic's, a character that names no unit (a vehicle's crew), a
+weapon nobody can aim and its ammunition */
 static short forge_tag_category(
 	long tag_index)
 {
@@ -901,8 +967,21 @@ static short forge_tag_category(
 		pickup prompt is the tag's "<need a string entry here>") */
 		if (!strncmp(name, "weapons\\gravity rifle\\", 22))
 			return NONE;
+		/* (nor a weapon whose shots can't be aimed: the unfinished
+		flamethrower, also in every Xbox multiplayer map's tags though no
+		game puts it down (#1589). Its trigger can't be aimed, so its flames
+		go where the gun points in the Spartan's hands, which have no
+		animations for it: always the ground in front of their feet, a
+		little to the left, wherever the player looks. Its HUD has no
+		reticle and no ammunition. Halo PC's finished flamethrower is
+		aimed, and would be offered) */
+		if (forge_weapon_cannot_be_aimed(tag_index))
+			return NONE;
 		return _forge_category_weapons;
 	case EQUIPMENT_DEFINITION_TAG:
+		/* (nor the ammunition of a weapon left out for that) */
+		if (forge_equipment_only_unaimed_ammunition(tag_index))
+			return NONE;
 		return strstr(name, "grenade") ? _forge_category_weapons : _forge_category_equipment;
 	case FORGE_SCENERY_DEFINITION_TAG:
 	case MACHINE_DEFINITION_TAG:
