@@ -384,12 +384,15 @@ static short cached_node_matrix_count = 0;
 static real_matrix4x3 const *cached_node_matrices = NULL;
 static real_matrix4x3 previous_camera_matrix[MAXIMUM_WINDOWS] = {0};
 
-/* rasterizer_environment_fog_screen_draw initializes a local pointer of the
-same name from this array; MSVC resolved the name in that initializer to
-the array, standard C to the new (uninitialized) local. Every build of ours
-is standard C (clang), the original Xbox's included: on it the uninitialized
-pointer took the first-time copy of the camera somewhere random, and the game
-crashed entering a fog screen (a10, driving to the cave) */
+/* _rasterizer_environment_fog_screen_begin keeps a pointer to this window's
+matrix. In the original source that pointer had the array's own name and
+MSVC resolved the name in its initializer to the array; standard C resolves
+it to the new (uninitialized) local, which crashed the original Xbox build
+entering a fog screen (a10, driving to the cave). The pointer has its own
+name now, so the copies below index this array as the Xbox's do: indexing
+the pointer instead added the window index twice, and in split screen the
+camera copy ran past the array onto
+global_rasterizer_model_ambient_reflection_tint (#1415) */
 static real_matrix4x3 *previous_camera_matrix_for_window(
 	short window_index)
 {
@@ -1025,7 +1028,7 @@ void _rasterizer_environment_fog_screen_begin(
 
 		if (pass == 0)
 		{
-			real_matrix4x3 *previous_camera_matrix =
+			real_matrix4x3 *window_previous_camera_matrix =
 				previous_camera_matrix_for_window(global_window_parameters.window_index);
 			real_matrix4x3 wind_matrix = *global_identity4x3;
 			real screen_constants[5][4];
@@ -1079,7 +1082,7 @@ void _rasterizer_environment_fog_screen_begin(
 				&vector);
 			wind_matrix.position.x = vector.i;
 			wind_matrix.position.y = vector.j;
-			matrix4x3_inverse(previous_camera_matrix, &matrix);
+			matrix4x3_inverse(window_previous_camera_matrix, &matrix);
 			matrix4x3_multiply(&wind_matrix, &matrix, &matrix);
 			matrix4x3_multiply(&global_window_parameters.frustum.world_to_view, &matrix, &matrix);
 			csmemcpy(
