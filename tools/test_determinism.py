@@ -20,6 +20,13 @@ with the part that differs (rng, players, objects, scores).
     python3 tools/test_determinism.py --binary build/linux/chupathingy --maps ~/halo/maps
     python3 tools/test_determinism.py --binary build/linux/chupathingy --maps ~/halo/maps \\
         --map bloodgulch --ticks 900 --work /tmp/determinism
+    python3 tools/test_determinism.py --binary build/macos/chupathingy --maps ~/halo-maps/maps --tuning-most
+
+With --tuning-most the recording is made at the retail drawing and both
+replays with every [tuning] drawing knob at its most (TUNING_MOST): the
+knobs change only what is drawn, so the hashes must still agree. A replay
+counts as a local game for them (render.c's render_tuning), so every one
+goes as far as it can.
 
 Needs a Linux (or macOS) build and the stock Xbox maps (NTSC). CI has no
 maps, so under pytest the check is skipped unless HALO_DETERMINISM_BINARY
@@ -45,6 +52,19 @@ BOT_SEED = 7
 HOST_START = 2  # seconds from hosting to the game's start
 # (map loading on a slow machine, the menus, and the ticks themselves)
 TIME_LIMIT = 240
+
+
+# every [tuning] knob that changes the drawing at its most (port_config.c's
+# ranges), for --tuning-most and test_determinism_with_the_tuning_at_its_most
+TUNING_MOST = {
+    "HALO_PARTICLE_THINNING": "4",
+    "HALO_TUNING_EFFECTS": "minimal",
+    "HALO_SHADOW_PIXELS": "400",
+    "HALO_OBJECT_CULL_PIXELS": "16",
+    "HALO_PARTICLE_LIMIT": "256",
+    "HALO_DYNAMIC_LIGHT_LIMIT": "1",
+    "HALO_SPECULAR_LIGHT_LIMIT": "1",
+}
 
 
 def log(text):
@@ -189,16 +209,20 @@ def compare(first_name, first, second_name, second):
 
 
 def run_check(binary, maps, work, game_map=DEFAULT_MAP, ticks=DEFAULT_TICKS, seed=DEFAULT_SEED, local_players=1,
-              air_turn_aim=False):
+              air_turn_aim=False, tuning_most=False):
     """Records a game and replays it twice. Returns (problems, ticks compared).
     With air_turn_aim the recording is made with the host's 180 glitch fix on
     (network.air_turn_aim) and the replays are run with it off in their own
-    settings: they must play by the recording's rule, kept in it."""
+    settings: they must play by the recording's rule, kept in it. With
+    tuning_most the replays draw with every [tuning] knob at its most
+    (TUNING_MOST), the recording as retail."""
     os.makedirs(work, exist_ok=True)
     inputs = os.path.join(os.path.abspath(work), "inputs.bin")
     started = time.time()
     record_env = {"HALO_NET_AIR_TURN_AIM": "true"} if air_turn_aim else None
     replay_env = {"HALO_NET_AIR_TURN_AIM": "false"} if air_turn_aim else None
+    if tuning_most:
+        replay_env = dict(replay_env or {}, **TUNING_MOST)
     record = play(binary, maps, work, "record", "record", inputs, game_map, ticks, seed, local_players,
         extra_env=record_env)
     replay_a = play(binary, maps, work, "replay-a", "replay", inputs, game_map, ticks, seed, local_players,
@@ -210,6 +234,12 @@ def run_check(binary, maps, work, game_map=DEFAULT_MAP, ticks=DEFAULT_TICKS, see
             with open(os.path.join(work, name, "out.log"), "rb") as output:
                 if b"air_turn_aim on" not in output.read():
                     raise RuntimeError(f"{name}: didn't play with the recording's air_turn_aim")
+    if tuning_most:
+        for name in ("replay-a", "replay-b"):
+            with open(os.path.join(work, name, "out.log"), "rb") as output:
+                text = output.read()
+            if b"thinning=4(hand)" not in text or b"effects=minimal(hand)" not in text:
+                raise RuntimeError(f"{name}: didn't draw with the tuning at its most")
     runs = {name: read_hashes(path) for name, path in
         (("record", record), ("replay-a", replay_a), ("replay-b", replay_b))}
     problems = []
@@ -248,6 +278,20 @@ def test_determinism_keeps_the_host_rule(tmp_path):
     assert not problems, "\n".join(problems)
 
 
+def test_determinism_with_the_tuning_at_its_most(tmp_path):
+    """pytest: replays drawn with every [tuning] knob at its most agree with a
+    recording drawn as retail, tick for tick (needs a build and maps, as above)."""
+    import pytest
+
+    binary = os.environ.get("HALO_DETERMINISM_BINARY")
+    maps = os.environ.get("HALO_DETERMINISM_MAPS")
+    if not binary or not maps or not os.path.exists(binary) or \
+            not os.path.exists(os.path.join(maps, f"{DEFAULT_MAP}.map")):
+        pytest.skip("no build or maps (HALO_DETERMINISM_BINARY, HALO_DETERMINISM_MAPS)")
+    problems, _ = run_check(binary, maps, str(tmp_path), tuning_most=True)
+    assert not problems, "\n".join(problems)
+
+
 def test_recording_keeps_the_host_rule():
     """No build needed: the recording's header carries the host's rule after
     the seed, and a replay sets it over its own settings (determinism_check.c)."""
@@ -270,13 +314,15 @@ def main():
     parser.add_argument("--work", default=os.path.join(ROOT, "build", "determinism"))
     parser.add_argument("--air-turn-aim", action="store_true",
         help="record with network.air_turn_aim on, replay with it off: the replays must keep the recording's")
+    parser.add_argument("--tuning-most", action="store_true",
+        help="record with the retail drawing, replay with every [tuning] drawing knob at its most: they must agree")
     args = parser.parse_args()
     if not os.path.exists(os.path.join(args.maps, f"{args.map}.map")):
         log(f"no {args.map}.map in {args.maps}: skipped")
         return 0
     try:
         problems, count = run_check(args.binary, args.maps, args.work, args.map, args.ticks, args.seed,
-            args.local_players, args.air_turn_aim)
+            args.local_players, args.air_turn_aim, args.tuning_most)
     except RuntimeError as error:
         log(str(error))
         return 1

@@ -566,6 +566,14 @@ boolean mcc_cache_bitmap_valid(struct bitmap_data *bitmap)
     return mcc_loaded && mcc_bitmaps_valid(&mcc_loaded_cache, bitmap);
 }
 
+boolean mcc_cache_bitmap_source_crc(struct bitmap_data const *bitmap,unsigned long *crc)
+{
+    uint32_t value;
+    if (!mcc_loaded || !mcc_bitmaps_source_crc(&mcc_loaded_cache,bitmap,&value)) return FALSE;
+    *crc=value;
+    return TRUE;
+}
+
 void const *mcc_cache_bitmap_pixels(struct bitmap_data const *bitmap,unsigned long *bytes,int *coverage)
 {
     uint32_t size=0;

@@ -130,6 +130,12 @@ unsigned long halo_keyboard_actions(short controller_index)
 	return 0;
 }
 
+/* (the main menu's letters: the server has no keyboard) */
+unsigned long halo_keyboard_menu_letters(void)
+{
+	return 0;
+}
+
 int halo_keyboard_prompts(void)
 {
 	return 0;
@@ -138,6 +144,21 @@ int halo_keyboard_prompts(void)
 int halo_keyboard_action_shown(int action, char *shown, unsigned long size)
 {
 	(void)action;
+	if (size)
+		shown[0] = 0;
+	return 0;
+}
+
+/* Forge's monitor's keys (port/linux/game/forge.c, which the server builds
+with the rest of port/linux/game): a server has no keyboard */
+unsigned long halo_forge_keys(void)
+{
+	return 0;
+}
+
+int halo_forge_key_shown(int key, char *shown, unsigned long size)
+{
+	(void)key;
 	if (size)
 		shown[0] = 0;
 	return 0;

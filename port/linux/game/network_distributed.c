@@ -708,6 +708,13 @@ stream (network_distributed_handle_stream_message) */
 static boolean distributed_handling_stream_message;
 /* a client: the host's latest tick it has had a message of */
 static long distributed_host_time = NONE;
+/* ... and when (system_milliseconds) it last had one, for the ping meter;
+heard is FALSE before the first of a game */
+static struct
+{
+	boolean heard;
+	unsigned long time;
+} distributed_host_heard;
 /* the host: each client's round trip, in ticks, and its jitter */
 static struct
 {
@@ -1921,6 +1928,16 @@ real distributed_own_round_trip_ticks(
 	void)
 {
 	return distributed_own_round_trip;
+}
+
+long distributed_host_silent_milliseconds(
+	void)
+{
+	if (!distributed_host_heard.heard)
+		return NONE;
+	/* (a difference, which the millisecond clock's wrap leaves right; at
+	most an hour) */
+	return (long)MIN(system_milliseconds() - distributed_host_heard.time, 3600000UL);
 }
 
 long distributed_player_machine(
@@ -4502,6 +4519,7 @@ void network_distributed_new_game(
 	distributed_machines.in_tick = FALSE;
 	distributed_machines.valid = FALSE;
 	distributed_host_time = NONE;
+	distributed_host_heard.heard = FALSE;
 	/* (a client: blocked until the host speaks, if the host is known to have
 	a version with the policy; a host not known, such as one joined by an
 	invitation, is heard when it speaks) */
@@ -5945,6 +5963,11 @@ static void distributed_handle_message(
 		(distributed_host_time == NONE || header.game_time > distributed_host_time))
 	{
 		distributed_host_time = header.game_time;
+	}
+	if (machine_index == NONE)
+	{
+		distributed_host_heard.heard = TRUE;
+		distributed_host_heard.time = system_milliseconds();
 	}
 	if ((distributed_handling_batch || header.type != _distributed_message_damage_events) &&
 		distributed_message_stale(machine_index, &header))

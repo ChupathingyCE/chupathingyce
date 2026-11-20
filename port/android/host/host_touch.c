@@ -10,11 +10,17 @@ to know: whether a menu or a cinematic is up and the input.touch_controls
 setting (host_touch_scene), and how hard port 0 rumbles. It asks the
 activity for the system's gesture insets (host_gesture_insets).
 
+The phone's gyroscope, with the touch controls' "Gyroscope aim", is a view
+swipe too: each sample goes through gyro aiming's filter (the bias learnt
+while still, smoothing, a deadzone: port/linux/src/gyro_aim.c, Lord
+BirchWood's from his Vita port) before it is added to the swipe.
+
 The native 64-bit build (tools/android64_build.py) links this file too: the
 game calls these functions directly there.
 */
 
 #include "host.h"
+#include "../../linux/src/gyro_aim.h"
 
 #include <SDL3/SDL.h>
 #include <android/log.h>
@@ -46,6 +52,9 @@ static int64_t look_ns;
 static int rumble_amplitude;
 static int64_t rumble_ns;
 static volatile int touch_scene;
+/* the phone's gyroscope (nativeGyro) */
+static struct gyro_filter phone_gyro;
+static int64_t phone_gyro_ns;
 
 static int64_t now_ns(void)
 {
@@ -124,6 +133,53 @@ JNIEXPORT void JNICALL Java_com_halo_decomp_TouchControls_nativeLookReset(JNIEnv
 	(void)cls;
 	pthread_mutex_lock(&touch_lock);
 	look_delta[0] = look_delta[1] = 0.0f;
+	pthread_mutex_unlock(&touch_lock);
+}
+
+/* a gyroscope sample from the overlay, in the display's axes (x right, y
+up, z out of it; radians a second; GyroscopeAim.java), at time (the
+sensor's nanoseconds); scale is the overlay's logical pixels a radian, its
+sensitivity applied. restart (GyroscopeAim's): 1 after a gap or a pause,
+the time starts over and the bias learnt is kept; 2 after a rotation (or
+the first sample), the filter starts over. The accelerometer's latest
+reading (metres a second squared), when has_accel, tells the filter
+whether the phone lies still. The deadzone is gyro aiming's default:
+input.gyro_deadzone is the controllers' */
+JNIEXPORT void JNICALL Java_com_halo_decomp_TouchControls_nativeGyro(
+	JNIEnv *env, jclass cls, jlong time, jfloat x, jfloat y, jfloat z, jfloat scale, jint restart,
+	jboolean has_accel, jfloat ax, jfloat ay, jfloat az)
+{
+	float rate[3];
+	float accel[3];
+	float angle[3] = { 0.0f, 0.0f, 0.0f };
+	float dt;
+
+	(void)env;
+	(void)cls;
+	rate[0] = x;
+	rate[1] = y;
+	rate[2] = z;
+	/* (in g: SDL's SDL_STANDARD_GRAVITY) */
+	accel[0] = ax / 9.80665f;
+	accel[1] = ay / 9.80665f;
+	accel[2] = az / 9.80665f;
+	pthread_mutex_lock(&touch_lock);
+	if (restart >= 2)
+		gyro_filter_reset(&phone_gyro);
+	if (restart >= 1)
+		phone_gyro_ns = 0;
+	dt = phone_gyro_ns && time > phone_gyro_ns ? (float)(time - phone_gyro_ns) * 1.0e-9f : 0.0f;
+	phone_gyro_ns = time;
+	gyro_filter_sample(&phone_gyro, rate, has_accel ? accel : NULL, dt, GYRO_AIM_DEADZONE_DEFAULT * 0.017453292f,
+		angle);
+	if (angle[0] != 0.0f || angle[1] != 0.0f)
+	{
+		/* (the turn about the display's y swipes across, about its x up
+		and down: the directions the overlay's gyroscope aim had before) */
+		look_delta[0] += angle[1] * scale;
+		look_delta[1] += angle[0] * scale;
+		look_ns = now_ns();
+	}
 	pthread_mutex_unlock(&touch_lock);
 }
 

@@ -816,6 +816,44 @@ void object_type_export_function_values(
 	return;
 }
 
+#ifdef HALO_CONSOLE_FEWER_WALKS
+/* port: the object types with a handler for a deleted object in any of
+their parts (units and projectiles), as type flags. The definitions are
+constant, so the mask is too. objects_fix_for_deleted_object calls the
+handlers of these types only: for any other object the call found no
+handler and did nothing (from Lord BirchWood's Vita port) */
+unsigned long object_types_handling_deleted_objects(
+	void)
+{
+	static unsigned long mask;
+	static boolean known;
+
+	if (!known)
+	{
+		unsigned long types = 0;
+		short type;
+
+		for (type = 0; type < NUMBER_OF_OBJECT_TYPES; type++)
+		{
+			struct object_type_definition *definition = object_type_definitions[type];
+			short i;
+
+			for (i = 0; definition && definition->part_definitions[i]; i++)
+			{
+				if (definition->part_definitions[i]->handle_deleted_object)
+				{
+					types |= FLAG(type);
+				}
+			}
+		}
+		mask = types;
+		known = TRUE;
+	}
+
+	return mask;
+}
+#endif
+
 void object_type_handle_deleted_object(
 	long object_index,
 	long deleted_object_index)

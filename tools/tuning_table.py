@@ -2,10 +2,13 @@
 """The [tuning] knobs' table, made from the code so it can't drift.
 
 Reads port/linux/src/port_config.c: the knobs (config_tuning_knobs), the
-presets' values, each knob's setting (its builds and default) and the
-original Xbox's defaults and ranges (the build's own macros, through the C
-preprocessor), and applies config_tuning_apply's rule (a preset never
-raises a build's own limit, and a value that is the default sets nothing).
+presets' values (the PC's, and the original Xbox's own column), each knob's
+setting (its builds and default) and the original Xbox's defaults and
+ranges (the build's own macros, through the C preprocessor), and applies
+config_tuning_apply's rule (a preset never raises a build's own limit, and
+a value that is the default sets nothing). The Xbox's table has only the
+knobs that are the console's settings: one that isn't changes nothing
+there, so it isn't listed.
 What each knob costs is written here, in COSTS: a knob added without a line
 there fails (tools/test_tuning_table.py).
 
@@ -37,7 +40,7 @@ PRESETS = ("retail", "lan-party", "potato")
 COSTS = {
     "display.dynamic_light_limit": "Drawing. Each dynamic light redraws the level it reaches twice; in a big firefight most of the GPU's time.",
     "display.specular_light_limit": "Drawing. The shine pass of near lights, the costliest pass in a firefight.",
-    "display.particle_limit": "Drawing, and a little CPU a frame for each particle alive. Never under 1024 in a network game.",
+    "display.particle_limit": "CPU and drawing: each particle alive is moved, tested against the level and drawn. Never under 1024 in a network game, so on the original Xbox (whose most is 1024) it cuts only outside one.",
     "display.particle_ticks": "CPU a frame: moving loose particles once a tick saves two in three of their collision tests at 60 fps.",
     "display.shadow_resolution": "Drawing and video memory: bigger shadow maps.",
     "display.anisotropic_filtering": "Drawing: texture sampling on the GPU.",
@@ -47,6 +50,10 @@ COSTS = {
     "display.resolution_scaling": "Drawing: \"original\" fills 640x480 instead of the window.",
     "tuning.present_mode": "Waiting, not work: \"adaptive\" shows a late frame at once, with a tear, instead of a refresh later.",
     "tuning.texture_cache": "Memory: a bigger cache loads fewer textures from the disc, and leaves less free.",
+    "tuning.particle_thinning": "Drawing: fewer sprites of loose particles; each is still moved and counted as before. In a network game only past the Xbox's 1024.",
+    "tuning.effects": "Drawing: \"reduced\" skips the shine, reflection and grass passes; \"minimal\" also decals, weather, contrails and lens flares. A network game keeps the grass, weather, contrails and flares.",
+    "tuning.shadow_pixels": "Drawing: each object's shadow redraws the level under it; an object too small for one is not lit for it either.",
+    "tuning.object_cull_pixels": "Drawing, and CPU a frame: small objects are neither lit nor drawn. In a network game only items lying around.",
 }
 
 PLATFORM_FLAGS = {
@@ -64,18 +71,26 @@ def strip_quotes(text):
     return text[1:-1] if len(text) >= 2 and text[0] == '"' and text[-1] == '"' else text
 
 
+def preset_values(name, text):
+    presets = [None if value.strip() == "NULL" else strip_quotes(value.strip()) for value in text.split(",")]
+    if len(presets) != len(PRESETS):
+        raise ValueError(f"{name}: {len(presets)} preset values")
+    return presets
+
+
 def knobs(source):
-    """config_tuning_knobs' rows: dicts of name, short, flags, minimum, maximum, presets."""
+    """config_tuning_knobs' rows: dicts of name, short, flags, minimum, maximum, presets (the PC's) and
+    xbox_presets (the original Xbox's column)."""
     table = source[source.index("} config_tuning_knobs[] =") :]
     table = table[: table.index("};")]
     rows = []
-    for match in re.finditer(r'\{\s*"([^"]+)",\s*"([^"]+)",\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*\{([^}]*)\}\s*\}', table):
-        presets = [None if value.strip() == "NULL" else strip_quotes(value.strip()) for value in match.group(6).split(",")]
-        if len(presets) != len(PRESETS):
-            raise ValueError(f"{match.group(1)}: {len(presets)} preset values")
+    for match in re.finditer(r'\{\s*"([^"]+)",\s*"([^"]+)",\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*\{([^}]*)\},'
+                             r'\s*\{([^}]*)\}\s*\}', table):
         rows.append({
             "name": match.group(1), "short": match.group(2), "flags": match.group(3).strip(),
-            "minimum": match.group(4).strip(), "maximum": match.group(5).strip(), "presets": presets,
+            "minimum": match.group(4).strip(), "maximum": match.group(5).strip(),
+            "presets": preset_values(match.group(1), match.group(6)),
+            "xbox_presets": preset_values(match.group(1), match.group(7)),
         })
     if not rows:
         raise ValueError("no knobs found in port_config.c")
@@ -161,7 +176,7 @@ def rows():
             xbox_range = " or ".join(f"`{strip_quotes(word.strip())}`" for word in words.group(1).split(",")
                                      if word.strip() != "NULL") if words else "its words"
         on_xbox_presets = []
-        for value in knob["presets"]:
+        for value in knob["xbox_presets"]:
             if value is None:
                 on_xbox_presets.append(None)
             elif not on_xbox:
@@ -188,15 +203,13 @@ def table(xbox=False):
     lines = [BEGIN, ""]
     if xbox:
         lines += [
-            "| Setting | On the original Xbox | Default and range here | lan-party sets | potato sets | What it costs or saves |",
-            "| --- | --- | --- | --- | --- | --- |",
+            "| Setting | Default and range | lan-party sets | potato sets | What it costs or saves |",
+            "| --- | --- | --- | --- | --- |",
         ]
         for row in rows():
             if row["on_xbox"]:
-                lines.append(f"| `{row['name']}` | yes | `{row['xbox_default']}`; {row['xbox_range']} | "
+                lines.append(f"| `{row['name']}` | `{row['xbox_default']}`; {row['xbox_range']} | "
                              f"{preset_cell(row['xbox_presets'][1])} | {preset_cell(row['xbox_presets'][2])} | {row['cost']} |")
-            else:
-                lines.append(f"| `{row['name']}` | no: not a console setting | | | | {row['cost']} |")
     else:
         lines += [
             "| Setting | lan-party sets | potato sets | On the original Xbox | Xbox default and range | lan-party on the Xbox | potato on the Xbox | What it costs or saves |",
