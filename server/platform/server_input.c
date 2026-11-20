@@ -149,6 +149,21 @@ int halo_keyboard_action_shown(int action, char *shown, unsigned long size)
 	return 0;
 }
 
+/* Forge's monitor's keys (port/linux/game/forge.c, which the server builds
+with the rest of port/linux/game): a server has no keyboard */
+unsigned long halo_forge_keys(void)
+{
+	return 0;
+}
+
+int halo_forge_key_shown(int key, char *shown, unsigned long size)
+{
+	(void)key;
+	if (size)
+		shown[0] = 0;
+	return 0;
+}
+
 void test_input_hold_action(int hold)
 {
 	(void)hold;

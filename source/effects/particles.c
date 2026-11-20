@@ -276,6 +276,7 @@ static boolean particles_make_room(
 		{
 			datum_delete(particle_data, particle_index);
 			particles_retired++;
+			render_tuning_count(_render_tuning_particles_count, 1);
 			return TRUE;
 		}
 	}
@@ -963,6 +964,7 @@ void particle_new(
 	if (particles_limit > 0 && particle_data->actual_count >= particles_limit && !particles_make_room())
 	{
 		particles_refused++;
+		render_tuning_count(_render_tuning_particles_count, 1);
 		return;
 	}
 	particle_index = datum_new(particle_data);
@@ -1199,6 +1201,13 @@ void particles_update(
 			}
 			particles_limit = PARTICLES_NETWORK_FLOOR;
 		}
+#ifdef HALO_XBOX_CONSOLE
+		/* (the original Xbox's default and a network game's floor are its
+		pool's 1024: at it, no limit of the port's, so a full pool makes no
+		new particle, as retail) */
+		if (particles_limit >= 1024)
+			particles_limit = 0;
+#endif
 		{
 			/* (read again only when the settings change: a string's
 			lookup each frame on the consoles) */
