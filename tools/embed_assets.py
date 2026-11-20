@@ -39,6 +39,10 @@ from typing import Any, List, Optional
 ROOT = Path(__file__).resolve().parent.parent
 HUD_ASSETS = Path("port/assets/hud")
 LAYOUT = HUD_ASSETS / "layout.json"
+# the MCC maps' stock sheets (tools/hud_assets.py mcc-layout): only in the
+# builds that play MCC maps (HALO_MCC)
+MCC_HUD_ASSETS = HUD_ASSETS / "mcc"
+MCC_LAYOUT = HUD_ASSETS / "mcc_layout.json"
 TITLE_ASSETS = Path("port/assets/titles")
 TITLE_LIST = TITLE_ASSETS / "titles.json"
 # the other set of titles, display.title_font = "cyborg" (tools/title_assets.py
@@ -127,10 +131,11 @@ def font_files() -> List[str]:
 
 def textures() -> List[tuple]:
     """The textures: each one's folder, its entry in its list, and whether
-    it is a title (0: the HUD's, 1: a classic title, 2: a cyborg one)."""
+    it is a title (0: the HUD's or an MCC sheet's, 1: a classic title, 2: a
+    cyborg one)."""
     result = []
     for folder, listing, title in ((HUD_ASSETS, LAYOUT, 0), (TITLE_ASSETS, TITLE_LIST, 1),
-                                   (TITLE_CYBORG_ASSETS, TITLE_CYBORG_LIST, 2)):
+                                   (TITLE_CYBORG_ASSETS, TITLE_CYBORG_LIST, 2), (MCC_HUD_ASSETS, MCC_LAYOUT, 0)):
         if (ROOT / listing).is_file():
             result += [(folder, asset, title) for asset in json.loads((ROOT / listing).read_text())["assets"]]
     return result
@@ -178,7 +183,7 @@ def smaa_files() -> List[tuple]:
 
 def hud_asset_inputs() -> List[Path]:
     """The files the generated source is made from."""
-    inputs = [listing for listing in (LAYOUT, TITLE_LIST, TITLE_CYBORG_LIST, FONT_LIST, MENU_LIST)
+    inputs = [listing for listing in (LAYOUT, MCC_LAYOUT, TITLE_LIST, TITLE_CYBORG_LIST, FONT_LIST, MENU_LIST)
               if (ROOT / listing).is_file()]
     return [*inputs, *(folder / f"{asset['name']}.png" for folder, asset, _ in textures()),
             *(FONT_ASSETS / name for name in font_files()), *(MENU_ASSETS / name for name in menu_files()),
@@ -192,7 +197,8 @@ def hud_configure_inputs() -> List[Path]:
     folders, for files added or removed), not each file, which a change of a
     list may rename or remove."""
     inputs = []
-    for folder, listing in ((HUD_ASSETS, LAYOUT), (TITLE_ASSETS, TITLE_LIST), (TITLE_CYBORG_ASSETS, TITLE_CYBORG_LIST),
+    for folder, listing in ((HUD_ASSETS, LAYOUT), (MCC_HUD_ASSETS, MCC_LAYOUT), (TITLE_ASSETS, TITLE_LIST),
+                            (TITLE_CYBORG_ASSETS, TITLE_CYBORG_LIST),
                             (FONT_ASSETS, FONT_LIST),
                             (MENU_ASSETS, MENU_LIST)):
         if (ROOT / listing).is_file():
@@ -415,12 +421,18 @@ def main() -> None:
         scale = asset["scale"]
         if (width, height) != (asset["width"] * scale, asset["height"] * scale):
             sys.exit(f"{name}: {width}x{height}, not {scale}x its bitmap's {asset['width']}x{asset['height']}")
-        # (the cyborg titles only with HALO_TITLE_CHOICE)
-        choice = ["#ifdef HALO_TITLE_CHOICE"] if title == 2 else []
+        # (the cyborg titles only with HALO_TITLE_CHOICE, the MCC sheets
+        # only with HALO_MCC)
+        mcc = int(folder == MCC_HUD_ASSETS)
+        choice = ["#ifdef HALO_TITLE_CHOICE"] if title == 2 else ["#if HALO_MCC"] if mcc else []
         lines.extend(choice)
         lines.append(f"static const unsigned int asset{index}[] = {{")
         lines.extend(words(data))
         lines.append("};")
+        keep = asset.get("keep", [])
+        if keep:
+            values = ", ".join(str(value) for cell in keep for value in cell)
+            lines.append(f"static const unsigned short keep{index}[] = {{ {values} }};")
         lines.extend(["#endif"] if choice else [])
         lines.append("")
         tag = asset["tag"].replace("\\", "\\\\")
@@ -428,7 +440,8 @@ def main() -> None:
         point_threshold = int(any(cell.get("thresholds") for cell in asset.get("cells", [])))
         table.extend(choice)
         table.append(f'\t{{ "{tag}", {asset["bitmap"]}, {width}, {height}, 0x{asset["crc"]:08x}u, {coverage}, '
-                     f'{point_threshold}, {title}, asset{index}, {len(data)} }},')
+                     f'{point_threshold}, {title}, asset{index}, {len(data)}, {mcc}, '
+                     f'{f"keep{index}" if keep else "0"}, {len(keep)} }},')
         table.extend(["#endif"] if choice else [])
     lines.append("const struct hud_hires_embedded hud_hires_embedded[] =")
     lines.append("{")

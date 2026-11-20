@@ -41,11 +41,31 @@ def test_a_knob_without_a_cost_fails(monkeypatch):
 
 
 def test_xbox_presets():
-    """(the tester's 11-19 log: potato is retail on the original Xbox, and lan-party only the present mode)"""
+    """(the tester's 11-19 log: potato was retail on the original Xbox, and lan-party only the present mode)
+    Each preset sets real knobs on the original Xbox now, every one of them the console's own setting,
+    and none of them above the console's own limits."""
     rows = {row["name"]: row for row in tuning_table.rows()}
     potato = {name for name, row in rows.items() if row["on_xbox"] and row["xbox_presets"][2] not in (None, "-")}
     lan_party = {name for name, row in rows.items() if row["on_xbox"] and row["xbox_presets"][1] not in (None, "-")}
-    assert potato == set(), potato
-    assert lan_party == {"tuning.present_mode"}, lan_party
+    assert {"display.dynamic_light_limit", "display.specular_light_limit", "display.particle_limit",
+            "tuning.effects", "tuning.shadow_pixels", "tuning.particle_thinning"} <= potato, potato
+    assert {"display.dynamic_light_limit", "tuning.effects", "tuning.shadow_pixels", "tuning.present_mode"} <= lan_party, \
+        lan_party
+    # (a preset value on a knob that is not the console's setting would change nothing there)
+    for row in tuning_table.knobs(tuning_table.read(tuning_table.PORT_CONFIG)):
+        if any(row["xbox_presets"]):
+            assert rows[row["name"]]["on_xbox"], f"{row['name']}: an Xbox preset value, not an Xbox setting"
     assert rows["display.dynamic_light_limit"]["xbox_default"] == "8"
     assert rows["display.specular_light_limit"]["xbox_default"] == "2"
+    assert rows["display.particle_limit"]["xbox_default"] == "1024"
+    for name in ("display.dynamic_light_limit", "display.specular_light_limit", "display.particle_limit"):
+        for value in rows[name]["xbox_presets"]:
+            assert value is None or 0 < int(value) < int(rows[name]["xbox_default"]), (name, value)
+
+
+def test_xbox_table_has_only_its_settings():
+    """A knob that isn't the original Xbox's setting changes nothing there: its table leaves it out."""
+    made = tuning_table.table(xbox=True)
+    for row in tuning_table.rows():
+        assert (f"| `{row['name']}` |" in made) == row["on_xbox"], row["name"]
+    assert "not a console setting" not in made

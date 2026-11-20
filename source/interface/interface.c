@@ -109,6 +109,7 @@ symbols in this file:
 #include "halo_perf_log.h" /* port: console.perf_log */
 #ifndef HALO_XBOX_CONSOLE
 #include "stats_log.h" /* port: port/linux/game/stats_log.c */
+#include "latency_meter.h" /* port: display.ping_meter */
 #endif
 
 /* ---------- constants */
@@ -402,6 +403,10 @@ void interface_draw_fullscreen_overlays(
 	cinematic_render();
 	interface_splitscreen_render();
 	hud_render_timer();
+#ifndef HALO_XBOX_CONSOLE
+	/* port: display.ping_meter (port/linux/game/latency_meter.c) */
+	latency_meter_draw();
+#endif
 	terminal_draw();
 #ifndef HALO_XBOX_CONSOLE
 	/* port: display.stats_log, a line a second in the log (stats_log.c) */

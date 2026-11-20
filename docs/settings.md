@@ -45,6 +45,7 @@ A few people look for most:
 | `display.interpolation` | `false` keeps the game's own 30 frames a second; Video Setup's Frame Rate at 30 (Xbox) sets it. |
 | `display.direct_camera` | Instant aim: the view turns the frame the mouse, stick or touch moves it. On by default; config.toml only. |
 | `display.menus` | `"chupathingy"` (the default: the Xbox's look with Halo PC's settings, profiles and more) or `"xbox"` (as close to the console as can be). The Gearbox menus were retired as a menu set: a file that says `"gearbox"` (or the older `"pc"`) gets the Xbox menus, with a one-time notice, and is then written as `"xbox"`. |
+| `display.duct_tape_logo` | `true` puts duct tape over the Chupathingy menus' main menu logo. Off by default. The Konami code on the main menu (Up, Up, Down, Down, Left, Right, Left, Right, B, A) turns it on or off and writes it here. |
 | `display.theme` | The colors of the Delta Guide and the setup screen: `"blue"` (Halo Blue, the default), `"green"` (Dashboard Green), `"orange"` (Visor Orange), `"live"` (Live Orange) or `"red"` (Chupathingy Red). Change it in the setup screen's Display tab or in the Delta Guide's SETTINGS, where it shows at once. |
 | `delta.guide_background` | What the Delta Guide draws behind its panel: `"auto"` (the default: the Xbox dashboard's cellwall with Dashboard Green, a plain dark shade with the other themes), `"cellwall"` or `"plain"`. BACKGROUND in the Delta Guide's SETTINGS. |
 | `display.high_res_text` | `true` draws the game's text (menus and HUD) with sharp fonts at your resolution; `false` uses the maps' original bitmap fonts. The Server Browser and the moderation overlays use the system's fonts either way. For a blocky look overall, also set `display.resolution_scaling = "original"`. |
@@ -54,6 +55,7 @@ A few people look for most:
 | `display.field_of_view` | How wide the first-person view is, in degrees: 70 (the Xbox's) by default, 50 to 120. |
 | `display.reticle_scale` | The reticle's size, `0.5` to `2.0`; `1.0` (the default) is the Xbox's. Video Setup, View: Reticle Size. |
 | `display.crosshair_position` | Where the crosshair and your aim sit: `"retail"` (the default, as on the Xbox), `"centered"` (the middle of your view; only different in split screen, where the Xbox puts it a little off) or `"lowered"` (a tenth of the view's height below the middle, as later Halo games do). The view moves with it, so shots still go where the crosshair is. While you're zoomed, the view snaps back to centered and the scope sits in the middle, by design (Halo 3 does the same). The Guide and the setup screen: Crosshair. |
+| `display.hud_safe_zone` | How far the HUD sits from the screen's edges: `"xbox"` (48 in from the sides and 36 from the top and bottom of a 640x480 screen, as on the Xbox), `"pc"` (8 in, as Halo PC), `"auto"` (the default on PCs, Macs and Android: the Xbox's in a game alone, Halo PC's in split screen) or two numbers, `"24 18"` (8 to 48 from the sides, 8 to 36 from the top and bottom). In split screen only the screen's edges move; the views keep the Xbox's 4 pixels from the lines between them. The crosshair and the view stay where they are. Like Chimera's `chimera_safe_zones`. The consoles (the original Xbox, the Xbox 360, the Wii U, the Switch) keep `"xbox"` as their default: they play on TVs that overscan, where tighter margins can push the HUD off the picture. Settings: Interface > Safe Zones (On, Single Screen Only, Off). |
 | `display.first_person_weapon` | `false` hides your weapon and arms in first person; `true` (the default) draws them. Video Setup, View: Weapon Model. |
 | `display.camo_weapon_fix` | `false` (the default) lets a wall close by cut away your camouflaged first-person weapon, as on the Xbox. `true` draws it in front of walls. Drawing only. Video Setup, Advanced: Camo Weapon Fix. Based on work by goatbutt and the OpenH1 team. |
 | `display.plasma_sparks` | `false` (the default) leaves out the blue sparks off a live plasma grenade, as on the Xbox, which never drew them. `true` draws them, at any frame rate. Drawing only. Video Setup, Advanced: Plasma Sparks. Thanks to ugoboom for the idea. |
@@ -67,6 +69,7 @@ A few people look for most:
 | `display.lobby` | The game lobby of the Chupathingy menus (on by default): the players with their teams and READY, the map and the host's menu, for a game you host or joined and for dedicated servers, and a preview of a game under way before you join it. `false`: the Xbox's System Link screen, as the Xbox menus have it. |
 | `display.xbox_loading_picture` | `true` (the default) shows the Xbox's own loading picture, `xbox_loading.tga` in your maps folder, and Chupathingy's when that file isn't there. `false` always shows Chupathingy's. Not on consoles. |
 | `game.unlock_all_levels` | `true` gives new profiles every campaign level. By default a new profile starts at The Pillar of Autumn, as on the Xbox. Profiles made by earlier versions had every level open; `profile_reset_campaign` in the console starts one over. |
+| `game.forge` | `false` (the default) leaves Forge out. `true` turns on Forge, the layout editor of the multiplayer maps: FORGE in the Multiplayer menu (the Chupathingy menus) opens its lobby, where you build a layout of a map or play a saved one as a game. Also the console's `forge` commands. Local games only. FORGE in the Delta Guide's SETTINGS; the menu row shows the next time the menus load. See [forge.md](forge.md). |
 | `game.mods` | `true` plays the mods in the `mods` folder beside `maps` (tag files over a map's sounds, as a resource pack; see [mods.md](mods.md)). Nothing happens while the folder is empty. Local games only. |
 | `audio.volume`, `audio.music_volume`, `audio.effects_volume` | Volumes, from 0.0 to 1.0. |
 | `audio.device` | The output the sound plays on, by name (Audio Setup lists them); `"default"` follows the system's default output. |
@@ -92,6 +95,7 @@ A few people look for most:
 | `controls.screenshot` | The screenshot key: `"F9"` by default, and Print Screen always works too. Screenshots go to `screenshots/` beside `maps/`, named after the map and the time. Desktop only. |
 | `controls.capture_buttons` | `true` lets a controller take screenshots and clips too: its Share button, or Back and the right stick together, takes a screenshot, and Back and the left stick saves a clip. Off by default. |
 | `clips.enabled`, `clips.seconds`, `controls.clip` | `clips.enabled = true` keeps the last `clips.seconds` (30 by default, 5 to 120) of the game, picture and sound, in memory, and `controls.clip` (`"F10"`) saves them as an MP4 in `clips/` beside `maps/`. Off by default; when off it costs nothing. Read at start. Desktop only. |
+| `controls.forge_*` | Forge's monitor's keys, used only while you fly as the monitor (so they can share keys with the game's): `forge_up` (`"Space"`), `forge_down` (`"Left Ctrl, C"`), `forge_fast` (`"Left Shift"`), `forge_grab` (`"Mouse Left"`), `forge_rotate` (`"Mouse Right"`, held), `forge_nearer` and `forge_farther` (`"Wheel Down"`, `"Wheel Up"`), `forge_copy` (`"F"`), `forge_delete` (`"Delete, X"`), `forge_upright` (`"U"`), `forge_speed` (`"Q"`), `forge_nudge` (`"N"`), `forge_menu` (`"E"`) and `forge_monitor` (`"M"`, monitor or Spartan). The movement keys fly and the mouse looks. Desktop only. See [forge.md](forge.md). |
 | `network.browser_url` | The game list Online Games shows (stats.chupathingy.org). |
 | `network.copy_to_clipboard` | `false` (the default) leaves the clipboard alone; `true` puts the invite link of a game you host on it. The link is also in the log. |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
@@ -138,8 +142,12 @@ only what is drawn. Leave it alone and nothing changes.
 
 | Setting | What it does |
 | --- | --- |
-| `tuning.preset` | `"retail"` (the default) changes nothing. `"lan-party"` caps the lights and particles of a big firefight (16 lights, 4 with shine, 2048 particles, particles moved once a tick) and shows a late frame at once (`present_mode = "adaptive"`). `"potato"` is the setup screen's POTATO: 8 lights, 2 with shine, 1024 particles, smaller shadows, no anti-aliasing, the Xbox's own lighting and the picture drawn at 640x480. A preset never raises a build's own limit. |
+| `tuning.preset` | `"retail"` (the default) changes nothing. `"lan-party"` caps the lights and particles of a big firefight (16 lights, 4 with shine, 2048 particles, particles moved once a tick) and shows a late frame at once (`present_mode = "adaptive"`). `"potato"` is the setup screen's POTATO: 8 lights, 2 with shine, 1024 particles, smaller shadows, no anti-aliasing, the Xbox's own lighting and the picture drawn at 640x480. A preset never raises a build's own limit. The original Xbox has presets of its own: see below. |
 | `tuning.present_mode` | With V-Sync on: `"vblank"` (the default) waits for the display before every frame. `"adaptive"` shows a frame that missed the display at once, with a tear, rather than a whole refresh later. OpenGL on Windows, Linux and Android, and the original Xbox. Elsewhere it waits. Read at start. |
+| `tuning.particle_thinning` | Draws one in this many of the loose particles in the world (sparks, debris, dust, the puffs of explosions), from 1 to 4. `1` (the default) draws every one. Particles on a weapon, player or vehicle are always drawn, and every particle still moves as before. |
+| `tuning.effects` | `"full"` (the default) draws every pass. `"reduced"` leaves out the shine of lights, metal and water, the reflections and mirrors, and the grass on the ground. `"minimal"` also leaves out decals, rain and snow, contrails and lens flares. |
+| `tuning.shadow_pixels` | How big an object must look on screen, in pixels across, to cast a shadow, from 30 to 400. `30` (the default) is the Xbox's. Higher keeps only the shadows of near objects. |
+| `tuning.object_cull_pixels` | Leaves out objects that look smaller than this, in pixels across, before they're lit, from 0 to 16. `0` (the default) draws every one. An object with something attached (a player with a weapon, a flag) is always drawn. |
 | `tuning.texture_cache` | Original Xbox only: the texture cache's size in MB, like `"20"`, or `"auto"` (the default) for the console's own. It's held between 19 MB and what the console's memory has room for. Read at start. |
 
 A preset fills in the settings it names only where you haven't set them
@@ -155,25 +163,68 @@ starting `tuning:`. That file also says what every knob was at start
 changes (`tuning: change`). A crash report and Send my logs carry the same
 line.
 
-In a network game nobody sees fewer particles than the Xbox kept (1024).
-Smoke and dust can hide players, and a lower limit would take them away.
+In a network game nobody sees less of the other players than the Xbox would
+show them:
+
+- Particles: nobody sees fewer than the Xbox kept (1024). Smoke and dust can
+  hide players, and a lower limit would take them away. `particle_thinning`
+  only thins past 1024 loose particles in view, and never the mist, steam
+  and smoke of the level's particle systems.
+- `effects`: the grass, rain and snow, contrails and lens flares are always
+  drawn. They can hide a player, show where a shot came from, or blind.
+- `object_cull_pixels` leaves out only weapons, equipment and debris lying
+  around. Players, vehicles, projectiles and anything that could be cover
+  are always drawn.
+- Your own decals, shine, reflections and shadow size stay your choice
+  online. They are cosmetic, drawn only on your screen and never sent.
+
+The log says once when a knob is held (`tuning: effects=minimal draws the
+grass, weather, contrails and lens flares in a network game`).
+
+Every 10 seconds of play (300 frames), while a knob or limit leaves
+something out, the log says what it left out, as an average a frame:
+`tuning: did lights=-2.1 shine=-1.0 sprites=-35.2 shadows=-3.0
+passes=-shine,-reflections (a frame, over 300 frames)`. `lights` are the
+dynamic lights let go and `shine` those lit without it, `particles` the
+particles let go or not made, `sprites` the loose particles thinned,
+`shadows` and `objects` those left out, and `passes` what `effects` left
+out.
+
+Thanks to Bruno Santana and Lord BirchWood: the particle thinning, the
+effects levels, the shadow size and leaving small objects out early follow
+the ideas in Bruno Santana's modified build of BirchWood's Vita port. Our
+versions are written from scratch.
 
 ### Every knob, and what the presets do on the original Xbox
 
 No knob changes the simulation: the game tick costs the same whatever they
 say. They change only the drawing, the waiting for the display, or memory.
-On the original Xbox most of them aren't settings at all, and the console's
-own limits are already where the presets would put them, so:
 
-- `potato` changes nothing on the original Xbox. It is the same as `retail`
-  there, and the log says so at start (`tuning: preset=potato changes
-  nothing on this console`).
-- `lan-party` changes only the present mode (`adaptive`) on the original
-  Xbox. Its 16 lights and 2048 particles are above the console's own limits,
-  and a preset never raises those.
+The original Xbox's own limits are already where the PC's presets would
+put them, so it has presets of its own, set below its own drawing:
+
+- `lan-party` is for big network games: 4 dynamic lights (the console's own
+  is 8), 1 with shine, `effects = "reduced"` (no shine, reflections or
+  mirrors; the grass stays in a network game), shadows only from objects 60
+  pixels across or more, items lying around under 4 pixels left out, and a
+  late frame shown at once (`present_mode = "adaptive"`). None of it is
+  held in a network game.
+- `potato` goes further: 2 lights, 1 with shine, `effects = "minimal"`
+  (no decals either; outside a network game also no grass, rain and snow,
+  contrails or lens flares), shadows from 120 pixels, objects under 8
+  pixels left out, and outside a network game 512 particles with every
+  other loose one drawn. A network game keeps the 1024 particles.
 - In big games (more than about 24 players) the original Xbox is held back
-  by the game tick, not the drawing, so no preset can make those games run
-  faster there.
+  by the game tick, not the drawing. A preset takes the drawing's share of
+  the frame down, so it helps there too, but it can't make the tick itself
+  faster.
+- `display.particle_limit` is the original Xbox's setting too: 1024, its
+  most, by default. Lower counts only outside a network game.
+- `display.particle_ticks`, the shadow size, anti-aliasing, filtering,
+  per-pixel lighting, the Light effects and the resolution aren't the
+  console's settings. It already moves particles once a tick and draws the
+  Xbox's own way, so they would change nothing there, and its table leaves
+  them out.
 
 The table is made from the code by `tools/tuning_table.py`
 (`tools/test_tuning_table.py` checks it).
@@ -182,9 +233,9 @@ The table is made from the code by `tools/tuning_table.py`
 
 | Setting | lan-party sets | potato sets | On the original Xbox | Xbox default and range | lan-party on the Xbox | potato on the Xbox | What it costs or saves |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `display.dynamic_light_limit` | `16` | `8` | yes | `8`; 0 to 128 (0: no limit) | nothing | nothing | Drawing. Each dynamic light redraws the level it reaches twice; in a big firefight most of the GPU's time. |
-| `display.specular_light_limit` | `4` | `2` | yes | `2`; 0 to 128 (0: no limit) | nothing | nothing | Drawing. The shine pass of near lights, the costliest pass in a firefight. |
-| `display.particle_limit` | `2048` | `1024` | no | | | | Drawing, and a little CPU a frame for each particle alive. Never under 1024 in a network game. |
+| `display.dynamic_light_limit` | `16` | `8` | yes | `8`; 0 to 128 (0: no limit) | `4` | `2` | Drawing. Each dynamic light redraws the level it reaches twice; in a big firefight most of the GPU's time. |
+| `display.specular_light_limit` | `4` | `2` | yes | `2`; 0 to 128 (0: no limit) | `1` | `1` | Drawing. The shine pass of near lights, the costliest pass in a firefight. |
+| `display.particle_limit` | `2048` | `1024` | yes | `1024`; 0 to 1024 (0: no limit) | nothing | `512` | CPU and drawing: each particle alive is moved, tested against the level and drawn. Never under 1024 in a network game, so on the original Xbox (whose most is 1024) it cuts only outside one. |
 | `display.particle_ticks` | `true` | `true` | no | | | | CPU a frame: moving loose particles once a tick saves two in three of their collision tests at 60 fps. |
 | `display.shadow_resolution` | nothing | `128` | no | | | | Drawing and video memory: bigger shadow maps. |
 | `display.anisotropic_filtering` | nothing | `0` | no | | | | Drawing: texture sampling on the GPU. |
@@ -192,13 +243,17 @@ The table is made from the code by `tools/tuning_table.py`
 | `display.per_pixel_lighting` | nothing | `false` | no | | | | Drawing: lighting work for each pixel instead of each vertex. |
 | `display.light_effects` | nothing | `off` | no | | | | Drawing: the projectile, muzzle and emitter lights, and their wall tests. |
 | `display.resolution_scaling` | nothing | `original` | no | | | | Drawing: "original" fills 640x480 instead of the window. |
-| `tuning.present_mode` | `adaptive` | nothing | yes | `vblank`; `vblank` or `adaptive` | `adaptive` | nothing | Waiting, not work: "adaptive" shows a late frame at once, with a tear, instead of a refresh later. |
+| `tuning.present_mode` | `adaptive` | nothing | yes | `vblank`; `vblank` or `adaptive` | `adaptive` | `adaptive` | Waiting, not work: "adaptive" shows a late frame at once, with a tear, instead of a refresh later. |
+| `tuning.particle_thinning` | nothing | nothing | yes | `1`; 1 to 4 | nothing | `2` | Drawing: fewer sprites of loose particles; each is still moved and counted as before. In a network game only past the Xbox's 1024. |
+| `tuning.effects` | nothing | nothing | yes | `full`; `full` or `reduced` or `minimal` | `reduced` | `minimal` | Drawing: "reduced" skips the shine, reflection and grass passes; "minimal" also decals, weather, contrails and lens flares. A network game keeps the grass, weather, contrails and flares. |
+| `tuning.shadow_pixels` | nothing | nothing | yes | `30`; 30 to 400 | `60` | `120` | Drawing: each object's shadow redraws the level under it; an object too small for one is not lit for it either. |
+| `tuning.object_cull_pixels` | nothing | nothing | yes | `0`; 0 to 16 | `4` | `8` | Drawing, and CPU a frame: small objects are neither lit nor drawn. In a network game only items lying around. |
 | `tuning.texture_cache` | nothing | nothing | yes | `auto`; "auto", or 19 to 512 MB (and what memory has room for) | nothing | nothing | Memory: a bigger cache loads fewer textures from the disc, and leaves less free. |
 
 <!-- end of tuning table -->
 
-More knobs (explosion particles, effect density, decal distance, tire
-tracks) come once testers' `console.perf_log` lines show what they'd save.
+More knobs (explosion particles, decal distance, tire tracks) come once
+testers' `console.perf_log` lines show what they'd save.
 
 <a id="a-new-renderer-to-test"></a>
 

@@ -167,6 +167,15 @@ has no mouse, and its controller flies the camera as before */
 
 #endif /* HALO_CONSOLE || HALO_XBOX_CONSOLE */
 
+/* Forge, the layout editor (port/linux/game/forge.c, game.forge): its
+hooks in the game's sources (the monitor's camera, the HUD, the layout's
+spawn points and flags). Every console, the Switch and the Wii U too,
+which set their own switch and not HALO_CONSOLE: none builds forge.c yet */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_FORGE)
+#define HALO_CONSOLE_NO_FORGE
+#endif
+
 /* voice chat (port/linux/src/voice.c, port/linux/game/voice_game.c): a
 console has no microphone path or Opus yet; until it does, its player never
 says it hears voices, so no host sends it any. Every console, the Switch
@@ -185,6 +194,22 @@ frames without decoding them */
 #define HALO_PORT_VOICE
 #if !defined(HALO_SERVER)
 #define HALO_PORT_VOICE_AUDIO
+#endif
+#endif
+
+/* gyro aiming (port/linux/src/gyro_aim.c, xinput_sdl.c; input.gyro_*): the
+desktop builds' and Android's, and the Switch's, whose host reads its
+controllers' sensors itself; no other console's, and not the dedicated
+server's, which has no player at the machine. HALO_PORT_GYRO_SDL reads the
+sensors through SDL 3 (SDL_SetGamepadSensorEnabled and its sensor events):
+not the Switch (its host has SDL 2 and its own reading) nor Android's
+32-bit guest build, whose SDL is host imports without the sensors */
+#if !defined(HALO_SERVER) && (defined(HALO_SWITCH_CONSOLE) || \
+	!(defined(HALO_CONSOLE) || defined(HALO_WIIU_CONSOLE) || defined(HALO_XBOX_CONSOLE) || \
+	defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)))
+#define HALO_PORT_GYRO_AIM
+#if !defined(HALO_SWITCH_CONSOLE) && (!defined(HALO_ANDROID) || defined(__ANDROID__) || defined(HALO_IOS))
+#define HALO_PORT_GYRO_SDL
 #endif
 #endif
 

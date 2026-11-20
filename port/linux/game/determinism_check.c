@@ -455,6 +455,15 @@ long determinism_check_ticks_done(
 	return determinism_globals.ticks_done;
 }
 
+/* whether a replay is playing a recording now: render.c's render_tuning
+lets the drawing knobs go as far as in a local game only then (a setting
+naming no recording, or one that ran out, is no replay) */
+boolean determinism_check_replaying(
+	void)
+{
+	return determinism_active() && determinism_globals.mode == _determinism_replay;
+}
+
 #else
 
 long determinism_check_ticks_done(

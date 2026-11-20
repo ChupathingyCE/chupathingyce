@@ -572,6 +572,11 @@ static void weather_particle_system_render(
 
 	weather_particle_system_update(local_player_index);
 
+	/* port: tuning.effects = "minimal" leaves the rain and snow out, outside
+	network games: their update above stays the same (render.c) */
+	if (!render_tuning_draws(_render_tuning_weather_bit))
+		return;
+
 	for (type_index = 0; type_index<weather_particle_system_type_count(definition); type_index++)
 	{
 		struct weather_particle_type *type = &system->types[type_index];

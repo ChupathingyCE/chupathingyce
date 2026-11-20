@@ -1230,6 +1230,17 @@ boolean scenario_load(
 
 	check_memory_status(scenario_memory_status_attributed, "scenario_load");
 	global_scenario_index = scenario_tags_load(name);
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: Forge (port/linux/game/forge.c): a Forge game asked for on
+	this map starts; anything of the last map's is gone. Every map load
+	(an Xbox map, a Custom Edition map, an MCC map, one refused), so that
+	no Forge state outlives its map */
+	{
+		extern void forge_map_loaded(char const *scenario_name);
+
+		forge_map_loaded(global_scenario_index != NONE ? tag_get_name(global_scenario_index) : NULL);
+	}
+#endif
 	if (global_scenario_index != NONE)
 	{
 		global_scenario = scenario_definition_get(global_scenario_index);

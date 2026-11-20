@@ -630,6 +630,9 @@ boolean cache_file_tags_are_ce(void);
 #include "mcc_ui_teams.h"
 #include "game_modes.h" /* port: the game modes layer (docs/modes.md) */
 #include "game_engine_playlist.h" /* port: the built-ins' builders */
+#ifndef HALO_CONSOLE_NO_FORGE
+#include "forge.h" /* port: port/linux/game/forge.c */
+#endif
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1457,19 +1460,24 @@ static void game_engine_generate_title_string(
 	return;
 }
 
+/* port: the view's window with display.hud_safe_zone's margins (hud_draw.c) */
+void hud_safe_zone_bounds(rectangle2d *bounds);
+
 static void rasterize_in_game_score_draw_line(
 	wchar_t const *string,
 	boolean brighten,
 	real_argb_color *color,
 	long row_index)
 {
-	rectangle2d bounds = render.camera.window_bounds;
+	rectangle2d bounds;
 	short narrow_tab_stops[3];
 	short wide_tab_stops[3];
 	short *tab_stops;
 	boolean splitscreen;
 	long font_index;
 
+	/* port: at display.hud_safe_zone's edge ("xbox": the window's) */
+	hud_safe_zone_bounds(&bounds);
 	splitscreen = local_player_count() > 1;
 	font_index = hud_get_font_index();
 	narrow_tab_stops[0] = 80;
@@ -5953,7 +5961,13 @@ boolean game_engine_should_end_game(
 {
 	boolean should_end_game = FALSE;
 
-	if (game_engine && !multiple_teams_alive())
+	if (game_engine && !multiple_teams_alive()
+#ifndef HALO_CONSOLE_NO_FORGE
+		/* port: a Forge game (the monitor editing a map, alone) does not end
+		because one team is left */
+		&& !forge_game_active()
+#endif
+		)
 		should_end_game = TRUE;
 	/* port: the gametype's time limit (game_variant_options) */
 	if (game_engine && game_variant_options_get()->time_limit > 0 &&

@@ -125,6 +125,9 @@ their handlers open opens.
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 #include "halo_profile_screen.h"
 #endif
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+#include "duct_tape_logo.h"
+#endif
 
 /* a player's name in the lobby: a Delta profile's (profile_names.c) is
 longer than a game name */
@@ -2693,6 +2696,113 @@ static void chupathingy_settings_picture(struct widget_instance *picture)
 	}
 }
 
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+/* ---------- the Chupathingy main menu's logo, taped over (duct_tape_logo.h):
+the Konami code on the main menu swaps it, display.duct_tape_logo keeps it */
+
+#define DUCT_TAPE_LOGO_SETTING "display.duct_tape_logo"
+/* (the menus' cursor sound: ui_widget.c's _ui_audio_feedback_cursor) */
+#define SOUND_CURSOR 1
+
+int config_write_boolean(char const *name, int value);
+/* (xinput_sdl.c's: halo_keyboard.h) */
+unsigned long halo_keyboard_menu_letters(void);
+
+static struct konami_code konami_code;
+static struct duct_tape_logo duct_tape_logo;
+static boolean duct_tape_logo_read;
+/* the keyboard's B and A, down last frame */
+static boolean konami_keys_down[2];
+
+static void duct_tape_logo_first_read(void)
+{
+	if (!duct_tape_logo_read)
+	{
+		duct_tape_logo_reset(&duct_tape_logo, config_boolean(DUCT_TAPE_LOGO_SETTING));
+		duct_tape_logo_read = TRUE;
+	}
+}
+
+/* a press in, from a controller or the keyboard: whether the menus should
+not get it */
+static boolean konami_press(int press)
+{
+	boolean swallowed = (boolean)konami_code_swallows(&konami_code, press);
+
+	if (konami_code_feed(&konami_code, press))
+	{
+		int shown;
+
+		duct_tape_logo_first_read();
+		shown = duct_tape_logo_toggle(&duct_tape_logo, system_milliseconds());
+		if (!config_write_boolean(DUCT_TAPE_LOGO_SETTING, shown))
+			platform_log("menus: could not write %s to config.toml", DUCT_TAPE_LOGO_SETTING);
+	}
+	return swallowed;
+}
+
+/* (ui_widget.c: each event on the Chupathingy main menu) a controller's
+button, first pressed (value 1; held, it counts once): whether the menus
+should not get it. The sticks count for nothing either way */
+boolean pc_menu_konami_event(boolean button, short index, short value)
+{
+	int press;
+
+	if (!button || value != 1)
+		return FALSE;
+	switch (index)
+	{
+	case _gamepad_binary_button_dpad_up: press = _konami_up; break;
+	case _gamepad_binary_button_dpad_down: press = _konami_down; break;
+	case _gamepad_binary_button_dpad_left: press = _konami_left; break;
+	case _gamepad_binary_button_dpad_right: press = _konami_right; break;
+	case _gamepad_analog_button_b: press = _konami_b; break;
+	case _gamepad_analog_button_a: press = _konami_a; break;
+	default: press = _konami_other; break;
+	}
+	return konami_press(press);
+}
+
+/* (ui_widget.c: each frame of the Chupathingy main menu) the keyboard's B
+and A keys, as letters (halo_keyboard_menu_letters; Escape and Enter come
+as the controller's B and A, through pc_menu_konami_event) */
+void pc_menu_konami_keys(void)
+{
+	static char const letters[2] = { 'B', 'A' };
+	static int const presses[2] = { _konami_b, _konami_a };
+	unsigned long held = halo_keyboard_menu_letters();
+	int index;
+
+	for (index = 0; index < 2; index++)
+	{
+		boolean down = (held & (1UL << (letters[index] - 'A'))) != 0;
+
+		if (down && !konami_keys_down[index])
+			konami_press(presses[index]);
+		konami_keys_down[index] = down;
+	}
+}
+
+/* "port duct tape logo" (the logo's own: its Halo logo and the tape over
+it): the tape shown or not, and the swap's build-up */
+static void duct_tape_logo_update(struct widget_instance *logo)
+{
+	struct widget_instance *halo = named(logo, "main_menu_logo_halo", 0);
+	struct widget_instance *tape = named(logo, "main_menu_logo_tape", 0);
+	int frame, drop;
+
+	if (!halo || !tape)
+		return;
+	duct_tape_logo_first_read();
+	duct_tape_logo_sync(&duct_tape_logo, config_boolean(DUCT_TAPE_LOGO_SETTING));
+	if (duct_tape_logo_step(&duct_tape_logo, system_milliseconds(), &frame, &drop))
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
+	tape->visible = frame == DUCT_TAPE_LOGO_TAPE_FRAME;
+	halo->vertical_offset = (short)drop;
+	tape->vertical_offset = (short)drop;
+}
+#endif
+
 /* ---------- Profiles: the player profiles, and a row to make one (as the
 PC version's list has them, but by the Xbox's names for its spinner's
 functions); choosing one makes it player 1's, the profile the campaign and
@@ -3688,9 +3798,10 @@ static char const *controls_page_view(struct widget_instance *list)
 {
 	if (controls_device_shown(list) == _controls_device_keyboard_mouse)
 		return spinner_shown(list, "group_spinner") == CONTROL_GROUP_MOUSE ? "mouse" : "keyboard";
-#ifdef HALO_SWITCH_CONSOLE
-	/* port: the controller's third page, the gyroscope's settings (the
-	Switch's rows: tools/switch_menus.py in its port) */
+#ifdef HALO_PORT_GYRO_AIM
+	/* port: the controller's third page, the gyroscope's settings
+	(tools/port_settings.py's GYRO_ROWS; the Switch's own rows:
+	tools/switch_menus.py in its port) */
 	if (spinner_shown(list, "page_spinner") == 2)
 		return "gyro";
 #endif
@@ -3827,7 +3938,7 @@ static void controls_page_update(struct widget_instance *list)
 	else if (focused == named(list, "op_group", 0))
 		line = "Choose a group of keys, or the mouse.";
 	else if (focused == named(list, "op_page", 0))
-#ifdef HALO_SWITCH_CONSOLE
+#ifdef HALO_PORT_GYRO_AIM
 		line = "Choose the controller's settings, buttons or gyro.";
 #else
 #line 2888
@@ -3893,7 +4004,7 @@ static boolean controls_page_defaults(struct widget_instance *widget)
 		return TRUE;
 	}
 	settings_each_in_view(list, "gamepad", setting_default_show);
-#ifdef HALO_SWITCH_CONSOLE
+#ifdef HALO_PORT_GYRO_AIM
 	settings_each_in_view(list, "gyro", setting_default_show);
 #endif
 #line 2940
@@ -10628,6 +10739,10 @@ void pc_menu_game_data_function_invoke(
 		profile_gamepad_layout(widget);
 	else if (!strcmp(name, "chupathingy settings picture"))
 		chupathingy_settings_picture(widget);
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+	else if (!strcmp(name, "port duct tape logo"))
+		duct_tape_logo_update(widget);
+#endif
 	else if (!strcmp(name, "port host update"))
 		host_update(widget);
 }
