@@ -357,8 +357,15 @@ an action row, its label alone) */
 /* the next ui_style_setting's value shown alone, without the arrows (a
 row that opens something rather than steps through values) */
 void ui_style_setting_plain(void);
+/* the next ui_style_setting opens something (a list, a screen): a chevron
+at the arrow's place, its value (if any) alone before it */
+void ui_style_setting_opens(void);
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected);
+/* a chevron at the right end of a row from x, width wide, height tall,
+its text size high: a row that opens something (a list, a screen); the
+room it takes from the row's right edge */
+float ui_style_row_chevron(float x, float y, float width, float height, float size);
 /* section tabs between left and right, height tall: the bumpers' glyphs at
 the ends (the keyboard's: left_key and right_key, as "Q" and "E", or the
 device's LB and RB when NULL), the names centered, the selected one lit.

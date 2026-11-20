@@ -1281,6 +1281,28 @@ static char const *extra_row_label(short row)
 	return device_row_labels[row - settings_count()];
 }
 
+/* a row after the settings that opens something (a chevron, OPEN): ABOUT,
+the devices' rows; not the logs' (SEND MY LOGS asks, OPEN LOGS FOLDER
+opens the system's file manager) */
+static boolean extra_row_opens(short row)
+{
+	return row == about_row() || row < logs_row();
+}
+
+/* A's word on a SETTINGS row */
+static char const *settings_a_word(short row)
+{
+	struct settings_row const *setting = row < settings_count() ? settings_row_at(SETTINGS_GROUP_GUIDE, row) : NULL;
+
+	if (setting)
+		return settings_row_arrows(setting) ? "CHANGE" : "OPEN";
+	if (row < settings_count())
+		return "CHANGE";
+	if (row >= logs_row() && row < about_row())
+		return guide_logs_row_word((short)(row - logs_row()));
+	return "OPEN";
+}
+
 /* a device row's A: Delta Profile's dialog, over what was under DELTA */
 static void device_row_activate(short row)
 {
@@ -1618,6 +1640,23 @@ static char const *option_label(short option, boolean armed)
 	case _option_cancel: return "CANCEL REQUEST";
 	case _option_unblock: return "UNBLOCK";
 	default: return "DISMISS";
+	}
+}
+
+/* A's word on an option: what it does, short ("INVITE" for INVITE TO MY
+GAME); CONFIRM for one waiting for its second press */
+static char const *option_word(short option, boolean armed)
+{
+	if (armed)
+		return "CONFIRM";
+	switch (option)
+	{
+	case _option_invite:
+	case _option_party_invite:
+	case _option_clan_invite: return "INVITE";
+	case _option_clan_join: return "JOIN";
+	case _option_cancel: return "CANCEL";
+	default: return option_label(option, FALSE);
 	}
 }
 
@@ -2170,6 +2209,13 @@ static char const *recent_option_label(short option, boolean armed)
 	}
 }
 
+static char const *recent_option_word(short option, boolean armed)
+{
+	if (armed)
+		return "CONFIRM";
+	return option == _recent_view ? "VIEW" : recent_option_label(option, FALSE);
+}
+
 /* the site's page of a profile (/u/HANDLE), in the system's browser */
 static void profile_page_open(char const *handle)
 {
@@ -2571,6 +2617,32 @@ static char const *party_action_label(short action)
 	case _party_action_make_leader: return party_has_leader() ? "MAKE LEADER" : "CHOOSE AS LEADER";
 	default: return guide.party_armed == _party_action_kick ? "CONFIRM KICK" : "KICK";
 	}
+}
+
+/* A's word on a PARTY button (NULL: A does nothing on it now) */
+static char const *party_action_word(short action)
+{
+	switch (action)
+	{
+	case _party_action_invite_friends:
+	case _party_action_join_code: return "OPEN";
+	case _party_action_copy_link: return "COPY";
+	case _party_action_who: return guide.party.leader ? "CHANGE" : NULL;
+	case _party_action_bring:
+	case _party_action_follow: return "CHANGE";
+	case _party_action_new_code: return "NEW CODE";
+	case _party_action_leave: return guide.party_armed == _party_action_leave ? "CONFIRM" : "LEAVE";
+	case _party_action_start: return "START";
+	case _party_action_make_leader: return party_has_leader() ? "MAKE LEADER" : "CHOOSE";
+	default: return guide.party_armed == _party_action_kick ? "CONFIRM" : "KICK";
+	}
+}
+
+/* a PARTY button that opens something (a chevron): INVITE FRIENDS (FRIENDS)
+and JOIN WITH A CODE (the code's letters) */
+static boolean party_action_opens(short action)
+{
+	return action == _party_action_invite_friends || action == _party_action_join_code;
 }
 
 /* the party's line on a member (LEADER, YOU); a member with no Delta
@@ -4204,6 +4276,9 @@ static void render_clan(void)
 			ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_LEFT + 12, y + (ROW_HEIGHT - 10.0f) * 0.5f, UI_ALIGN_LEFT,
 				leave && guide.armed == ARMED_LEAVE ? COLOR_MUTED : COLOR_VALUE,
 				!leave ? "INVITE FRIENDS" : guide.armed == ARMED_LEAVE ? "CONFIRM LEAVE" : "LEAVE CLAN");
+			/* (INVITE FRIENDS opens FRIENDS) */
+			if (!leave)
+				ui_style_row_chevron(CONTENT_LEFT, y, LIST_WIDTH, ROW_HEIGHT, 10.0f);
 			target_add(CONTENT_LEFT, y, CONTENT_LEFT + LIST_WIDTH, y + ROW_HEIGHT, _target_row, index);
 		}
 		else
@@ -4323,8 +4398,9 @@ static void render_settings(void)
 			char value[96];
 
 			settings_row_value(row, value, sizeof(value));
+			/* (STEAM ACCOUNT and WORKSHOP FOLDER open something: a chevron) */
 			if (!settings_row_arrows(row))
-				ui_style_setting_plain();
+				ui_style_setting_opens();
 			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, settings_row_label(row),
 				NULL, value, on);
 		}
@@ -4334,6 +4410,8 @@ static void render_settings(void)
 #endif
 		else
 		{
+			if (extra_row_opens(setting))
+				ui_style_setting_opens();
 			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f,
 				extra_row_label(setting), NULL, NULL, on);
 		}
@@ -4611,6 +4689,8 @@ static void render_party(void)
 				color = fade(color, 0.5f);
 			ui_style_row(x, action_y, width, OPTION_HEIGHT, on);
 			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 10, action_y + 7, UI_ALIGN_LEFT, color, label);
+			if (items[index].kind == _party_item_action && party_action_opens(action))
+				ui_style_row_chevron(x, action_y, width, OPTION_HEIGHT, 10.0f);
 			if (value)
 				ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 10, action_y + 7, UI_ALIGN_RIGHT, value_color, value);
 			target_add(x, action_y, x + width, action_y + OPTION_HEIGHT, _target_row, index);
@@ -4788,20 +4868,39 @@ static void render_prompts(void)
 	switch (guide.section)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
-		if (guide.row[guide.section] < guide.players.count &&
-			(guide.players.rows[guide.row[guide.section]].actions & SOCIAL_ACTION_MUTE))
-		{
-			word = "SELECT";
-		}
+	{
+		short row = guide.row[guide.section], kinds[MAXIMUM_PLAYER_OPTIONS];
+		static char labels[MAXIMUM_PLAYER_OPTIONS][REPORT_PLAYER_CHOICE_SIZE];
+		short choices = player_choices(row, kinds, labels);
+
+		/* (a report's step: its reason or clip picked; the options: the
+		one chosen, MUTE, ADD FRIEND, REPORT; the row: its options) */
+		if (report_player_step() != _report_step_none)
+			word = choices > 0 ? "CHOOSE" : NULL;
+		else if (guide.options && guide.option >= 0 && guide.option < choices)
+			word = labels[guide.option];
+		else if (choices > 0)
+			word = "OPTIONS";
 		add_friend = guide.row[guide.section] < guide.players.count &&
 			(guide.players.rows[guide.row[guide.section]].actions & SOCIAL_ACTION_ADD_FRIEND);
 		back = guide.options;
 		break;
+	}
 	case SOCIAL_SECTION_RECENT:
 		if (friends_signed_in())
 		{
-			if (guide.friends_loaded && recent_chosen())
-				word = "SELECT";
+			struct social_recent const *player = guide.friends_loaded ? recent_chosen() : NULL;
+
+			if (player && guide.recent_options)
+			{
+				short options[MAXIMUM_RECENT_OPTIONS], option_count = recent_option_list(player, options);
+
+				if (guide.recent_option >= 0 && guide.recent_option < option_count)
+					word = recent_option_word(options[guide.recent_option],
+						guide.recent_armed == options[guide.recent_option]);
+			}
+			else if (player)
+				word = "OPTIONS";
 			add_friend = recent_can_add();
 			back = guide.recent_options;
 			break;
@@ -4810,7 +4909,7 @@ static void render_prompts(void)
 			word = "SIGN IN";
 		break;
 	case SOCIAL_SECTION_SETTINGS:
-		word = guide.row[guide.section] >= settings_count() ? "OPEN" : "CHANGE";
+		word = settings_a_word(guide.row[guide.section]);
 		break;
 	case SOCIAL_SECTION_SERVICE_RECORD:
 		word = guide_record_prompt();
@@ -4831,12 +4930,17 @@ static void render_prompts(void)
 			struct friend_item const *item = guide.friends_loaded ? chosen_item() : NULL;
 			short options[MAXIMUM_OPTIONS];
 
+			short count = item ? item_options(item, options) : 0;
+
 			if (item && guide.options)
-				word = "SELECT";
+			{
+				if (guide.option >= 0 && guide.option < count)
+					word = option_word(options[guide.option], guide.armed == options[guide.option]);
+			}
 			else if (item && item->kind == _item_offline)
 				word = guide.offline_open ? "HIDE" : "SHOW";
-			else if (item && item_options(item, options) > 0)
-				word = "SELECT";
+			else if (count > 0)
+				word = "OPTIONS";
 			back = guide.options;
 			break;
 		}
@@ -4849,13 +4953,18 @@ static void render_prompts(void)
 			struct friend_item const *item = guide.clan_loaded ? clan_chosen_item() : NULL;
 			short options[MAXIMUM_OPTIONS];
 
+			short count = item ? clan_item_options(item, options) : 0;
+
 			if (item && guide.options)
-				word = "SELECT";
+			{
+				if (guide.option >= 0 && guide.option < count)
+					word = option_word(options[guide.option], guide.armed == options[guide.option]);
+			}
 			else if (item && item->kind == _clan_action)
-				word = item->index == _clan_action_invite ? "INVITE" : guide.armed == ARMED_LEAVE ?
+				word = item->index == _clan_action_invite ? "OPEN" : guide.armed == ARMED_LEAVE ?
 					"CONFIRM" : "LEAVE";
-			else if (item && clan_item_options(item, options) > 0)
-				word = "SELECT";
+			else if (count > 0)
+				word = "OPTIONS";
 			back = guide.options;
 			break;
 		}
@@ -4881,11 +4990,10 @@ static void render_prompts(void)
 			}
 			else if (item.kind == _party_item_voice)
 				word = "CHANGE";
-			else if (item.kind == _party_item_action || !party_has_leader() ||
-				(guide.party.leader && !guide.party.members[item.index].you))
-			{
-				word = "SELECT";
-			}
+			else if (item.kind == _party_item_action)
+				word = party_action_word(item.index);
+			else if (!party_has_leader() || (guide.party.leader && !guide.party.members[item.index].you))
+				word = "OPTIONS";
 		}
 		back = back || guide.party_member != NONE || guide.party_armed != NONE;
 		break;
