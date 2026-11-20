@@ -139,7 +139,9 @@ struct rendered_cluster *rendered_cluster_get(
 	short rendered_cluster_index);
 
 /* port: config.toml's [tuning] knobs for the drawing (render.c): the
-passes tuning.effects leaves out, held in a network game */
+passes tuning.effects leaves out, held in a network game. Never the lens
+flares or the contrails: a charging plasma pistol's glow is a lens flare,
+an overcharged bolt's trail a contrail */
 enum
 {
 	/* the lights' shine and the specular lightmaps */
@@ -149,9 +151,7 @@ enum
 	_render_tuning_detail_objects_bit,
 	_render_tuning_decals_bit,
 	_render_tuning_weather_bit,
-	_render_tuning_contrails_bit,
-	/* the lens flares and their occlusion tests */
-	_render_tuning_lens_flares_bit,
+	NUMBER_OF_RENDER_TUNING_PASSES
 };
 
 /* port: what the [tuning] knobs (and the limits they set) left out, which
@@ -179,6 +179,7 @@ short render_tuning_particle_system_thinning(void);
 boolean render_tuning_particle_kept(long particle_index, short thinning);
 real render_tuning_shadow_pixels(void);
 real render_tuning_object_cull_pixels(void);
+boolean render_tuning_network_game(void);
 boolean render_tuning_object_type_culled(short object_type);
 
 /* ---------- prototypes/RENDER_CONTRAILS.C */

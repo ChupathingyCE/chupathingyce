@@ -146,9 +146,9 @@ only what is drawn. Leave it alone and nothing changes.
 | `tuning.preset` | `"retail"` (the default) changes nothing. `"lan-party"` caps the lights and particles of a big firefight (16 lights, 4 with shine, 2048 particles, particles moved once a tick) and shows a late frame at once (`present_mode = "adaptive"`). `"potato"` is the setup screen's POTATO: 8 lights, 2 with shine, 1024 particles, smaller shadows, no anti-aliasing, the Xbox's own lighting and the picture drawn at 640x480. A preset never raises a build's own limit. The original Xbox has presets of its own: see below. |
 | `tuning.present_mode` | With V-Sync on: `"vblank"` (the default) waits for the display before every frame. `"adaptive"` shows a frame that missed the display at once, with a tear, rather than a whole refresh later. OpenGL on Windows, Linux and Android, and the original Xbox. Elsewhere it waits. Read at start. |
 | `tuning.particle_thinning` | Draws one in this many of the loose particles in the world (sparks, debris, dust, the puffs of explosions), from 1 to 4. `1` (the default) draws every one. Particles on a weapon, player or vehicle are always drawn, and every particle still moves as before. |
-| `tuning.effects` | `"full"` (the default) draws every pass. `"reduced"` leaves out the shine of lights, metal and water, the reflections and mirrors, and the grass on the ground. `"minimal"` also leaves out decals, rain and snow, contrails and lens flares. |
+| `tuning.effects` | `"full"` (the default) draws every pass. `"reduced"` leaves out the shine of lights, metal and water, the reflections and mirrors, and the grass on the ground. `"minimal"` also leaves out decals, rain and snow. Lens flares (like a charging plasma pistol's glow) and contrails (like an overcharged bolt's trail) are always drawn. |
 | `tuning.shadow_pixels` | How big an object must look on screen, in pixels across, to cast a shadow, from 30 to 400. `30` (the default) is the Xbox's. Higher keeps only the shadows of near objects. |
-| `tuning.object_cull_pixels` | Leaves out objects that look smaller than this, in pixels across, before they're lit, from 0 to 16. `0` (the default) draws every one. An object with something attached (a player with a weapon, a flag) is always drawn. |
+| `tuning.object_cull_pixels` | Leaves out objects that look smaller than this, in pixels across, before they're lit, from 0 to 16. `0` (the default) draws every one. Players, AI, vehicles, shots and grenades, and an object with something attached (a flag), are always drawn. |
 | `tuning.texture_cache` | Original Xbox only: the texture cache's size in MB, like `"20"`, or `"auto"` (the default) for the console's own. It's held between 19 MB and what the console's memory has room for. Read at start. |
 
 A preset fills in the settings it names only where you haven't set them
@@ -171,16 +171,20 @@ show them:
   hide players, and a lower limit would take them away. `particle_thinning`
   only thins past 1024 loose particles in view, and never the mist, steam
   and smoke of the level's particle systems.
-- `effects`: the grass, rain and snow, contrails and lens flares are always
-  drawn. They can hide a player, show where a shot came from, or blind.
-- `object_cull_pixels` leaves out only weapons, equipment and debris lying
-  around. Players, vehicles, projectiles and anything that could be cover
+- Lights: `display.dynamic_light_limit` never goes under 8 and
+  `display.specular_light_limit` never under 2, the consoles' defaults.
+  Another player's muzzle flash, plasma or flashlight on the walls can tell
+  you where they are. (0, no limit, stays no limit.)
+- `effects`: the grass, rain and snow are always drawn. They can hide a
+  player. Lens flares and contrails are drawn in every game.
+- `object_cull_pixels` leaves out only debris. Weapons, power-ups and other
+  pickups, players, vehicles, projectiles and anything that could be cover
   are always drawn.
 - Your own decals, shine, reflections and shadow size stay your choice
   online. They are cosmetic, drawn only on your screen and never sent.
 
 The log says once when a knob is held (`tuning: effects=minimal draws the
-grass, weather, contrails and lens flares in a network game`).
+grass and weather in a network game`).
 
 Every 10 seconds of play (300 frames), while a knob or limit leaves
 something out, the log says what it left out, as an average a frame:
@@ -189,7 +193,8 @@ passes=-shine,-reflections (a frame, over 300 frames)`. `lights` are the
 dynamic lights let go and `shine` those lit without it, `particles` the
 particles let go or not made, `sprites` the loose particles thinned,
 `shadows` and `objects` those left out, and `passes` what `effects` left
-out.
+out. Lines from a network game end with `a network game`; a line never
+mixes the menus' frames with a game's.
 
 Thanks to Bruno Santana and Lord BirchWood: the particle thinning, the
 effects levels, the shadow size and leaving small objects out early follow
@@ -204,17 +209,18 @@ say. They change only the drawing, the waiting for the display, or memory.
 The original Xbox's own limits are already where the PC's presets would
 put them, so it has presets of its own, set below its own drawing:
 
-- `lan-party` is for big network games: 4 dynamic lights (the console's own
-  is 8), 1 with shine, `effects = "reduced"` (no shine, reflections or
-  mirrors; the grass stays in a network game), shadows only from objects 60
-  pixels across or more, items lying around under 4 pixels left out, and a
-  late frame shown at once (`present_mode = "adaptive"`). None of it is
-  held in a network game.
-- `potato` goes further: 2 lights, 1 with shine, `effects = "minimal"`
-  (no decals either; outside a network game also no grass, rain and snow,
-  contrails or lens flares), shadows from 120 pixels, objects under 8
-  pixels left out, and outside a network game 512 particles with every
-  other loose one drawn. A network game keeps the 1024 particles.
+- `lan-party` is for big network games: `effects = "reduced"` (no shine,
+  reflections or mirrors; the grass stays in a network game), shadows only
+  from objects 60 pixels across or more, debris under 4 pixels left out,
+  and a late frame shown at once (`present_mode = "adaptive"`). Each of
+  these still counts in a network game. It keeps the console's own 8
+  dynamic lights, 2 with shine: a network game holds them there anyway.
+- `potato` goes further: `effects = "minimal"` (no decals either; outside
+  a network game also no grass, rain and snow), shadows from 120 pixels,
+  objects under 8 pixels left out (debris only in a network game), and
+  outside a network game 2 lights, 1 with shine, and 512 particles with
+  every other loose one drawn. A network game keeps 8 lights, 2 with
+  shine, and 1024 particles.
 - In big games (more than about 24 players) the original Xbox is held back
   by the game tick, not the drawing. A preset takes the drawing's share of
   the frame down, so it helps there too, but it can't make the tick itself
@@ -234,8 +240,8 @@ The table is made from the code by `tools/tuning_table.py`
 
 | Setting | lan-party sets | potato sets | On the original Xbox | Xbox default and range | lan-party on the Xbox | potato on the Xbox | What it costs or saves |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `display.dynamic_light_limit` | `16` | `8` | yes | `8`; 0 to 128 (0: no limit) | `4` | `2` | Drawing. Each dynamic light redraws the level it reaches twice; in a big firefight most of the GPU's time. |
-| `display.specular_light_limit` | `4` | `2` | yes | `2`; 0 to 128 (0: no limit) | `1` | `1` | Drawing. The shine pass of near lights, the costliest pass in a firefight. |
+| `display.dynamic_light_limit` | `16` | `8` | yes | `8`; 0 to 128 (0: no limit) | nothing | `2` | Drawing. Each dynamic light redraws the level it reaches twice; in a big firefight most of the GPU's time. Never under 8 in a network game, so on the consoles (whose default is 8) it cuts only outside one. |
+| `display.specular_light_limit` | `4` | `2` | yes | `2`; 0 to 128 (0: no limit) | nothing | `1` | Drawing. The shine pass of near lights, the costliest pass in a firefight. Never under 2 in a network game. |
 | `display.particle_limit` | `2048` | `1024` | yes | `1024`; 0 to 1024 (0: no limit) | nothing | `512` | CPU and drawing: each particle alive is moved, tested against the level and drawn. Never under 1024 in a network game, so on the original Xbox (whose most is 1024) it cuts only outside one. |
 | `display.particle_ticks` | `true` | `true` | no | | | | CPU a frame: moving loose particles once a tick saves two in three of their collision tests at 60 fps. |
 | `display.shadow_resolution` | nothing | `128` | no | | | | Drawing and video memory: bigger shadow maps. |
@@ -246,9 +252,9 @@ The table is made from the code by `tools/tuning_table.py`
 | `display.resolution_scaling` | nothing | `original` | no | | | | Drawing: "original" fills 640x480 instead of the window. |
 | `tuning.present_mode` | `adaptive` | nothing | yes | `vblank`; `vblank` or `adaptive` | `adaptive` | `adaptive` | Waiting, not work: "adaptive" shows a late frame at once, with a tear, instead of a refresh later. |
 | `tuning.particle_thinning` | nothing | nothing | yes | `1`; 1 to 4 | nothing | `2` | Drawing: fewer sprites of loose particles; each is still moved and counted as before. In a network game only past the Xbox's 1024. |
-| `tuning.effects` | nothing | nothing | yes | `full`; `full` or `reduced` or `minimal` | `reduced` | `minimal` | Drawing: "reduced" skips the shine, reflection and grass passes; "minimal" also decals, weather, contrails and lens flares. A network game keeps the grass, weather, contrails and flares. |
+| `tuning.effects` | nothing | nothing | yes | `full`; `full` or `reduced` or `minimal` | `reduced` | `minimal` | Drawing: "reduced" skips the shine, reflection and grass passes; "minimal" also decals and weather. Lens flares and contrails are always drawn; a network game keeps the grass and weather too. |
 | `tuning.shadow_pixels` | nothing | nothing | yes | `30`; 30 to 400 | `60` | `120` | Drawing: each object's shadow redraws the level under it; an object too small for one is not lit for it either. |
-| `tuning.object_cull_pixels` | nothing | nothing | yes | `0`; 0 to 16 | `4` | `8` | Drawing, and CPU a frame: small objects are neither lit nor drawn. In a network game only items lying around. |
+| `tuning.object_cull_pixels` | nothing | nothing | yes | `0`; 0 to 16 | `4` | `8` | Drawing, and CPU a frame: small objects are neither lit nor drawn. Never units or projectiles; in a network game only debris. |
 | `tuning.texture_cache` | nothing | nothing | yes | `auto`; "auto", or 19 to 512 MB (and what memory has room for) | nothing | nothing | Memory: a bigger cache loads fewer textures from the disc, and leaves less free. |
 
 <!-- end of tuning table -->

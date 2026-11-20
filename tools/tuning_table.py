@@ -38,8 +38,8 @@ PRESETS = ("retail", "lan-party", "potato")
 # tick: never changed by a knob), the drawing (the CPU's render and the
 # GPU), or memory. One line each, in plain words.
 COSTS = {
-    "display.dynamic_light_limit": "Drawing. Each dynamic light redraws the level it reaches twice; in a big firefight most of the GPU's time.",
-    "display.specular_light_limit": "Drawing. The shine pass of near lights, the costliest pass in a firefight.",
+    "display.dynamic_light_limit": "Drawing. Each dynamic light redraws the level it reaches twice; in a big firefight most of the GPU's time. Never under 8 in a network game, so on the consoles (whose default is 8) it cuts only outside one.",
+    "display.specular_light_limit": "Drawing. The shine pass of near lights, the costliest pass in a firefight. Never under 2 in a network game.",
     "display.particle_limit": "CPU and drawing: each particle alive is moved, tested against the level and drawn. Never under 1024 in a network game, so on the original Xbox (whose most is 1024) it cuts only outside one.",
     "display.particle_ticks": "CPU a frame: moving loose particles once a tick saves two in three of their collision tests at 60 fps.",
     "display.shadow_resolution": "Drawing and video memory: bigger shadow maps.",
@@ -51,9 +51,9 @@ COSTS = {
     "tuning.present_mode": "Waiting, not work: \"adaptive\" shows a late frame at once, with a tear, instead of a refresh later.",
     "tuning.texture_cache": "Memory: a bigger cache loads fewer textures from the disc, and leaves less free.",
     "tuning.particle_thinning": "Drawing: fewer sprites of loose particles; each is still moved and counted as before. In a network game only past the Xbox's 1024.",
-    "tuning.effects": "Drawing: \"reduced\" skips the shine, reflection and grass passes; \"minimal\" also decals, weather, contrails and lens flares. A network game keeps the grass, weather, contrails and flares.",
+    "tuning.effects": "Drawing: \"reduced\" skips the shine, reflection and grass passes; \"minimal\" also decals and weather. Lens flares and contrails are always drawn; a network game keeps the grass and weather too.",
     "tuning.shadow_pixels": "Drawing: each object's shadow redraws the level under it; an object too small for one is not lit for it either.",
-    "tuning.object_cull_pixels": "Drawing, and CPU a frame: small objects are neither lit nor drawn. In a network game only items lying around.",
+    "tuning.object_cull_pixels": "Drawing, and CPU a frame: small objects are neither lit nor drawn. Never units or projectiles; in a network game only debris.",
 }
 
 PLATFORM_FLAGS = {

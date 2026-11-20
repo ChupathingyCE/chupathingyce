@@ -2294,7 +2294,13 @@ reaches: in Chill Out with 64 players, a frame's 6 lights spent 11.3 ms of
 the Switch's GPU on their specular passes (about 2 ms each, the near ones
 covering most of the screen with the level's big triangles) and 3.7 on their
 diffuse ones. The objects' lighting, which the rasterizer is given every
-light for, is not changed. */
+light for, is not changed. In a network game neither limit goes below the
+consoles' defaults, 8 and 2 (HALO_CONSOLE_LIGHT_LIMITS: the original Xbox's
+"retail"): another player's muzzle flash, plasma or flashlight on the walls
+round a corner tells you where they are, and [tuning] is for what is drawn,
+never for an edge. 0, no limit, stays none */
+#define PORT_NETWORK_LIGHT_FLOOR 8
+#define PORT_NETWORK_SPECULAR_LIGHT_FLOOR 2
 static boolean port_dynamic_light_kept[MAXIMUM_RENDERED_LIGHTS];
 static boolean port_dynamic_light_specular[MAXIMUM_RENDERED_LIGHTS];
 
@@ -2334,6 +2340,28 @@ static void port_dynamic_lights_choose(
 	limit = config_integer("display.dynamic_light_limit");
 	specular_limit = config_integer("display.specular_light_limit");
 #endif
+	/* (held in a network game, as display.particle_limit is: said once a
+	pair of values) */
+	if (render_tuning_network_game() &&
+		((limit > 0 && limit < PORT_NETWORK_LIGHT_FLOOR) ||
+		(specular_limit > 0 && specular_limit < PORT_NETWORK_SPECULAR_LIGHT_FLOOR)))
+	{
+		static long said_for = NONE;
+		long pair = limit << 16 | specular_limit;
+
+		if (said_for != pair)
+		{
+			said_for = pair;
+			platform_log("tuning: display.dynamic_light_limit %ld and display.specular_light_limit %ld held at %ld and %ld "
+				"in a network game (the consoles' defaults)", limit, specular_limit,
+				limit > 0 ? (long)MAX(limit, PORT_NETWORK_LIGHT_FLOOR) : 0L,
+				specular_limit > 0 ? (long)MAX(specular_limit, PORT_NETWORK_SPECULAR_LIGHT_FLOOR) : 0L);
+		}
+		if (limit > 0)
+			limit = MAX(limit, PORT_NETWORK_LIGHT_FLOOR);
+		if (specular_limit > 0)
+			specular_limit = MAX(specular_limit, PORT_NETWORK_SPECULAR_LIGHT_FLOOR);
+	}
 	for (light_index = 0; light_index < lights_globals.scene_point_light_count; light_index++)
 	{
 		struct light_datum *light = light_get(lights_globals.scene_point_lights[light_index]);

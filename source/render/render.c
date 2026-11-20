@@ -205,7 +205,9 @@ static struct
 	long counts[NUMBER_OF_RENDER_TUNING_COUNTS];
 	long counted_frames;
 	/* the frames tuning.effects left a pass out in, by pass */
-	long passes_left_out_frames[_render_tuning_lens_flares_bit + 1];
+	long passes_left_out_frames[NUMBER_OF_RENDER_TUNING_PASSES];
+	/* whether those frames were a network game's */
+	boolean counted_network_game;
 } render_tuning_globals = { (unsigned long)-1, FALSE, 1, 0, 30.0f, 0.0f, 0, FALSE, 0 };
 
 /* (the frames a "tuning: did" line covers: 10 s at 30 frames a second) */
@@ -216,9 +218,9 @@ static char const *const render_tuning_count_names[NUMBER_OF_RENDER_TUNING_COUNT
 	"lights", "shine", "particles", "sprites", "shadows", "objects"
 };
 
-static char const *const render_tuning_pass_names[_render_tuning_lens_flares_bit + 1] =
+static char const *const render_tuning_pass_names[NUMBER_OF_RENDER_TUNING_PASSES] =
 {
-	"shine", "reflections", "grass", "decals", "weather", "contrails", "lens_flares"
+	"shine", "reflections", "grass", "decals", "weather"
 };
 
 static void render_tuning_say_counts(void);
@@ -284,13 +286,12 @@ void render_tuning_update(
 				FLAG(_render_tuning_reflections_bit) |
 				FLAG(_render_tuning_detail_objects_bit);
 		}
+		/* (never the lens flares or contrails: render.h) */
 		if (render_tuning_globals.effects >= 2)
 		{
 			left_out |=
 				FLAG(_render_tuning_decals_bit) |
-				FLAG(_render_tuning_weather_bit) |
-				FLAG(_render_tuning_contrails_bit) |
-				FLAG(_render_tuning_lens_flares_bit);
+				FLAG(_render_tuning_weather_bit);
 		}
 		if (network_game)
 		{
@@ -298,9 +299,7 @@ void render_tuning_update(
 			draws it for everyone) */
 			unsigned long kept = left_out & (
 				FLAG(_render_tuning_detail_objects_bit) |
-				FLAG(_render_tuning_weather_bit) |
-				FLAG(_render_tuning_contrails_bit) |
-				FLAG(_render_tuning_lens_flares_bit));
+				FLAG(_render_tuning_weather_bit));
 			long held =
 				(kept ? render_tuning_globals.effects : 0) |
 				(render_tuning_globals.particle_thinning > 1 ? render_tuning_globals.particle_thinning << 4 : 0) |
@@ -311,7 +310,7 @@ void render_tuning_update(
 			left_out &= ~kept;
 			if (kept && say)
 			{
-				platform_log("tuning: effects=%s draws the grass, weather, contrails and lens flares in a network game",
+				platform_log("tuning: effects=%s draws the grass and weather in a network game",
 					render_tuning_globals.effects >= 2 ? "minimal" : "reduced");
 			}
 			if (render_tuning_globals.particle_thinning > 1 && say)
@@ -321,7 +320,7 @@ void render_tuning_update(
 			}
 			if (render_tuning_globals.cull_pixels > 0.0f && say)
 			{
-				platform_log("tuning: object_cull_pixels=%d leaves out only items lying around in a network game",
+				platform_log("tuning: object_cull_pixels=%d leaves out only debris in a network game",
 					(int)render_tuning_globals.cull_pixels);
 			}
 		}
@@ -331,12 +330,21 @@ void render_tuning_update(
 		}
 		render_tuning_globals.passes_left_out = left_out;
 	}
+	/* (a network game started or ended: the counts so far said for what
+	they were, so a "tuning: did" line never mixes the menus' frames with
+	the game's) */
+	if (network_game != render_tuning_globals.counted_network_game)
+	{
+		if (render_tuning_globals.counted_frames > 0)
+			render_tuning_say_counts();
+		render_tuning_globals.counted_network_game = network_game;
+	}
 	/* (what the frame before left out, counted, and said every
 	RENDER_TUNING_SAID_FRAMES frames) */
 	{
 		short pass;
 
-		for (pass = 0; pass <= _render_tuning_lens_flares_bit; pass++)
+		for (pass = 0; pass < NUMBER_OF_RENDER_TUNING_PASSES; pass++)
 		{
 			if (TEST_FLAG(render_tuning_globals.passes_left_out, pass))
 				render_tuning_globals.passes_left_out_frames[pass]++;
@@ -383,7 +391,7 @@ static void render_tuning_say_counts(
 				render_tuning_count_names[index], (double)count / (double)frames);
 		}
 	}
-	for (index = 0; index <= _render_tuning_lens_flares_bit && length < sizeof(line); index++)
+	for (index = 0; index < NUMBER_OF_RENDER_TUNING_PASSES && length < sizeof(line); index++)
 	{
 		if (render_tuning_globals.passes_left_out_frames[index] > 0)
 		{
@@ -396,7 +404,7 @@ static void render_tuning_say_counts(
 	if (line[0])
 	{
 		platform_log("tuning: did%s (a frame, over %ld frames%s)", line, frames,
-			render_tuning_globals.network_game ? ", a network game" : "");
+			render_tuning_globals.counted_network_game ? ", a network game" : "");
 	}
 	memset(render_tuning_globals.counts, 0, sizeof(render_tuning_globals.counts));
 	memset(render_tuning_globals.passes_left_out_frames, 0, sizeof(render_tuning_globals.passes_left_out_frames));
@@ -465,10 +473,12 @@ real render_tuning_shadow_pixels(
 }
 
 /* port: tuning.object_cull_pixels, the size an object must look to be
-drawn (0: every one), and whether a network game lets it leave out an
-object of this type: only an item lying around (a weapon, equipment or
-debris), never a player, vehicle or shot, nor a thing that could stand
-between players (scenery, machines and the rest) */
+drawn (0: every one), and whether it may leave out an object of this type:
+never a unit (a player, an AI or a vehicle) or a projectile (a shot or a
+thrown grenade), and in a network game only debris (garbage): never a
+weapon or equipment someone could pick up (power-ups and power weapons on
+their spawns), nor a thing that could stand between players (scenery,
+machines and the rest) */
 real render_tuning_object_cull_pixels(
 	void)
 {
@@ -478,7 +488,18 @@ real render_tuning_object_cull_pixels(
 boolean render_tuning_object_type_culled(
 	short object_type)
 {
-	return !render_tuning_globals.network_game || TEST_FLAG(_object_mask_item, object_type);
+	if (render_tuning_globals.network_game)
+		return TEST_FLAG(_object_mask_garbage, object_type);
+
+	return !TEST_FLAG(_object_mask_unit | _object_mask_projectile, object_type);
+}
+
+/* port: whether the knobs are held for a network game now (not in a
+determinism check's replay): object_lights.c's light limits */
+boolean render_tuning_network_game(
+	void)
+{
+	return render_tuning_globals.network_game;
 }
 
 void render_effects(
@@ -727,10 +748,9 @@ static void render_window(
 {
 	struct rasterizer_window_begin_parameters parameters;
 	short rendered_cluster_index;
-	/* port: the passes [tuning]'s tuning.effects leaves out (render_tuning_update):
-	"minimal" the decals' five layers, and the lens flares with their tests */
+	/* port: the pass [tuning]'s tuning.effects leaves out (render_tuning_update):
+	"minimal" the decals' five layers */
 	boolean decals = render_tuning_draws(_render_tuning_decals_bit);
-	boolean lens_flares = render_tuning_draws(_render_tuning_lens_flares_bit);
 
 	profile_render_window_start(TRUE);
 	render.scene_index++;
@@ -774,8 +794,7 @@ static void render_window(
 		structure_render_preprocess();
 		structure_render_lightmaps();
 		HALO_PERF_RENDER_PART(_halo_perf_render_lens_flares);
-		if (lens_flares)
-			rasterizer_lens_flares_submit_occlusion_tests();
+		rasterizer_lens_flares_submit_occlusion_tests();
 		HALO_PERF_RENDER_PART(_halo_perf_render_objects);
 		render_object_shadows();
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
@@ -864,8 +883,7 @@ static void render_window(
 		weather_particle_systems_render();
 		render_particles();
 		particle_systems_render();
-		if (render_tuning_draws(_render_tuning_contrails_bit))
-			render_contrails_normal();
+		render_contrails_normal();
 #ifdef HALO_SHADER_PREP
 		/* port: and every effect's (port/linux/game/render_enumerate.c) */
 		render_enumerate_effects();
@@ -894,8 +912,7 @@ static void render_window(
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
 		structure_render_fog_screen();
 		HALO_PERF_RENDER_PART(_halo_perf_render_lens_flares);
-		if (lens_flares)
-			rasterizer_lens_flares_draw();
+		rasterizer_lens_flares_draw();
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
 		/* port: Stubbs mode's image effect over the 3D view
 		(port/linux/game/stubbs_image_effects.c) */

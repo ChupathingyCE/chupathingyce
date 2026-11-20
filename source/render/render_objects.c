@@ -520,8 +520,9 @@ static void find_rendered_objects(
 
 	/* port: tuning.object_cull_pixels, the objects that look smaller than
 	it left out here, before they are lit or cast a shadow: never one with
-	something attached (a player's weapon, a flag) or the camera's own, and
-	in a network game only an item lying around (render_tuning_object_type_culled).
+	something attached (a player's weapon, a flag), the camera's own, a unit
+	or a projectile, and in a network game only debris
+	(render_tuning_object_type_culled).
 	0, the default, keeps every one, as the Xbox */
 	{
 		real cull_pixels = render_tuning_object_cull_pixels();
