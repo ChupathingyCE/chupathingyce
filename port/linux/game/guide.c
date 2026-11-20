@@ -140,6 +140,7 @@ DELTA counts what waits ("DELTA 2": invites and requests).
 #include "guide_logs.h"
 #include "report_player.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -4154,28 +4155,61 @@ static void render_sidebar(void)
 	ui_overlay_rect(CONTENT_LEFT - 8, BODY_Y, 1, BODY_BOTTOM - BODY_Y, 0, ui_style_color(UI_COLOR_RULE));
 }
 
-/* a player's row: their dot, tag, status line and platform's logo */
-static void render_row(struct social_row const *row, float x, float y, float width, boolean on, short index)
+/* the width of text in a kind's font (guide_layout's measure: context is
+the kind) */
+static float measure_kind(void *context, float size, char const *text)
 {
-	char tag[SOCIAL_TAG_SIZE + 4];
+	return ui_overlay_text_width(ui_style_text_font((int)(intptr_t)context), size, text);
+}
+
+/* a player's row: their dot, tag, status line and platform's logo, and a
+mark at its right (FRIENDS' IN PARTY, INVITED; NULL: none). The tag and
+the status are cut short of what is at the right (the chosen row's detail
+pane has them whole) */
+static void render_row_marked(struct social_row const *row, float x, float y, float width, boolean on, short index,
+	char const *mark)
+{
+	char tag[SOCIAL_TAG_SIZE + 4], fitted[SOCIAL_STATUS_SIZE + 4];
+	float right = x + width - (row->platform > 0 ? 24 : 10), room;
+	int status_kind = row->muted ? UI_TEXT_WARNING : UI_TEXT_STATUS;
 
 	/* (a name of letters the menus' fonts lack: its ASCII letters, or
 	"Player", never a blank row) */
 	ui_overlay_name_shown(ui_style_text_font(UI_TEXT_NAME), row->tag, tag, sizeof(tag));
 	ui_style_row(x, y, width, ROW_HEIGHT, on);
+	if (mark)
+	{
+		ui_overlay_text(UI_FONT_MENU, 9.5f, x + width - 14, y + (ROW_HEIGHT - 9.5f) * 0.5f, UI_ALIGN_RIGHT,
+			ui_style_color(UI_COLOR_NAME), mark);
+		right = x + width - 14 - ui_overlay_text_width(UI_FONT_MENU, 9.5f, mark) - 8;
+	}
+	room = right - (x + 22);
 	if (row->state >= 0)
 		dot_draw(x + 9, y + ROW_HEIGHT * 0.5f - 3, row->state);
 	if (row->status[0])
 	{
-		ui_style_text(UI_TEXT_NAME, x + 22, y + 3, UI_ALIGN_LEFT, tag);
-		ui_style_text(row->muted ? UI_TEXT_WARNING : UI_TEXT_STATUS, x + 22, y + 17, UI_ALIGN_LEFT, row->status);
+		guide_layout_fit(tag, room, ui_style_text_size(UI_TEXT_NAME), measure_kind, (void *)(intptr_t)UI_TEXT_NAME, 0,
+			fitted, sizeof(fitted));
+		ui_style_text(UI_TEXT_NAME, x + 22, y + 3, UI_ALIGN_LEFT, fitted);
+		guide_layout_fit(row->status, room, ui_style_text_size(status_kind), measure_kind, (void *)(intptr_t)status_kind,
+			0, fitted, sizeof(fitted));
+		ui_style_text(status_kind, x + 22, y + 17, UI_ALIGN_LEFT, fitted);
 	}
 	else
+	{
+		guide_layout_fit(tag, room, ui_style_text_size(UI_TEXT_NAME), measure_kind, (void *)(intptr_t)UI_TEXT_NAME, 0,
+			fitted, sizeof(fitted));
 		ui_style_text(UI_TEXT_NAME, x + 22, y + (ROW_HEIGHT - ui_style_text_size(UI_TEXT_NAME)) * 0.5f, UI_ALIGN_LEFT,
-			tag);
+			fitted);
+	}
 	if (row->platform > 0)
 		ui_overlay_platform(row->platform, 11.0f, x + width - 14, y + (ROW_HEIGHT - 11.0f) * 0.5f, COLOR_LABEL, 0);
 	target_add(x, y, x + width, y + ROW_HEIGHT, _target_row, index);
+}
+
+static void render_row(struct social_row const *row, float x, float y, float width, boolean on, short index)
+{
+	render_row_marked(row, x, y, width, on, index, NULL);
 }
 
 /* a button of the detail pane (an action) */
@@ -4402,19 +4436,14 @@ static void render_friend_detail(struct friend_item const *item)
 }
 
 /* a friend's row's mark, at its right: IN PARTY, else INVITED while an
-invite of this player's waits for them */
-static void render_friend_mark(char const *handle, float y)
+invite of this player's waits for them (NULL: none) */
+static char const *friend_mark(char const *handle)
 {
 	unsigned long now = system_milliseconds();
-	char const *mark = party_has_handle(handle) ? "IN PARTY" :
+
+	return party_has_handle(handle) ? "IN PARTY" :
 		social_sent_has(&guide.sent, handle, SOCIAL_SENT_PARTY, now) ||
 		social_sent_has(&guide.sent, handle, SOCIAL_SENT_GAME, now) ? "INVITED" : NULL;
-
-	if (mark)
-	{
-		ui_overlay_text(UI_FONT_MENU, 9.5f, CONTENT_LEFT + LIST_WIDTH - 14, y + (ROW_HEIGHT - 9.5f) * 0.5f, UI_ALIGN_RIGHT,
-			ui_style_color(UI_COLOR_NAME), mark);
-	}
 }
 
 static void render_friends(void)
@@ -4467,9 +4496,8 @@ static void render_friends(void)
 			struct social_row row;
 
 			item_row(item, &row);
-			render_row(&row, CONTENT_LEFT, y, LIST_WIDTH, index == chosen && !guide.options, index);
-			if (item->kind == _item_friend)
-				render_friend_mark(friends_state.friends[item->index].handle, y);
+			render_row_marked(&row, CONTENT_LEFT, y, LIST_WIDTH, index == chosen && !guide.options, index,
+				item->kind == _item_friend ? friend_mark(friends_state.friends[item->index].handle) : NULL);
 		}
 		y += height;
 	}
