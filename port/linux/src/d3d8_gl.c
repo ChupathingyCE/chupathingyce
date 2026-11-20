@@ -7587,7 +7587,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 			stats_busy_total += busy;
 			if (busy > stats_busy_worst)
 				stats_busy_worst = busy;
-			char account[256] = "";
+			char account[384] = "";
 
 #ifdef HALO_BGFX
 			if (bg_active())
