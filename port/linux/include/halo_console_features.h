@@ -211,6 +211,13 @@ HALO_CONSOLE_LIGHT_AUDIO
 	(audio.resampling, audio.reverb), on a console with one slow core (the
 	Steam Link's, where the sinc resampler and the reverb took two fifths of
 	the processor)
+HALO_CONSOLE_NO_STRUCTURE_CULLING
+	the level's surfaces walked as the original game walks them by default
+	(debug.structure_culling false, port/linux/game/structure_culling.c):
+	on a console whose processor, not its GPU, sets the frame rate, the
+	culling's tests of each surface and triangle cost more than the GPU
+	work they spare (the Vita's b30 beach: 9 of a frame's 100 ms in the
+	visibility walk with them, 4.7 without, the GPU idle either way)
 HALO_CONSOLE_HUD_ON_DEMAND
 	the high-res HUD's pictures decoded each when first drawn, as Android's
 	are, rather than a map's all at its load (hud_hires.c): about 40 MB less
