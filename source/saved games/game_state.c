@@ -388,9 +388,20 @@ void game_state_port_restamp_revert_time(
 	game_state_globals.revert_time = game_time_get();
 }
 
+/* port: the reverts so far, for player_control.c: a cinematic skip's press
+makes one revert, not one for each tick it is held */
+static unsigned long game_state_revert_count;
+
+unsigned long game_state_port_revert_count(
+	void)
+{
+	return game_state_revert_count;
+}
+
 void game_state_revert(
 	void)
 {
+	game_state_revert_count++;
 	if (!game_state_globals.saved_game_valid && !recover_saved_games_hack)
 	{
 		main_reset_map();
