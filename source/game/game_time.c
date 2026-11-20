@@ -76,6 +76,7 @@ symbols in this file:
 #include "networking/network_game_globals.h"
 #include "networking/network_server_manager.h"
 #include "saved games/game_state.h"
+#include "interface/ui_widget.h" /* port: main_menu_is_active, for debug.freeze_at_tick */
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "mcc_game_speed.h" /* port: port/linux/game/mcc_game_speed.c */
 #include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
@@ -636,9 +637,10 @@ void game_time_update(
 					{
 						/* port: debug.freeze_at_tick stops the game at that tick,
 						as game_speed 0 would, so that every run draws the same
-						moment (tools/renderer_gate.py's pictures) */
+						moment (tools/renderer_gate.py's pictures); never the main
+						menu's scene, whose lobby has to count down */
 						if (game_time_freeze_tick() > 0 &&
-							game_time_globals->server_time >= game_time_freeze_tick())
+							game_time_globals->server_time >= game_time_freeze_tick() && !main_menu_is_active())
 						{
 							game_time_globals->speed = 0.f;
 							game_time_globals->leftover_dt = 0.f;

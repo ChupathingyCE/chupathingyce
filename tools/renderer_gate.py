@@ -298,6 +298,8 @@ class Game:
             "HALO_NET_BROADCAST": "127.0.0.1",
             "HALO_DEDICATED_PUBLIC": "false",
             "HALO_STEAM_DISCOVERY": "false",
+            # (nothing fetched from Chupathingy maps either)
+            "HALO_NET_MAPS_URL": "",
             "SDL_AUDIO_DRIVER": "dummy",
             "HALO_RENDERER": self.renderer,
             "HALO_DISPLAY_MODE": "windowed",
@@ -329,6 +331,10 @@ class Game:
                 raise RuntimeError(f"Xvfb could not start on {self.display}")
             environment["DISPLAY"] = self.display
         if self.inputs:
+            # (played as bench.py plays it, frames between ticks on: an action
+            # view has no debug camera to move; one Mac replay with them off
+            # fell out of step with its recording)
+            environment["HALO_INTERPOLATION"] = "true"
             # (an action view: the recorded game played back, as
             # tools/test_determinism.py does, so that both renderers see the
             # same shots fired at the same tick)
@@ -345,7 +351,9 @@ class Game:
         self.log = open(self.folder / "out.log", "w")
         self.process = subprocess.Popen([str(self.binary)], cwd=str(data), env=environment, stdout=self.log,
                                         stderr=subprocess.STDOUT)
-        deadline = time.time() + 240
+        # (the load, then the ticks up to the stop: a software renderer can
+        # run the game at a fraction of its speed)
+        deadline = time.time() + 240 + self.tick * 0.2
         while time.time() < deadline and not self.connection:
             if self.process.poll() is not None:
                 raise RuntimeError(f"the game stopped while it started (exit {self.process.returncode})")
@@ -361,16 +369,23 @@ class Game:
                 time.sleep(1)
         if not self.connection:
             raise RuntimeError("the game's console never answered")
-        # (the map loads and plays up to the tick, then holds it)
+        # (the map loads and plays up to the tick, then holds it; the main
+        # menu's own scene has a game time too, so the map must have loaded)
         while time.time() < deadline:
             answer = self.command("(game_time)")
             numbers = [int(word) for word in answer.split() if word.isdigit()]
-            if numbers and numbers[-1] >= self.tick:
+            if numbers and numbers[-1] >= self.tick and self.map_loaded():
                 return
             if self.process.poll() is not None:
                 raise RuntimeError(f"the game stopped (exit {self.process.returncode})")
             time.sleep(1)
         raise RuntimeError(f"the game never reached tick {self.tick}")
+
+    def map_loaded(self):
+        """whether a map has loaded: the [tuning] line each map's load logs
+        (the main menu's scene is "at=boot")"""
+        text = (self.folder / "out.log").read_text(errors="replace")
+        return "tuning: at=map " in text
 
     def command(self, text, wait=0.4):
         self.connection.sendall((text + "\n").encode())
@@ -453,6 +468,29 @@ def settled_shot(game, name, scratch, attempts, still):
 
 
 RECORDINGS = {}
+GAME_PORT = 5150
+
+
+def wait_for_game_port(minutes=20):
+    """The recorded game is hosted on 127.0.0.1's game port: another copy of
+    the game on the machine that holds it (a test of something else) stops
+    the host, so wait for it to let go"""
+    deadline = time.time() + minutes * 60
+    told = False
+    while True:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            try:
+                probe.bind(("127.0.0.1", GAME_PORT))
+                return True
+            except OSError:
+                pass
+        if time.time() > deadline:
+            log(f"another program still holds 127.0.0.1:{GAME_PORT}: going on anyway")
+            return False
+        if not told:
+            log(f"another program holds 127.0.0.1:{GAME_PORT} (another copy of the game?): waiting for it")
+            told = True
+        time.sleep(10)
 
 
 def recording(binary, game_map, tick, scratch, arguments):
@@ -464,8 +502,23 @@ def recording(binary, game_map, tick, scratch, arguments):
         work = scratch / f"record-{safe(game_map)}"
         inputs = work / "inputs.bin"
         log(f"recording the action on {game_map} ({tick + 30} ticks)")
-        determinism.play(str(binary), arguments.maps, str(work), "record", "record", str(inputs), game_map,
-                         tick + 30, determinism.DEFAULT_SEED)
+        original = determinism.copy_environment
+
+        def with_other_maps(folder, maps, address):
+            # (a Custom Edition or MCC map's folder linked in too)
+            environment = original(folder, maps, address)
+            environment["HALO_NET_MAPS_URL"] = ""
+            for name, target in (("maps_ce", arguments.maps_ce), ("maps_mcc", arguments.maps_mcc)):
+                if target:
+                    os.symlink(Path(target).expanduser().resolve(), os.path.join(folder, "data", name))
+            return environment
+
+        determinism.copy_environment = with_other_maps
+        try:
+            determinism.play(str(binary), arguments.maps, str(work), "record", "record", str(inputs), game_map,
+                             tick + 30, determinism.DEFAULT_SEED)
+        finally:
+            determinism.copy_environment = original
         RECORDINGS[key] = inputs
     return RECORDINGS[key]
 
@@ -483,58 +536,70 @@ def capture(binary, renderer, views, ticks, out, scratch, arguments, settings, l
         real_map, inputs = game_map, None
         if game_map.startswith("action:"):
             real_map = game_map.split(":", 1)[1]
+            wait_for_game_port()
             inputs = recording(binary, real_map, tick, scratch, arguments)
-        try:
-            with Game(binary, real_map, renderer, folder, arguments.size, tick, settings, arguments.maps_ce,
-                      arguments.maps_mcc, arguments.xvfb, inputs) as game:
-                backends[game_map] = game.backend()
-                time.sleep(arguments.settle)
-                mine = [view for view in views if view.map == game_map]
-                # (the player's own views first: the debug camera keeps the view
-                # once it is loaded)
-                mine.sort(key=lambda view: view.kind != "player")
-                spawn = None
-                for view in mine:
-                    if view.kind == "player":
-                        game.command("(show_hud 1)")
-                    else:
-                        if view.kind == "spawn" and spawn is None:
-                            game.command("debug_camera_save", wait=1.0)
-                            saved = folder / "saves" / "camera.txt"
-                            if not saved.exists():
-                                saved = folder / "data" / "camera.txt"
-                            fields = [float(word) for word in saved.read_text().split()]
-                            spawn = (fields[0], fields[1], fields[2] + 0.25,
-                                     math.degrees(math.atan2(fields[4], fields[3])))
-                        if view.kind == "spawn":
-                            x, y, z, yaw = spawn
-                            pose = (x, y, z, (yaw + view.values[0] + 180) % 360 - 180,
-                                    view.values[1] if len(view.values) > 1 else 0.0)
-                        else:
-                            pose = tuple(view.values)
-                        text = camera_text(*pose)
-                        for where in ("saves", "data"):
-                            (folder / where / "camera.txt").write_text(text)
-                        game.command("(show_hud 0)")
-                        game.command("(show_hud_help_text 0)")
-                        game.command("debug_camera_load", wait=1.0)
-                    shot, note = settled_shot(game, view.key(), scratch, arguments.attempts, arguments.still)
-                    target = out / f"{view.key()}.png"
-                    shutil.move(str(shot), target)
-                    shots[view.key()] = target
-                    if note:
-                        notes[view.key()] = note
-                    log(f"  {view.key()}: saved{' (' + note + ')' if note else ''}")
-        except (RuntimeError, OSError, subprocess.CalledProcessError, ValueError) as reason:
-            failures[game_map] = str(reason)
-            log(f"  {game_map}: FAILED: {reason}")
-        finally:
-            for name in ("out.log",):
-                if (folder / name).exists():
-                    shutil.copy(folder / name, out / f"{safe(game_map)}.log")
-            if not arguments.keep:
-                shutil.rmtree(folder, ignore_errors=True)
+        for attempt in range(2):
+            if inputs:
+                wait_for_game_port()
+            try:
+                capture_map(binary, renderer, game_map, real_map, inputs, views, tick, folder, out, scratch,
+                            arguments, settings, shots, notes, backends)
+                failures.pop(game_map, None)
+                break
+            except (RuntimeError, OSError, subprocess.CalledProcessError, ValueError) as reason:
+                failures[game_map] = str(reason)
+                log(f"  {game_map}: FAILED: {reason}{': once more' if not attempt else ''}")
+            finally:
+                if (folder / "out.log").exists():
+                    shutil.copy(folder / "out.log", out / f"{safe(game_map)}.log")
+                if not arguments.keep:
+                    shutil.rmtree(folder, ignore_errors=True)
     return shots, failures, notes, backends
+
+
+def capture_map(binary, renderer, game_map, real_map, inputs, views, tick, folder, out, scratch, arguments,
+                settings, shots, notes, backends):
+    """One run of the build on a map, its views saved in out"""
+    with Game(binary, real_map, renderer, folder, arguments.size, tick, settings, arguments.maps_ce,
+              arguments.maps_mcc, arguments.xvfb, inputs) as game:
+        backends[game_map] = game.backend()
+        time.sleep(arguments.settle)
+        mine = [view for view in views if view.map == game_map]
+        # (the player's own views first: the debug camera keeps the view
+        # once it is loaded)
+        mine.sort(key=lambda view: view.kind != "player")
+        spawn = None
+        for view in mine:
+            if view.kind == "player":
+                game.command("(show_hud 1)")
+            else:
+                if view.kind == "spawn" and spawn is None:
+                    game.command("debug_camera_save", wait=1.0)
+                    saved = folder / "saves" / "camera.txt"
+                    if not saved.exists():
+                        saved = folder / "data" / "camera.txt"
+                    fields = [float(word) for word in saved.read_text().split()]
+                    spawn = (fields[0], fields[1], fields[2] + 0.25,
+                             math.degrees(math.atan2(fields[4], fields[3])))
+                if view.kind == "spawn":
+                    x, y, z, yaw = spawn
+                    pose = (x, y, z, (yaw + view.values[0] + 180) % 360 - 180,
+                            view.values[1] if len(view.values) > 1 else 0.0)
+                else:
+                    pose = tuple(view.values)
+                text = camera_text(*pose)
+                for where in ("saves", "data"):
+                    (folder / where / "camera.txt").write_text(text)
+                game.command("(show_hud 0)")
+                game.command("(show_hud_help_text 0)")
+                game.command("debug_camera_load", wait=1.0)
+            shot, note = settled_shot(game, view.key(), scratch, arguments.attempts, arguments.still)
+            target = out / f"{view.key()}.png"
+            shutil.move(str(shot), target)
+            shots[view.key()] = target
+            if note:
+                notes[view.key()] = note
+            log(f"  {view.key()}: saved{' (' + note + ')' if note else ''}")
 
 
 # ---------- frame time
@@ -550,9 +615,11 @@ def bench(binary, renderers, arguments, out):
                    "--size", arguments.size, "--work", str(out / f"bench-{game_map}"), "--json", str(json_path)]
         for renderer in renderers:
             command += ["--renderer", renderer]
-        for pair in arguments.env:
+        for pair in ["HALO_NET_MAPS_URL=", *arguments.env]:
             command += ["--env", pair]
         log(f"bench: {game_map}")
+        wait_for_game_port()
+        load_before = os.getloadavg()[0] if hasattr(os, "getloadavg") else -1
         environment = dict(os.environ)
         if arguments.xvfb:
             environment["DISPLAY"] = arguments.xvfb
@@ -563,6 +630,11 @@ def bench(binary, renderers, arguments, out):
             continue
         data = json.loads(json_path.read_text())
         results[game_map] = {row["renderer"]: row for row in data["results"]}
+        load_after = os.getloadavg()[0] if hasattr(os, "getloadavg") else -1
+        results[game_map]["load"] = {"before": load_before, "after": load_after, "cpus": os.cpu_count()}
+        if max(load_before, load_after) > (os.cpu_count() or 1) / 2:
+            log(f"bench: {game_map}: the machine was busy (load {load_before:.1f} -> {load_after:.1f} on "
+                f"{os.cpu_count()} CPUs): the frame times are not to be trusted")
         if not arguments.keep:
             shutil.rmtree(out / f"bench-{game_map}", ignore_errors=True)
     return results
@@ -576,6 +648,11 @@ def bench_verdict(results, first, second, margin):
     for game_map, rows in results.items():
         if "error" in rows:
             return False, [f"{game_map}: {rows['error']}"]
+        load = rows.get("load")
+        if load and max(load["before"], load["after"]) > (load["cpus"] or 1) / 2:
+            passed = False
+            reasons.append(f"{game_map}: the machine was busy (load {load['before']:.1f} -> {load['after']:.1f} on "
+                           f"{load['cpus']} CPUs): measure again with nothing else running")
         a, b = rows.get(first), rows.get(second)
         if not a or not b or "mean_ms" not in a or "mean_ms" not in b:
             return False, [f"{game_map}: no frames logged for one renderer"]
@@ -636,6 +713,10 @@ def write_report(out, summary, rows, bench_results, arguments):
                "|---|---|---|---|---|---|---|---|---|---|---|"]
         for game_map, rows_by_renderer in bench_results.items():
             for renderer, r in rows_by_renderer.items():
+                if renderer == "load":
+                    md.append(f"| {game_map} | (load average {r['before']:.1f} -> {r['after']:.1f}, {r['cpus']} CPUs) "
+                              "|||||||||")
+                    continue
                 if not isinstance(r, dict) or "mean_ms" not in r:
                     md.append(f"| {game_map} | {renderer} | {r} |||||||||")
                     continue
