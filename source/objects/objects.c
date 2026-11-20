@@ -425,7 +425,27 @@ void objects_fix_for_deleted_object(
 	struct object_datum *object;
 
 	struct object_iterator iterator;
+#ifdef HALO_CONSOLE_FEWER_WALKS
+	unsigned long handling_types = object_types_handling_deleted_objects();
+
+#if defined(HALO_RELEASE) || defined(HALO_CONSOLE_NO_DEBUG_ASSERTS)
+	/* port: a release-style build visits only the objects of the types with
+	a handler (units and projectiles). The other reference cleared here, an
+	object's umbrella shield, is never anything but NONE: object_new sets it
+	so, nothing sets it to an object, damage.c only reads it. So the walk read every object
+	in the game (about a thousand in b30's beach fight) for every projectile
+	that hit or timed out, and found nothing to clear in all but those. The
+	headers are still walked in order and the handlers called for the same
+	objects in the same order. Builds with assertions visit every object and
+	check that no umbrella shield names the deleted object (from Lord
+	BirchWood's Vita port) */
+	object_iterator_new(&iterator, handling_types, 0);
+#else
 	object_iterator_new(&iterator, _object_mask_all, 0);
+#endif
+#else
+	object_iterator_new(&iterator, _object_mask_all, 0);
+#endif
 
 	for (object = (struct object_datum *)object_iterator_next(&iterator);
 		object;
@@ -433,8 +453,15 @@ void objects_fix_for_deleted_object(
 	{
 		if (object->object.umbrella_shield_object_index==deleted_object_index)
 		{
+#if defined(HALO_CONSOLE_FEWER_WALKS) && !defined(HALO_RELEASE) && !defined(HALO_CONSOLE_NO_DEBUG_ASSERTS)
+			match_vassert("c:\\halo\\SOURCE\\objects\\objects.c", __LINE__, FALSE,
+				"objects_fix_for_deleted_object: an umbrella shield named an object (a release build skips the objects that have no handler)");
+#endif
 			object->object.umbrella_shield_object_index = NONE;
 		}
+#ifdef HALO_CONSOLE_FEWER_WALKS
+		if (TEST_FLAG(handling_types, object->object.type))
+#endif
 		object_type_handle_deleted_object(iterator.index, deleted_object_index);
 	}
 

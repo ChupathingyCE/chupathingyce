@@ -11,9 +11,23 @@ tools/delta_menu_art.py). -->
 		<on event="created" run="main menu intialize" label="ring_loop"/>
 		<on event="back" open="chupathingy/quit_screen"/>
 		<on event="b" open="chupathingy/quit_screen"/>
-		<child widget="main_menu/halo_logo" y="28"/>
+		<child widget="main_menu/halo_logo" y="28" platform="console"/>
+		<child widget="chupathingy/main_menu_logo" y="28" platform="desktop android switch"/>
 		<child widget="chupathingy/main_menu_list"/>
 		<child widget="main_menu/build_number" x="450" y="400"/>
+	</widget>
+	<!-- (the Halo logo, as ui.map has it, and duct tape over it: the Konami
+	code on this menu puts the tape on or takes it off, and
+	display.duct_tape_logo keeps it; "port duct tape logo", menu_functions.c.
+	duct_tape__0.png is the tape of chupathingy.org's logo alone, cut out
+	where it covers the Halo logo: the logo under it is the player's own) -->
+	<bitmap name="chupathingy/main_menu/duct_tape" platform="desktop android switch">
+		<frame png="chupathingy/main_menu/duct_tape__0.png" width="640" height="256"/>
+	</bitmap>
+	<widget name="chupathingy/main_menu_logo" controller="1" width="640" height="256" platform="desktop android switch">
+		<data input="port duct tape logo"/>
+		<widget name="chupathingy/main_menu_logo_halo" width="640" height="256" bitmap="ui\shell\main_menu\halo_logo"/>
+		<widget name="chupathingy/main_menu_logo_tape" width="640" height="256" bitmap="chupathingy/main_menu/duct_tape"/>
 	</widget>
 	<widget name="chupathingy/main_menu_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items" description="main_menu/main_menu_list_ext_desc">
 		<data input="main menu fake animate"/>

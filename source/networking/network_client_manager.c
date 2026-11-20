@@ -1972,6 +1972,20 @@ boolean network_game_client_game_has_started(
 	return client->state == _network_game_client_state_ingame;
 }
 
+long network_game_client_silent_milliseconds(
+	void)
+{
+	struct network_game_client *client = global_network_game_client_get();
+
+	if (!client || !client->connection || client->state != _network_game_client_state_ingame ||
+		global_network_game_server_get())
+	{
+		return NONE;
+	}
+	/* (at most an hour: it fits a long anywhere) */
+	return (long)MIN(network_connection_silent_milliseconds(client->connection), 3600000UL);
+}
+
 boolean network_game_client_remove_player(
 	struct network_game_client *client,
 	struct network_player *player,
