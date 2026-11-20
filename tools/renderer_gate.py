@@ -77,6 +77,7 @@ MIN_SSIM = 0.97
 MAX_CHANGED = 0.01
 PIXEL_DELTA = 24
 MAX_BRIGHTNESS = 1.5
+MAX_TILE = 0.08
 
 
 def log(text):
@@ -181,6 +182,23 @@ def ssim(first, second, size=8):
     return float(value.mean())
 
 
+TILES = (16, 9)
+
+
+def tile_shares(moved):
+    """the changed share of each of a 16 by 9 grid of tiles, row by row: a
+    HUD meter or a weapon drawn differently is a small part of the picture,
+    but much of its tile"""
+    rows, columns = moved.shape
+    shares = []
+    for row in range(TILES[1]):
+        for column in range(TILES[0]):
+            tile = moved[row * rows // TILES[1]:(row + 1) * rows // TILES[1],
+                         column * columns // TILES[0]:(column + 1) * columns // TILES[0]]
+            shares.append(float(tile.mean()) if tile.size else 0.0)
+    return shares
+
+
 def compare(first_path, second_path, pixel_delta):
     """(numbers, the per-pixel change at full size) of two pictures"""
     import numpy
@@ -195,7 +213,9 @@ def compare(first_path, second_path, pixel_delta):
         "changed": float((change > pixel_delta).mean()),
         "brightness": float(brightness(second).mean() - brightness(first).mean()),
         "mean_delta": float(numpy.abs(first - second).mean()),
+        "tiles": tile_shares(change > pixel_delta),
     }
+    numbers["worst_tile"] = max(numbers["tiles"])
     return numbers, numpy.abs(first - second).max(axis=2)
 
 
@@ -602,6 +622,51 @@ def capture_map(binary, renderer, game_map, real_map, inputs, views, tick, folde
             log(f"  {view.key()}: saved{' (' + note + ')' if note else ''}")
 
 
+GAP_MARKS = ("is not in the bgfx renderer yet", "(not drawn yet)")
+
+
+def gap_lines(folder, game_map):
+    """what the renderer's log says it left out on a map: a setting it has
+    no pass for ("anti-aliasing: fxaa is not in the bgfx renderer yet, so
+    msaa2x"), a kind of draw it skips ("bgfx: wireframe (not drawn yet)")"""
+    path = folder / f"{safe(game_map)}.log"
+    if not path.exists():
+        return []
+    lines = [line.split("chupathingyce: ", 1)[-1] for line in path.read_text(errors="replace").splitlines()
+             if any(mark in line for mark in GAP_MARKS)]
+    return list(dict.fromkeys(lines))
+
+
+def kept_pictures(views, folder):
+    """capture()'s answer from an earlier run's pictures and logs in folder
+    (--from-pictures)"""
+    shots, failures, backends = {}, {}, {}
+    for view in views:
+        path = folder / f"{view.key()}.png"
+        if path.exists():
+            shots[view.key()] = path
+        else:
+            failures.setdefault(view.map, "no picture kept")
+    for game_map in dict.fromkeys(view.map for view in views):
+        log_path = folder / f"{safe(game_map)}.log"
+        backend = "OpenGL"
+        if log_path.exists():
+            for line in log_path.read_text(errors="replace").splitlines():
+                if "bgfx: " in line and " on " in line and ("Metal" in line or "Vulkan" in line or "Direct3D" in line):
+                    backend = line.split("bgfx: ", 1)[1].split(",")[0].strip()
+                    break
+            backends[game_map] = backend
+    return shots, failures, {}, backends
+
+
+def kept_bench(out):
+    results = {}
+    for path in sorted(out.glob("bench-*.json")):
+        data = json.loads(path.read_text())
+        results[data.get("map", path.stem[len("bench-"):])] = {row["renderer"]: row for row in data["results"]}
+    return results
+
+
 # ---------- frame time
 
 def bench(binary, renderers, arguments, out):
@@ -621,9 +686,20 @@ def bench(binary, renderers, arguments, out):
         wait_for_game_port()
         load_before = os.getloadavg()[0] if hasattr(os, "getloadavg") else -1
         environment = dict(os.environ)
+        xvfb = None
         if arguments.xvfb:
+            # (a display of its own for bench.py's copies, as the pictures' runs have)
+            width, height = arguments.size.split("x")
+            xvfb = subprocess.Popen(["Xvfb", arguments.xvfb, "-screen", "0", f"{width}x{height}x24", "-nolisten", "tcp"],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(1.5)
             environment["DISPLAY"] = arguments.xvfb
-        completed = subprocess.run(command, env=environment, capture_output=True, text=True)
+        try:
+            completed = subprocess.run(command, env=environment, capture_output=True, text=True)
+        finally:
+            if xvfb:
+                xvfb.terminate()
+                xvfb.wait(15)
         (out / f"bench-{game_map}.txt").write_text(completed.stdout + completed.stderr)
         if not json_path.exists():
             results[game_map] = {"error": f"bench.py failed (bench-{game_map}.txt)"}
@@ -678,12 +754,24 @@ def bench_verdict(results, first, second, margin):
 
 # ---------- the report
 
+def beyond_noise(numbers, noise, arguments):
+    """whether the renderers differ by clearly more than the reference
+    differs from itself: past a limit and past twice the reference's own"""
+    return (numbers["ssim"] < min(arguments.min_ssim, 1 - 2 * (1 - noise["ssim"])) or
+            numbers["changed"] > max(arguments.max_changed, 2 * noise["changed"]) or
+            any(share > max(arguments.max_tile, 2 * own) for share, own in zip(numbers["tiles"], noise["tiles"])) or
+            abs(numbers["brightness"]) > max(arguments.max_brightness, 2 * abs(noise["brightness"])))
+
+
 def verdict_of(numbers, arguments):
     reasons = []
     if numbers["ssim"] < arguments.min_ssim:
         reasons.append(f"SSIM {numbers['ssim']:.3f} < {arguments.min_ssim}")
     if numbers["changed"] > arguments.max_changed:
         reasons.append(f"{numbers['changed'] * 100:.2f}% of pixels changed > {arguments.max_changed * 100:g}%")
+    if numbers.get("worst_tile", 0) > arguments.max_tile:
+        reasons.append(f"{numbers['worst_tile'] * 100:.1f}% of one part of the picture changed "
+                       f"> {arguments.max_tile * 100:g}%")
     if abs(numbers["brightness"]) > arguments.max_brightness:
         reasons.append(f"brightness {numbers['brightness']:+.2f} (limit {arguments.max_brightness})")
     return ("match" if not reasons else "DIFFERS"), reasons
@@ -699,14 +787,14 @@ def write_report(out, summary, rows, bench_results, arguments):
           f"{arguments.size}, {summary['date']}.", ""]
     md += [f"- {reason}" for reason in summary["reasons"]] + [""]
     md += [f"A view matches with SSIM >= {arguments.min_ssim}, at most {arguments.max_changed * 100:g}% of pixels "
-           f"changed by more than {arguments.pixel_delta} (after a 2x2 average) and brightness within "
-           f"{arguments.max_brightness}.", "",
-           "| Variant | View | Result | SSIM | Changed | Brightness | Mean delta | Note |", "|---|---|---|---|---|---|---|---|"]
+           f"changed by more than {arguments.pixel_delta} (after a 2x2 average), at most {arguments.max_tile * 100:g}% "
+           f"in any part of a 16x9 grid, and brightness within {arguments.max_brightness}.", "",
+           "| Variant | View | Result | SSIM | Changed | Worst part | Brightness | Note |", "|---|---|---|---|---|---|---|---|"]
     for row in rows:
         n = row.get("numbers") or {}
         md.append(f"| {row['variant']} | {row['key']} | {row['verdict']} | "
-                  f"{n.get('ssim', 0):.3f} | {n.get('changed', 0) * 100:.2f}% | {n.get('brightness', 0):+.2f} | "
-                  f"{n.get('mean_delta', 0):.2f} | {'; '.join(row.get('reasons', []) + ([row['note']] if row.get('note') else []))} |")
+                  f"{n.get('ssim', 0):.3f} | {n.get('changed', 0) * 100:.2f}% | {n.get('worst_tile', 0) * 100:.1f}% | "
+                  f"{n.get('brightness', 0):+.2f} | {'; '.join(row.get('reasons', []) + ([row['note']] if row.get('note') else []))} |")
     if bench_results:
         md += ["", "## Frame time (tools/bench.py)", "",
                "| Map | Renderer | Frames | Mean | p50 | p95 | p99 | FPS | 1% low | CPU/frame | Fell back |",
@@ -731,14 +819,14 @@ def write_report(out, summary, rows, bench_results, arguments):
     sections = []
     for row in rows:
         n = row.get("numbers") or {}
-        numbers = (f"SSIM {n['ssim']:.3f}, {n['changed'] * 100:.2f}% changed, brightness {n['brightness']:+.2f}"
-                   if n else "")
+        numbers = (f"SSIM {n['ssim']:.3f}, {n['changed'] * 100:.2f}% changed (worst part "
+                   f"{n.get('worst_tile', 0) * 100:.1f}%), brightness {n['brightness']:+.2f}" if n else "")
         figures = "".join(
             f'<figure><a href="{html.escape(link(path))}"><img loading="lazy" src="{html.escape(link(path))}" '
             f'alt="{name}"></a><figcaption>{name}</figcaption></figure>'
             for name, path in ((summary["first"], row.get("first")), (summary["second"], row.get("second")),
                                ("difference", row.get("diff"))) if path)
-        body = (f'<h2><span class="v v-{row["verdict"].lower()}">{row["verdict"]}</span> '
+        body = (f'<h2><span class="v v-{row["verdict"].split()[0].lower()}">{row["verdict"]}</span> '
                 f'{html.escape(row["variant"])} / {html.escape(row["key"])}</h2>'
                 f'<p>{html.escape(numbers)} {html.escape("; ".join(row.get("reasons", [])))} '
                 f'{html.escape(row.get("note", ""))}</p><div class="pictures">{figures}</div>')
@@ -777,7 +865,7 @@ figure {{ margin: 0; }} img {{ width: 100%; height: auto; display: block; border
 figcaption {{ color: var(--muted); font-size: 13px; }}
 table {{ border-collapse: collapse; margin: 8px 0 16px; }} td, th {{ border: 1px solid var(--line); padding: 3px 8px; }}
 .v {{ font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid; }}
-.v-differs, .v-failed {{ color: var(--bad); }} .v-match {{ color: var(--good); }}
+.v-differs, .v-failed, .v-not {{ color: var(--bad); }} .v-match {{ color: var(--good); }} .v-unsteady {{ color: var(--muted); }}
 </style></head><body>
 <h1>Renderer gate: {html.escape(summary['platform'])}: {html.escape(summary['verdict'])}</h1>
 <p>{html.escape(summary['first'])} ({html.escape(summary['first_backend'])}) against {html.escape(summary['second'])}
@@ -823,6 +911,8 @@ def main():
     parser.add_argument("--max-changed", type=float, default=MAX_CHANGED)
     parser.add_argument("--pixel-delta", type=int, default=PIXEL_DELTA)
     parser.add_argument("--max-brightness", type=float, default=MAX_BRIGHTNESS)
+    parser.add_argument("--max-tile", type=float, default=MAX_TILE,
+                        help="the changed share allowed in any one of a 16x9 grid's parts")
     parser.add_argument("--bench", action="store_true", help="also measure frame time (tools/bench.py)")
     parser.add_argument("--bench-map", action="append", help="the maps bench.py plays (default bloodgulch)")
     parser.add_argument("--bench-runs", type=int, default=3)
@@ -832,6 +922,8 @@ def main():
                         help="how much lower bgfx's mean frame time must be (default 0.05: 5%%)")
     parser.add_argument("--platform", help="the platform's name in the report (default: this machine's)")
     parser.add_argument("--xvfb", metavar="DISPLAY", help="Linux: run each copy on its own Xvfb display")
+    parser.add_argument("--from-pictures", action="store_true",
+                        help="run nothing: compare and report the pictures (and bench-*.json) already in --out")
     parser.add_argument("--keep", action="store_true", help="keep each run's folders (logs, saves)")
     arguments = parser.parse_args()
     arguments.bench_map = arguments.bench_map or ["bloodgulch"]
@@ -866,8 +958,11 @@ def main():
             captured = {}
             for renderer, role in runs:
                 folder = out / variant / role
-                captured[role] = capture(binary, renderer, these, ticks, folder, scratch, arguments,
-                                         {**common, **settings}, f"{variant}-{role}")
+                if arguments.from_pictures:
+                    captured[role] = kept_pictures(these, folder)
+                else:
+                    captured[role] = capture(binary, renderer, these, ticks, folder, scratch, arguments,
+                                             {**common, **settings}, f"{variant}-{role}")
                 for backend in captured[role][3].values():
                     backends_seen[renderer].add(backend)
                 for game_map, reason in captured[role][1].items():
@@ -886,6 +981,13 @@ def main():
                     continue
                 numbers, change = compare(first, second, arguments.pixel_delta)
                 verdict, reasons = verdict_of(numbers, arguments)
+                # (a setting the renderer has no pass for is a gap whatever the
+                # pictures say: an anti-aliasing pass changes little that the
+                # 2x2 average keeps)
+                gaps = gap_lines(out / variant / "second", view.map)
+                if gaps:
+                    verdict = "NOT IN " + arguments.second.upper()
+                    reasons = reasons + gaps
                 diff = out / variant / f"{key}_diff.png"
                 difference_picture(first, change, diff, arguments.pixel_delta)
                 sheet = out / variant / f"{key}_sbs.png"
@@ -896,27 +998,44 @@ def main():
                 if again:
                     noise, _ = compare(first, again, arguments.pixel_delta)
                     row["noise"] = noise
-                    if noise["ssim"] < 0.999 or noise["changed"] > 0.0005:
-                        row.setdefault("reasons", []).append(
-                            f"{arguments.first} itself varies (SSIM {noise['ssim']:.4f}, "
-                            f"{noise['changed'] * 100:.3f}% changed)")
+                    if noise["ssim"] < 0.995 or noise["changed"] > arguments.max_changed / 4 or \
+                            noise["worst_tile"] > arguments.max_tile / 2 or \
+                            abs(noise["brightness"]) > arguments.max_brightness / 2:
+                        # (the view isn't still: two runs of the reference differ
+                        # too, so a difference here says nothing of the renderer)
+                        row["reasons"] = row.get("reasons", []) + [
+                            f"{arguments.first} differs from itself too (SSIM {noise['ssim']:.3f}, "
+                            f"{noise['changed'] * 100:.2f}% changed, brightness {noise['brightness']:+.2f})"]
+                        if verdict == "DIFFERS" and not beyond_noise(numbers, noise, arguments):
+                            verdict = "UNSTEADY"
+                            row["verdict"] = verdict
                 rows.append(row)
                 log(f"{variant}/{key}: {verdict} SSIM {numbers['ssim']:.4f}, {numbers['changed'] * 100:.2f}% "
                     f"changed, brightness {numbers['brightness']:+.2f}")
 
-        bench_results = bench(binary, [arguments.first, arguments.second], arguments, out) if arguments.bench else {}
+        if arguments.bench:
+            bench_results = bench(binary, [arguments.first, arguments.second], arguments, out)
+        elif arguments.from_pictures:
+            bench_results = kept_bench(out)
+        else:
+            bench_results = {}
 
         reasons = []
         default_rows = [row for row in rows if row["variant"] == "default"]
-        looks_failed = [row for row in default_rows if row["verdict"] != "match"]
+        looks_failed = [row for row in default_rows if row["verdict"] not in ("match", "UNSTEADY")]
+        unsteady = [row for row in default_rows if row["verdict"] == "UNSTEADY"]
         second_backends = backends_seen[arguments.second]
         fell_back = arguments.second != "gl" and (not second_backends or "OpenGL" in second_backends)
         if fell_back:
             reasons.append(f"{arguments.second} fell back to OpenGL on some maps: the pictures are not of it")
         looks_ok = not looks_failed and not fell_back and bool(default_rows)
-        reasons.append(f"looks: {len(default_rows) - len(looks_failed)} of {len(default_rows)} views match" +
+        counted = len(default_rows) - len(unsteady)
+        reasons.append(f"looks: {counted - len(looks_failed)} of {counted} views match" +
                        ("" if not looks_failed else ": " + ", ".join(
                            f"{row['key']} ({'; '.join(row.get('reasons', []))})" for row in looks_failed)))
+        if unsteady:
+            reasons.append("not counted, the reference differs from itself there: " +
+                           ", ".join(row["key"] for row in unsteady))
         speed_ok, speed_reasons = bench_verdict(bench_results, arguments.first, arguments.second,
                                                 arguments.bench_margin)
         reasons += [f"frame time: {reason}" for reason in speed_reasons]

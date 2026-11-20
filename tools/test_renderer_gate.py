@@ -13,7 +13,7 @@ numpy = pytest.importorskip("numpy")
 Image = pytest.importorskip("PIL.Image")
 
 LIMITS = Namespace(min_ssim=renderer_gate.MIN_SSIM, max_changed=renderer_gate.MAX_CHANGED,
-                   max_brightness=renderer_gate.MAX_BRIGHTNESS)
+                   max_brightness=renderer_gate.MAX_BRIGHTNESS, max_tile=renderer_gate.MAX_TILE)
 
 
 def picture(path, pixels):
@@ -111,3 +111,15 @@ def test_about_the_same_speed_fails():
     passed, reasons = renderer_gate.bench_verdict({"damnation": {"gl": row(4.0, 8.0, 100), "bgfx": row(3.9, 7.5, 110)}},
                                                   "gl", "bgfx", 0.05)
     assert not passed and "not 5% better" in reasons[0]
+
+
+def test_a_small_part_drawn_differently_differs(tmp_path):
+    # (a HUD meter's corner: too small for the whole picture's share)
+    changed = scene()
+    changed[2:12, 140:156] = (250, 250, 250)
+    first = picture(tmp_path / "a.png", scene())
+    second = picture(tmp_path / "b.png", changed)
+    numbers, _ = renderer_gate.compare(first, second, renderer_gate.PIXEL_DELTA)
+    verdict, reasons = renderer_gate.verdict_of(numbers, LIMITS)
+    assert numbers["changed"] < renderer_gate.MAX_CHANGED
+    assert verdict == "DIFFERS" and any("part" in reason for reason in reasons)

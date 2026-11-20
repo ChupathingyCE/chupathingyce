@@ -34,7 +34,8 @@ from a software renderer are fine for the looks half; its frame times say
 nothing about a real GPU.
 
 Windows: `--second d3d11` checks Direct3D 11 instead of Vulkan; run it once
-for each.
+for each. `HALO_DATA_ROOT_SCRIPT` is run with `bash`, so use Git Bash's, or a
+script of your own that makes the same links.
 
 It needs Python 3 with numpy and Pillow, and a build from after the
 `screenshot` console command and `debug.freeze_at_tick` were added. Maps come
@@ -57,6 +58,15 @@ A view is one of:
 - `spawn <turn> [pitch]`: the debug camera at the player's eyes, turned;
 - `camera x y z yaw pitch`: the debug camera at a fixed spot.
 
+A solo multiplayer game puts the player at a random spawn, so `player` and
+`spawn` views are for campaign levels, whose start is fixed. Multiplayer maps
+get fixed cameras, and `action:<map>` views: the map in the recorded game of
+`tools/test_determinism.py` (the scripted bot playing), recorded once and
+played back on each renderer, stopped at its tick. That's where the HUD, the
+weapon, shots and effects are checked. The recorded game is hosted on
+127.0.0.1's game port, so the gate waits while another copy of the game on
+the machine holds it.
+
 The game saves each picture itself with the console's `screenshot <name>`
 command (the same read-back as the screenshot key, the window as shown), so
 nothing captures the screen and the tool works the same on every system. A
@@ -69,6 +79,7 @@ Each pair is compared three ways:
 | --- | --- | --- |
 | SSIM of the brightness, after a 2x2 average | missing or different detail, holes, a broken shader | `--min-ssim 0.97` |
 | Share of pixels whose color moved by more than 24, after a 2x2 average | anything local: a missing light, a decal, an effect | `--max-changed 0.01` |
+| Changed share of the worst part of a 16x9 grid | something small drawn differently: a HUD meter, the weapon, a tree | `--max-tile 0.08` |
 | Change in average brightness | a picture that is darker or brighter overall (gamma, fog, lighting) | `--max-brightness 1.5` |
 
 The 2x2 average keeps anti-aliasing at edges from counting on its own. A
@@ -76,8 +87,20 @@ view that is inside all three limits matches. The report shows OpenGL, the
 other renderer and a picture of the difference (OpenGL faded, the changed
 pixels red) for each view.
 
-`--repeat-first` runs OpenGL twice and reports how much it differs from
-itself, to check that a view is really still.
+`--repeat-first` runs OpenGL twice. Where OpenGL differs from itself (a
+campaign level whose AI or weather doesn't stop with the game), a view is
+`UNSTEADY` and isn't counted, unless the renderers differ by clearly more
+than OpenGL does from itself (past twice its own difference, part by part).
+
+When the renderer's log says it has no pass for a setting ("anti-aliasing:
+fxaa is not in the bgfx renderer yet, so msaa2x") or skips a kind of draw
+("bgfx: wireframe (not drawn yet)"), the view is `NOT IN BGFX` whatever the
+pictures say: an anti-aliasing pass changes little that the 2x2 average
+keeps.
+
+`--from-pictures` runs nothing: it compares the pictures already in `--out`
+again (with other limits, say) and keeps the frame times of an earlier
+`--bench`.
 
 `--variant name:NAME=VALUE[,NAME=VALUE]` takes the pictures again with
 settings changed on both renderers, such as
@@ -97,7 +120,9 @@ times, the median kept. bgfx passes on a map when:
 - its 1% low frame rate is no lower,
 - and it did not fall back to OpenGL.
 
-Nothing else should be running on the machine while it measures.
+Nothing else should be running on the machine while it measures. The gate
+notes the load average before and after each map, and a map measured with
+the load over half the CPUs fails as "busy", to be measured again.
 
 ## The verdict
 
