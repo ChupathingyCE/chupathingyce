@@ -4698,6 +4698,9 @@ static const struct
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
 	{ "display.crosshair_position", { "retail", "centered", "lowered", NULL }, "\"retail\"" },
+	/* (two numbers, "24 18", are taken too: the log line for anything else
+	is hud_draw.c's hud_safe_zone_margins) */
+	{ "display.hud_safe_zone", { "xbox", "pc", "auto", NULL }, NULL },
 	/* (the log line for another word is config_tuning_apply's, which uses the default) */
 	{ "tuning.preset", { "retail", "lan-party", "potato", NULL }, NULL },
 	{ "tuning.present_mode", { "vblank", "adaptive", NULL }, NULL },

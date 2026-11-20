@@ -18,7 +18,8 @@ their own, over a 640x480 screen and an 854x480 one, for one to four players:
   screen as the Xbox's frame is), and leaves the 4 pixels between views;
 - "auto" (the desktop's and Android's default) is the window alone and
   "pc" in split screen;
-- two numbers are clamped to 8..48 and 8..36.
+- two numbers are clamped to 8..48 and 8..36;
+- a word it doesn't know, or numbers out of range, are said in the log once.
 
 Needs only a C compiler. Usage: test_hud_safe_zone.py
 """
@@ -72,6 +73,8 @@ int config_text(const char *name, char *text, size_t size)
 }
 unsigned long config_changes(void) { return changes; }
 short main_get_window_count(void) { return window_count; }
+static int logged;
+void platform_log(char const *format, ...) { (void)format; logged++; }
 '''
 
 MAIN = r'''
@@ -168,6 +171,27 @@ int main(void)
                     "two numbers clamped");
             }
         }
+    }
+    /* a word it doesn't know and numbers out of range are said in the log,
+    once for each value; the words and numbers in range are not */
+    {
+        long players = 1;
+        int width = 640;
+        rectangle2d bounds;
+
+        logged = 0;
+        use("xbox"); hud_safe_zone_bounds(&bounds);
+        use("pc"); hud_safe_zone_bounds(&bounds);
+        use("auto"); hud_safe_zone_bounds(&bounds);
+        use("24 18"); hud_safe_zone_bounds(&bounds);
+        use(""); hud_safe_zone_bounds(&bounds);
+        CHECK(logged == 0, "good values not logged");
+        use("sideways"); hud_safe_zone_bounds(&bounds);
+        CHECK(logged == 1, "a word it doesn't know logged");
+        changes++; hud_safe_zone_bounds(&bounds);
+        CHECK(logged == 1, "logged once");
+        use("0,99"); hud_safe_zone_bounds(&bounds);
+        CHECK(logged == 2, "out of range logged");
     }
     printf("%d failures\n", failures);
     return failures != 0;

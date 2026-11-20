@@ -1527,6 +1527,7 @@ enum
 int config_text(const char *name, char *text, size_t size);
 unsigned long config_changes(void);
 short main_get_window_count(void);
+void platform_log(char const *format, ...);
 
 static void hud_safe_zone_margins(
 	short *columns,
@@ -1536,6 +1537,8 @@ static void hud_safe_zone_margins(
 	static short mode = _hud_safe_zone_xbox;
 	static short custom_columns = HUD_SAFE_ZONE_XBOX_COLUMNS;
 	static short custom_lines = HUD_SAFE_ZONE_XBOX_LINES;
+	/* (the value last said in the log, so a wrong one is said once) */
+	static char said[32];
 
 	if (read_at != config_changes())
 	{
@@ -1547,6 +1550,8 @@ static void hud_safe_zone_margins(
 		mode = _hud_safe_zone_xbox;
 		if (config_text("display.hud_safe_zone", text, sizeof(text)))
 		{
+			boolean say = strcmp(text, said) != 0;
+
 			if (!strcmp(text, "pc"))
 				mode = _hud_safe_zone_pc;
 			else if (!strcmp(text, "auto"))
@@ -1556,7 +1561,14 @@ static void hud_safe_zone_margins(
 				mode = _hud_safe_zone_custom;
 				custom_columns = (short)PIN(h, HUD_SAFE_ZONE_PC_MARGIN, HUD_SAFE_ZONE_XBOX_COLUMNS);
 				custom_lines = (short)PIN(v, HUD_SAFE_ZONE_PC_MARGIN, HUD_SAFE_ZONE_XBOX_LINES);
+				if (say && (custom_columns != h || custom_lines != v))
+					platform_log("settings: display.hud_safe_zone = \"%s\" is out of 8 to 48 and 8 to 36; using \"%d %d\"",
+						text, custom_columns, custom_lines);
 			}
+			else if (say && text[0] && strcmp(text, "xbox"))
+				platform_log("settings: display.hud_safe_zone = \"%s\" is not \"xbox\", \"pc\", \"auto\" or two numbers; "
+					"using \"xbox\"", text);
+			snprintf(said, sizeof(said), "%s", text);
 		}
 	}
 
