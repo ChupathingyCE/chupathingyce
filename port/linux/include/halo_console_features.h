@@ -115,6 +115,14 @@ HALO_CONSOLE_IO_RETRY_FOREVER
 	short of resources for (a stalled DVD read) being tried until it goes, as
 	the retail game did; elsewhere it gives up after 5 seconds and fails
 	(cached_map_issue_async_request, cache_files_decompress_windows.c: #1149)
+HALO_CONSOLE_READ_PRIORITY
+	the cache file thread starts the read the game is waiting for first,
+	then the pending read lowest in the map file
+	(cache_file_windows_thread_proc, source/cache/cache_files_windows.c).
+	Retail kept the first pending read unless a later one was lower in the
+	file and not waited for, so a texture the frame waited on could sit
+	behind every predicted read queued before it. Only the order of the
+	reads changes. From Lord BirchWood's Vita port
 HALO_CONSOLE_LOG_BUFFER
 	debug.txt's lines kept in memory and written together, a second after
 	the first waits, and at once for an exception, an exit or a crash
@@ -436,6 +444,7 @@ compile lines: source/cseries/xbox_address.h).
 
 #ifdef HALO_WIIU_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_READ_PRIORITY 1
 #define HALO_CONSOLE_NO_WRITE_WATCH 1
 #define HALO_CONSOLE_LOG_THROTTLE 1
 #define HALO_CONSOLE_WINDOW_MAXIMUM 0x10000000UL
@@ -452,6 +461,7 @@ compile lines: source/cseries/xbox_address.h).
 
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_READ_PRIORITY 1
 #define HALO_CONSOLE_IO_RETRY_FOREVER 1
 #define HALO_CONSOLE_LOG_BUFFER 1
 /* (the H1 Performance Build's 64 KB; the retail game had 16 KB) */
@@ -501,6 +511,7 @@ larger maps take a campaign map's there as well) */
 
 #ifdef HALO_XBOX360_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_READ_PRIORITY 1
 #define HALO_CONSOLE_NO_WRITE_WATCH 1
 #define HALO_CONSOLE_GPU_RESOURCE_HOOKS 1
 #define HALO_CONSOLE_DEBUG_CHANNEL 1
