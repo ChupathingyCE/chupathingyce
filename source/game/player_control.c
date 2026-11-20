@@ -1415,9 +1415,21 @@ static void get_local_player_input_blob(
 						extern int halo_linux_mouse_look(short gamepad_index, real *yaw, real *pitch);
 						real mouse_yaw;
 						real mouse_pitch;
+						boolean mouse_free = TRUE;
 
+#ifndef HALO_CONSOLE_NO_FORGE
+						/* (port: Forge's monitor reads the mouse for its camera,
+						after this, port/linux/game/forge.c; its hidden unit
+						does not take it) */
+						{
+							extern boolean forge_monitor_takes_mouse(short local_player_index);
+
+							mouse_free = !forge_monitor_takes_mouse(local_player_index);
+						}
+#endif
 						/* (port: read, and let go of, while the console is open) */
-						if (halo_linux_mouse_look(gamepad_index, &mouse_yaw, &mouse_pitch) && !console_is_active())
+						if (mouse_free && halo_linux_mouse_look(gamepad_index, &mouse_yaw, &mouse_pitch) &&
+							!console_is_active())
 						{
 							if (player->unit_index != NONE && control->zoom_level != NONE)
 							{
