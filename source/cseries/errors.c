@@ -102,9 +102,14 @@ long fucked_up_shit_count = 0;
 
 /* ---------- public code */
 
+static void error_repeats_flush(
+	void);
+
 void errors_dispose(
 	void)
 {
+	/* (port: the repeats debug.txt hasn't been told yet) */
+	error_repeats_flush();
 	stack_walk_dispose();
 
 	return;
@@ -643,9 +648,9 @@ flushed debug.txt each time, on whatever thread said it, which costs
 milliseconds a line on a slow card. The four
 latest lines are remembered, so two that alternate are held too; a line
 not seen for 5 seconds is written again. The repeats are told in a line
-of their own every 1000, and the rest when the line is written again or
-its place is taken by another, so none goes uncounted. An EXCEPTION line
-is always written */
+of their own every 1000, and the rest when the line is written again,
+its place is taken by another, an EXCEPTION line comes or the game quits,
+so none goes uncounted. An EXCEPTION line is always written */
 static void error_repeats_told(
 	unsigned long repeats,
 	char const *text)
@@ -660,20 +665,38 @@ static void error_repeats_told(
 	return;
 }
 
+enum
+{
+	ERROR_RECENT_LINES = 4
+};
+static struct
+{
+	unsigned long hash;
+	unsigned long repeats;
+	long seen;
+	char text[160];
+} error_recent_lines[ERROR_RECENT_LINES];
+
+/* (every held repeat not told yet, told now: before a line that stops the
+game, and as the game quits, so the last of them aren't lost) */
+static void error_repeats_flush(
+	void)
+{
+	int k;
+
+	for (k = 0; k < ERROR_RECENT_LINES; k++)
+	{
+		if (error_recent_lines[k].repeats % 1000)
+			error_repeats_told(error_recent_lines[k].repeats % 1000, error_recent_lines[k].text);
+		error_recent_lines[k].repeats = 0;
+	}
+
+	return;
+}
+
 static boolean error_repeat_held(
 	char const *string)
 {
-	enum
-	{
-		RECENT_LINES = 4
-	};
-	static struct
-	{
-		unsigned long hash;
-		unsigned long repeats;
-		long seen;
-		char text[160];
-	} recent[RECENT_LINES];
 	static unsigned long next;
 	unsigned long hash = 2166136261UL;
 	long now = system_milliseconds();
@@ -682,38 +705,41 @@ static boolean error_repeat_held(
 
 	/* (what stops the game is always written) */
 	if (!strncmp(string, "EXCEPTION", 9))
+	{
+		error_repeats_flush();
 		return FALSE;
+	}
 	for (c = string; *c; c++)
 		hash = (hash ^ (unsigned char)*c) * 16777619UL;
-	for (k = 0; k < RECENT_LINES; k++)
+	for (k = 0; k < ERROR_RECENT_LINES; k++)
 	{
-		if (recent[k].hash == hash && strlen(string) < sizeof(recent[k].text) &&
-			!strncmp(recent[k].text, string, sizeof(recent[k].text) - 1))
+		if (error_recent_lines[k].hash == hash && strlen(string) < sizeof(error_recent_lines[k].text) &&
+			!strncmp(error_recent_lines[k].text, string, sizeof(error_recent_lines[k].text) - 1))
 		{
-			if ((unsigned long)(now - recent[k].seen) < 5000)
+			if ((unsigned long)(now - error_recent_lines[k].seen) < 5000)
 			{
-				recent[k].seen = now;
-				if (++recent[k].repeats % 1000 == 0)
+				error_recent_lines[k].seen = now;
+				if (++error_recent_lines[k].repeats % 1000 == 0)
 					error_repeats_told(1000, string);
 				return TRUE;
 			}
 			/* (not seen for 5 seconds: its last repeats told, and written) */
-			if (recent[k].repeats % 1000)
-				error_repeats_told(recent[k].repeats % 1000, string);
-			recent[k].repeats = 0;
-			recent[k].seen = now;
+			if (error_recent_lines[k].repeats % 1000)
+				error_repeats_told(error_recent_lines[k].repeats % 1000, string);
+			error_recent_lines[k].repeats = 0;
+			error_recent_lines[k].seen = now;
 			return FALSE;
 		}
 	}
-	k = (int)(next++ % RECENT_LINES);
+	k = (int)(next++ % ERROR_RECENT_LINES);
 	/* (the repeats of the line this slot held that no line has told yet) */
-	if (recent[k].repeats % 1000)
-		error_repeats_told(recent[k].repeats % 1000, recent[k].text);
-	recent[k].hash = hash;
-	recent[k].repeats = 0;
-	recent[k].seen = now;
-	strncpy(recent[k].text, string, sizeof(recent[k].text) - 1);
-	recent[k].text[sizeof(recent[k].text) - 1] = 0;
+	if (error_recent_lines[k].repeats % 1000)
+		error_repeats_told(error_recent_lines[k].repeats % 1000, error_recent_lines[k].text);
+	error_recent_lines[k].hash = hash;
+	error_recent_lines[k].repeats = 0;
+	error_recent_lines[k].seen = now;
+	strncpy(error_recent_lines[k].text, string, sizeof(error_recent_lines[k].text) - 1);
+	error_recent_lines[k].text[sizeof(error_recent_lines[k].text) - 1] = 0;
 	return FALSE;
 }
 
