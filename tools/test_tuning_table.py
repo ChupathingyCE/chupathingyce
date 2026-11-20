@@ -49,8 +49,11 @@ def test_xbox_presets():
     lan_party = {name for name, row in rows.items() if row["on_xbox"] and row["xbox_presets"][1] not in (None, "-")}
     assert {"display.dynamic_light_limit", "display.specular_light_limit", "display.particle_limit",
             "tuning.effects", "tuning.shadow_pixels", "tuning.particle_thinning"} <= potato, potato
-    assert {"display.dynamic_light_limit", "tuning.effects", "tuning.shadow_pixels", "tuning.present_mode"} <= lan_party, \
+    assert {"tuning.effects", "tuning.shadow_pixels", "tuning.object_cull_pixels", "tuning.present_mode"} <= lan_party, \
         lan_party
+    # (lan-party is for network games, which hold the light limits at the console's own: a light cut there would
+    # change nothing, so it has none)
+    assert not {"display.dynamic_light_limit", "display.specular_light_limit"} & lan_party, lan_party
     # (a preset value on a knob that is not the console's setting would change nothing there)
     for row in tuning_table.knobs(tuning_table.read(tuning_table.PORT_CONFIG)):
         if any(row["xbox_presets"]):

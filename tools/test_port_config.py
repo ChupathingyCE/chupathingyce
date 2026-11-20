@@ -1406,13 +1406,13 @@ def test_xbox_tuning(program, directory):
 			f"xbox/tuning: texture_cache {texture}: {values} {knobs}")
 		differs = next(line for line in tuning_lines(output) if line.startswith("tuning: differs"))
 		check(("texture_cache=" in differs) == (wanted != "auto"), f"xbox/tuning: {differs}")
-		# (lan-party's lights are the Xbox column's 4, under the console's own)
+		# (lan-party leaves the lights at the console's own: a network game holds them there)
 		lights = int(values["display.dynamic_light_limit"])
-		check(own == 8 and lights == 4 and knobs["lights"] == ("4", "(preset)"), f"xbox/tuning: lights {lights}, own {own}")
+		check(own == 8 and lights == 8 and knobs["lights"][1] != "(preset)", f"xbox/tuning: lights {lights}, own {own}")
 		check(not any("changes nothing" in line for line in tuning_lines(output)), f"xbox/tuning: {tuning_lines(output)}")
 	# each preset's own values on the Xbox, every one marked as the preset's
 	wanted = {
-		'"lan-party"': {"display.dynamic_light_limit": "4", "display.specular_light_limit": "1",
+		'"lan-party"': {"display.dynamic_light_limit": "8", "display.specular_light_limit": "2",
 			"display.particle_limit": "1024", "tuning.particle_thinning": "1", "tuning.effects": "reduced",
 			"tuning.shadow_pixels": "60", "tuning.object_cull_pixels": "4", "tuning.present_mode": "adaptive"},
 		'"potato"': {"display.dynamic_light_limit": "2", "display.specular_light_limit": "1",
@@ -1435,7 +1435,8 @@ def test_xbox_tuning(program, directory):
 			check(differs == "tuning: differs from the defaults: none", f"xbox/tuning: {preset}: {differs}")
 		else:
 			check(differs.startswith(f"tuning: differs from the defaults: preset={preset.strip(chr(34))} ") and
-				"lights=" in differs and "(preset)" in differs and "(hand)" not in differs, f"xbox/tuning: {differs}")
+				("lights=" in differs) == (preset == '"potato"') and "(preset)" in differs and "(hand)" not in differs,
+				f"xbox/tuning: {differs}")
 	# the player's own value wins over the Xbox's potato
 	text = re.sub(r"^#? ?particle_limit = .*$", "particle_limit = 768", case.text(), flags=re.M)
 	text = re.sub(r"^#? ?preset = .*$", 'preset = "potato"', text, flags=re.M)

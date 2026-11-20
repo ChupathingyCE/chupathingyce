@@ -209,9 +209,9 @@ put them, so it has presets of its own, set below its own drawing:
 - `lan-party` is for big network games: `effects = "reduced"` (no shine,
   reflections or mirrors; the grass stays in a network game), shadows only
   from objects 60 pixels across or more, debris under 4 pixels left out,
-  and a late frame shown at once (`present_mode = "adaptive"`). Its 4
-  dynamic lights, 1 with shine, count only outside a network game (the
-  console's own is 8 and 2).
+  and a late frame shown at once (`present_mode = "adaptive"`). Each of
+  these still counts in a network game. It keeps the console's own 8
+  dynamic lights, 2 with shine: a network game holds them there anyway.
 - `potato` goes further: `effects = "minimal"` (no decals either; outside
   a network game also no grass, rain and snow), shadows from 120 pixels,
   objects under 8 pixels left out (debris only in a network game), and
@@ -237,8 +237,8 @@ The table is made from the code by `tools/tuning_table.py`
 
 | Setting | lan-party sets | potato sets | On the original Xbox | Xbox default and range | lan-party on the Xbox | potato on the Xbox | What it costs or saves |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `display.dynamic_light_limit` | `16` | `8` | yes | `8`; 0 to 128 (0: no limit) | `4` | `2` | Drawing. Each dynamic light redraws the level it reaches twice; in a big firefight most of the GPU's time. Never under 8 in a network game, so on the consoles (whose default is 8) it cuts only outside one. |
-| `display.specular_light_limit` | `4` | `2` | yes | `2`; 0 to 128 (0: no limit) | `1` | `1` | Drawing. The shine pass of near lights, the costliest pass in a firefight. Never under 2 in a network game. |
+| `display.dynamic_light_limit` | `16` | `8` | yes | `8`; 0 to 128 (0: no limit) | nothing | `2` | Drawing. Each dynamic light redraws the level it reaches twice; in a big firefight most of the GPU's time. Never under 8 in a network game, so on the consoles (whose default is 8) it cuts only outside one. |
+| `display.specular_light_limit` | `4` | `2` | yes | `2`; 0 to 128 (0: no limit) | nothing | `1` | Drawing. The shine pass of near lights, the costliest pass in a firefight. Never under 2 in a network game. |
 | `display.particle_limit` | `2048` | `1024` | yes | `1024`; 0 to 1024 (0: no limit) | nothing | `512` | CPU and drawing: each particle alive is moved, tested against the level and drawn. Never under 1024 in a network game, so on the original Xbox (whose most is 1024) it cuts only outside one. |
 | `display.particle_ticks` | `true` | `true` | no | | | | CPU a frame: moving loose particles once a tick saves two in three of their collision tests at 60 fps. |
 | `display.shadow_resolution` | nothing | `128` | no | | | | Drawing and video memory: bigger shadow maps. |

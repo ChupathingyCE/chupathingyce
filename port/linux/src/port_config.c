@@ -4945,8 +4945,9 @@ static const struct
 	const char *preset[NUMBER_OF_TUNING_PRESETS];
 	/* the original Xbox's, whose own limits are already where the PC's
 	presets would put them: there "lan-party" is for big network games
-	(smaller shadows, no shine or reflections, a late frame shown at once;
-	its fewer lights only outside one), and "potato" goes further below the
+	(smaller shadows, no shine or reflections, a late frame shown at once:
+	only knobs that still count in one, so no light limit, which a network
+	game holds), and "potato" goes further below the
 	Xbox's own drawing (fewer particles, every other loose one drawn, the
 	decals and, outside network games, the grass and weather left out). A
 	network game holds the knobs that could hide a player or show one
@@ -4955,9 +4956,9 @@ static const struct
 } config_tuning_knobs[] =
 {
 	{ "display.dynamic_light_limit", "lights", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "16", "8" },
-		{ NULL, "4", "2" } },
+		{ NULL, NULL, "2" } },
 	{ "display.specular_light_limit", "specular", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "4", "2" },
-		{ NULL, "1", "1" } },
+		{ NULL, NULL, "1" } },
 	{ "display.particle_limit", "particles", _tuning_limit, 0, TUNING_MAXIMUM_PARTICLES, { NULL, "2048", "1024" },
 		{ NULL, NULL, "512" } },
 	{ "display.particle_ticks", "particle_ticks", 0, 0, 0, { NULL, "true", "true" },
