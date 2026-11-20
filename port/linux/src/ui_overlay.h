@@ -157,6 +157,10 @@ float ui_overlay_hud_button_width(int button, float size);
 are not the game's (the Guide's Q, E and M) draws its own key caps, as the
 keyboard's buttons are drawn, with ui_overlay_key (its width) */
 int ui_overlay_keyboard(void);
+/* the device the prompts are drawn for now (halo_prompt_schemes.h's: 0
+the keyboard, then the pads, input.button_style's choice over the one used
+last), so that words name its buttons as its glyphs show them */
+int ui_overlay_prompt_scheme(void);
 float ui_overlay_key(const char *label, float size, float x, float y, unsigned int color);
 float ui_overlay_key_width(const char *label, float size);
 
