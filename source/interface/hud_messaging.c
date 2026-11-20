@@ -1961,8 +1961,8 @@ void hud_messaging_update(
 				pixel_color = real_argb_color_to_pixel32(&state_color);
 			}
 
-			/* port: to display.hud_safe_zone's right edge (the window's by
-			default) */
+			/* port: to display.hud_safe_zone's right edge ("xbox": the
+			window's) */
 			hud_safe_zone_bounds(&line_bounds);
 			line_bounds.x0 = screen_point.x;
 			line_bounds.x1 = line_bounds.x1 -
@@ -2388,8 +2388,8 @@ void hud_messaging_update(
 				text_color.alpha *= (real)pow((double)fade, 1.9f);
 			}
 
-			/* port: to display.hud_safe_zone's right edge (the window's by
-			default) */
+			/* port: to display.hud_safe_zone's right edge ("xbox": the
+			window's) */
 			hud_safe_zone_bounds(&message_bounds);
 			message_bounds.x0 = screen_point.x;
 			message_bounds.x1 = message_bounds.x1 -

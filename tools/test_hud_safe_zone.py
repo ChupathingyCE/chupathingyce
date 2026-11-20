@@ -8,15 +8,16 @@ The real compute_window_bounds and compute_subframe_counts (main.c) and
 hud_safe_zone_margins and hud_safe_zone_bounds (hud_draw.c) are compiled on
 their own, over a 640x480 screen and an 854x480 one, for one to four players:
 
-- "xbox" (and no setting, and a word it doesn't know) gives the window
-  itself, every edge, as the Xbox lays the HUD out;
+- "xbox" (the consoles' default; and no setting, and a word it doesn't
+  know) gives the window itself, every edge, as the Xbox lays the HUD out;
 - the Xbox's own split screen is lopsided: a view's edges on the screen's
   edges are 48 columns or 36 lines in, its edges by the lines between views
   4 pixels, so the HUD of the top left view sits far from the left and close
   to the middle (as the retail compute_window_bounds does);
 - "pc" moves only the screen's edges, to 8 in (scaled across a wider
   screen as the Xbox's frame is), and leaves the 4 pixels between views;
-- "auto" is the window alone and "pc" in split screen;
+- "auto" (the desktop's and Android's default) is the window alone and
+  "pc" in split screen;
 - two numbers are clamped to 8..48 and 8..36.
 
 Needs only a C compiler. Usage: test_hud_safe_zone.py
@@ -208,10 +209,18 @@ def test_wired_and_registered():
     assert "render.camera.window_bounds.v[" not in corner
     assert "render.camera.window_bounds.x1 + render.camera.window_bounds.x0" in point
     config = (ROOT / "port/linux/src/port_config.c").read_text(encoding="utf-8")
-    assert re.search(r'\{ "display\.hud_safe_zone", _config_string, "\\"(xbox|auto)\\"", "HALO_HUD_SAFE_ZONE", '
+    assert re.search(r'\{ "display\.hud_safe_zone", _config_string, DEFAULT_HUD_SAFE_ZONE, "HALO_HUD_SAFE_ZONE", '
                      r'_environment_value,\s*_platform_all \| _platform_xbox,', config)
+    # ("auto" on the desktop and Android; the Xbox's own on the consoles,
+    # whose televisions overscan)
+    default = config[config.index("#if defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE)"):]
+    default = default[:default.index("#endif") + len("#endif")]
+    assert "defined(HALO_XBOX_CONSOLE)" in default and "defined(HALO_XBOX360_CONSOLE)" in default
+    assert "defined(HALO_WIIU_CONSOLE)" in default
+    assert re.search(r'^#define DEFAULT_HUD_SAFE_ZONE "\\"xbox\\""\n#else\n#define DEFAULT_HUD_SAFE_ZONE "\\"auto\\""$',
+                     default, re.M), default
     settings = (ROOT / "tools/port_settings.py").read_text(encoding="utf-8")
-    assert '[("ON", "xbox"), ("SPLIT SCREEN OFF", "auto"), ("OFF", "pc")]' in settings
+    assert '[("ON", "xbox"), ("SINGLE SCREEN ONLY", "auto"), ("OFF", "pc")]' in settings
 
 
 if __name__ == "__main__":

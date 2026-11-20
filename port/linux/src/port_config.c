@@ -122,6 +122,17 @@ struct config_setting
 #define DEFAULT_FULLSCREEN "true"
 #endif
 
+/* display.hud_safe_zone's default: "auto" (the Xbox's margins in a game
+alone, Halo PC's in split screen) on the desktop and Android; the Xbox's own
+("xbox") on the consoles, which play on televisions that overscan, where
+tighter margins can push the HUD off the picture */
+#if defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)
+#define DEFAULT_HUD_SAFE_ZONE "\"xbox\""
+#else
+#define DEFAULT_HUD_SAFE_ZONE "\"auto\""
+#endif
+
 /* macOS's audio cuts out with SDL's 512-frame buffer when the mixer is late
 (a 10.6 ms budget at 48 kHz); 2048 frames (43 ms) rides that out. Android's
 mixer runs on a phone's cores, often a slower one, so it has 1024 (21 ms).
@@ -418,9 +429,7 @@ static const struct config_setting config_settings[] =
 		"view; only different in split screen) or \"lowered\" (a tenth of the\n"
 		"view's height below the middle). The view moves with it, so shots\n"
 		"still go where the crosshair is. Zoomed, it's in the middle." },
-	/* (the default is this line's "xbox", the Xbox's look; "auto" would
-	give split screen Halo PC's edges by default) */
-	{ "display.hud_safe_zone", _config_string, "\"xbox\"", "HALO_HUD_SAFE_ZONE", _environment_value,
+	{ "display.hud_safe_zone", _config_string, DEFAULT_HUD_SAFE_ZONE, "HALO_HUD_SAFE_ZONE", _environment_value,
 		_platform_all | _platform_xbox,
 		"How far the HUD sits from the screen's edges: \"xbox\" (48 and 36\n"
 		"in, as on the Xbox), \"pc\" (8 in, as Halo PC), \"auto\" (the Xbox's\n"

@@ -1473,7 +1473,7 @@ static void rasterize_in_game_score_draw_line(
 	boolean splitscreen;
 	long font_index;
 
-	/* port: at display.hud_safe_zone's edge (the window's by default) */
+	/* port: at display.hud_safe_zone's edge ("xbox": the window's) */
 	hud_safe_zone_bounds(&bounds);
 	splitscreen = local_player_count() > 1;
 	font_index = hud_get_font_index();

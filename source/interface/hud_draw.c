@@ -1096,8 +1096,8 @@ void hud_calculate_point(
 	corner = absolute_placement->corner;
 	if (corner < _hud_anchor_center)
 	{
-		/* port: the corners in display.hud_safe_zone's frame (the Xbox's
-		window by default) */
+		/* port: the corners in display.hud_safe_zone's frame ("xbox": the
+		Xbox's window) */
 		rectangle2d safe_bounds;
 
 		hud_safe_zone_bounds(&safe_bounds);
@@ -1494,9 +1494,11 @@ _rasterizer_initialize), split for split screen with only 4 pixels between
 a view's window and the line between views (compute_window_bounds). So in
 split screen a view's HUD sits far in from the screen's edges and close to
 the other views', as on the Xbox (retail: compute_window_bounds at
-0x000bba00, the frame set at 0x0007fadc). "xbox" keeps that (the default);
-"pc" puts it 8 in from the screen's edges, as Halo PC does; "auto" is the
-Xbox's alone and Halo PC's in split screen; two numbers ("24 18") set the
+0x000bba00, the frame set at 0x0007fadc). "xbox" keeps that (the consoles'
+default: televisions overscan); "pc" puts it 8 in from the screen's edges,
+as Halo PC does; "auto" (the desktop's and Android's default:
+port_config.c's DEFAULT_HUD_SAFE_ZONE) is the Xbox's alone and Halo PC's in
+split screen; two numbers ("24 18") set the
 columns and the lines, 8 to 48 and 8 to 36. Only the edges that are the
 screen's move: the 4 pixels between views stay. The range and the
 two-number form follow Chimera's chimera_safe_zones, by SnowyMouse

@@ -202,7 +202,7 @@ SCREENS = {
                 # (display.hud_safe_zone: hud_draw.c's hud_safe_zone_bounds;
                 # two numbers are in config.toml alone)
                 ("SAFE ZONES:", "display.hud_safe_zone",
-                 [("ON", "xbox"), ("SPLIT SCREEN OFF", "auto"), ("OFF", "pc")],
+                 [("ON", "xbox"), ("SINGLE SCREEN ONLY", "auto"), ("OFF", "pc")],
                  "Keep the HUD in from the screen's edges, as on the Xbox.\nOff moves it to the edges.", None),
                 # (the ~ key's console: terminal.c's drop-down one, or the
                 # Xbox's lines at the bottom)
