@@ -229,6 +229,12 @@ extern boolean debug_sound_environment;
 
 long global_scenario_index = NONE;
 short global_structure_bsp_index = NONE;
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+/* port: one more each time the structure bsp is loaded or let go of, for what
+keeps answers of the bsp's tests (collisions.c's obstruction rays): a bsp of
+another map may be read at the same address */
+unsigned long scenario_structure_bsp_generation = 1;
+#endif
 
 static scenario_structure_bsp_connection_proc scenario_structure_bsp_reconnect_proc_table[] =
 {
@@ -382,6 +388,9 @@ void scenario_unload(
 	global_collision_bsp = NULL;
 	global_bsp3d = NULL;
 	global_game_globals = NULL;
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+	scenario_structure_bsp_generation++;
+#endif
 
 	return;
 }
@@ -1173,6 +1182,9 @@ boolean scenario_switch_structure_bsp(
 				struct collision_bsp);
 			scenario_globals->structure_bsp_index = structure_bsp_index;
 			global_structure_bsp_index = structure_bsp_index;
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+			scenario_structure_bsp_generation++;
+#endif
 			/* port: cache buckets while the newly current bsp's tags are loaded */
 			structure_culling_load_settings();
 			structure_culling_structure_bsp_loaded();
