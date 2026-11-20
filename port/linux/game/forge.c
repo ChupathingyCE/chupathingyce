@@ -1591,8 +1591,9 @@ static void forge_pad_get(
 				pad->sticks[stick][1] = (real)gamepad->sticks[stick].y / 32767.f;
 			}
 			/* (the mouse, on the keyboard's port: its motion since the last
-			read, taken by this read, so only the camera's input asks) */
-			if (mouse && halo_linux_mouse_look(gamepad_index, &yaw, &pitch))
+			read, taken by this read, so only the camera's input asks; read
+			and let go of while the console is open, as player_control.c's) */
+			if (mouse && halo_linux_mouse_look(gamepad_index, &yaw, &pitch) && !console_is_active())
 			{
 				pad->look_yaw = yaw;
 				pad->look_pitch = pitch;
