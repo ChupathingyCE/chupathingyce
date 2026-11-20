@@ -706,6 +706,7 @@ symbols in this file:
 #include "mcc_grenades.h"
 #include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 #include "mcc_campaign.h" /* port: an MCC map's unlimited ammunition */
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 #include "halo_perf_log.h" /* port: console.perf_log */
 #ifdef HALO_GAME_BROWSER
 #include "host_rules.h" /* port: network.air_turn_aim */
@@ -2866,6 +2867,11 @@ void unit_died(
 		}
 
 		unit->unit.time_of_death = game_time_get();
+#ifdef HALO_PORT_RAGDOLLS
+		/* port: the body may go limp, a ragdoll's pose drawn for it from the
+		next tick (port/linux/game/ragdolls.c; only the picture) */
+		ragdolls_unit_died(unit_index);
+#endif
 	}
 
 	unit->unit.flags &= ~(

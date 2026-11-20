@@ -749,6 +749,15 @@ static const struct config_setting config_settings[] =
 		"The blue sparks off a live plasma grenade, which the Xbox never drew\n"
 		"(at 30 frames a second they end before they are drawn). false: as on\n"
 		"the Xbox, at any frame rate. Thanks to ugoboom for the idea." },
+#ifdef HALO_PORT_RAGDOLLS
+	/* (port/linux/game/ragdolls.c; Video Setup's RAGDOLLS. Live) */
+	{ "display.ragdolls", _config_boolean, "false", "HALO_RAGDOLLS", _environment_value, _platform_desktop,
+		"true: a character killed falls limp, thrown by the blow that killed\n"
+		"it, and comes to rest where it lands (Jolt Physics). false (the\n"
+		"default): its death animation, as on the Xbox. Drawing only: the\n"
+		"body, hit boxes, saved games and the network are as before. The idea\n"
+		"is from jojoxdk's Halo 1 MCC Box3D Physics Mod." },
+#endif
 	{ "display.particle_limit", _config_integer, DEFAULT_PARTICLE_LIMIT, "HALO_PARTICLE_LIMIT", _environment_value,
 		_platform_all | _platform_xbox,
 		"The most particles alive at once: sparks, smoke, casings and debris.\n"
@@ -2031,6 +2040,13 @@ static const struct config_setting config_settings[] =
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"Scripted input on controller 1: \"bot:<seed>\" or \"look:<seed>\". Leave\n"
 		"it empty for none." },
+#ifdef HALO_PORT_RAGDOLLS
+	{ "debug.ragdolls", _config_integer, "0", "HALO_RAGDOLLS_DEBUG", _environment_value, _platform_desktop,
+		"1: a line in debug.txt each time a ragdoll starts, sleeps, wakes or is\n"
+		"let go, and their cost every ten seconds; 2: each one's rig too. Also\n"
+		"lets the console's ragdolls tests run in a local game\n"
+		"(port/linux/game/ragdolls.c). 0 for none." },
+#endif
 	{ "debug.determinism", _config_string, "\"\"", "HALO_DETERMINISM", _environment_value, _platform_all,
 		"The input replay check (tools/test_determinism.py). \"record:<file>\"\n"
 		"writes each tick's player actions to the file. \"replay:<file>\" plays\n"

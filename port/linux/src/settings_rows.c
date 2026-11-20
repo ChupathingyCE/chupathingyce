@@ -190,6 +190,9 @@ static const struct settings_row settings_rows[] =
 	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
 	{ _in_display | _in_guide, "CAMO WEAPON FIX", "display.camo_weapon_fix", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "PLASMA SPARKS", "display.plasma_sparks", _kind_toggle, NULL, NULL, 0, 0 },
+#ifdef HALO_PORT_RAGDOLLS
+	{ _in_display | _in_guide, "RAGDOLLS", "display.ragdolls", _kind_toggle, NULL, NULL, 0, 0 },
+#endif
 	{ _in_display | _in_guide, "RETICLE SIZE", "display.reticle_scale", _kind_choices, reticle_size_choices,
 	  reticle_size_names, 0, 0 },
 	{ _in_display | _in_guide, "CROSSHAIR", "display.crosshair_position", _kind_choices, crosshair_position_choices,
