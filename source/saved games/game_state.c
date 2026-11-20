@@ -127,6 +127,7 @@ symbols in this file:
 #include "mcc_checkpoint.h"
 #include "stubbs_regions.h"
 #include "opensauce_scripts.h"
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_invalidate(void);
 /* port: hs_runtime.c's and hs_globals_external.c's (game_state_image_accept) */
@@ -204,6 +205,11 @@ static game_state_before_load_proc before_load_procs[] =
 	cluster_partitions_port_forget,
 	/* port: (the objects are put back: object_bounds_cache.c) */
 	object_bounds_cache_invalidate,
+#ifdef HALO_PORT_RAGDOLLS
+	/* port: the ragdolls let go: their bodies are not these
+	(port/linux/game/ragdolls.c) */
+	ragdolls_reset,
+#endif
 };
 
 static game_state_after_load_proc after_load_procs[] =
@@ -382,9 +388,20 @@ void game_state_port_restamp_revert_time(
 	game_state_globals.revert_time = game_time_get();
 }
 
+/* port: the reverts so far, for player_control.c: a cinematic skip's press
+makes one revert, not one for each tick it is held */
+static unsigned long game_state_revert_count;
+
+unsigned long game_state_port_revert_count(
+	void)
+{
+	return game_state_revert_count;
+}
+
 void game_state_revert(
 	void)
 {
+	game_state_revert_count++;
 	if (!game_state_globals.saved_game_valid && !recover_saved_games_hack)
 	{
 		main_reset_map();

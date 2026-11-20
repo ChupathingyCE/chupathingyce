@@ -1926,12 +1926,56 @@ void player_control_action_test_note(
 	}
 }
 
+/* port: the reverts there had been when the skip button was last seen up.
+A cinematic is skipped by reverting to its checkpoint, and a10's start
+checkpoint is its opening cinematic's, so after a revert the cinematic can be
+skipped again: A held on (the skip's own press, or the one that took the
+pause menu's REVERT TO CHECKPOINT) skipped it once more on every tick it was
+down. A press skips only once the button has been let go since the last
+revert. (Let go is read from the controllers and the keyboard themselves:
+the player's input has no accept on some frames while the button is still
+down) */
+static unsigned long player_control_skip_up_reverts;
+
+static boolean player_control_skip_button_down(
+	void)
+{
+	short gamepad_index;
+
+	for (gamepad_index = 0; gamepad_index < MAXIMUM_GAMEPADS; gamepad_index++)
+	{
+		struct gamepad_state const *gamepad = input_has_gamepad(gamepad_index) ?
+			input_get_gamepad_state(gamepad_index) : NULL;
+
+		if ((gamepad && gamepad->buttons[_gamepad_analog_button_a]) ||
+			input_abstraction_port_accept(gamepad_index))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static boolean player_control_skip_press_new(
+	boolean accept)
+{
+	unsigned long reverts = game_state_port_revert_count();
+
+	if (!accept && !player_control_skip_button_down())
+	{
+		player_control_skip_up_reverts = reverts;
+		return FALSE;
+	}
+	return accept && player_control_skip_up_reverts == reverts;
+}
+
 static void player_control_action_test_check_reset_input_blob(
 	struct input_blob *input)
 {
 	struct player_control_globals_data *globals;
 
-	if (input->accept && (cinematic_can_be_skipped() || network_coop_skip_offered()))
+	if (player_control_skip_press_new(input->accept != 0) &&
+		(cinematic_can_be_skipped() || network_coop_skip_offered()))
 	{
 		/* port: in network co-op the players vote to skip (network_coop.c) */
 		if (!network_coop_vote_skip())

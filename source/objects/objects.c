@@ -148,6 +148,11 @@ makes the host's objects at the host's datum indices, and deletes them only
 on the host's word */
 long network_objects_new_object_index(void);
 boolean network_objects_creating_host_object(void);
+#ifndef HALO_CONSOLE_NO_FORGE
+/* (port: Forge's placement, port/linux/game/forge.c: the object chosen, as
+it is, not the game type's in its place) */
+extern int forge_placing_exact;
+#endif
 boolean network_objects_may_delete(long object_index);
 /* source/networking/network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -3580,6 +3585,11 @@ long object_new(
 	if (game_engine_running() && definition_index!=NONE
 		/* (the host's object, which the host made as the game type has it) */
 		&& !network_objects_creating_host_object()
+#ifndef HALO_CONSOLE_NO_FORGE
+		/* (what Forge's monitor chose: a flamethrower, a Scorpion where the
+		vehicle set has Warthogs) */
+		&& !forge_placing_exact
+#endif
 		)
 	{
 		definition_index = game_engine_remap_object_definition(definition_index);
