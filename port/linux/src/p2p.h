@@ -102,6 +102,12 @@ int p2p_outgoing(int stream, int socket, unsigned long *address, unsigned short 
 /* a source the game received from, accepted from or is connected to: if
 it is one standing in for a peer, the peer's address */
 int p2p_incoming(int stream, unsigned long *address, unsigned short *port);
+/* whether a source the game received from or accepted from, as the system
+gave it (before p2p_incoming), is a peer's address, or one that was a
+peer's. A peer's traffic reaches the game only from the local addresses
+standing in for it, never from its address itself, so such a source is
+not the peer: the game drops what came from it */
+int p2p_spoofed_source(unsigned long address);
 /* the local addresses standing in for this port (a broadcast's) on every
 peer; returns their count */
 int p2p_broadcast_targets(unsigned short port, unsigned long *addresses, unsigned short *ports, int maximum_count);
