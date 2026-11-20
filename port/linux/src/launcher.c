@@ -2861,10 +2861,30 @@ static int restart_with(const char *mode)
 	return 1;
 }
 
+static void command_line(int *setup, int *play, char *mode, size_t mode_size, int *joining);
+
 int launcher_restart_to_setup(void)
 {
 	char path[PATH_SIZE];
+	char mode[64];
+	int setup, play, joining;
 
+	/* (a run nobody watches never shows the setup screen, launcher_at_start:
+	the copy started with --setup would come back to the menus, where the
+	same scripted input could press SETUP again, and so on) */
+	if (platform_run_is_unwatched())
+	{
+		platform_log("launcher: SETUP: not starting again in a run nobody watches");
+		return 0;
+	}
+	/* (nor does a copy started with --setup that could not show it start
+	another) */
+	command_line(&setup, &play, mode, sizeof(mode), &joining);
+	if (setup && !launcher.shown)
+	{
+		platform_log("launcher: SETUP: started with --setup, which didn't show: not starting again");
+		return 0;
+	}
 	if (!executable_path(path, sizeof(path)))
 	{
 		platform_log("launcher: could not start again on the setup screen");
