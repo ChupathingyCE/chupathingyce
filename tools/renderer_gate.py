@@ -708,7 +708,8 @@ def bench(binary, renderers, arguments, out):
         results[game_map] = {row["renderer"]: row for row in data["results"]}
         load_after = os.getloadavg()[0] if hasattr(os, "getloadavg") else -1
         results[game_map]["load"] = {"before": load_before, "after": load_after, "cpus": os.cpu_count()}
-        if max(load_before, load_after) > (os.cpu_count() or 1) / 2:
+        # (before only: a software renderer's own threads load the machine)
+        if load_before > (os.cpu_count() or 1) / 2:
             log(f"bench: {game_map}: the machine was busy (load {load_before:.1f} -> {load_after:.1f} on "
                 f"{os.cpu_count()} CPUs): the frame times are not to be trusted")
         if not arguments.keep:
@@ -725,7 +726,7 @@ def bench_verdict(results, first, second, margin):
         if "error" in rows:
             return False, [f"{game_map}: {rows['error']}"]
         load = rows.get("load")
-        if load and max(load["before"], load["after"]) > (load["cpus"] or 1) / 2:
+        if load and load["before"] > (load["cpus"] or 1) / 2:
             passed = False
             reasons.append(f"{game_map}: the machine was busy (load {load['before']:.1f} -> {load['after']:.1f} on "
                            f"{load['cpus']} CPUs): measure again with nothing else running")
