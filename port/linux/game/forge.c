@@ -3260,8 +3260,9 @@ static boolean forge_variant_save(
 
 /* (the session's start) the layout read for it placed: each record's
 tag found by its path among the palette's (the browser's tags: nothing
-else is ever placed), its place inside the structure's world, within the
-budget. A record whose tag the map does not have, or that cannot be
+else is ever placed, but a weapon nobody can aim, or its ammunition, in a
+layout saved before they were left out), its place inside the
+structure's world, within the budget. A record whose tag the map does not have, or that cannot be
 placed, is skipped and counted, never the variant refused (it passed the
 validator whole before it was read). (A new round's layout, round, is
 placed the same way, said as a new round) */
@@ -3296,6 +3297,22 @@ static void forge_variant_apply(
 			{
 				tags[index] = tag_index;
 				break;
+			}
+		}
+		/* (a weapon nobody can aim, or ammunition only such a weapon uses,
+		left out of the palette (#1589) but in a layout saved before that:
+		still placed) */
+		if (tags[index] == NONE &&
+			(layout->paths[index].group_tag == (unsigned int)WEAPON_DEFINITION_TAG ||
+			layout->paths[index].group_tag == (unsigned int)EQUIPMENT_DEFINITION_TAG))
+		{
+			long tag_index = tag_loaded((long)layout->paths[index].group_tag, layout->paths[index].path);
+
+			if (tag_index != NONE &&
+				(layout->paths[index].group_tag == (unsigned int)WEAPON_DEFINITION_TAG ?
+				forge_weapon_cannot_be_aimed(tag_index) : forge_equipment_only_unaimed_ammunition(tag_index)))
+			{
+				tags[index] = tag_index;
 			}
 		}
 		if (tags[index] == NONE)
