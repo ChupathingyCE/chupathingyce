@@ -967,7 +967,7 @@ with the old one two frames later, so these stay small. */
 #endif
 #if !defined(HALO_GL_ES) && !defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_CONSOLE) && \
 	!defined(HALO_SWITCH_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_SERVER)
-/* the desktop builds: the stream and index buffers
+/* display.gl_buffer_ring (the desktop builds): the stream and index buffers
 as a ring of this many, each reused once a fence says the GPU is done with
 it */
 #define DESKTOP_BUFFER_RING 3
@@ -1029,7 +1029,7 @@ struct gl_device
 	GLuint index_buffers[STREAM_BUFFER_RING];
 	unsigned long buffer_ring;
 #elif defined(DESKTOP_BUFFER_RING)
-	/* (the buffer ring) */
+	/* (display.gl_buffer_ring) */
 	BOOL buffer_ring_on;
 	GLuint stream_rings[DESKTOP_BUFFER_RING];
 	GLuint index_rings[DESKTOP_BUFFER_RING];
@@ -2369,7 +2369,7 @@ static void gl_initialize(void)
 #endif
 #ifndef HALO_GL_ES
 #ifdef DESKTOP_BUFFER_RING
-	device.buffer_ring_on = buffer_ring_sync_look_up();
+	device.buffer_ring_on = config_boolean("display.gl_buffer_ring") && buffer_ring_sync_look_up();
 	if (device.buffer_ring_on)
 	{
 		int ring;
@@ -2385,6 +2385,7 @@ static void gl_initialize(void)
 		}
 		device.stream_buffer = device.stream_rings[0];
 		device.index_buffer = device.index_rings[0];
+		platform_log("renderer: stream buffers in a ring of %d (display.gl_buffer_ring)", DESKTOP_BUFFER_RING);
 	}
 	else
 #endif
@@ -5638,7 +5639,7 @@ static void buffer_append(GLenum target, unsigned long offset, unsigned long siz
 #endif
 
 #ifdef DESKTOP_BUFFER_RING
-/* the next of a ring of stream (or index) buffers,
+/* display.gl_buffer_ring: the next of a ring of stream (or index) buffers,
 once the GPU is done with it. Orphaning a full buffer, as each frame does,
 asks the driver for new storage every time (40 MB a frame here), the old
 kept until the GPU lets it go; with the GPU's memory full, Mesa crashed in
@@ -5663,7 +5664,7 @@ static BOOL buffer_ring_sync_look_up(void)
 	buffer_ring_sync.delete_sync = (buffer_ring_delete_sync_proc)gl_function_extra("glDeleteSync");
 	if (buffer_ring_sync.fence_sync && buffer_ring_sync.client_wait_sync && buffer_ring_sync.delete_sync)
 		return TRUE;
-	platform_log("renderer: no fences, so no buffer ring: the buffers are orphaned");
+	platform_log("renderer: no fences, so no buffer ring (display.gl_buffer_ring): the buffers are orphaned");
 	return FALSE;
 }
 
@@ -7551,7 +7552,8 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		device.stream_offset = 0;
 		device.index_offset = 0;
 #else
-		/* orphan next frame (or the ring's next) */
+		/* orphan next frame (or, with display.gl_buffer_ring, the ring's
+		next) */
 		device.stream_offset = STREAM_BUFFER_SIZE;
 		device.index_offset = INDEX_BUFFER_SIZE;
 #endif
