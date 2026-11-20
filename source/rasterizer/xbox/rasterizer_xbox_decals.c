@@ -435,6 +435,18 @@ void _rasterizer_decals_initialize(
 		"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox_decals.c",
 		106,
 		local_vertex_cache);
+#ifdef HALO_CONSOLE_FEWER_WALKS
+	/* port: a new decal's vertices take the least recently drawn room among
+	the 64 decals after the last one made (lruv_set_search_window), not
+	among all 2048 the cache can hold: the search walked every decal in it
+	for each new one, a tenth of the tick in a big fight. The decals evicted
+	are then old ones near the last one made rather than the oldest drawn
+	of all; what's on screen is drawn every frame and stays. Only the
+	picture can differ from retail: decals are this machine's alone, made
+	from its own random seed and never sent (from Lord BirchWood's Vita
+	port) */
+	lruv_set_search_window(local_vertex_cache, 64);
+#endif
 
 	return;
 }
@@ -459,6 +471,9 @@ void _rasterizer_decals_dispose(
 		IDirect3DVertexBuffer8_Release(local_d3d_vertex_buffer);
 		local_d3d_vertex_buffer = NULL;
 	}
+#ifdef HALO_CONSOLE_FEWER_WALKS
+	lruv_set_search_window(local_vertex_cache, 0);
+#endif
 	lruv_delete(local_vertex_cache);
 
 	return;

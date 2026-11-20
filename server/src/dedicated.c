@@ -452,9 +452,9 @@ static void initialize(
 		dedicated.minimum_players = 1;
 	if (dedicated.minimum_players > HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
 		dedicated.minimum_players = HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
-	/* (12 unless set) */
+	/* (16 unless set: retail's system link and Halo PC's most) */
 	dedicated.maximum_players = setting_number("HALO_DEDICATED_MAXIMUM_PLAYERS", &settings,
-		SERVER_SETTING_MAXIMUM_PLAYERS, 12);
+		SERVER_SETTING_MAXIMUM_PLAYERS, 16);
 	if (dedicated.maximum_players > HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
 		dedicated.maximum_players = HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
 	if (dedicated.maximum_players < dedicated.minimum_players)

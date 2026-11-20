@@ -709,7 +709,7 @@
     },
     {
       "name": "Halo PC Restored HUD art",
-      "use": "The high-res HUD on the Xbox maps.",
+      "use": "The high-res HUD on the Xbox maps, and on MCC maps that use MCC's stock HUD.",
       "source": "https://github.com/Aerocatia/halopc-restored (release r220)",
       "copyright": [
         "Aerocatia and Jessie"

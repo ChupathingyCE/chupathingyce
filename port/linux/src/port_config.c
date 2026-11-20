@@ -122,6 +122,17 @@ struct config_setting
 #define DEFAULT_FULLSCREEN "true"
 #endif
 
+/* display.hud_safe_zone's default: "auto" (the Xbox's margins in a game
+alone, Halo PC's in split screen) on the desktop and Android; the Xbox's own
+("xbox") on the consoles, which play on televisions that overscan, where
+tighter margins can push the HUD off the picture */
+#if defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)
+#define DEFAULT_HUD_SAFE_ZONE "\"xbox\""
+#else
+#define DEFAULT_HUD_SAFE_ZONE "\"auto\""
+#endif
+
 /* macOS's audio cuts out with SDL's 512-frame buffer when the mixer is late
 (a 10.6 ms budget at 48 kHz); 2048 frames (43 ms) rides that out. Android's
 mixer runs on a phone's cores, often a slower one, so it has 1024 (21 ms).
@@ -201,6 +212,9 @@ keep fewer (the Switch's particles, HALO_CONSOLE_PARTICLE_TICKS and
 HALO_CONSOLE_LIGHT_LIMITS); the desktop has the Xbox's look, unlimited */
 #if defined(HALO_CONSOLE_PARTICLE_LIMIT)
 #define DEFAULT_PARTICLE_LIMIT HALO_CONSOLE_PARTICLE_LIMIT
+#elif defined(HALO_XBOX_CONSOLE)
+/* (the original Xbox's own pool, which holds no more: particles.c) */
+#define DEFAULT_PARTICLE_LIMIT "1024"
 #elif defined(HALO_SWITCH_CONSOLE)
 #define DEFAULT_PARTICLE_LIMIT "2048"
 #else
@@ -418,6 +432,12 @@ static const struct config_setting config_settings[] =
 		"view; only different in split screen) or \"lowered\" (a tenth of the\n"
 		"view's height below the middle). The view moves with it, so shots\n"
 		"still go where the crosshair is. Zoomed, it's in the middle." },
+	{ "display.hud_safe_zone", _config_string, DEFAULT_HUD_SAFE_ZONE, "HALO_HUD_SAFE_ZONE", _environment_value,
+		_platform_all | _platform_xbox,
+		"How far the HUD sits from the screen's edges: \"xbox\" (48 and 36\n"
+		"in, as on the Xbox), \"pc\" (8 in, as Halo PC), \"auto\" (the Xbox's\n"
+		"alone, Halo PC's in split screen) or two numbers, \"24 18\" (8 to\n"
+		"48 across, 8 to 36 down). As Chimera's chimera_safe_zones." },
 	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
 		_platform_all,
 		"Draw your weapon and arms. false hides them." },
@@ -477,6 +497,9 @@ static const struct config_setting config_settings[] =
 		"Which menus to use: \"chupathingy\" or \"xbox\".\n"
 		"Put your own menus in a menus folder next to config.toml.\n"
 		"Restart Chupathingy after a change." },
+	{ "display.duct_tape_logo", _config_boolean, "false", "HALO_DUCT_TAPE_LOGO", _environment_value, _platform_all,
+		"Tape over the main menu's logo, in the Chupathingy menus. A certain\n"
+		"code on the main menu changes it." },
 	{ "display.map_show_new_game", _config_string, "\"all\"", "HALO_MAP_SHOW_NEW_GAME", _environment_value,
 		_platform_all,
 		"Which maps New Game's multiplayer list shows: \"all\", \"xbox\", \"ce\",\n"
@@ -587,6 +610,10 @@ static const struct config_setting config_settings[] =
 		"Show each Chupathingy player's platform logo on the scoreboard.\n"
 		"\"auto\" shows them only with the Chupathingy menus. \"on\" always\n"
 		"shows them, and \"off\" never does." },
+	{ "display.ping_meter", _config_boolean, "false", "HALO_PING_METER", _environment_value,
+		_platform_all | _platform_console_gl,
+		"Show your ping at the top right in a network game, with \"Connection\n"
+		"problem\" when the host goes quiet. The host sees its slowest player's." },
 	{ "display.show_quit_players", _config_boolean, "true", "HALO_SHOW_QUIT_PLAYERS", _environment_value,
 		_platform_all | _platform_xbox,
 		"Keep players who quit on the multiplayer scoreboard." },
@@ -714,12 +741,13 @@ static const struct config_setting config_settings[] =
 		"(at 30 frames a second they end before they are drawn). false: as on\n"
 		"the Xbox, at any frame rate. Thanks to ugoboom for the idea." },
 	{ "display.particle_limit", _config_integer, DEFAULT_PARTICLE_LIMIT, "HALO_PARTICLE_LIMIT", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"The most particles alive at once: sparks, smoke, casings and debris.\n"
 		"When it is full, the oldest goes to make room for a new one. The Xbox's\n"
 		"limit was 1024. 0 uses the port's own 8192, which a 64-player firefight\n"
 		"fills. Every particle costs CPU and GPU time. The default is 2048 on the\n"
-		"Switch and 4096 elsewhere. Changes at once." },
+		"Switch, 1024 (its most) on the original Xbox and 4096 elsewhere. A\n"
+		"network game never goes under 1024. Changes at once." },
 	{ "display.particle_ticks", _config_boolean, DEFAULT_PARTICLE_TICKS, "HALO_PARTICLE_TICKS", _environment_value,
 		_platform_all,
 		"Move the particles that are not attached to an object once a 30 Hz\n"
@@ -836,6 +864,34 @@ static const struct config_setting config_settings[] =
 		"instead of waiting for the next. OpenGL on Windows, Linux and Android,\n"
 		"and the original Xbox; elsewhere it waits. Takes effect at the next\n"
 		"start." },
+	/* (the drawing's knobs: render.c's render_tuning, which holds them in
+	network games) */
+	{ "tuning.particle_thinning", _config_integer, "1", "HALO_PARTICLE_THINNING", _environment_value,
+		_platform_all | _platform_xbox,
+		"Draw one in this many of the loose particles in the world: sparks,\n"
+		"debris, dust and the puffs of explosions, from 1 to 4. 1 draws every\n"
+		"one, as the Xbox. Particles on a weapon, player or vehicle are always\n"
+		"drawn. In a network game you never see fewer than the Xbox would.\n"
+		"Changes at once." },
+	{ "tuning.effects", _config_string, "\"full\"", "HALO_TUNING_EFFECTS", _environment_value,
+		_platform_all | _platform_xbox,
+		"\"full\" draws every pass, as the Xbox. \"reduced\" leaves out the\n"
+		"shine of lights, metal and water, mirrors and the grass on the ground.\n"
+		"\"minimal\" also leaves out decals, rain and snow, contrails and lens\n"
+		"flares. In a network game the grass, rain, snow, contrails and flares\n"
+		"are always drawn. Changes at once." },
+	{ "tuning.shadow_pixels", _config_integer, "30", "HALO_SHADOW_PIXELS", _environment_value,
+		_platform_all | _platform_xbox,
+		"How big an object must look, in pixels across, to cast a shadow, from\n"
+		"30 to 400. 30 is the Xbox's. Higher keeps the shadows of near objects\n"
+		"only. Changes at once." },
+	{ "tuning.object_cull_pixels", _config_integer, "0", "HALO_OBJECT_CULL_PIXELS", _environment_value,
+		_platform_all | _platform_xbox,
+		"Leave out objects that look smaller than this, in pixels across,\n"
+		"before they are lit, from 0 to 16. 0 draws every one, as the Xbox. In\n"
+		"a network game only weapons, equipment and debris lying around are\n"
+		"left out: never players, vehicles, projectiles or cover. Changes at\n"
+		"once." },
 	{ "tuning.texture_cache", _config_string, "\"auto\"", NULL, _environment_value, _platform_xbox,
 		"The texture cache's size in MB, like \"20\", or \"auto\" for the\n"
 		"console's own. It is held between 19 MB and what the console's memory\n"
@@ -961,31 +1017,43 @@ static const struct config_setting config_settings[] =
 	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
 		"On-screen touch controls: \"on\" or \"off\". \"auto\" shows them only\n"
 		"when no controller is connected." },
-#ifdef HALO_SWITCH_CONSOLE
-	/* gyro aiming (port/linux/src/xinput_sdl.c): the controller's gyroscope,
-	each local player from their own */
-	{ "input.gyro_aim", _config_string, "\"false\"", "HALO_GYRO_AIM", _environment_value, _platform_android,
-		"Aim with the controller's gyroscope. Each local player uses their own:\n"
-		"a Pro Controller, the console held in your hands, or one Joy-Con. With\n"
-		"two Joy-Cons, the right one is used. \"true\" always aims with it, \"zoom\"\n"
-		"only while zoomed in with a scope, and \"false\" never. Gamepads > Gyro\n"
-		"Aim sets it too. Changes at once." },
+#ifdef HALO_PORT_GYRO_AIM
+	/* gyro aiming (port/linux/src/gyro_aim.c, xinput_sdl.c): the
+	controller's gyroscope, each local player from their own. Off by
+	default; the Switch's defaults as they were */
+	{ "input.gyro_aim", _config_string, "\"false\"", "HALO_GYRO_AIM", _environment_value, _platform_all,
+		"Aim with the controller's gyroscope (a DualSense, DualShock 4, Switch\n"
+		"Pro Controller or Joy-Con, the Steam Deck; on the Switch, the console\n"
+		"held in your hands too). Each local player uses their own. \"true\"\n"
+		"always aims with it, \"zoom\" only while zoomed in with a scope, and\n"
+		"\"false\" never. Changes at once." },
 	{ "input.gyro_sensitivity_horizontal", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_HORIZONTAL",
-		_environment_value, _platform_android,
+		_environment_value, _platform_all,
 		"How far the view turns left and right with the gyroscope, when\n"
-		"input.gyro_aim is on. 1 is the sensor's own turn. From 0.25 to 10." },
+		"input.gyro_aim is on. 1 turns the view as far as the controller\n"
+		"turns (on the Switch, 1.5 times as far). From 0.25 to 10." },
 	{ "input.gyro_sensitivity_vertical", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_VERTICAL",
-		_environment_value, _platform_android,
+		_environment_value, _platform_all,
 		"How far the view turns up and down with the gyroscope, when\n"
-		"input.gyro_aim is on. 1 is the sensor's own turn. From 0.25 to 10." },
+		"input.gyro_aim is on. 1 turns the view as far as the controller\n"
+		"turns (on the Switch, 1.5 times as far). From 0.25 to 10." },
 	{ "input.gyro_invert_horizontal", _config_boolean, "false", "HALO_GYRO_INVERT_HORIZONTAL",
-		_environment_value, _platform_android,
+		_environment_value, _platform_all,
 		"Invert the gyroscope's left and right. With true, turning the\n"
 		"controller right looks left. The stick's invert is separate." },
 	{ "input.gyro_invert_vertical", _config_boolean, "false", "HALO_GYRO_INVERT_VERTICAL",
-		_environment_value, _platform_android,
+		_environment_value, _platform_all,
 		"Invert the gyroscope's up and down. With true, tilting the controller\n"
 		"up looks down. The stick's invert is separate." },
+#ifdef HALO_PORT_GYRO_SDL
+	{ "input.gyro_horizontal_axis", _config_string, "\"yaw\"", "HALO_GYRO_HORIZONTAL_AXIS", _environment_value,
+		_platform_all,
+		"What turns the view left and right: \"yaw\", turning the controller,\n"
+		"or \"roll\", tilting it like a steering wheel." },
+	{ "input.gyro_deadzone", _config_real, "0.75", "HALO_GYRO_DEADZONE", _environment_value, _platform_all,
+		"Gyroscope motion slower than this many degrees a second does not\n"
+		"turn the view. From 0 to 10." },
+#endif
 #endif
 
 	/* ---- controls: the keyboard and mouse's own (port/linux/src/xinput_sdl.c) */
@@ -1050,6 +1118,40 @@ static const struct config_setting config_settings[] =
 		"The Custom controller layout from the Controls screen. It is a list of\n"
 		"action and button pairs separated by commas, like \"jump=B,melee=RB\".\n"
 		"Leave it empty for the default." },
+#endif
+
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* ---- Forge's monitor's keys (port/linux/game/forge.c, halo_keyboard.h's
+	halo_forge_key): only Forge reads them, and only while its player is the
+	monitor, so they may share the actions' keys */
+	{ "controls.forge_up", _config_string, "\"Space\"", "HALO_KEY_FORGE_UP", _environment_value, _platform_desktop,
+		"Forge's monitor: fly up." },
+	{ "controls.forge_down", _config_string, "\"Left Ctrl, C\"", "HALO_KEY_FORGE_DOWN", _environment_value, _platform_desktop,
+		"Forge's monitor: fly down." },
+	{ "controls.forge_fast", _config_string, "\"Left Shift\"", "HALO_KEY_FORGE_FAST", _environment_value, _platform_desktop,
+		"Forge's monitor: fly four times as fast while held." },
+	{ "controls.forge_grab", _config_string, "\"Mouse Left\"", "HALO_KEY_FORGE_GRAB", _environment_value, _platform_desktop,
+		"Forge's monitor: grab what the crosshair is on, and let go of what is\nheld." },
+	{ "controls.forge_rotate", _config_string, "\"Mouse Right\"", "HALO_KEY_FORGE_ROTATE", _environment_value, _platform_desktop,
+		"Forge's monitor: while held with something held, the mouse turns it\n(rotate mode)." },
+	{ "controls.forge_nearer", _config_string, "\"Wheel Down\"", "HALO_KEY_FORGE_NEARER", _environment_value, _platform_desktop,
+		"Forge's monitor: what is held comes nearer." },
+	{ "controls.forge_farther", _config_string, "\"Wheel Up\"", "HALO_KEY_FORGE_FARTHER", _environment_value, _platform_desktop,
+		"Forge's monitor: what is held goes farther away." },
+	{ "controls.forge_copy", _config_string, "\"F\"", "HALO_KEY_FORGE_COPY", _environment_value, _platform_desktop,
+		"Forge's monitor: a copy of what is held or aimed at, held." },
+	{ "controls.forge_delete", _config_string, "\"Delete, X\"", "HALO_KEY_FORGE_DELETE", _environment_value, _platform_desktop,
+		"Forge's monitor: delete what is held or aimed at." },
+	{ "controls.forge_upright", _config_string, "\"U\"", "HALO_KEY_FORGE_UPRIGHT", _environment_value, _platform_desktop,
+		"Forge's monitor: set what is held or aimed at upright." },
+	{ "controls.forge_speed", _config_string, "\"Q\"", "HALO_KEY_FORGE_SPEED", _environment_value, _platform_desktop,
+		"Forge's monitor: the next flying speed; in rotate mode, the next\nrotation snap." },
+	{ "controls.forge_nudge", _config_string, "\"N\"", "HALO_KEY_FORGE_NUDGE", _environment_value, _platform_desktop,
+		"Forge's monitor: in rotate mode, nudge mode on or off." },
+	{ "controls.forge_menu", _config_string, "\"E\"", "HALO_KEY_FORGE_MENU", _environment_value, _platform_desktop,
+		"Forge's monitor: the Forge menu (objects, properties, layouts, options)." },
+	{ "controls.forge_monitor", _config_string, "\"M\"", "HALO_KEY_FORGE_MONITOR", _environment_value, _platform_desktop,
+		"Forge: switch between the monitor and playing." },
 #endif
 
 #ifdef HALO_GUIDE
@@ -1636,6 +1738,12 @@ static const struct config_setting config_settings[] =
 		"(sounds for now) over a map's own, as a resource pack. Nothing happens\n"
 		"while the folder is empty. Local games only: a network game plays the\n"
 		"map's own tags. See docs/mods.md." },
+#ifndef HALO_CONSOLE_NO_FORGE
+	{ "game.forge", _config_boolean, "false", "HALO_FORGE", _environment_value, _platform_desktop,
+		"Forge, the layout editor of the multiplayer maps: FORGE in the\n"
+		"Multiplayer menu, and the console's forge commands. Local games only.\n"
+		"FORGE in the Delta Guide's SETTINGS. See docs/forge.md." },
+#endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
 		"Workshop campaign maps are listed either way. Reopen the map list after\n"
@@ -4662,9 +4770,13 @@ static const struct
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
 	{ "display.crosshair_position", { "retail", "centered", "lowered", NULL }, "\"retail\"" },
+	/* (two numbers, "24 18", are taken too: the log line for anything else
+	is hud_draw.c's hud_safe_zone_margins) */
+	{ "display.hud_safe_zone", { "xbox", "pc", "auto", NULL }, NULL },
 	/* (the log line for another word is config_tuning_apply's, which uses the default) */
 	{ "tuning.preset", { "retail", "lan-party", "potato", NULL }, NULL },
 	{ "tuning.present_mode", { "vblank", "adaptive", NULL }, NULL },
+	{ "tuning.effects", { "full", "reduced", "minimal", NULL }, NULL },
 	{ "audio.resampling", { "xbox", "sinc", "linear", NULL }, "\"xbox\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
 	{ "game.console_log", { "important", "all", "none", NULL }, "\"important\"" },
@@ -4797,8 +4909,10 @@ the others stay where they were, the one place each value lives, and a
 preset only changes what "unset" means. Every knob changes only what is
 drawn, never the simulation, so a game plays the same whatever they say
 (display.particle_limit is held at the Xbox's 1024 or more in a network
-game: particles.c). A value out of a knob's range is held in it, and a word
-that is none of a knob's is its default, each said in the log.
+game: particles.c; and the drawing's knobs never hide players, vehicles,
+projectiles or cover there: render.c's render_tuning). A value out of a
+knob's range is held in it, and a word that is none of a knob's is its
+default, each said in the log.
 
 The log has every knob's value and where it came from at the start
 ("tuning: at=boot", with a line of those that differ from the defaults),
@@ -4807,8 +4921,8 @@ at each map's start ("tuning: at=map", config_tuning_log) and at each change
 (crash_report.c, log_send.c).
 
 Not knobs yet, needing engine work sized by testers' console.perf_log lines
-first: the explosions' particles, the effects' density, the decals' draw
-distance and the tire tracks. */
+first: the explosions' particles, the decals' draw distance and the tire
+tracks. */
 
 enum
 {
@@ -4867,20 +4981,49 @@ static const struct
 	long minimum, maximum;
 	/* the value each preset gives it (retail none): NULL leaves the default */
 	const char *preset[NUMBER_OF_TUNING_PRESETS];
+	/* the original Xbox's, whose own limits are already where the PC's
+	presets would put them: there "lan-party" is for big network games
+	(fewer lights and shadows, no shine or reflections, a late frame shown
+	at once: none of it held in one), and "potato" goes further below the
+	Xbox's own drawing (fewer particles, every other loose one drawn, the
+	decals and, outside network games, the grass, weather, contrails and
+	lens flares left out). A network game holds the knobs that could hide
+	a player (particles.c, render.c's render_tuning) */
+	const char *xbox_preset[NUMBER_OF_TUNING_PRESETS];
 } config_tuning_knobs[] =
 {
-	{ "display.dynamic_light_limit", "lights", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "16", "8" } },
-	{ "display.specular_light_limit", "specular", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "4", "2" } },
-	{ "display.particle_limit", "particles", _tuning_limit, 0, TUNING_MAXIMUM_PARTICLES, { NULL, "2048", "1024" } },
-	{ "display.particle_ticks", "particle_ticks", 0, 0, 0, { NULL, "true", "true" } },
-	{ "display.shadow_resolution", "shadows", 0, 0, 0, { NULL, NULL, "128" } },
-	{ "display.anisotropic_filtering", "aniso", 0, 0, 0, { NULL, NULL, "0" } },
-	{ "display.anti_aliasing", "aa", 0, 0, 0, { NULL, NULL, "off" } },
-	{ "display.per_pixel_lighting", "per_pixel", 0, 0, 0, { NULL, NULL, "false" } },
-	{ "display.light_effects", "light_effects", 0, 0, 0, { NULL, NULL, "off" } },
-	{ "display.resolution_scaling", "scaling", 0, 0, 0, { NULL, NULL, "original" } },
-	{ "tuning.present_mode", "present", _tuning_words, 0, 0, { NULL, "adaptive", NULL } },
-	{ "tuning.texture_cache", "texture_cache", _tuning_megabytes, 19, 512, { NULL, NULL, NULL } },
+	{ "display.dynamic_light_limit", "lights", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "16", "8" },
+		{ NULL, "4", "2" } },
+	{ "display.specular_light_limit", "specular", _tuning_limit, 0, TUNING_MAXIMUM_LIGHTS, { NULL, "4", "2" },
+		{ NULL, "1", "1" } },
+	{ "display.particle_limit", "particles", _tuning_limit, 0, TUNING_MAXIMUM_PARTICLES, { NULL, "2048", "1024" },
+		{ NULL, NULL, "512" } },
+	{ "display.particle_ticks", "particle_ticks", 0, 0, 0, { NULL, "true", "true" },
+		{ NULL, NULL, NULL } },
+	{ "display.shadow_resolution", "shadows", 0, 0, 0, { NULL, NULL, "128" },
+		{ NULL, NULL, NULL } },
+	{ "display.anisotropic_filtering", "aniso", 0, 0, 0, { NULL, NULL, "0" },
+		{ NULL, NULL, NULL } },
+	{ "display.anti_aliasing", "aa", 0, 0, 0, { NULL, NULL, "off" },
+		{ NULL, NULL, NULL } },
+	{ "display.per_pixel_lighting", "per_pixel", 0, 0, 0, { NULL, NULL, "false" },
+		{ NULL, NULL, NULL } },
+	{ "display.light_effects", "light_effects", 0, 0, 0, { NULL, NULL, "off" },
+		{ NULL, NULL, NULL } },
+	{ "display.resolution_scaling", "scaling", 0, 0, 0, { NULL, NULL, "original" },
+		{ NULL, NULL, NULL } },
+	{ "tuning.present_mode", "present", _tuning_words, 0, 0, { NULL, "adaptive", NULL },
+		{ NULL, "adaptive", "adaptive" } },
+	{ "tuning.particle_thinning", "thinning", 0, 1, 4, { NULL, NULL, NULL },
+		{ NULL, NULL, "2" } },
+	{ "tuning.effects", "effects", _tuning_words, 0, 0, { NULL, NULL, NULL },
+		{ NULL, "reduced", "minimal" } },
+	{ "tuning.shadow_pixels", "shadow_pixels", 0, 30, 400, { NULL, NULL, NULL },
+		{ NULL, "60", "120" } },
+	{ "tuning.object_cull_pixels", "cull_pixels", 0, 0, 16, { NULL, NULL, NULL },
+		{ NULL, "4", "8" } },
+	{ "tuning.texture_cache", "texture_cache", _tuning_megabytes, 19, 512, { NULL, NULL, NULL },
+		{ NULL, NULL, NULL } },
 };
 
 #define NUMBER_OF_TUNING_KNOBS (sizeof(config_tuning_knobs) / sizeof(config_tuning_knobs[0]))
@@ -4898,6 +5041,16 @@ static int config_tuning_said_preset = -1;
 player chose since the file was read (config_given stays the file's and
 the environment's, which config_chosen answers) */
 static signed char config_touched[NUMBER_OF_CONFIG_SETTINGS];
+
+/* the value a preset gives a knob on this build (NULL: its default) */
+static const char *config_tuning_knob_preset(size_t knob, int preset)
+{
+#ifdef HALO_XBOX_CONSOLE
+	return config_tuning_knobs[knob].xbox_preset[preset];
+#else
+	return config_tuning_knobs[knob].preset[preset];
+#endif
+}
 
 /* a knob's setting, or -1 for one that is not this build's */
 static long config_tuning_setting(size_t knob)
@@ -5063,7 +5216,7 @@ static void config_tuning_apply(long changed)
 		}
 		else if (!given)
 		{
-			const char *preset_value = config_tuning_knobs[knob].preset[preset];
+			const char *preset_value = config_tuning_knob_preset(knob, preset);
 
 			if (preset_value && (flags & _tuning_limit))
 			{
@@ -5149,9 +5302,9 @@ static void config_tuning_apply(long changed)
 			platform_log("tuning: change preset=%s->%s", config_tuning_presets[config_tuning_said_preset < 0 ?
 				_tuning_preset_retail : config_tuning_said_preset], config_tuning_presets[preset]);
 		}
-		/* a preset that sets nothing on this build (on the original Xbox,
-		potato: its limits are the console's own, the rest not its
-		settings) says so, rather than look like it did something */
+		/* a preset that sets nothing on this build (every knob it names
+		set by hand, or its limits this build's own) says so, rather than
+		look like it did something */
 		if (preset != _tuning_preset_retail && (start || config_tuning_said_preset != preset))
 		{
 			int preset_set = 0;
@@ -6321,7 +6474,7 @@ const char *config_tuning_preset_value(const char *preset, const char *name)
 	for (knob = 0; knob < NUMBER_OF_TUNING_KNOBS; knob++)
 	{
 		if (!strcmp(config_tuning_knobs[knob].name, name))
-			return config_tuning_knobs[knob].preset[index];
+			return config_tuning_knob_preset(knob, index);
 	}
 	return NULL;
 }

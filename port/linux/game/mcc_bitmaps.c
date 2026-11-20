@@ -22,6 +22,7 @@
 #define BCDEC_STATIC
 #define BCDEC_IMPLEMENTATION
 #include "../../third_party/bcdec/bcdec.h"
+#include "../../third_party/zlib/zlib_prefixed.h"
 #include "mcc_host_memory.h"
 
 /* port: GulchCE's dedicated server switch (config_server_mode_enabled); ours
@@ -44,6 +45,11 @@ struct mcc_texture {
     unsigned char *pixels;
     unsigned channels;
     uint32_t resource_handle, resource_index;
+    /* the HUD's sheets' first mip level as the map stores it, before its
+     * conversion (CRC-32): what the high-res HUD tells MCC's stock sheets
+     * by (port/linux/game/hud_hires_tags.c) */
+    uint32_t source_crc;
+    int source_crc_valid;
 };
 struct mcc_bitmap_clone { uint32_t source, target; unsigned channels; };
 struct mcc_textures {
@@ -535,6 +541,20 @@ static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *
             goto failed;
         }
     } else if (!mcc_runtime_read(runtime,bitmap->pixels_offset,(uint32_t)raw_size,raw)) goto failed;
+    {
+        /* Only the HUD's folders: the checksum costs a pass over the pixels. */
+        uint32_t *entry=(uint32_t *)(runtime->tag_index+(texture->resource_handle&0xFFFF)*32);
+        char const *name=mcc_runtime_pointer(runtime,entry[4],256);
+        if (name && memchr(name,0,256) && (!strncmp(name,"ui\\hud\\bitmaps\\",sizeof("ui\\hud\\bitmaps\\")-1) ||
+            !strncmp(name,"weapons\\sniper rifle\\bitmaps\\",sizeof("weapons\\sniper rifle\\bitmaps\\")-1))) {
+            uint64_t level0=bytes_per_pixel ? (uint64_t)bitmap->width*bitmap->height*bytes_per_pixel :
+                (uint64_t)((bitmap->width+3)/4)*((bitmap->height+3)/4)*(bitmap->format==14 ? 8 : 16);
+            if (level0<=raw_size) {
+                texture->source_crc=(uint32_t)crc32(0L,raw,(uInt)level0);
+                texture->source_crc_valid=1;
+            }
+        }
+    }
     if (convert) {
         pixels=malloc(allocation);
         if (!pixels) goto out_of_memory;
@@ -723,6 +743,20 @@ void const *mcc_bitmaps_pixels(struct mcc_runtime *runtime,struct bitmap_data co
         return texture->pixels;
     }
     return NULL;
+}
+
+int mcc_bitmaps_source_crc(struct mcc_runtime *runtime,struct bitmap_data const *bitmap,uint32_t *crc)
+{
+    struct mcc_textures *textures=runtime ? runtime->bitmaps : NULL;
+    uint32_t index;
+    for (index=0;textures && bitmap && index<textures->count;index++) {
+        struct mcc_texture const *texture=&textures->items[index];
+        if (texture->bitmap!=bitmap) continue;
+        if (!texture->source_crc_valid) return 0;
+        *crc=texture->source_crc;
+        return 1;
+    }
+    return 0;
 }
 
 #ifndef HALO_GLES

@@ -339,6 +339,9 @@ def test_menu_settings_exist():
     # (and the screenshot and clip keys, desktop-only and set in config.toml:
     # port/linux/src/capture.c)
     guide |= {"controls.screenshot", "controls.capture_buttons", "controls.clip"}
+    # (and Forge's monitor's keys, set in config.toml: port/linux/game/forge.c)
+    guide |= {"controls.forge_" + name for name in ("up", "down", "fast", "grab", "rotate", "nearer", "farther",
+                                                   "copy", "delete", "upright", "speed", "nudge", "menu", "monitor")}
     controls = set(re.findall(r'"(controls\.[a-z_]+)"', (root / "port/linux/src/xinput_sdl.c").read_text())) - guide
     # (controls.controller_layout is the controller's, not a key's: controller_layout.c)
     assert controls == {name for name in known if name.startswith("controls.")} - {"controls.controller_layout"} - guide

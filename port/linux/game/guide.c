@@ -1243,8 +1243,10 @@ static void setting_change(short setting, short direction)
 	if (row)
 	{
 		settings_row_change(row, direction < 0 ? -1 : 1);
-		/* (the menus' DELTA rows are put in as the menus load) */
-		if (!strcmp(settings_row_key(row), "delta.menu_item") || !strcmp(settings_row_key(row), "display.menus"))
+		/* (the menus' DELTA rows, and the Multiplayer menu's FORGE, are put in
+		as the menus load) */
+		if (!strcmp(settings_row_key(row), "delta.menu_item") || !strcmp(settings_row_key(row), "display.menus") ||
+			!strcmp(settings_row_key(row), "game.forge"))
 			message_set("Takes effect next time the menus load");
 	}
 }

@@ -773,6 +773,8 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     host_sources = sorted(path for path in (PORT_DIR / "host").glob("*.c") if not path.name.startswith("host_vk")) + [
         LINUX_DIR / "src" / "posix_files.c", LINUX_DIR / "src" / "posix_net.c",
         LINUX_DIR / "src" / "posix_mcc_preview.c",
+        # the phone's gyroscope's filter (host_touch.c)
+        LINUX_DIR / "src" / "gyro_aim.c",
         # the app reads debug.sample_seconds from config.toml (host_main.c)
         TOML_DIR / "tomlc17.c",
     ]

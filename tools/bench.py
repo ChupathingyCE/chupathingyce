@@ -17,6 +17,12 @@ microseconds); frames from --warmup ticks on are counted.
     python3 tools/bench.py --maps ~/halo-maps/maps --renderer gl --runs 3
     python3 tools/bench.py --maps ~/halo-maps/maps --binary old/chupathingy --binary build/macos/chupathingy \\
         --renderer gl --inputs bench/inputs.bin          # two builds, the same game
+    python3 tools/bench.py --maps ~/halo-maps/maps --renderer gl --inputs bench/inputs.bin \
+        --env HALO_TUNING_EFFECTS=reduced                # one setting, against a run without it
+
+--env adds a setting's environment variable to every run (more than once:
+each). A replay counts as a local game for the [tuning] knobs, so they go
+as far as they would offline (render.c's render_tuning).
 
 It prints, for each build and renderer, the median over the runs of the
 frame times (mean, p50, p95, p99), the average frame rate, the 1% low (the
@@ -111,7 +117,7 @@ def record(binary, maps, work, ticks, seed):
     return inputs
 
 
-def run(binary, maps, work, name, inputs, renderer, ticks, seed, size):
+def run(binary, maps, work, name, inputs, renderer, ticks, seed, size, settings=None):
     """Plays the recording once in a window on a renderer; returns the frame
     log's path and whether the renderer asked for was the one that drew."""
     folder = os.path.join(work, name)
@@ -126,6 +132,7 @@ def run(binary, maps, work, name, inputs, renderer, ticks, seed, size):
         "HALO_NO_VSYNC": "1",
         "HALO_MAX_FPS": "-1",
         "HALO_VRR": "off",
+        **(settings or {}),
     }
     # (a real window: the determinism check's copies draw nowhere)
     original = determinism.copy_environment
@@ -164,7 +171,10 @@ def main():
     parser.add_argument("--inputs", help="a recording to play (default: record one in --work)")
     parser.add_argument("--work", default=os.path.join(ROOT, "build", "bench"))
     parser.add_argument("--json", help="a file to write the results to")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+        help="a setting's environment variable for every run (more than once: each)")
     args = parser.parse_args()
+    settings = dict(item.split("=", 1) for item in args.env)
     binaries = args.binary or [default_binary()]
     renderers = args.renderer or ["gl", "bgfx"]
     if not os.path.exists(os.path.join(args.maps, f"{determinism.DEFAULT_MAP}.map")):
@@ -188,7 +198,7 @@ def main():
                         shutil.rmtree(os.path.join(args.work, name), ignore_errors=True)
                         try:
                             frame_log, fell = run(binary, args.maps, args.work, name, inputs, renderer,
-                                args.ticks, args.seed, args.size)
+                                args.ticks, args.seed, args.size, settings)
                         except RuntimeError as error:
                             determinism.log(f"bench: {error}{': again' if not attempt else ': left out'}")
                             continue
@@ -216,7 +226,7 @@ def main():
     if args.json:
         with open(args.json, "w") as file:
             json.dump({"inputs": inputs, "ticks": args.ticks, "warmup": args.warmup, "size": args.size,
-                "results": results}, file, indent=2)
+                "settings": settings, "results": results}, file, indent=2)
     return 0
 
 
