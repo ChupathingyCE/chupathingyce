@@ -791,3 +791,62 @@ int guide_lines_scroll(const int *kinds, const float *heights, int count, int ch
 	}
 	return first > last_start ? last_start : first;
 }
+
+/* ---------- the sections down the left */
+
+void guide_layout_sidebar(struct guide_rect area, int count, float item_height, struct guide_sidebar_layout *out)
+{
+	float gap = GUIDE_SIDEBAR_GAP, room, y;
+	int index;
+
+	memset(out, 0, sizeof(*out));
+	if (count > GUIDE_SIDEBAR_MOST)
+		count = GUIDE_SIDEBAR_MOST;
+	if (count < 0)
+		count = 0;
+	out->count = count;
+	if (item_height > area.height / 2)
+		item_height = area.height / 2;
+	out->close.x = area.x;
+	out->close.width = area.width;
+	out->close.height = item_height;
+	out->close.y = area.y + area.height - item_height;
+	/* (the sections squeezed, their gaps first, when they'd reach CLOSE) */
+	room = out->close.y - GUIDE_SIDEBAR_APART - area.y;
+	if (count > 0 && count * item_height + (count - 1) * gap > room)
+	{
+		gap = count > 1 ? (room - count * item_height) / (count - 1) : 0;
+		if (gap < 0)
+		{
+			gap = 0;
+			item_height = room / count;
+		}
+	}
+	y = area.y;
+	for (index = 0; index < count; index++)
+	{
+		out->items[index].x = area.x;
+		out->items[index].y = y;
+		out->items[index].width = area.width;
+		out->items[index].height = item_height;
+		y += item_height + gap;
+	}
+}
+
+void guide_layout_columns(struct guide_rect body, float gap, float list_share, float minimum_detail,
+	struct guide_rect *list, struct guide_rect *detail)
+{
+	float room = body.width - gap, list_width = room * list_share;
+
+	if (room < 0)
+		room = 0;
+	if (room - list_width < minimum_detail)
+		list_width = room - minimum_detail;
+	if (list_width < room * 0.5f)
+		list_width = room * 0.5f;
+	*list = body;
+	list->width = list_width;
+	*detail = body;
+	detail->x = body.x + list_width + gap;
+	detail->width = room - list_width;
+}

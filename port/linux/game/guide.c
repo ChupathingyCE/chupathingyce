@@ -8,8 +8,12 @@ menus' items, glow on the selected row and the edges, the prompt bar), its
 data social.c's.
 
 The panel: the player's card (their name and what they're doing), then
-the sections, switched with LB and RB (Q and E, or a click): FRIENDS,
-PARTY, PLAYERS HERE, RECENT, SERVICE RECORD and SETTINGS.
+the sections down the left (FRIENDS, PARTY, CLAN, PLAYERS HERE, RECENT,
+WORKSHOP, SERVICE RECORD and SETTINGS, with CLOSE apart at their foot)
+beside the one shown. LB and RB (Q and E) switch them from anywhere, a
+click opens one, and Left goes to them from a section when nothing there
+takes it (a setting's value does): there up and down show each, and A or
+Right goes back in.
 - PLAYERS HERE lists the game's players: their Delta Tag when they share
   their profile (else their game name), their platform's logo when the game
   is on Delta, and a local Mute (the chat log's, chat.c). A player verified
@@ -195,20 +199,26 @@ int delta_peer_game_player_identity(int machine_index, int local_player, struct 
 /* the panel's place, in the menus' 640x480 */
 enum
 {
-	PANEL_X = 48, PANEL_Y = 38, PANEL_WIDTH = 544, PANEL_HEIGHT = 398,
+	PANEL_X = 16, PANEL_Y = 38, PANEL_WIDTH = 608, PANEL_HEIGHT = 398,
 	PANEL_RIGHT = PANEL_X + PANEL_WIDTH,
 	INSET = 16,
-	CONTENT_LEFT = PANEL_X + INSET,
+	/* the card across the top */
+	CARD_LEFT = PANEL_X + INSET,
 	CONTENT_RIGHT = PANEL_RIGHT - INSET,
 	HEADER_Y = PANEL_Y + 12,
 	RULE_Y = PANEL_Y + 54,
-	TABS_Y = PANEL_Y + 62,
-	TABS_HEIGHT = 22,
-	BODY_Y = PANEL_Y + 96,
+	/* the sections down the left, under the card (guide_layout_sidebar) */
+	SIDEBAR_LEFT = CARD_LEFT,
+	SIDEBAR_WIDTH = 112,
+	SIDEBAR_ITEM_HEIGHT = 24,
+	/* the section shown, right of them */
+	CONTENT_LEFT = SIDEBAR_LEFT + SIDEBAR_WIDTH + 14,
+	BODY_Y = PANEL_Y + 66,
 	PROMPTS_Y = PANEL_Y + PANEL_HEIGHT - 30,
 	BODY_BOTTOM = PROMPTS_Y - 8,
-	LIST_WIDTH = 262,
-	DETAIL_LEFT = CONTENT_LEFT + LIST_WIDTH + 12,
+	/* a list beside its detail: the list's share, the detail's least */
+	LIST_GAP = 12,
+	DETAIL_LEAST = 190,
 	ROW_HEIGHT = 30,
 	ROW_GAP = 4,
 	SETTING_HEIGHT = 26,
@@ -252,6 +262,13 @@ enum
 	CLAN_LOOK_CLOSED = 2000,
 	EMBLEM_PIXELS = 64,
 };
+
+/* a list's width beside its detail pane, and the pane's left
+(guide_layout_columns: the body right of the sections) */
+static float list_width(void);
+#define LIST_WIDTH list_width()
+#define DETAIL_LEFT (CONTENT_LEFT + LIST_WIDTH + LIST_GAP)
+#define LIST_SHARE 0.53f
 
 /* the colors: the theme's (ui_style_color: Halo Blue, Chupathingy Red or
 Dashboard Green), and those the same in all */
@@ -513,6 +530,11 @@ static struct
 	/* the first row shown of a long list, and of SETTINGS */
 	short first_row;
 	short settings_first;
+	/* the sections down the left have the d-pad (Left from a section,
+	until A or Right goes back into it) */
+	boolean sidebar;
+	/* ... its cursor on CLOSE */
+	boolean sidebar_close;
 	/* SETTINGS' page shown (_settings_page_*) */
 	short settings_page;
 	/* SETTINGS' scroll bar, as last drawn, for the mouse */
@@ -4052,32 +4074,84 @@ static void render_battery(float right, float y)
 
 static void render_card(void)
 {
-	ui_style_card(CONTENT_LEFT, CONTENT_RIGHT, HEADER_Y, guide.name, guide.status, guide.color, "DELTA");
+	ui_style_card(CARD_LEFT, CONTENT_RIGHT, HEADER_Y, guide.name, guide.status, guide.color, "DELTA");
 	/* (left of the title) */
 	render_battery(CONTENT_RIGHT - ui_overlay_text_width(UI_FONT_TITLE, 17.0f, "DELTA") - 16, HEADER_Y + 12);
 }
 
-static void render_tabs(void)
+/* the sections shown, in order (WORKSHOP only with MCC): their count */
+static short sections_shown(short *sections)
 {
-	char const *names[NUMBER_OF_SOCIAL_SECTIONS];
-	float starts[NUMBER_OF_SOCIAL_SECTIONS], ends[NUMBER_OF_SOCIAL_SECTIONS];
-	short sections[NUMBER_OF_SOCIAL_SECTIONS];
-	short section, count = 0, selected = 0;
+	short section, count = 0;
 
-	/* (the tabs shown: WORKSHOP only with MCC) */
 	for (section = 0; section < NUMBER_OF_SOCIAL_SECTIONS; section++)
 	{
-		if (!section_shown(section))
-			continue;
-		if (section == guide.section)
-			selected = count;
-		sections[count] = section;
-		names[count++] = social_section_name(section);
+		if (section_shown(section))
+			sections[count++] = section;
 	}
-	ui_style_tabs(CONTENT_LEFT, CONTENT_RIGHT, TABS_Y, TABS_HEIGHT, names, count, selected,
-		"Q", "E", starts, ends);
-	for (section = 0; section < count; section++)
-		target_add(starts[section], TABS_Y, ends[section], TABS_Y + TABS_HEIGHT, _target_tab, sections[section]);
+	return count;
+}
+
+/* text's width in the menus' font (guide_layout's measure) */
+static float measure_menu_font(void *context, float size, char const *text)
+{
+	(void)context;
+	return ui_overlay_text_width(UI_FONT_MENU, size, text);
+}
+
+static float list_width(void)
+{
+	struct guide_rect body = { CONTENT_LEFT, BODY_Y, CONTENT_RIGHT - CONTENT_LEFT, BODY_BOTTOM - BODY_Y };
+	struct guide_rect list, detail;
+
+	guide_layout_columns(body, LIST_GAP, LIST_SHARE, DETAIL_LEAST, &list, &detail);
+	return list.width;
+}
+
+/* the sections down the left, the one shown lit (with the plasma while
+they have the d-pad), and CLOSE apart at their foot */
+static void render_sidebar(void)
+{
+	struct guide_rect area = { SIDEBAR_LEFT, BODY_Y, SIDEBAR_WIDTH, BODY_BOTTOM - BODY_Y };
+	struct guide_sidebar_layout layout;
+	short sections[NUMBER_OF_SOCIAL_SECTIONS], count = sections_shown(sections), index;
+	float size = 9.5f;
+
+	guide_layout_sidebar(area, count, SIDEBAR_ITEM_HEIGHT, &layout);
+	for (index = 0; index < layout.count; index++)
+	{
+		struct guide_rect const *item = &layout.items[index];
+		boolean shown = sections[index] == guide.section;
+		char const *name = social_section_name(sections[index]);
+		char fitted[48];
+
+		if (shown && guide.sidebar && !guide.sidebar_close)
+			ui_style_row(item->x, item->y, item->width, item->height, TRUE);
+		else if (shown)
+			ui_style_row_chosen(item->x, item->y, item->width, item->height);
+		/* (a long name in a narrow sidebar: smaller, never past its edge) */
+		guide_layout_fit(name, item->width - 20, size, measure_menu_font, NULL, 0, fitted, sizeof(fitted));
+		if (shown)
+		{
+			ui_overlay_text_glow(UI_FONT_MENU, size, item->x + 10, item->y + (item->height - size) * 0.5f, UI_ALIGN_LEFT,
+				0xFFFFFFFF, COLOR_PROMPT_GLOW, fitted);
+		}
+		else
+		{
+			ui_overlay_text(UI_FONT_MENU, size, item->x + 10, item->y + (item->height - size) * 0.5f, UI_ALIGN_LEFT,
+				ui_style_color(UI_COLOR_TAB), fitted);
+		}
+		target_add(item->x, item->y, item->x + item->width, item->y + item->height, _target_tab, sections[index]);
+	}
+	/* (CLOSE, apart: lit when the sidebar's cursor is on it) */
+	if (guide.sidebar && guide.sidebar_close)
+		ui_style_row(layout.close.x, layout.close.y, layout.close.width, layout.close.height, TRUE);
+	ui_overlay_text(UI_FONT_MENU, size, layout.close.x + 10, layout.close.y + (layout.close.height - size) * 0.5f,
+		UI_ALIGN_LEFT, ui_style_color(UI_COLOR_TAB), "CLOSE");
+	target_add(layout.close.x, layout.close.y, layout.close.x + layout.close.width,
+		layout.close.y + layout.close.height, _target_close, 0);
+	/* (a faint line between them and the section) */
+	ui_overlay_rect(CONTENT_LEFT - 8, BODY_Y, 1, BODY_BOTTOM - BODY_Y, 0, ui_style_color(UI_COLOR_RULE));
 }
 
 /* a player's row: their dot, tag, status line and platform's logo */
@@ -5246,6 +5320,14 @@ static short prompts_build(struct ui_style_prompt *prompts)
 	short count = 0;
 	boolean back = FALSE, add_friend = FALSE;
 
+	/* (the sections down the left: into one, or CLOSE) */
+	if (guide.sidebar && !guide.about)
+	{
+		prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", guide.sidebar_close ? "CLOSE" : "OPEN");
+		prompt_add(prompts, &count, UI_BUTTON_B, "ESC", "CLOSE");
+		return count;
+	}
+
 	if (guide.about)
 	{
 		word = about_a_word(&guide.about_view);
@@ -5665,6 +5747,8 @@ void guide_open(void)
 		follow_end(FALSE);
 	guide.open = TRUE;
 	guide.opened_time = system_milliseconds();
+	/* (the section has the d-pad, as it had) */
+	guide.sidebar = FALSE;
 	/* (what is held as it opens is not pressed in it) */
 	guide.held = 0xFFFFFFFF;
 	guide.repeat_held = 0;
@@ -6026,6 +6110,113 @@ static void handle(unsigned int pressed)
 		party_selection_remember();
 }
 
+/* the sections down the left given the d-pad (Left from a section) */
+static void sidebar_enter(void)
+{
+	guide.sidebar = TRUE;
+	guide.sidebar_close = FALSE;
+}
+
+/* the sections' d-pad: up and down the sections (each shown as the cursor
+reaches it) and CLOSE, A or Right into the section, B closes the Guide */
+static void sidebar_handle(unsigned int pressed)
+{
+	short sections[NUMBER_OF_SOCIAL_SECTIONS], count = sections_shown(sections), at = 0, index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (sections[index] == guide.section)
+			at = index;
+	}
+	if (pressed & GUIDE_INPUT_B)
+	{
+		guide_close();
+		return;
+	}
+	if (pressed & (GUIDE_INPUT_A | GUIDE_INPUT_RIGHT))
+	{
+		if (guide.sidebar_close)
+			guide_close();
+		else
+			guide.sidebar = FALSE;
+		return;
+	}
+	if (pressed & (GUIDE_INPUT_LEFT_BUMPER | GUIDE_INPUT_RIGHT_BUMPER))
+	{
+		guide.sidebar_close = FALSE;
+		section_go((short)(guide.section + ((pressed & GUIDE_INPUT_RIGHT_BUMPER) ? 1 : -1)));
+		return;
+	}
+	if (pressed & GUIDE_INPUT_UP)
+	{
+		if (guide.sidebar_close)
+			guide.sidebar_close = FALSE;
+		else if (at > 0)
+			section_go(sections[at - 1]);
+	}
+	else if (pressed & GUIDE_INPUT_DOWN)
+	{
+		if (at + 1 < count)
+			section_go(sections[at + 1]);
+		else
+			guide.sidebar_close = TRUE;
+	}
+}
+
+/* whether Left goes to the sections: nothing in the section takes it now
+(a setting's value, PARTY's buttons back to its list, the Workshop's
+SHOW, SORT and PAGE) */
+static boolean left_leaves(void)
+{
+	short row = guide.row[guide.section];
+
+	switch (guide.section)
+	{
+	case SOCIAL_SECTION_SETTINGS:
+	{
+		struct settings_row const *setting = row >= 0 && row < shared_settings_count() ?
+			settings_row_at(SETTINGS_GROUP_GUIDE, row) : NULL;
+
+		if (setting)
+			return !settings_row_arrows(setting);
+		/* (voice's rows step their values) */
+		return row >= settings_count();
+	}
+	case SOCIAL_SECTION_PARTY:
+	{
+		struct party_item items[MAXIMUM_PARTY_ITEMS], item;
+		short count = party_items(items), first = party_first_action(items, count);
+
+		if (guide.code_entry)
+			return FALSE;
+		if (!party_chosen(&item))
+			return TRUE;
+		return !party_item_button(&item) || first == 0 || first >= count;
+	}
+	case SOCIAL_SECTION_WORKSHOP:
+		return !guide_workshop_side_offered();
+	default:
+		return TRUE;
+	}
+}
+
+/* whether Left goes back a step instead, as B does: out of a row's
+options to its list */
+static boolean left_backs(void)
+{
+	switch (guide.section)
+	{
+	case SOCIAL_SECTION_FRIENDS:
+	case SOCIAL_SECTION_CLAN:
+	case SOCIAL_SECTION_PLAYERS_HERE:
+		return guide.options;
+	case SOCIAL_SECTION_RECENT:
+		return guide.recent_options;
+	default:
+		return FALSE;
+	}
+}
+
 static void handle_pressed(unsigned int pressed)
 {
 	short option;
@@ -6086,12 +6277,30 @@ static void handle_pressed(unsigned int pressed)
 	/* (WORKSHOP: LT and RT, Page Up and Page Down, a page of Steam's list on or back) */
 	if (guide.section == SOCIAL_SECTION_WORKSHOP && (pressed & (GUIDE_INPUT_LEFT_TRIGGER | GUIDE_INPUT_RIGHT_TRIGGER)))
 		guide_workshop_page_step((pressed & GUIDE_INPUT_RIGHT_TRIGGER) ? 1 : -1);
+	/* (the sections down the left: theirs, until A or Right) */
+	if (guide.sidebar)
+	{
+		sidebar_handle(pressed);
+		return;
+	}
 	/* (PARTY's code being picked: the d-pad is its letters) */
 	if (guide.section == SOCIAL_SECTION_PARTY && guide.code_entry &&
 		!(pressed & (GUIDE_INPUT_LEFT_BUMPER | GUIDE_INPUT_RIGHT_BUMPER)))
 	{
 		code_entry_handle(pressed);
 		return;
+	}
+	/* (Left: out of a row's options, else to the sections when nothing
+	here takes it) */
+	if ((pressed & GUIDE_INPUT_LEFT) && !(pressed & GUIDE_INPUT_RIGHT))
+	{
+		if (left_backs())
+			pressed = (pressed & ~(unsigned int)GUIDE_INPUT_LEFT) | GUIDE_INPUT_B;
+		else if (left_leaves())
+		{
+			sidebar_enter();
+			return;
+		}
 	}
 	if (pressed & GUIDE_INPUT_B)
 	{
@@ -6298,6 +6507,7 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		{
 		case _target_tab:
 			section_go(target->index);
+			guide.sidebar = FALSE;
 			break;
 		case _target_row:
 			if (guide.section == SOCIAL_SECTION_WORKSHOP)
@@ -6515,14 +6725,16 @@ static void guide_render_frame(void)
 	ui_style_panel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 1.0f);
 	if (guide.about)
 	{
-		ui_style_card(CONTENT_LEFT, CONTENT_RIGHT, HEADER_Y, NULL, NULL, 0, "ABOUT");
-		about_render(&guide.about_view, CONTENT_LEFT, RULE_Y + 12, CONTENT_RIGHT, BODY_BOTTOM);
+		ui_style_card(CARD_LEFT, CONTENT_RIGHT, HEADER_Y, NULL, NULL, 0, "ABOUT");
+		about_render(&guide.about_view, CARD_LEFT, RULE_Y + 12, CONTENT_RIGHT, BODY_BOTTOM);
 		render_prompts();
 		ui_overlay_layer(0);
 		return;
 	}
 	render_card();
-	render_tabs();
+	render_sidebar();
+	/* (the sections have the d-pad: the section's chosen row rests) */
+	ui_style_selection_rest(guide.sidebar);
 	switch (guide.section)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
@@ -6562,6 +6774,7 @@ static void guide_render_frame(void)
 		render_coming();
 		break;
 	}
+	ui_style_selection_rest(0);
 	render_prompts();
 	/* (Steam's sign-in window over it all: only its button takes a click) */
 	if (guide_workshop_link_modal())

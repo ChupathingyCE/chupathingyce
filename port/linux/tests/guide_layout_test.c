@@ -606,8 +606,49 @@ static void check_lines(void)
 	CHECK(guide_lines_shown(kinds, heights, count, 1, 30 * 3 + 16 + 10) == 3, "the caption waits for its row");
 }
 
+/* the sections down the left, and a list beside its detail */
+static void check_sidebar(void)
+{
+	struct guide_rect area = { 32, 100, 116, 298 };
+	struct guide_sidebar_layout sidebar;
+	struct guide_rect list, detail, body = { 162, 100, 446, 298 };
+	int count, index, other;
+
+	for (count = 0; count <= GUIDE_SIDEBAR_MOST + 2; count++)
+	{
+		guide_layout_sidebar(area, count, 24.0f, &sidebar);
+		CHECK(sidebar.count == (count > GUIDE_SIDEBAR_MOST ? GUIDE_SIDEBAR_MOST : count), "%d sections", count);
+		CHECK(guide_rect_inside(sidebar.close, area), "CLOSE in the sidebar (%d)", count);
+		CHECK(sidebar.close.y + sidebar.close.height >= area.y + area.height - 0.01f, "CLOSE at its foot (%d)", count);
+		for (index = 0; index < sidebar.count; index++)
+		{
+			CHECK(guide_rect_inside(sidebar.items[index], area), "item %d of %d inside", index, count);
+			CHECK(sidebar.items[index].height > 0, "item %d of %d has height", index, count);
+			CHECK(sidebar.items[index].y + sidebar.items[index].height + GUIDE_SIDEBAR_APART <= sidebar.close.y + 0.01f,
+				"item %d of %d apart from CLOSE", index, count);
+			for (other = index + 1; other < sidebar.count; other++)
+				CHECK(!guide_rect_overlap(sidebar.items[index], sidebar.items[other]), "items %d and %d", index, other);
+		}
+	}
+	/* (eight sections fit at their full height with their gaps) */
+	guide_layout_sidebar(area, 8, 24.0f, &sidebar);
+	CHECK(sidebar.items[7].height == 24.0f && sidebar.items[1].y - sidebar.items[0].y == 24.0f + GUIDE_SIDEBAR_GAP,
+		"eight at full size");
+	/* (the list and its detail: apart, in the body, the detail at least its minimum) */
+	guide_layout_columns(body, 12.0f, 0.53f, 190.0f, &list, &detail);
+	CHECK(guide_rect_inside(list, body) && guide_rect_inside(detail, body), "columns in the body");
+	CHECK(!guide_rect_overlap(list, detail) && detail.x - (list.x + list.width) >= 11.99f, "columns apart");
+	CHECK(detail.width >= 190.0f - 0.01f, "the detail's minimum (%.1f)", detail.width);
+	CHECK(list.x + list.width + 12 + detail.width <= body.x + body.width + 0.01f, "they fill the body");
+	/* (a narrow body: the list keeps half) */
+	body.width = 300;
+	guide_layout_columns(body, 12.0f, 0.53f, 250.0f, &list, &detail);
+	CHECK(list.width >= (300 - 12) * 0.5f - 0.01f && guide_rect_inside(detail, body), "a narrow body");
+}
+
 int main(void)
 {
+	check_sidebar();
 	check_lines();
 	check_shown();
 	check_marquee();
