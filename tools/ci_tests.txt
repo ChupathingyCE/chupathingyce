@@ -11,6 +11,7 @@ tools/test_audio_balance.py
 tools/test_bgfx_build_patches.py
 tools/test_bgfx_formats.py
 tools/test_bgfx_overlay_textures.py
+tools/test_bgfx_pipeline_log.py
 tools/test_bgfx_present.py
 tools/test_bgfx_vulkan_start.py
 tools/test_bgfx_window_pacing.py
@@ -53,8 +54,10 @@ tools/test_discord_activity.py
 tools/test_discord_register.py
 tools/test_duct_tape_logo.py
 tools/test_event_log.py
+tools/test_fog_screen_camera.py
 tools/test_footer_prompts.py
 tools/test_forge_files.py
+tools/test_forge_mouse_look.py
 tools/test_game_list_rules.py
 tools/test_gamespy_listing.py
 tools/test_guide_layout.py
