@@ -17,6 +17,7 @@ static const char *const folder_names[k_port_folder_count] = {
 	"gametypes",
 	"screenshots",
 	"clips",
+	"forge",
 };
 
 static int is_set(const char *value)
@@ -43,7 +44,8 @@ const char *port_folder_name(enum port_folder folder)
 
 int port_folder_in_save_root(enum port_folder folder)
 {
-	return folder == _port_folder_cache || folder == _port_folder_private || folder == _port_folder_gametypes;
+	return folder == _port_folder_cache || folder == _port_folder_private || folder == _port_folder_gametypes ||
+		folder == _port_folder_forge;
 }
 
 int port_folder_path(enum port_folder folder, const char *override, const char *data_root, const char *save_root,

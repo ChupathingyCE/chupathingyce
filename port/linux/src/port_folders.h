@@ -13,6 +13,8 @@ platform (the desktops, Android, the dedicated server):
 	<save root>/private/  what is the player's alone, never shared
 	<save root>/gametypes/ the player's game type files (the dedicated
 	                      server's format: server/docs/playlists.md)
+	<save root>/forge/    the player's Forge layouts, a folder a map
+	                      (forge_store.h)
 
 The data root holds maps/ (paths.data, HALO_DATA_ROOT); the save root, the
 saves (paths.saves, HALO_SAVE_ROOT). logs/ and cache/ can be put elsewhere
@@ -39,15 +41,16 @@ enum port_folder
 	_port_folder_gametypes,
 	_port_folder_screenshots,
 	_port_folder_clips,
+	_port_folder_forge,
 
 	k_port_folder_count
 };
 
 /* the folder's name in its root: "data", "logs", "cache", "private",
-"gametypes", "screenshots" or "clips" */
+"gametypes", "screenshots", "clips" or "forge" */
 const char *port_folder_name(enum port_folder folder);
 
-/* whether the folder is in the save root (cache, private, gametypes) rather
+/* whether the folder is in the save root (cache, private, gametypes, forge) rather
 than the data root (data, logs) */
 int port_folder_in_save_root(enum port_folder folder);
 

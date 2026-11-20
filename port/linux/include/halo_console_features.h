@@ -115,6 +115,14 @@ HALO_CONSOLE_IO_RETRY_FOREVER
 	short of resources for (a stalled DVD read) being tried until it goes, as
 	the retail game did; elsewhere it gives up after 5 seconds and fails
 	(cached_map_issue_async_request, cache_files_decompress_windows.c: #1149)
+HALO_CONSOLE_READ_PRIORITY
+	the cache file thread starts the read the game is waiting for first,
+	then the pending read lowest in the map file
+	(cache_file_windows_thread_proc, source/cache/cache_files_windows.c).
+	Retail kept the first pending read unless a later one was lower in the
+	file and not waited for, so a texture the frame waited on could sit
+	behind every predicted read queued before it. Only the order of the
+	reads changes. From Lord BirchWood's Vita port
 HALO_CONSOLE_LOG_BUFFER
 	debug.txt's lines kept in memory and written together, a second after
 	the first waits, and at once for an exception, an exit or a crash
@@ -203,6 +211,13 @@ HALO_CONSOLE_LIGHT_AUDIO
 	(audio.resampling, audio.reverb), on a console with one slow core (the
 	Steam Link's, where the sinc resampler and the reverb took two fifths of
 	the processor)
+HALO_CONSOLE_NO_STRUCTURE_CULLING
+	the level's surfaces walked as the original game walks them by default
+	(debug.structure_culling false, port/linux/game/structure_culling.c):
+	on a console whose processor, not its GPU, sets the frame rate, the
+	culling's tests of each surface and triangle cost more than the GPU
+	work they spare (the Vita's b30 beach: 9 of a frame's 100 ms in the
+	visibility walk with them, 4.7 without, the GPU idle either way)
 HALO_CONSOLE_HUD_ON_DEMAND
 	the high-res HUD's pictures decoded each when first drawn, as Android's
 	are, rather than a map's all at its load (hud_hires.c): about 40 MB less
@@ -310,6 +325,17 @@ HALO_CONSOLE_PARTICLE_TICKS
 	their collision tests spared at 60 frames a second. The desktop builds
 	default to moving them at every frame drawn, smooth at high refresh
 	rates, and opt in
+HALO_CONSOLE_FEWER_WALKS
+	fewer walks over a whole array for a few of its entries, with the same
+	results: a deleted object's references cleared by visiting only the
+	objects of the types that hold any (units and projectiles;
+	objects_fix_for_deleted_object, source/objects/objects.c), and an lruv
+	cache's allocation finding the blocks in its hole along its block list
+	(lruv_block_new, source/memory/lruv_cache.c). And one difference in
+	the picture only: a new decal takes the least recently drawn room among
+	the 64 decals after the last one made, not among all 2048
+	(lruv_set_search_window, rasterizer_xbox_decals.c), so an old decal
+	that goes may not be the oldest of all. From Lord BirchWood's Vita port
 HALO_CONSOLE_XBOX_MAP_SIZES
 	a console that plays the Xbox's own maps only (no Custom Edition or
 	Halo PC maps): tables the desktop builds size for those maps are sized
@@ -436,6 +462,7 @@ compile lines: source/cseries/xbox_address.h).
 
 #ifdef HALO_WIIU_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_READ_PRIORITY 1
 #define HALO_CONSOLE_NO_WRITE_WATCH 1
 #define HALO_CONSOLE_LOG_THROTTLE 1
 #define HALO_CONSOLE_WINDOW_MAXIMUM 0x10000000UL
@@ -448,10 +475,12 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "wiiu"
+#define HALO_CONSOLE_FEWER_WALKS 1
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_READ_PRIORITY 1
 #define HALO_CONSOLE_IO_RETRY_FOREVER 1
 #define HALO_CONSOLE_LOG_BUFFER 1
 /* (the H1 Performance Build's 64 KB; the retail game had 16 KB) */
@@ -469,6 +498,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_VIEW_INTERPOLATION 1
 #define HALO_CONSOLE_FLICKER_FILTER 1
 #define HALO_CONSOLE_WAITED_VISIBILITY_TESTS 1
+#define HALO_CONSOLE_FEWER_WALKS 1
 #endif
 
 #if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
@@ -501,6 +531,7 @@ larger maps take a campaign map's there as well) */
 
 #ifdef HALO_XBOX360_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_READ_PRIORITY 1
 #define HALO_CONSOLE_NO_WRITE_WATCH 1
 #define HALO_CONSOLE_GPU_RESOURCE_HOOKS 1
 #define HALO_CONSOLE_DEBUG_CHANNEL 1
@@ -514,6 +545,7 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "x360"
+#define HALO_CONSOLE_FEWER_WALKS 1
 /* (its shadow maps: 512x512 at most, beside the screen in its 10 MB of EDRAM;
 d3d8_gl.c) */
 #define HALO_CONSOLE_SHADOW_MAP_MAXIMUM 512

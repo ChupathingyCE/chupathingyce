@@ -1,0 +1,814 @@
+/*
+FORGE_FILES_TEST.C
+
+Tests of Forge's layout files (port/linux/game/forge_files.c) and their
+folder (port/linux/src/forge_store.c): the writer and the lowest version
+that holds a layout, a round trip of every record kind, the validator
+refusing each kind of damaged or hostile file with its own result, a
+deterministic fuzz of the validator (truncations and flipped bytes, half
+of them with the checksum made right again so the checks past it are
+reached), and the store's saves, lists, loads and names. Built and run by
+tools/test_forge_files.py with a scratch folder as its argument (with
+AddressSanitizer and UndefinedBehaviorSanitizer when the compiler has
+them); exits nonzero on a failure. Everything it writes is under that
+folder.
+*/
+
+#include "../game/forge_files.h"
+#include "../src/port_folders.h"
+#include "../src/forge_store.h"
+
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static int failures;
+static int checks;
+static char scratch[512];
+
+#define CHECK(condition) check((condition) != 0, #condition, __LINE__)
+
+static void check(int passed, char const *what, int line)
+{
+	checks++;
+	if (!passed)
+	{
+		failures++;
+		printf("FAIL (line %d): %s\n", line, what);
+	}
+}
+
+/* (forge_store.c's, the game's own in the build) */
+const char *platform_folder(enum port_folder folder)
+{
+	static char path[600];
+
+	snprintf(path, sizeof(path), "%s/%s", scratch, port_folder_name(folder));
+	return path;
+}
+
+void platform_log(const char *format, ...)
+{
+	(void)format;
+}
+
+#define GROUP(a, b, c, d) (((unsigned int)(a) << 24) | ((unsigned int)(b) << 16) | ((unsigned int)(c) << 8) | (unsigned int)(d))
+
+/* (the header's fields' offsets) */
+#define AT_VERSION 4
+#define AT_HEADER_SIZE 6
+#define AT_FLAGS 8
+#define AT_MAP 12
+#define AT_PACKS 48
+#define AT_PATHS 50
+#define AT_RECORDS 52
+#define AT_META 54
+#define AT_PAYLOAD 56
+#define AT_CHECKSUM 60
+/* (a record's) */
+#define RECORD_PATH 0
+#define RECORD_KIND 2
+#define RECORD_TEAM 3
+#define RECORD_POSITION 4
+#define RECORD_RESPAWN 28
+#define RECORD_COUNT 30
+#define RECORD_FLAGS 34
+#define RECORD_AI_TEAM 35
+#define RECORD_RESERVED 36
+
+static unsigned char good[FORGE_FILE_MAXIMUM_SIZE + 16];
+static int good_size;
+static unsigned char work[FORGE_FILE_MAXIMUM_SIZE + 16];
+static struct forge_file_layout layout_a;
+static struct forge_file_layout layout_b;
+static struct forge_file_layout layout_c;
+
+static unsigned int random_state = 0x2545F491u;
+
+static unsigned int next_random(void)
+{
+	random_state ^= random_state << 13;
+	random_state ^= random_state >> 17;
+	random_state ^= random_state << 5;
+	return random_state;
+}
+
+static void put16(unsigned char *bytes, int at, unsigned int value)
+{
+	bytes[at] = (unsigned char)value;
+	bytes[at + 1] = (unsigned char)(value >> 8);
+}
+
+static void put32(unsigned char *bytes, int at, unsigned int value)
+{
+	put16(bytes, at, value & 0xFFFF);
+	put16(bytes, at + 2, value >> 16);
+}
+
+/* the payload's size and checksum made right again */
+static void reseal(unsigned char *bytes, int size)
+{
+	put32(bytes, AT_PAYLOAD, (unsigned int)(size - FORGE_FILE_HEADER_SIZE));
+	put32(bytes, AT_CHECKSUM, forge_file_crc32(0, bytes + FORGE_FILE_HEADER_SIZE, size - FORGE_FILE_HEADER_SIZE));
+}
+
+static void add_path(struct forge_file_layout *layout, unsigned int group, char const *path)
+{
+	struct forge_file_path *entry = &layout->paths[layout->path_count++];
+
+	entry->group_tag = group;
+	snprintf(entry->path, sizeof(entry->path), "%s", path);
+}
+
+static struct forge_file_record *add_record(struct forge_file_layout *layout, int path, float x, float y)
+{
+	struct forge_file_record *record = &layout->records[layout->record_count++];
+
+	memset(record, 0, sizeof(*record));
+	record->path_index = (unsigned short)path;
+	record->kind = _forge_record_object;
+	record->team = -1;
+	record->position[0] = x;
+	record->position[1] = y;
+	record->position[2] = 1.f;
+	record->angles[0] = 0.5f;
+	record->respawn_seconds = 30;
+	record->count = 1;
+	record->flags = FORGE_RECORD_PLACE_AT_START;
+	return record;
+}
+
+/* a marker's record: no path, its yaw alone */
+static struct forge_file_record *add_marker(struct forge_file_layout *layout, int kind, int team, int variant)
+{
+	struct forge_file_record *record = &layout->records[layout->record_count++];
+
+	memset(record, 0, sizeof(*record));
+	record->path_index = FORGE_FILE_NO_PATH;
+	record->kind = (unsigned char)kind;
+	record->team = (signed char)team;
+	record->variant = (unsigned char)variant;
+	record->position[0] = 90.f + (float)layout->record_count;
+	record->position[1] = -150.f;
+	record->position[2] = 0.5f;
+	record->angles[0] = -1.f;
+	layout->flags |= FORGE_FILE_FLAG_NETGAME_SPAWNS;
+	return record;
+}
+
+/* Blood Gulch: a Warthog, two boulders, a rocket launcher, an overshield
+(version 1) */
+static void sample_layout(struct forge_file_layout *layout)
+{
+	memset(layout, 0, sizeof(*layout));
+	snprintf(layout->map_name, sizeof(layout->map_name), "bloodgulch");
+	layout->map_hash = 0x1234ABCD;
+	add_path(layout, GROUP('v', 'e', 'h', 'i'), "vehicles\\warthog\\mp_warthog");
+	add_path(layout, GROUP('s', 'c', 'e', 'n'), "scenery\\rocks\\boulder\\boulder");
+	add_path(layout, GROUP('w', 'e', 'a', 'p'), "weapons\\rocket launcher\\rocket launcher");
+	add_path(layout, GROUP('e', 'q', 'i', 'p'), "powerups\\over shield");
+	add_record(layout, 0, 98.f, -158.f);
+	add_record(layout, 1, 100.f, -156.f);
+	add_record(layout, 1, 102.f, -156.f)->angles[0] = 3.14159f;
+	add_record(layout, 2, 99.f, -161.f);
+	add_record(layout, 3, 101.f, -163.f);
+	snprintf(layout->title, sizeof(layout->title), "Gulch Test");
+	snprintf(layout->author, sizeof(layout->author), "Tester");
+	snprintf(layout->description, sizeof(layout->description), "A Warthog, boulders and a rocket launcher.");
+	snprintf(layout->date, sizeof(layout->date), "2026-01-02 12:00");
+}
+
+/* every record kind and setting versions 1 to 7 hold */
+static void full_layout(struct forge_file_layout *layout)
+{
+	struct forge_file_record *record;
+
+	sample_layout(layout);
+	add_path(layout, GROUP('a', 'c', 't', 'v'), "characters\\elite\\elite major");
+	add_path(layout, GROUP('m', 'a', 'c', 'h'), "levels\\test\\door");
+	layout->packs[0].recipe[0] = 1;
+	layout->packs[0].recipe[1] = 2;
+	snprintf(layout->packs[0].name, sizeof(layout->packs[0].name), "covenant_vehicles");
+	layout->pack_count = 1;
+	/* (a character: its AI team, its brain off, its respawn) */
+	record = add_record(layout, 4, 95.f, -150.f);
+	record->ai_team = FORGE_AI_TEAM_FLOOD;
+	record->flags |= FORGE_RECORD_AI_OFF | FORGE_RECORD_AI_RESPAWN;
+	record->respawn_seconds = 60;
+	/* (physics) */
+	add_record(layout, 1, 104.f, -156.f)->flags |= FORGE_RECORD_PHYSICS_FIXED;
+	add_record(layout, 5, 106.f, -156.f)->flags |= FORGE_RECORD_PHYSICS_PHASED;
+	/* (player spawns: an initial one of red for slayer, a respawn of any) */
+	record = add_marker(layout, _forge_record_player_spawn, 0, 0);
+	record->flags = FORGE_RECORD_SPAWN_INITIAL;
+	record->game_types = FORGE_FILE_GAME_TYPE_SLAYER | FORGE_FILE_GAME_TYPE_INFECTION;
+	add_marker(layout, _forge_record_player_spawn, -1, 0);
+	/* (a teleporter's ends) */
+	add_marker(layout, _forge_record_teleporter_in, 3, 0);
+	add_marker(layout, _forge_record_teleporter_out, 3, 0);
+	/* (game type objects) */
+	add_marker(layout, _forge_record_flag, 0, FORGE_FILE_FLAG_TYPE_CTF);
+	add_marker(layout, _forge_record_flag, 1, FORGE_FILE_FLAG_TYPE_CTF);
+	add_marker(layout, _forge_record_flag, 2, FORGE_FILE_FLAG_TYPE_HILL);
+	add_marker(layout, _forge_record_flag, 0, FORGE_FILE_FLAG_TYPE_ODDBALL);
+	add_marker(layout, _forge_record_flag, 31, FORGE_FILE_FLAG_TYPE_RACE);
+}
+
+static int encode(struct forge_file_layout const *layout, unsigned char *bytes)
+{
+	int result = -1;
+	int size = forge_file_encode(layout, bytes, FORGE_FILE_MAXIMUM_SIZE, &result);
+
+	if (size < 0)
+		printf("  (encode refused: %s)\n", forge_file_result_name(result));
+	return size;
+}
+
+static int decode(unsigned char const *bytes, int size, char const *map, struct forge_file_layout *layout)
+{
+	char why[160];
+
+	return forge_file_decode(bytes, size, map, layout, why, sizeof(why));
+}
+
+static int layouts_equal(struct forge_file_layout const *a, struct forge_file_layout const *b)
+{
+	int index;
+
+	if (forge_file_layout_version(a) != forge_file_layout_version(b) || a->flags != b->flags ||
+		strcmp(a->map_name, b->map_name) || a->map_hash != b->map_hash || a->pack_count != b->pack_count ||
+		a->path_count != b->path_count || a->record_count != b->record_count || strcmp(a->title, b->title) ||
+		strcmp(a->author, b->author) || strcmp(a->description, b->description) || strcmp(a->date, b->date))
+	{
+		return 0;
+	}
+	for (index = 0; index < a->pack_count; index++)
+	{
+		if (memcmp(a->packs[index].recipe, b->packs[index].recipe, sizeof(a->packs[index].recipe)) ||
+			strcmp(a->packs[index].name, b->packs[index].name))
+		{
+			return 0;
+		}
+	}
+	for (index = 0; index < a->path_count; index++)
+	{
+		if (a->paths[index].group_tag != b->paths[index].group_tag || strcmp(a->paths[index].path, b->paths[index].path))
+			return 0;
+	}
+	for (index = 0; index < a->record_count; index++)
+	{
+		struct forge_file_record const *x = &a->records[index];
+		struct forge_file_record const *y = &b->records[index];
+
+		if (x->path_index != y->path_index || x->kind != y->kind || x->team != y->team ||
+			memcmp(x->position, y->position, sizeof(x->position)) || memcmp(x->angles, y->angles, sizeof(x->angles)) ||
+			x->respawn_seconds != y->respawn_seconds || x->count != y->count || x->game_types != y->game_types ||
+			x->variant != y->variant || x->flags != y->flags || x->ai_team != y->ai_team)
+		{
+			return 0;
+		}
+	}
+	return 1;
+}
+
+/* where record index starts in a file of layout */
+static int record_at(struct forge_file_layout const *layout, int index)
+{
+	int at = FORGE_FILE_HEADER_SIZE + layout->pack_count * FORGE_FILE_PACK_SIZE;
+	int path;
+
+	for (path = 0; path < layout->path_count; path++)
+		at += 5 + (int)strlen(layout->paths[path].path);
+	return at + index * FORGE_FILE_RECORD_SIZE;
+}
+
+/* the good file (the sample's) copied, changed by a caller, resealed or
+not, and decoded: its result */
+static int damaged(int size, int sealed)
+{
+	if (sealed)
+		reseal(work, size);
+	return decode(work, size, "bloodgulch", &layout_c);
+}
+
+static void fresh(void)
+{
+	memcpy(work, good, (size_t)good_size);
+}
+
+/* ---------- the writer and the versions */
+
+static void test_versions(void)
+{
+	struct forge_file_record *record;
+	int size;
+
+	sample_layout(&layout_a);
+	CHECK(forge_file_layout_version(&layout_a) == 1);
+	layout_a.records[0].path_index = 0;
+	sample_layout(&layout_a);
+	add_path(&layout_a, GROUP('a', 'c', 't', 'v'), "characters\\marine\\marine");
+	record = add_record(&layout_a, 4, 90.f, -150.f);
+	record->ai_team = FORGE_AI_TEAM_PLAYER;
+	CHECK(forge_file_layout_version(&layout_a) == 2);
+	record->flags |= FORGE_RECORD_AI_RESPAWN;
+	CHECK(forge_file_layout_version(&layout_a) == 3);
+	add_marker(&layout_a, _forge_record_player_spawn, 1, 0);
+	CHECK(forge_file_layout_version(&layout_a) == 4);
+	add_marker(&layout_a, _forge_record_teleporter_in, 0, 0);
+	add_marker(&layout_a, _forge_record_teleporter_out, 0, 0);
+	CHECK(forge_file_layout_version(&layout_a) == 5);
+	add_marker(&layout_a, _forge_record_flag, 0, FORGE_FILE_FLAG_TYPE_CTF);
+	CHECK(forge_file_layout_version(&layout_a) == 6);
+	add_record(&layout_a, 1, 80.f, -150.f)->flags |= FORGE_RECORD_PHYSICS_FIXED;
+	CHECK(forge_file_layout_version(&layout_a) == 7);
+	size = encode(&layout_a, work);
+	CHECK(size > 0 && work[AT_VERSION] == 7);
+	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok && layout_b.version == 7);
+
+	/* (a version that holds nothing of its own is not one a writer made) */
+	sample_layout(&layout_a);
+	layout_a.version = 4;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
+	layout_a.version = 8;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
+	layout_a.version = 0;
+	/* (the writer refuses what the reader would) */
+	layout_a.title[0] = 0;
+	CHECK(forge_file_encode(&layout_a, work, FORGE_FILE_MAXIMUM_SIZE, &size) < 0 && size == _forge_file_bad_meta);
+	sample_layout(&layout_a);
+	CHECK(forge_file_encode(&layout_a, work, 100, &size) < 0 && size == _forge_file_no_room);
+	/* (a character's AI on a non-character, physics on a character) */
+	sample_layout(&layout_a);
+	layout_a.records[0].ai_team = FORGE_AI_TEAM_FLOOD;
+	CHECK(forge_file_encode(&layout_a, work, FORGE_FILE_MAXIMUM_SIZE, &size) < 0 && size == _forge_file_bad_record);
+	sample_layout(&layout_a);
+	layout_a.records[0].flags |= FORGE_RECORD_PHYSICS_MASK;
+	CHECK(forge_file_encode(&layout_a, work, FORGE_FILE_MAXIMUM_SIZE, &size) < 0 && size == _forge_file_bad_record);
+}
+
+static void test_round_trip(void)
+{
+	int size;
+	int again;
+	static unsigned char second[FORGE_FILE_MAXIMUM_SIZE];
+
+	full_layout(&layout_a);
+	CHECK(forge_file_layout_version(&layout_a) == 7);
+	size = encode(&layout_a, work);
+	CHECK(size > FORGE_FILE_HEADER_SIZE);
+	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok);
+	CHECK(layouts_equal(&layout_a, &layout_b));
+	CHECK(decode(work, size, NULL, &layout_b) == _forge_file_ok);
+	/* (written again: the same bytes) */
+	again = encode(&layout_b, second);
+	CHECK(again == size && !memcmp(work, second, (size_t)size));
+
+	/* (the good file the damage tests start from) */
+	sample_layout(&layout_a);
+	good_size = encode(&layout_a, good);
+	CHECK(good_size > 0);
+	CHECK(decode(good, good_size, "bloodgulch", &layout_b) == _forge_file_ok && layouts_equal(&layout_a, &layout_b));
+	CHECK(layout_b.version == 1);
+}
+
+/* ---------- damaged and hostile files */
+
+static void test_refused(void)
+{
+	int record0;
+	int paths;
+	int meta;
+
+	sample_layout(&layout_a);
+	record0 = record_at(&layout_a, 0);
+	paths = FORGE_FILE_HEADER_SIZE;
+
+	/* sizes and the header */
+	CHECK(decode(good, 0, "bloodgulch", &layout_c) == _forge_file_too_small);
+	CHECK(decode(NULL, 0, "bloodgulch", &layout_c) == _forge_file_too_small);
+	CHECK(decode(good, FORGE_FILE_HEADER_SIZE - 1, "bloodgulch", &layout_c) == _forge_file_too_small);
+	memset(work, 0, sizeof(work));
+	memcpy(work, good, (size_t)good_size);
+	CHECK(decode(work, FORGE_FILE_MAXIMUM_SIZE + 1, "bloodgulch", &layout_c) == _forge_file_too_large);
+	fresh();
+	work[0] = 'X';
+	CHECK(damaged(good_size, 1) == _forge_file_bad_magic);
+	fresh();
+	put16(work, AT_VERSION, 0);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_version);
+	fresh();
+	put16(work, AT_VERSION, 8);
+	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
+	fresh();
+	put16(work, AT_VERSION, 11);
+	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
+	fresh();
+	put16(work, AT_VERSION, 0xFFFF);
+	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
+	fresh();
+	put16(work, AT_HEADER_SIZE, 63);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_header_size);
+	fresh();
+	put32(work, AT_FLAGS, 1u << 2);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_flags);
+	/* (the netgame flag without a marker) */
+	fresh();
+	put32(work, AT_FLAGS, FORGE_FILE_FLAG_NETGAME_SPAWNS);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_flags);
+	fresh();
+	work[AT_MAP] = 'B';
+	CHECK(damaged(good_size, 1) == _forge_file_bad_map_name);
+	fresh();
+	work[AT_MAP + 20] = 'x';
+	CHECK(damaged(good_size, 1) == _forge_file_bad_map_name);
+	fresh();
+	CHECK(decode(work, good_size, "sidewinder", &layout_c) == _forge_file_wrong_map);
+
+	/* counts */
+	fresh();
+	put16(work, AT_RECORDS, FORGE_FILE_MAXIMUM_RECORDS + 1);
+	CHECK(damaged(good_size, 1) == _forge_file_too_many);
+	fresh();
+	put16(work, AT_PATHS, FORGE_FILE_MAXIMUM_PATHS + 1);
+	CHECK(damaged(good_size, 1) == _forge_file_too_many);
+	fresh();
+	put16(work, AT_PACKS, FORGE_FILE_MAXIMUM_PACKS + 1);
+	CHECK(damaged(good_size, 1) == _forge_file_too_many);
+	fresh();
+	put16(work, AT_META, FORGE_FILE_MAXIMUM_META + 1);
+	CHECK(damaged(good_size, 1) == _forge_file_too_many);
+	/* (more records than the file has bytes for) */
+	fresh();
+	put16(work, AT_RECORDS, 200);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_payload_size);
+
+	/* the payload's size and checksum */
+	fresh();
+	CHECK(damaged(good_size - 1, 0) == _forge_file_bad_payload_size);
+	/* (cut short and sealed again: the meta's size is not the bytes left) */
+	fresh();
+	CHECK(damaged(good_size - 1, 1) == _forge_file_bad_payload_size);
+	fresh();
+	put32(work, AT_PAYLOAD, (unsigned int)(good_size - FORGE_FILE_HEADER_SIZE + 4));
+	CHECK(damaged(good_size, 0) == _forge_file_bad_payload_size);
+	fresh();
+	work[record0 + RECORD_POSITION] ^= 1;
+	CHECK(damaged(good_size, 0) == _forge_file_bad_checksum);
+
+	/* paths */
+	fresh();
+	work[paths + 5] = 'V';
+	CHECK(damaged(good_size, 1) == _forge_file_bad_path);
+	fresh();
+	work[paths + 5] = '.';
+	work[paths + 6] = '.';
+	CHECK(damaged(good_size, 1) == _forge_file_bad_path);
+	fresh();
+	work[paths + 5] = '\\';
+	CHECK(damaged(good_size, 1) == _forge_file_bad_path);
+	fresh();
+	work[paths + 7] = 0;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_path);
+	fresh();
+	work[paths + 4] = 0;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_path);
+	fresh();
+	work[paths + 4] = 255;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_path);
+	fresh();
+	put32(work, paths, GROUP('b', 'i', 't', 'm'));
+	CHECK(damaged(good_size, 1) == _forge_file_bad_group);
+	/* (the same path twice) */
+	sample_layout(&layout_a);
+	snprintf(layout_a.paths[1].path, sizeof(layout_a.paths[1].path), "%s", layout_a.paths[0].path);
+	layout_a.paths[1].group_tag = layout_a.paths[0].group_tag;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_duplicate_path);
+	/* (a pack's bad name) */
+	full_layout(&layout_a);
+	layout_a.packs[0].name[0] = 'C';
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_pack);
+
+	/* records */
+	fresh();
+	put16(work, record0 + RECORD_PATH, 99);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	put16(work, record0 + RECORD_PATH, 2);
+	work[record0 + RECORD_KIND] = _forge_record_vehicle_spawn;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	put32(work, record0 + RECORD_POSITION, 0x7FC00000u);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	put32(work, record0 + RECORD_POSITION + 4, 0x7F800000u);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	put32(work, record0 + RECORD_POSITION + 8, 0x45BB8000u);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	put32(work, record0 + 16, 0x40800000u);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record0 + RECORD_KIND] = NUMBER_OF_FORGE_RECORD_KINDS;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record0 + RECORD_KIND] = 200;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record0 + RECORD_KIND] = _forge_record_hill;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record0 + RECORD_FLAGS] = 0x80;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record0 + RECORD_TEAM] = 8;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	put16(work, record0 + RECORD_RESPAWN, FORGE_FILE_MAXIMUM_RESPAWN_SECONDS + 1);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record0 + RECORD_COUNT] = 2;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record0 + RECORD_RESERVED + 11] = 1;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	/* (a version 1 file with a later version's settings: an initial spawn's
+	flag, an AI team, physics) */
+	fresh();
+	work[record0 + RECORD_FLAGS] |= FORGE_RECORD_SPAWN_INITIAL;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record0 + RECORD_AI_TEAM] = FORGE_AI_TEAM_HUMAN;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record0 + RECORD_FLAGS] |= FORGE_RECORD_PHYSICS_FIXED;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	/* (a teleporter in a version 4 file) */
+	sample_layout(&layout_a);
+	add_marker(&layout_a, _forge_record_player_spawn, 0, 0);
+	add_marker(&layout_a, _forge_record_player_spawn, 1, 0);
+	{
+		int size = encode(&layout_a, work);
+		int at = record_at(&layout_a, layout_a.record_count - 1);
+
+		CHECK(size > 0 && work[AT_VERSION] == 4);
+		work[at + RECORD_KIND] = _forge_record_teleporter_in;
+		CHECK(damaged(size, 1) == _forge_file_bad_record);
+	}
+
+	/* the layout's limits, each reached in a written file and passed by one
+	record changed in it */
+	{
+		int index;
+		int size;
+		int at;
+
+		/* (teleporters: 32, then a 33rd) */
+		sample_layout(&layout_a);
+		for (index = 0; index < FORGE_FILE_MAXIMUM_TELEPORTERS; index++)
+			add_marker(&layout_a, index & 1 ? _forge_record_teleporter_out : _forge_record_teleporter_in, index / 2, 0);
+		size = encode(&layout_a, work);
+		CHECK(size > 0 && decode(work, size, "bloodgulch", &layout_c) == _forge_file_ok);
+		at = record_at(&layout_a, 0);
+		put16(work, at + RECORD_PATH, FORGE_FILE_NO_PATH);
+		work[at + RECORD_KIND] = _forge_record_teleporter_out;
+		work[at + RECORD_TEAM] = 0;
+		put16(work, at + RECORD_RESPAWN, 0);
+		work[at + RECORD_COUNT] = 0;
+		work[at + RECORD_FLAGS] = 0;
+		CHECK(damaged(size, 1) == _forge_file_too_many);
+		/* (a sender that leads nowhere) */
+		sample_layout(&layout_a);
+		add_marker(&layout_a, _forge_record_teleporter_in, 4, 0);
+		add_marker(&layout_a, _forge_record_teleporter_out, 4, 0);
+		size = encode(&layout_a, work);
+		CHECK(size > 0);
+		work[record_at(&layout_a, layout_a.record_count - 1) + RECORD_TEAM] = 5;
+		CHECK(damaged(size, 1) == _forge_file_bad_record);
+		/* (a channel past the last) */
+		work[record_at(&layout_a, layout_a.record_count - 1) + RECORD_TEAM] = FORGE_FILE_MAXIMUM_TELEPORTER_CHANNELS;
+		CHECK(damaged(size, 1) == _forge_file_bad_record);
+		/* (game type objects: 64, then a 65th) */
+		sample_layout(&layout_a);
+		for (index = 0; index < FORGE_FILE_MAXIMUM_GAME_OBJECTS; index++)
+			add_marker(&layout_a, _forge_record_flag, index % FORGE_FILE_MAXIMUM_RACE_CHECKPOINTS, FORGE_FILE_FLAG_TYPE_RACE);
+		size = encode(&layout_a, work);
+		CHECK(size > 0 && decode(work, size, "bloodgulch", &layout_c) == _forge_file_ok);
+		at = record_at(&layout_a, 0);
+		put16(work, at + RECORD_PATH, FORGE_FILE_NO_PATH);
+		work[at + RECORD_KIND] = _forge_record_flag;
+		work[at + RECORD_TEAM] = 0;
+		work[at + 33] = FORGE_FILE_FLAG_TYPE_RACE;
+		put16(work, at + RECORD_RESPAWN, 0);
+		work[at + RECORD_COUNT] = 0;
+		work[at + RECORD_FLAGS] = 0;
+		put32(work, at + 16, 0);
+		CHECK(damaged(size, 1) == _forge_file_too_many);
+		/* (a hill's points: 12, then a 13th) */
+		sample_layout(&layout_a);
+		for (index = 0; index < FORGE_FILE_MAXIMUM_HILL_POINTS; index++)
+			add_marker(&layout_a, _forge_record_flag, 3, FORGE_FILE_FLAG_TYPE_HILL);
+		size = encode(&layout_a, work);
+		CHECK(size > 0 && decode(work, size, "bloodgulch", &layout_c) == _forge_file_ok);
+		at = record_at(&layout_a, 0);
+		put16(work, at + RECORD_PATH, FORGE_FILE_NO_PATH);
+		work[at + RECORD_KIND] = _forge_record_flag;
+		work[at + RECORD_TEAM] = 3;
+		work[at + 33] = FORGE_FILE_FLAG_TYPE_HILL;
+		put16(work, at + RECORD_RESPAWN, 0);
+		work[at + RECORD_COUNT] = 0;
+		work[at + RECORD_FLAGS] = 0;
+		put32(work, at + 16, 0);
+		CHECK(damaged(size, 1) == _forge_file_too_many);
+		/* (an index past its type's, a type not in the list, a pitch) */
+		work[at + RECORD_TEAM] = FORGE_FILE_MAXIMUM_HILLS;
+		CHECK(damaged(size, 1) == _forge_file_bad_record);
+		work[at + RECORD_TEAM] = 0;
+		work[at + 33] = 1;
+		CHECK(damaged(size, 1) == _forge_file_bad_record);
+		work[at + 33] = FORGE_FILE_FLAG_TYPE_HILL;
+		put32(work, at + 20, 0x3F800000u);
+		CHECK(damaged(size, 1) == _forge_file_bad_record);
+	}
+
+	/* the meta (the sample's texts, from where they start) */
+	sample_layout(&layout_a);
+	meta = good_size - (int)(strlen(layout_a.title) + strlen(layout_a.author) + strlen(layout_a.description) +
+		strlen(layout_a.date) + 4);
+	fresh();
+	work[good_size - 1] = 'x';
+	CHECK(damaged(good_size, 1) == _forge_file_bad_meta);
+	fresh();
+	work[meta + 3] = 0xFF;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_meta);
+	fresh();
+	/* (a control character in the author) */
+	work[meta + (int)strlen(layout_a.title) + 1 + 2] = 0x07;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_meta);
+	fresh();
+	/* (the date not a date) */
+	work[good_size - 5] = 'x';
+	CHECK(damaged(good_size, 1) == _forge_file_bad_meta);
+	/* (an overlong UTF-8 form, a surrogate, an empty title) */
+	sample_layout(&layout_a);
+	snprintf(layout_a.title, sizeof(layout_a.title), "A\xC0\xAF");
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_meta);
+	snprintf(layout_a.title, sizeof(layout_a.title), "A\xED\xA0\x80");
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_meta);
+	snprintf(layout_a.title, sizeof(layout_a.title), "Caf\xC3\xA9");
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_ok);
+	layout_a.title[0] = 0;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_meta);
+
+	/* (a refused file leaves nothing in the layout) */
+	fresh();
+	work[0] = 'X';
+	full_layout(&layout_c);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_magic && layout_c.record_count == 0 && !layout_c.title[0]);
+}
+
+/* ---------- the fuzz */
+
+static void test_fuzz(int iterations)
+{
+	int iteration;
+	int accepted = 0;
+	static unsigned char again[FORGE_FILE_MAXIMUM_SIZE];
+
+	full_layout(&layout_a);
+	good_size = encode(&layout_a, good);
+	CHECK(good_size > 0);
+	for (iteration = 0; iteration < iterations; iteration++)
+	{
+		int size = good_size;
+		int flips = 1 + (int)(next_random() % 8);
+		int flip;
+		int result;
+
+		memcpy(work, good, (size_t)good_size);
+		if (next_random() % 4 == 0)
+			size = (int)(next_random() % (unsigned int)(good_size + 1));
+		for (flip = 0; flip < flips && size > 0; flip++)
+		{
+			int at = (int)(next_random() % (unsigned int)size);
+
+			work[at] = next_random() % 3 ? (unsigned char)(work[at] ^ (1u << (next_random() % 8))) : (unsigned char)next_random();
+		}
+		if (size >= FORGE_FILE_HEADER_SIZE && next_random() % 2)
+			reseal(work, size);
+		result = decode(work, size, "bloodgulch", &layout_b);
+		CHECK(result >= 0 && result < NUMBER_OF_FORGE_FILE_RESULTS);
+		if (result == _forge_file_ok)
+		{
+			int written;
+
+			accepted++;
+			/* (what passed is a layout that passes again, written and read) */
+			CHECK(forge_file_layout_check(&layout_b, "bloodgulch") == _forge_file_ok);
+			written = encode(&layout_b, again);
+			CHECK(written > 0 && decode(again, written, "bloodgulch", &layout_c) == _forge_file_ok &&
+				layouts_equal(&layout_b, &layout_c));
+		}
+		else
+		{
+			CHECK(layout_b.record_count == 0 && layout_b.path_count == 0 && !layout_b.title[0]);
+		}
+	}
+	printf("fuzz: %d cases, %d accepted\n", iterations, accepted);
+}
+
+/* ---------- the store */
+
+static void test_store(void)
+{
+	struct forge_store_entry entries[8];
+	char why[FORGE_STORE_WHY_SIZE];
+	char saved[FORGE_FILE_NAME_SIZE];
+	char second[FORGE_FILE_NAME_SIZE];
+	char path[1024];
+	FILE *file;
+	int count;
+
+	sample_layout(&layout_a);
+	CHECK(forge_store_save(&layout_a, NULL, saved, sizeof(saved), why, sizeof(why)));
+	CHECK(!strcmp(saved, "gulch_test.hmv"));
+	CHECK(forge_store_exists("bloodgulch", saved));
+	CHECK(forge_store_load("bloodgulch", saved, &layout_b, why, sizeof(why)) && layouts_equal(&layout_a, &layout_b));
+	/* (the same title again: a second file, numbered) */
+	CHECK(forge_store_save(&layout_a, NULL, second, sizeof(second), why, sizeof(why)));
+	CHECK(!strcmp(second, "gulch_test_2.hmv"));
+	/* (saved over: the old one kept as the last good copy) */
+	full_layout(&layout_a);
+	CHECK(forge_store_save(&layout_a, saved, NULL, 0, why, sizeof(why)));
+	CHECK(forge_store_load("bloodgulch", saved, &layout_b, why, sizeof(why)) && layout_b.record_count == layout_a.record_count);
+	count = forge_store_list("bloodgulch", entries, 8);
+	CHECK(count == 2 && !entries[0].damaged && entries[0].objects + entries[1].objects == 5 + layout_a.record_count);
+	CHECK(forge_store_list(NULL, entries, 8) == 2);
+	/* (a damaged file: refused; its last good copy read in its place) */
+	snprintf(path, sizeof(path), "%s/forge/bloodgulch/%s", scratch, saved);
+	file = fopen(path, "wb");
+	CHECK(file != NULL);
+	if (file)
+	{
+		fputs("HFRG not a layout", file);
+		fclose(file);
+	}
+	CHECK(forge_store_load("bloodgulch", saved, &layout_b, why, sizeof(why)) && layout_b.record_count == 5);
+	/* (one with no good copy: refused cleanly, listed as damaged) */
+	snprintf(path, sizeof(path), "%s/forge/bloodgulch/junk.hmv", scratch);
+	file = fopen(path, "wb");
+	if (file)
+	{
+		fwrite(good, 1, 40, file);
+		fclose(file);
+	}
+	CHECK(!forge_store_load("bloodgulch", "junk.hmv", &layout_b, why, sizeof(why)) && why[0] && layout_b.record_count == 0);
+	count = forge_store_list("bloodgulch", entries, 8);
+	CHECK(count == 3 && entries[2].damaged);
+	/* (the wrong map's folder: refused) */
+	CHECK(!forge_store_load("sidewinder", saved, &layout_b, why, sizeof(why)));
+	/* (names this port does not make are never opened) */
+	CHECK(!forge_store_load("bloodgulch", "../gulch_test.hmv", &layout_b, why, sizeof(why)));
+	CHECK(!forge_store_load("../forge", saved, &layout_b, why, sizeof(why)));
+	CHECK(!forge_store_load("bloodgulch", "gulch_test.txt", &layout_b, why, sizeof(why)));
+	CHECK(!forge_store_load("BloodGulch", saved, &layout_b, why, sizeof(why)));
+	/* (a layout the writer refuses: nothing written) */
+	sample_layout(&layout_a);
+	layout_a.records[0].kind = 99;
+	CHECK(!forge_store_save(&layout_a, "refused.hmv", NULL, 0, why, sizeof(why)) &&
+		!forge_store_exists("bloodgulch", "refused.hmv"));
+	CHECK(forge_store_delete("bloodgulch", second) && !forge_store_exists("bloodgulch", second));
+	CHECK(!forge_store_delete("bloodgulch", second));
+	/* (names) */
+	CHECK(forge_file_name_valid("a.hmv") && !forge_file_name_valid(".hmv") && !forge_file_name_valid("a/b.hmv") &&
+		!forge_file_name_valid("A.hmv") && !forge_file_name_valid("abcdefghijklmnopqrstuvwxyz123.hmv"));
+	forge_file_name_from_title("  My Map!! ", 3, saved, sizeof(saved));
+	CHECK(!strcmp(saved, "my_map_3.hmv"));
+	forge_file_name_from_title("***", 1, saved, sizeof(saved));
+	CHECK(!strcmp(saved, "variant.hmv"));
+	forge_store_date_now(saved, sizeof(saved));
+	CHECK(strlen(saved) == 16 && saved[4] == '-' && saved[13] == ':');
+}
+
+int main(int argc, char **argv)
+{
+	int iterations = 5000;
+
+	if (argc < 2)
+	{
+		printf("usage: forge_files_test <scratch folder> [fuzz iterations]\n");
+		return 2;
+	}
+	snprintf(scratch, sizeof(scratch), "%s", argv[1]);
+	if (argc > 2)
+		iterations = atoi(argv[2]);
+	test_versions();
+	test_round_trip();
+	test_refused();
+	test_store();
+	test_fuzz(iterations);
+	printf("%d checks, %d failed\n", checks, failures);
+	return failures ? 1 : 0;
+}

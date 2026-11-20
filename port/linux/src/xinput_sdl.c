@@ -875,6 +875,18 @@ static unsigned long keyboard_actions_held;
 Z: halo_keyboard_menu_letters) */
 static unsigned long menu_letters_held;
 
+/* Forge's monitor's keys (halo_keyboard.h's halo_forge_key), read as the
+actions' are */
+static const char *const forge_binding_settings[NUMBER_OF_HALO_FORGE_KEYS] =
+{
+	"controls.forge_up", "controls.forge_down", "controls.forge_fast", "controls.forge_grab", "controls.forge_rotate",
+	"controls.forge_nearer", "controls.forge_farther", "controls.forge_copy", "controls.forge_delete",
+	"controls.forge_upright", "controls.forge_speed", "controls.forge_nudge", "controls.forge_menu",
+	"controls.forge_monitor",
+};
+static int forge_bindings[NUMBER_OF_HALO_FORGE_KEYS][MAXIMUM_BINDINGS];
+static unsigned long forge_keys_held;
+
 /* (the C library's case: SDL's string functions are not the Android
 guest's) */
 static int same_name(const char *a, const char *b)
@@ -1002,6 +1014,33 @@ int halo_keyboard_prompts(void)
 	return platform_prompt_scheme() == 0;
 }
 
+/* a setting's keys ("Left Ctrl, C") as inputs, -1 for none */
+static void binding_read(const char *setting, int inputs[MAXIMUM_BINDINGS])
+{
+	const char *text = config_string(setting);
+	int slot;
+
+	for (slot = 0; slot < MAXIMUM_BINDINGS; slot++)
+	{
+		char name[64];
+		size_t length;
+
+		inputs[slot] = -1;
+		while (*text == ' ' || *text == ',')
+			text++;
+		length = strcspn(text, ",");
+		if (!length)
+			continue;
+		snprintf(name, sizeof(name), "%.*s", (int)length, text);
+		while (*name && name[strlen(name) - 1] == ' ')
+			name[strlen(name) - 1] = 0;
+		inputs[slot] = halo_input_from_name(name);
+		if (inputs[slot] < 0)
+			platform_log("controls: %s has no key or button named \"%s\"", setting, name);
+		text += length;
+	}
+}
+
 static void bindings_read(void)
 {
 	int action;
@@ -1010,30 +1049,9 @@ static void bindings_read(void)
 		return;
 	bindings_read_at = config_changes();
 	for (action = 0; action < NUMBER_OF_HALO_KEYBOARD_ACTIONS; action++)
-	{
-		const char *text = config_string(binding_settings[action]);
-		int slot;
-
-		for (slot = 0; slot < MAXIMUM_BINDINGS; slot++)
-		{
-			char name[64];
-			size_t length;
-
-			bindings[action][slot] = -1;
-			while (*text == ' ' || *text == ',')
-				text++;
-			length = strcspn(text, ",");
-			if (!length)
-				continue;
-			snprintf(name, sizeof(name), "%.*s", (int)length, text);
-			while (*name && name[strlen(name) - 1] == ' ')
-				name[strlen(name) - 1] = 0;
-			bindings[action][slot] = halo_input_from_name(name);
-			if (bindings[action][slot] < 0)
-				platform_log("controls: %s has no key or button named \"%s\"", binding_settings[action], name);
-			text += length;
-		}
-	}
+		binding_read(binding_settings[action], bindings[action]);
+	for (action = 0; action < NUMBER_OF_HALO_FORGE_KEYS; action++)
+		binding_read(forge_binding_settings[action], forge_bindings[action]);
 }
 
 int halo_keyboard_action_bound(int action)
@@ -1176,6 +1194,46 @@ static void keyboard_controls(const struct platform_input_state *input, XINPUT_G
 	if (held & (1UL << HALO_KEYBOARD_SCOREBOARD))
 		pad->wButtons |= XINPUT_GAMEPAD_BACK;
 	keyboard_actions_held = held;
+	/* (Forge's keys: the monitor's, which only Forge reads) */
+	held = 0;
+	for (action = 0; action < NUMBER_OF_HALO_FORGE_KEYS; action++)
+	{
+		for (slot = 0; slot < MAXIMUM_BINDINGS; slot++)
+		{
+			if (input_held(input, forge_bindings[action][slot]))
+				held |= 1UL << action;
+		}
+	}
+	forge_keys_held = held;
+}
+
+unsigned long halo_forge_keys(void)
+{
+	return forge_keys_held;
+}
+
+int halo_forge_key_shown(int key, char *shown, unsigned long size)
+{
+	char binding[64];
+	const char *text;
+	size_t length;
+
+	if (key < 0 || key >= NUMBER_OF_HALO_FORGE_KEYS || !size)
+		return 0;
+	text = config_string(forge_binding_settings[key]);
+	text += strspn(text, " ");
+	length = strcspn(text, ",");
+	while (length && text[length - 1] == ' ')
+		length--;
+	if (!length || length >= sizeof(binding))
+	{
+		shown[0] = 0;
+		return 0;
+	}
+	memcpy(binding, text, length);
+	binding[length] = 0;
+	halo_input_shown_name(binding, shown, size);
+	return shown[0] != 0;
 }
 
 /* text chat's typing (platform_chat_typing: chat_typing, above), and escape
@@ -2905,6 +2963,7 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		mouse_poll(&input);
 		wheel_update();
 		keyboard_actions_held = 0;
+		forge_keys_held = 0;
 		menu_letters_held = 0;
 		keys_held_over_switch(&input);
 		test_input_menu_keys(&input);

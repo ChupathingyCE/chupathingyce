@@ -16686,6 +16686,21 @@ static boolean hs_compile_and_evaluate_command(
 			return ragdolls_command(text);
 	}
 #endif
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: Forge's commands ("forge start bloodgulch", "forge spawn <name>"
+	...: port/linux/game/forge.c), which are no script's; a local game's
+	alone (forge.c refuses the rest) */
+	{
+		char const *text = hs_host_player_command(expression, "forge");
+
+		if (text)
+		{
+			boolean forge_command(char const *arguments);
+
+			return forge_command(text);
+		}
+	}
+#endif
 	/* port: profile_reset_campaign, which clears the first player's
 	profile's campaign progress (player_ui_reset_campaign_progress) once
 	confirmed: "profile_reset_campaign yes" */

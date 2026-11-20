@@ -66,24 +66,26 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_title_font" x="54" y="97" platform="desktop android"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_high_res_text" x="54" y="121" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_high_res_hud" x="54" y="145" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_console_style" x="54" y="169" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_button_style" x="54" y="193" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_button_look" x="54" y="217" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hud_buttons" x="54" y="241" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_player_names" x="54" y="265" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_player_name_scale" x="54" y="289" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_team_layout" x="54" y="313" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_team_layout" x="54" y="73" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_background" x="54" y="337" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_background" x="54" y="97" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_icons" x="54" y="361" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_icons" x="54" y="121" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_powerup_timers" x="54" y="385" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_powerup_timers" x="54" y="145" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_match_timer" x="54" y="409" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_match_timer" x="54" y="169" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_follow_camera" x="54" y="433" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_follow_camera" x="54" y="193" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hud_safe_zone" x="54" y="169" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hud_safe_zone" x="54" y="73" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_console_style" x="54" y="193" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_button_style" x="54" y="217" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_button_look" x="54" y="241" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hud_buttons" x="54" y="265" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_player_names" x="54" y="289" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_player_name_scale" x="54" y="313" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_team_layout" x="54" y="337" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_team_layout" x="54" y="97" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_background" x="54" y="361" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_background" x="54" y="121" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_icons" x="54" y="385" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_icons" x="54" y="145" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_powerup_timers" x="54" y="409" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_powerup_timers" x="54" y="169" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_match_timer" x="54" y="433" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_match_timer" x="54" y="193" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_follow_camera" x="54" y="457" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_follow_camera" x="54" y="217" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_hdr" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr" x="54" y="73" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_output" x="54" y="97" platform="desktop"/>
@@ -427,6 +429,15 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/high_res_hud_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="display.high_res_hud" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hud_safe_zone" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/hud_safe_zone_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/hud_safe_zone_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/hud_safe_zone_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/video_settings/labels" string_index="35" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/hud_safe_zone_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|SINGLE SCREEN ONLY|OFF" setting="display.hud_safe_zone" values="xbox|auto|pc" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_console_style" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop android switch">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/console_style_label"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/console_style_spinner" x="320" y="1"/>
@@ -647,6 +658,7 @@
 		<string text="TITLE FONT:"/>
 		<string text="HIGH-RES TEXT:"/>
 		<string text="HIGH-RES HUD:"/>
+		<string text="SAFE ZONES:"/>
 		<string text="CONSOLE:"/>
 		<string text="BUTTON STYLE:"/>
 		<string text="MENU BUTTONS:"/>
@@ -705,6 +717,7 @@
 		<string text="Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files."/>
 		<string text="Draw text and titles in high resolution."/>
 		<string text="Draw the HUD in high resolution."/>
+		<string text="Keep the HUD in from the screen's edges, as on the Xbox.\nOff moves it to the edges."/>
 		<string text="Drop-down slides down from the top.\nClassic is the Xbox's."/>
 		<string text="The buttons prompts show. Auto follows the controller\nyou use."/>
 		<string text="The buttons in menus and the Guide."/>
