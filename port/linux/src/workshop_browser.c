@@ -3291,7 +3291,12 @@ int workshop_browser_cached_picture(const char *level, struct mcc_preview_image 
 	posix_directory_close(directory);
 	if (!found || !(data = file_read(path, &size)))
 		return 0;
+	/* (the pictures' decoder, posix_ui_font.c, is the game browser's) */
+#ifdef HALO_GAME_BROWSER
 	pixels = picture_bytes(data, size) ? posix_ui_image_decode(data, size, &width, &height) : NULL;
+#else
+	pixels = NULL;
+#endif
 	free(data);
 	if (!pixels)
 		return 0;
@@ -3308,7 +3313,9 @@ int workshop_browser_cached_picture(const char *level, struct mcc_preview_image 
 		image->width = (unsigned)width;
 		image->height = (unsigned)height;
 	}
+#ifdef HALO_GAME_BROWSER
 	posix_ui_image_free(pixels);
+#endif
 	return image->pixels != NULL;
 }
 #endif /* HALO_MCC */

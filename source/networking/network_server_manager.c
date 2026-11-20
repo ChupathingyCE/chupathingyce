@@ -481,8 +481,8 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
 #include "../../port/linux/game/party_teams.h"
-#include "../../port/linux/game/network_rules.h" /* port: the game modes' rules (docs/modes.md) */
 #endif
+#include "../../port/linux/game/network_rules.h" /* port: the game modes' rules (docs/modes.md; every build's) */
 #include "interface/player_ui.h"
 #include "tag_files/tag_files.h"
 
@@ -1478,15 +1478,23 @@ each lobby frame, and undone as hosting ends; said once if this build can't */
 /* (network_server_message_handler.c) */
 unsigned network_game_server_machine_joined_number(struct network_game_server *server,
 	struct network_game_server_client_machine *machine);
+#ifdef HALO_GAME_BROWSER
+boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
+long dedicated_playlist_count(void);
+char const *dedicated_playlist_map(long entry);
+#else
+/* (no dedicated server in a build without the game browser: server/src is
+left out) */
+#define dedicated_server_active() FALSE
+#define dedicated_playlist_count() 0L
+#define dedicated_playlist_map(entry) ((void)(entry), (char const *)NULL)
+#endif
 #if defined(HALO_MCC) && HALO_MCC
 #include "delta.h" /* the capabilities */
 char const *config_string(char const *name);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
 int delta_legacy_host_game_at(int version); /* (port/linux/src/delta.c) */
 int delta_legacy_mcc_version(void);
-boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
-long dedicated_playlist_count(void);
-char const *dedicated_playlist_map(long entry);
 static int network_game_server_mcc_asked = -1;
 static void network_game_server_port_cooperative_apply(struct network_game_server *server, short difficulty);
 /* (when the number changed: the record is sent again a little later, which
@@ -1556,7 +1564,8 @@ void network_game_server_mcc_playlist_changed(
 /* port: a host's lobby moving to or from an MCC map changes the number its
 game is played at: how many machines in it would not follow (no Delta with
 mcc_maps), which leave. The host is asked first (invite_prompt_ask), unless
-it is a dedicated server or a test */
+it is a dedicated server or a test, or the build has no game browser, whose
+overlay asks */
 static long network_game_server_mcc_would_drop(
 	struct network_game_server *server,
 	char const *map_name)
@@ -1564,6 +1573,9 @@ static long network_game_server_mcc_would_drop(
 	boolean want = mcc_level_name(map_name);
 	long index, count = 0;
 
+#ifndef HALO_GAME_BROWSER
+	return 0;
+#endif
 	if (dedicated_server_active() || config_string("debug.network_test")[0] ||
 		want == (network_game_server_mcc_asked > 0))
 	{

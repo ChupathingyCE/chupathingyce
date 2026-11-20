@@ -128,6 +128,10 @@ KCP_DIR = Path("port/third_party/kcp")
 # dedicated server's
 LUA_DIR = Path("port/third_party/lua")
 LUA_DEFINES = ["-DHALO_LUA"]
+# (with -I, not -idirafter: a system Lua's lua.h, which may be another
+# version, as Lua 5.5's in /usr/include, would come first otherwise; none of
+# its headers' names is one of the game's)
+LUA_INCLUDE = f"-I{LUA_DIR}"
 
 
 def lua_sources() -> List[Path]:
@@ -675,7 +679,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
                    + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
                    + browser_defines + CUSTOM_EDITION_DEFINES + MODS_DEFINES + COMPRESSED_MAP_DEFINES + units.extra_flags
                    + units.ffmpeg[0]
-                   + ([*LUA_DEFINES, f"-idirafter {LUA_DIR}"] if units.lua else [])
+                   + ([*LUA_DEFINES, LUA_INCLUDE] if units.lua else [])
                    + (["-DHALO_JOLT"] if units.jolt else []))
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
