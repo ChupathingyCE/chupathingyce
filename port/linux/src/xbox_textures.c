@@ -874,6 +874,20 @@ unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *de
 }
 #endif
 
+#if defined(HALO_BGFX) && (defined(HALO_GL_ES) || !defined(HALO_CONSOLE_NO_GUIDE))
+BOOL xgpu_texture_dxt_decode_level(const struct xgpu_texture_description *description, unsigned long level,
+	const unsigned char *source, unsigned long *destination)
+{
+	unsigned char kind = format_information(description->format).kind;
+
+	if (kind != _texel_dxt1 && kind != _texel_dxt3 && kind != _texel_dxt5)
+		return FALSE;
+	dxt_decode_level(kind, source, level_dimension(description->width, level),
+		level_dimension(description->height, level), level_dimension(description->depth, level), destination);
+	return TRUE;
+}
+#endif
+
 static void upload(GLuint texture, GLenum target, const struct xgpu_texture_description *description,
 	const unsigned char *base, const D3DCOLOR *palette)
 {
