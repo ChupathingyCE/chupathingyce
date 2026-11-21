@@ -296,6 +296,9 @@ boolean forge_variant_playing(
 /* (hud.c) the Spartan's action prompt left undrawn for the monitor */
 boolean forge_monitor_hides_prompt(
 	short local_player_index);
+/* (player_control.c) the mouse's look left for the monitor's camera */
+boolean forge_monitor_takes_mouse(
+	short local_player_index);
 
 /* the Forge menu's OBJECTS: a category's name, how many items it has, each
 item's name and placed count (FALSE past the end) */

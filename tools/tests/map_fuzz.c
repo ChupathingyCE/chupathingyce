@@ -16,7 +16,9 @@ compiled with the macOS build's flags, as the game's own units are):
                     if it passes, what loading does with it (cache_files.c's
                     scenario_tags_load and scenario_structure_bsp_load): its
                     resources copied in, its repairs, its models, functions,
-                    shaders and HUD converted, each BSP's vertices compressed.
+                    shaders and HUD converted, each BSP's vertices compressed
+                    (each BSP as corrected, checked again, must need no more
+                    correction).
                     The checks are the contract the conversions trust: a map
                     they pass must convert without touching memory it does
                     not own. What the load reads must also be found to be
@@ -1395,6 +1397,22 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 			if (fuzz_verbose)
 				fprintf(stderr, "map_fuzz: structure BSP %ld was refused by Halo PC's tag schema\n", (long)bsp_index);
 			continue;
+		}
+		/* (as it was corrected, it needs no more correction: a correction
+		that changed what another block of it was checked to read would
+		leave that block unchecked) */
+		if (fuzz_ce_schema)
+		{
+			long corrections = tag_validate_corrections();
+			boolean valid = tag_validate_structure_bsp(reference.tag_index, xbox_pointer(reference.base_address),
+				reference.file_size);
+
+			if (!valid || tag_validate_corrections() != corrections)
+			{
+				fprintf(stderr, "map_fuzz: structure BSP %ld as corrected is not clean when checked again (%s, %ld more)\n",
+					(long)bsp_index, valid ? "accepted" : "refused", (long)(tag_validate_corrections() - corrections));
+				abort();
+			}
 		}
 		ce_bsp_loaded(xbox_pointer(bsp_base));
 		ce_bsp_unloaded();
