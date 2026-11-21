@@ -435,6 +435,11 @@ struct hs_global_datum
 	long value;
 };
 
+#ifdef HALO_CONSOLE_SCRIPT_WAIT_LOG
+/* (2 minutes of game ticks) */
+#define HS_SCRIPT_WAIT_LOG_TICKS (2*60*30)
+#endif
+
 struct hs_thread_datum
 {
 	short identifier;
@@ -2803,6 +2808,17 @@ void hs_evaluate_sleep_until(
 			{
 				thread->sleep_until = MIN(*timeout+*start_time, thread->sleep_until);
 			}
+#ifdef HALO_CONSOLE_SCRIPT_WAIT_LOG
+			/* port: a wait of 2 minutes or more, said at the first check
+			past it (halo_console_features.h) */
+			{
+				long waited = game_time_get() - *start_time;
+
+				if (waited >= HS_SCRIPT_WAIT_LOG_TICKS && waited - MAX(1, (short)*ticks) < HS_SCRIPT_WAIT_LOG_TICKS)
+					error(_error_silent, "script %s: waiting %ld s in one sleep_until (tick %ld)",
+						hs_thread_format(thread_index), waited / 30, (long)game_time_get());
+			}
+#endif
 		}
 	}
 
