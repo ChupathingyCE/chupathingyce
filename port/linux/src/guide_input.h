@@ -37,6 +37,10 @@ enum
 
 /* the Guide takes the first player's input (nonzero) or gives it back */
 void platform_guide_capture(int capture);
+/* the Guide's own A and B on the pads' right and bottom face buttons
+(delta.confirm_button "right"), while it has the input; another
+platform_guide_capture (the Forge menu's, the halt screen's) ends it */
+void platform_guide_confirm_swap(int swap);
 /* what is held now, while it takes the input (0 when it does not) */
 unsigned int platform_guide_held(void);
 /* the times the first player asked to open or close it since the last

@@ -141,6 +141,22 @@ int posix_rename_directory(const char *from, const char *to)
 	return rename(from, to);
 }
 
+int posix_sync(int descriptor)
+{
+#ifdef __APPLE__
+	/* (fsync leaves the data in the drive's own cache on macOS; a file
+	system that has no F_FULLFSYNC still gets the fsync) */
+	if (fcntl(descriptor, F_FULLFSYNC) == 0)
+		return 0;
+#endif
+	return fsync(descriptor);
+}
+
+int posix_replace_file(const char *from, const char *to)
+{
+	return rename(from, to);
+}
+
 int posix_make_directory(const char *path)
 {
 #ifdef __ANDROID__

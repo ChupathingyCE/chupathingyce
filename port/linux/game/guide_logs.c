@@ -87,6 +87,11 @@ char const *guide_logs_row_label(short row)
 	return row == _guide_logs_row_folder ? "OPEN LOGS FOLDER" : "SEND MY LOGS";
 }
 
+char const *guide_logs_row_word(short row)
+{
+	return row == _guide_logs_row_folder ? "OPEN" : "SEND";
+}
+
 char const *guide_logs_row_activate(short row)
 {
 	if (row == _guide_logs_row_folder)
