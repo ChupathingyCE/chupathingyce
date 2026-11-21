@@ -127,8 +127,9 @@ HALO_CONSOLE_WINDOW_LOW
 	place of 0x78000000, a whole megabyte below 0x80000000. The game's heap
 	(port/linux/src/xbox_heap.c) is the window below the contiguous memory,
 	so it is that much smaller (0x7D000000: 48 MB); a heap that runs out
-	says so and stops the game. The port's prefix header reads this file
-	ahead of xbox_address.h, which takes the value
+	says so and stops the game. The port sets it in its own build (its
+	compile lines, or its prefix header ahead of xbox_address.h, which
+	takes the value)
 HALO_CONSOLE_WINDOW_MAXIMUM
 	a console that puts the Xbox's memory window where it finds room
 	(HALO_WINDOW_REBASE, source/cseries/xbox_address.h) and tells the
@@ -457,15 +458,6 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "wiiu"
-#endif
-
-#ifdef HALO_VITA_CONSOLE
-/* the PlayStation Vita (warthog-vita): the Xbox 360's layout, translated, in
-about 340 MB for the whole application. The window is the 128 MB of
-contiguous memory and a 48 MB heap (the Xbox's own game ran in 64 MB in
-all), and the texture cache the Xbox's (22 MB) */
-#define HALO_CONSOLE_WINDOW_LOW 0x7D000000U
-#define HALO_CONSOLE_XBOX_RENDER_SIZES 1
 #endif
 
 /* (xbox_address.h read first, with the window at its default: the units

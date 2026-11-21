@@ -42,8 +42,8 @@ host had room. Xbox address X is host address xbox_address_space_base + X,
 modulo 2^32 (the port reserves it: platform_xbox_window_reserve). */
 
 /* (a console with less memory starts the window higher, its heap the
-smaller: HALO_CONSOLE_WINDOW_LOW, halo_console_features.h, which its prefix
-header reads ahead of this one) */
+smaller: HALO_CONSOLE_WINDOW_LOW, set in the port's own build ahead of this
+header; halo_console_features.h) */
 #ifdef HALO_CONSOLE_WINDOW_LOW
 #if (HALO_CONSOLE_WINDOW_LOW) < 0x78000000U || (HALO_CONSOLE_WINDOW_LOW) >= 0x80000000U || \
 	((HALO_CONSOLE_WINDOW_LOW) & 0xFFFFFU)
