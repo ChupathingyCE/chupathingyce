@@ -2545,27 +2545,27 @@ void hs_evaluate_arithmetic(
 		}
 		else
 		{
-			real accumulated = hs_real_get(result);
-
+			/* (the result read where each case reads it, so the Xbox's
+			and the desktop's code is as before) */
 			switch (function_index)
 			{
 			case _hs_function_plus:
-				hs_real_set(result, accumulated+argument);
+				hs_real_set(result, hs_real_get(result)+argument);
 				break;
 			case _hs_function_minus:
-				hs_real_set(result, accumulated-argument);
+				hs_real_set(result, hs_real_get(result)-argument);
 				break;
 			case _hs_function_times:
-				hs_real_set(result, accumulated*argument);
+				hs_real_set(result, hs_real_get(result)*argument);
 				break;
 			case _hs_function_divide:
-				hs_real_set(result, accumulated/argument);
+				hs_real_set(result, hs_real_get(result)/argument);
 				break;
 			case _hs_function_min:
-				hs_real_set(result, MIN(accumulated, argument));
+				hs_real_set(result, MIN(hs_real_get(result), argument));
 				break;
 			case _hs_function_max:
-				hs_real_set(result, MAX(accumulated, argument));
+				hs_real_set(result, MAX(hs_real_get(result), argument));
 				break;
 			default:
 				display_assert(NULL, "c:\\halo\\source\\hs\\hs_library_internal_runtime.h", 0x111, TRUE);
@@ -3281,7 +3281,7 @@ static void *hs_stack_allocate(
 		long padding = (long)(-(long)(size_t)(frame->data+frame->size) & 3);
 
 		if (padding &&
-			size+padding>thread->stack_data+HS_THREAD_STACK_SIZE-(frame->data+frame->size))
+			size+padding>mcc_hs_stack_end(thread)-(frame->data+frame->size))
 		{
 			hs_stack_overflow(thread_index);
 
