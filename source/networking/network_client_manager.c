@@ -1389,6 +1389,30 @@ boolean network_game_client_idle(
 	return success;
 }
 
+/* port: the names in a settings record the host sends (the game's, its
+machines' and its players') come as the host sends them, and need not be
+text that draws: control characters and the game's own '|' marks. They are
+kept to what draws as one line of text (player_name_clean), as the host
+keeps the names joiners send it (network_server_message_handler.c). A name
+already clean stays as it is */
+static void network_game_client_clean_record_names(
+	struct network_game *game)
+{
+	short index;
+
+	player_name_clean(game->name, NUMBEROF(game->name));
+	for (index = 0; index < NUMBEROF(game->machines); index++)
+	{
+		player_name_clean(game->machines[index].name, NUMBEROF(game->machines[index].name));
+	}
+	for (index = 0; index < NUMBEROF(game->players); index++)
+	{
+		player_name_clean(game->players[index].name, NUMBEROF(game->players[index].name));
+	}
+
+	return;
+}
+
 boolean network_game_client_game_settings_updated(
 	struct network_game_client *client,
 	struct network_game *message_packet)
@@ -1419,6 +1443,7 @@ boolean network_game_client_game_settings_updated(
 			network_event("invalid message_server_game_settings_update message received: its players");
 			return FALSE;
 		}
+		network_game_client_clean_record_names(message_packet);
 #ifdef HALO_GAME_BROWSER
 		/* port: a map fetch's machine (port/linux/game/map_share_client.c)
 		reads the record's map as the wire names it, and never looks for it
