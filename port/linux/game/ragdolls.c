@@ -82,12 +82,15 @@ revert or a saved game lets every one go.
 debug.ragdolls (config.toml): 1 a log line each time a ragdoll starts,
 sleeps, wakes or is let go, and the cost every ten seconds while any is
 kept; 2 each rig too. With it the console's "ragdolls" commands
-(ragdolls_command) test them: "ragdolls stats", "ragdolls boom|shoot|punch|
-kill [count] [range] [name]" (a grenade's blast beside, a rifle bullet, a
-melee blow or a plain kill of the nearest living characters, those whose
-tag's name holds name, or other players' with "players"), "ragdolls cam
-<distance> <yaw> <pitch>" (the debug camera looking at the last one),
-"ragdolls shot" (a screenshot).
+(ragdolls_command) test them: "ragdolls stats", "ragdolls boom|shoot|
+headshot|backshot|punch|kill [count] [range] [name]" (a grenade's blast
+beside, a rifle bullet - at the chest, the head, or from behind -, a melee
+blow or a plain kill of the nearest living characters, those whose tag's
+name holds name, or other players' with "players"), "ragdolls ram [count]
+[range] [name]" (a Warthog driven into them), "ragdolls spawn [count]
+[distance]" (characters of the player's own kind stood in front of it),
+"ragdolls cam <distance> <yaw> <pitch>" (the debug camera looking at the
+last body to die), "ragdolls shot" (a screenshot).
 */
 
 #include "cseries.h"
@@ -106,6 +109,7 @@ tag's name holds name, or other players' with "players"), "ragdolls cam
 #include "units/units.h"
 #include "units/bipeds.h"
 #include "units/biped_definitions.h"
+#include "units/vehicle_definitions.h"
 #include "physics/collisions.h"
 #include "physics/collision_model_definitions.h"
 #include "physics/collision_bsp_definitions.h"
@@ -438,6 +442,8 @@ static unsigned long ragdoll_sequence;
 static unsigned long ragdoll_generation = 1;
 /* (the rig building's) the model's default pose */
 static real_matrix4x3 ragdoll_bind[RAGDOLL_MAXIMUM_NODES];
+/* (the tests' camera) the last body to die, or the tests' last target */
+static long ragdoll_last_death = NONE;
 
 /* the Jolt world: the level of this map and structure, its panes, vehicles
 and machines' parts */
@@ -2796,6 +2802,7 @@ void ragdolls_reset(
 		ragdolls[slot].jolt = NONE;
 	}
 	ragdoll_pending_count = 0;
+	ragdoll_last_death = NONE;
 	memset(ragdoll_notes, 0, sizeof(ragdoll_notes));
 	memset(ragdoll_slot_by_object, 0, sizeof(ragdoll_slot_by_object));
 	ragdoll_swapped.count = 0;
@@ -2836,6 +2843,7 @@ void ragdolls_unit_died(
 	ragdoll_pending[ragdoll_pending_count].object_index = unit_index;
 	ragdoll_pending[ragdoll_pending_count].tick = ragdoll_ticks;
 	ragdoll_pending_count++;
+	ragdoll_last_death = unit_index;
 }
 
 void ragdolls_note_damage(
@@ -3324,6 +3332,126 @@ static void ragdoll_test_stats(
 		(double)jolt.bytes_now / 1048576.0, (double)jolt.bytes_peak / 1048576.0);
 }
 
+/* (the tests) the target's head: the hit geometry's node (NONE: none) and
+its model node's place in origin */
+static short ragdoll_test_head(
+	long object_index,
+	struct object_datum *object,
+	real_point3d *origin)
+{
+	struct object_definition *definition = object_definition_get(object->definition_index);
+	struct collision_model const *collision = definition->object.collision_model.index != NONE ?
+		collision_model_definition_get(definition->object.collision_model.index) : NULL;
+	struct model const *model = definition->object.model.index != NONE ?
+		model_definition_get(definition->object.model.index) : NULL;
+	real_matrix4x3 const *live = (real_matrix4x3 const *)object_header_block_get(object_index,
+		&object->object.node_matrices);
+	short node_count = (short)(object->object.node_matrices.size / (short)sizeof(real_matrix4x3));
+	short index;
+
+	for (index = 0; model && index < node_count && index < model->nodes.count; index++)
+	{
+		if (ragdoll_name_has(TAG_BLOCK_GET_ELEMENT(&model->nodes, index, struct model_node)->name, "head"))
+		{
+			*origin = live[index].position;
+			break;
+		}
+	}
+	for (index = 0; collision && index < collision->nodes.count; index++)
+	{
+		if (ragdoll_name_has(TAG_BLOCK_GET_ELEMENT(&collision->nodes, index, struct collision_node)->name, "head"))
+			return index;
+	}
+	return NONE;
+}
+
+/* (the tests) a vehicle (the first whose tag's name holds words) driven
+into the target from the way it faces, 1.6 world units off, at 23 m/s: the
+game's own hit (physics_compute_biped_vehicle_collision) */
+static void ragdoll_test_ram(
+	long target_index,
+	char const *words)
+{
+	struct object_datum *target = object_try_and_get(target_index);
+	struct object_placement_data data;
+	struct tag_iterator tags;
+	long tag_index, vehicle = NONE, made;
+	real_vector3d toward;
+
+	tag_iterator_new(&tags, VEHICLE_DEFINITION_TAG);
+	while ((tag_index = tag_iterator_next(&tags)) != NONE)
+	{
+		if (strstr(tag_get_name(tag_index), words))
+		{
+			vehicle = tag_index;
+			break;
+		}
+	}
+	if (!target || vehicle == NONE)
+	{
+		platform_log("ragdolls test: no \"%s\" vehicle", words);
+		return;
+	}
+	toward = target->object.forward;
+	toward.k = 0.f;
+	if (ragdoll_normalize(&toward) < 1e-5f)
+		toward = *global_forward3d;
+	object_placement_data_new(&data, vehicle, NONE);
+	data.position = target->object.position;
+	ragdoll_move(&data.position, &toward, 1.6f);
+	data.position.z += 0.15f;
+	data.forward.i = -toward.i;
+	data.forward.j = -toward.j;
+	data.forward.k = 0.f;
+	data.up = *global_up3d;
+	data.translational_velocity.i = -toward.i * (23.f / 3.048f / TICKS_PER_SECOND);
+	data.translational_velocity.j = -toward.j * (23.f / 3.048f / TICKS_PER_SECOND);
+	data.translational_velocity.k = 0.f;
+	made = object_new(&data);
+	platform_log("ragdolls test: %s driven at %08lx (%s): %08lx", tag_get_name(vehicle), (unsigned long)target_index,
+		ragdoll_object_name(target_index), (unsigned long)made);
+}
+
+/* (the tests) count characters of the player's own kind stood in a row, 3 m apart,
+distance world units in front of the player, facing it */
+static void ragdoll_test_spawn(
+	short count,
+	real distance)
+{
+	long player_index = local_player_get_player_index(0);
+	struct player_datum *player = player_index != NONE ? player_get(player_index) : NULL;
+	struct object_datum *unit = player && player->unit_index != NONE ? object_try_and_get(player->unit_index) : NULL;
+	real_vector3d forward, side;
+	short index;
+
+	if (!unit)
+		return;
+	forward = unit->object.forward;
+	forward.k = 0.f;
+	if (ragdoll_normalize(&forward) < 1e-5f)
+		forward = *global_forward3d;
+	side.i = -forward.j;
+	side.j = forward.i;
+	side.k = 0.f;
+	for (index = 0; index < PIN(count, 1, 8); index++)
+	{
+		struct object_placement_data data;
+		long made;
+
+		object_placement_data_new(&data, unit->definition_index, NONE);
+		data.position = unit->object.position;
+		ragdoll_move(&data.position, &forward, distance);
+		ragdoll_move(&data.position, &side, (index - (count - 1) * 0.5f) * 1.0f);
+		data.position.z += 0.1f;
+		data.forward.i = -forward.i;
+		data.forward.j = -forward.j;
+		data.forward.k = 0.f;
+		data.up = *global_up3d;
+		made = object_new(&data);
+		platform_log("ragdolls test: %s stood up: %08lx", ragdoll_object_name(player->unit_index), (unsigned long)made);
+	}
+}
+
 /* (the tests) a grenade's blast beside, a shot or a melee blow from the
 player at, or a plain kill of each target */
 static void ragdoll_test_hit(
@@ -3339,12 +3467,12 @@ static void ragdoll_test_hit(
 	struct player_datum *player = player_index != NONE ? player_get(player_index) : NULL;
 	struct object_datum *attacker = player && player->unit_index != NONE ? object_try_and_get(player->unit_index) : NULL;
 	long effect = NONE;
-	short index;
+	short index, head;
 
 	if (!strcmp(word, "punch"))
 		effect = ragdoll_test_effect(word, "melee");
-	else if (!strcmp(word, "shoot"))
-		effect = ragdoll_test_effect(word, "assault rifle");
+	else if (!strcmp(word, "shoot") || !strcmp(word, "headshot") || !strcmp(word, "backshot"))
+		effect = ragdoll_test_effect("shoot", "assault rifle");
 	else if (!strcmp(word, "boom"))
 		effect = ragdoll_test_effect(word, "frag grenade\\explosion");
 	for (index = 0; index < found; index++)
@@ -3354,6 +3482,12 @@ static void ragdoll_test_hit(
 
 		if (!target)
 			continue;
+		ragdoll_last_death = targets[index];
+		if (!strcmp(word, "ram"))
+		{
+			ragdoll_test_ram(targets[index], "warthog");
+			continue;
+		}
 		if (effect == NONE)
 		{
 			platform_log("ragdolls test: %08lx (%s) killed", (unsigned long)targets[index], ragdoll_object_name(targets[index]));
@@ -3382,10 +3516,10 @@ static void ragdoll_test_hit(
 			area_of_effect_cause_damage(&damage, NONE);
 			continue;
 		}
-		/* (at its chest, from the player: lethal) */
+		/* (at its chest, from the player: lethal; a headshot at its head's
+		hit geometry; a shot from behind along the way it faces) */
 		damage.origin = target->object.position;
 		damage.origin.z += 0.2f;
-		damage.epicenter = damage.origin;
 		if (attacker)
 		{
 			damage.direction.i = target->object.position.x - attacker->object.position.x;
@@ -3394,12 +3528,20 @@ static void ragdoll_test_hit(
 		}
 		else
 			damage.direction = *global_forward3d;
+		if (!strcmp(word, "backshot"))
+		{
+			damage.direction = target->object.forward;
+			damage.direction.k = 0.f;
+		}
+		head = !strcmp(word, "headshot") ? ragdoll_test_head(targets[index], target, &damage.origin) : NONE;
+		damage.epicenter = damage.origin;
 		ragdoll_normalize(&damage.direction);
 		scenario_location_from_point(&damage.location, &damage.origin);
 		damage.multiplier = 100.f;
-		platform_log("ragdolls test: %s %s %08lx (%s)", tag_get_name(effect), !strcmp(word, "punch") ? "punches" : "shoots",
-			(unsigned long)targets[index], ragdoll_object_name(targets[index]));
-		object_cause_damage(&damage, targets[index], NONE, NONE, NONE, NULL);
+		platform_log("ragdolls test: %s %s %08lx (%s)%s", tag_get_name(effect), !strcmp(word, "punch") ? "punches" : "shoots",
+			(unsigned long)targets[index], ragdoll_object_name(targets[index]), head != NONE ? " in the head" :
+			!strcmp(word, "backshot") ? " from behind" : "");
+		object_cause_damage(&damage, targets[index], head, NONE, NONE, NULL);
 	}
 	platform_log("ragdolls test: %s, %d of %d within %.1f", word, (int)found, (int)count, (double)range);
 }
@@ -3413,9 +3555,10 @@ static void ragdoll_test_camera(
 	real pitch)
 {
 	struct ragdoll const *last = NULL;
-	struct object_datum *object;
+	struct object_datum *object = NULL;
 	real facing, up;
-	real_point3d position;
+	real_point3d position, center;
+	long shown = NONE;
 	real_vector3d forward;
 	short slot;
 
@@ -3424,21 +3567,35 @@ static void ragdoll_test_camera(
 		if (ragdoll_of_object(ragdolls[slot].object_index) && (!last || ragdolls[slot].started > last->started))
 			last = &ragdolls[slot];
 	}
-	if (!last || !(object = object_try_and_get(last->object_index)) || local_player_get_next(NONE) == NONE)
+	/* (the last body to die, its ragdoll's middle or, its death animation
+	still playing, its own) */
+	object = ragdoll_last_death != NONE ? object_try_and_get(ragdoll_last_death) : NULL;
+	if (object)
+	{
+		shown = ragdoll_last_death;
+		last = ragdoll_of_object(ragdoll_last_death);
+		center = last ? last->center : object->object.bounding_sphere_center;
+	}
+	else if (last && (object = object_try_and_get(last->object_index)) != NULL)
+	{
+		shown = last->object_index;
+		center = last->center;
+	}
+	if (!object || local_player_get_next(NONE) == NONE)
 	{
 		platform_log("ragdolls cam: no ragdoll");
 		return;
 	}
 	facing = (real)atan2(object->object.forward.j, object->object.forward.i) + RAGDOLL_DEGREES(yaw);
 	up = RAGDOLL_DEGREES(pitch);
-	position.x = last->center.x + distance * (real)cos(facing) * (real)cos(up);
-	position.y = last->center.y + distance * (real)sin(facing) * (real)cos(up);
-	position.z = last->center.z + distance * (real)sin(up);
-	ragdoll_between(&position, &last->center, &forward);
+	position.x = center.x + distance * (real)cos(facing) * (real)cos(up);
+	position.y = center.y + distance * (real)sin(facing) * (real)cos(up);
+	position.z = center.z + distance * (real)sin(up);
+	ragdoll_between(&position, &center, &forward);
 	ragdoll_normalize(&forward);
 	director_set_flying_camera(local_player_get_next(NONE), &position, &forward);
-	platform_log("ragdolls cam: %08lx (%s) from %.2f %.2f %.2f", (unsigned long)last->object_index,
-		ragdoll_object_name(last->object_index), (double)position.x, (double)position.y, (double)position.z);
+	platform_log("ragdolls cam: %08lx (%s) from %.2f %.2f %.2f", (unsigned long)shown,
+		ragdoll_object_name(shown), (double)position.x, (double)position.y, (double)position.z);
 }
 
 boolean ragdolls_command(
@@ -3463,9 +3620,15 @@ boolean ragdolls_command(
 		platform_log("ragdolls: \"%s\": the tests need debug.ragdolls and a local game", arguments);
 		return FALSE;
 	}
-	if (!strcmp(word, "boom") || !strcmp(word, "shoot") || !strcmp(word, "punch") || !strcmp(word, "kill"))
+	if (!strcmp(word, "boom") || !strcmp(word, "shoot") || !strcmp(word, "punch") || !strcmp(word, "kill") ||
+		!strcmp(word, "headshot") || !strcmp(word, "backshot") || !strcmp(word, "ram"))
 	{
 		ragdoll_test_hit(word, (short)a, b, filter);
+		return TRUE;
+	}
+	if (!strcmp(word, "spawn"))
+	{
+		ragdoll_test_spawn((short)a, b);
 		return TRUE;
 	}
 	if (!strcmp(word, "cam"))
@@ -3483,7 +3646,8 @@ boolean ragdolls_command(
 		return TRUE;
 	}
 #endif
-	platform_log("ragdolls: unknown \"%s\" (stats, boom, shoot, punch, kill, cam, shot)", arguments);
+	platform_log("ragdolls: unknown \"%s\" (stats, boom, shoot, headshot, backshot, punch, ram, kill, spawn, cam, shot)",
+		arguments);
 	return FALSE;
 }
 
