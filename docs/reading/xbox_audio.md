@@ -78,6 +78,13 @@ mixer from the behavior they recorded (no code taken):
   default) does the same, with the limiter acting only over twice full
   scale; `"louder"` keeps the level before 0.9.2.
 
+- **The quiet floor**: an Xbox played a gain exactly down to about -44 dB,
+  then let it fall away on a straight line in dB to silence at -57 dB. A 2D
+  voice's floor is of its volume at each mix bin; a 3D voice's of twice its
+  volume and rolloff, with its direct level (obstruction, occlusion) on the
+  direct path and without on the reverb send; the pan and HRTF come after.
+  Our line ends at DirectSound's -100 dB at -57 dB in.
+
 `tools/test_audio_levels.py` checks each.
 
 The 100 ms hold of a new room's reverb delays was already in

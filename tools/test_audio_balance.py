@@ -79,6 +79,7 @@ static float distance_attenuation(const struct sdl_stream *stream, float distanc
 }
 static float gain_from_millibels(LONG millibels) { (void)millibels; return 1.0f; }
 static float voice_cone_gain(const struct sdl_stream *stream) { (void)stream; return 1.0f; }
+static float direct_level(const struct sdl_stream *stream, float rolloff) { (void)stream; return rolloff; }
 #include "dsound_xbox_hrtf.inl"
 '''
 

@@ -342,6 +342,36 @@ static float gain_from_millibels(LONG millibels)
 	return powf(10.0f, (float)millibels / 2000.0f);
 }
 
+/* The Xbox's quiet floor: what it played a voice's gain at. Measured on an
+Xbox by goatbutt and the OpenH1 team, a gain came out exact down to about
+-44 dB (QUIET_FLOOR_KNEE_DB), then fell away on a straight line in dB to
+silence at -57 dB (QUIET_FLOOR_SILENCE_DB). The line here ends at
+DirectSound's silence, -100 dB, at -57 dB in; below it a voice is silent.
+A 2D voice's floor is of its volume at each mix bin; a 3D voice's of twice
+its volume and distance rolloff, with its direct level (obstruction and
+occlusion) on the direct path, without on the reverb send (direct_level,
+voice_gains). Before, the quiet tails of distant sounds went on at levels
+an Xbox never played. */
+#define QUIET_FLOOR_KNEE_DB (-44.0f)
+#define QUIET_FLOOR_SILENCE_DB (-57.0f)
+#define QUIET_FLOOR_BOTTOM_DB (-100.0f)
+
+static float quiet_floor(float gain)
+{
+	const float knee = 0.0063095734f; /* -44 dB */
+	const float silence = 0.0014125375f; /* -57 dB */
+	float decibels;
+
+	if (gain >= knee)
+		return gain;
+	if (gain <= silence)
+		return 0.0f;
+	decibels = 20.0f * log10f(gain);
+	decibels = QUIET_FLOOR_KNEE_DB + (decibels - QUIET_FLOOR_KNEE_DB) *
+		((QUIET_FLOOR_KNEE_DB - QUIET_FLOOR_BOTTOM_DB) / (QUIET_FLOOR_KNEE_DB - QUIET_FLOOR_SILENCE_DB));
+	return powf(10.0f, decibels / 20.0f);
+}
+
 /* value, or 0 once it is far too small to hear: the state of a filter or of
 the reverb fed silence decays into the denormals, which many CPUs work out
 slowly, and neither x86 nor ARM flushes them to zero by default */
@@ -637,8 +667,18 @@ static float doppler_ratio(const struct sdl_stream *stream)
 	return clamp_real(ratio, 1.0f / DOPPLER_MAXIMUM, DOPPLER_MAXIMUM);
 }
 
-/* the gains of a 3D voice to the left and right, and its distance rolloff
-(the direct path's, which its room send takes too: voice_gains) */
+/* a 3D voice's direct path level before its pan, cone and the master volume:
+its volume, distance rolloff and direct level (with obstruction and
+occlusion), through the Xbox's quiet floor, which takes twice it
+(quiet_floor) */
+static float direct_level(const struct sdl_stream *stream, float rolloff)
+{
+	return 0.5f * quiet_floor(2.0f * stream->volume * rolloff * gain_from_millibels(stream->direct));
+}
+
+/* the gains of a 3D voice to the left and right (its direct_level, panned and
+coned), and its distance rolloff (the direct path's, which its room send
+takes too: voice_gains) */
 static void spatialize(const struct sdl_stream *stream, float *left, float *right, float *rolloff)
 {
 	float distance, attenuation, pan, side, up, ahead;
@@ -665,8 +705,12 @@ static void spatialize(const struct sdl_stream *stream, float *left, float *righ
 		*left = cosf(angle) * 1.41421356f * 0.70710678f;
 		*right = sinf(angle) * 1.41421356f * 0.70710678f;
 	}
-	*left *= attenuation * gain_from_millibels(stream->direct) * voice_cone_gain(stream);
-	*right *= attenuation * gain_from_millibels(stream->direct) * voice_cone_gain(stream);
+	{
+		float level = direct_level(stream, attenuation) * voice_cone_gain(stream);
+
+		*left *= level;
+		*right *= level;
+	}
 }
 
 /* the voice's gains to the left and right, and to the reverb (only 3D voices
@@ -701,19 +745,20 @@ static void voice_gains(const struct sdl_stream *stream, float *left, float *rig
 			LONG level = environment.lRoom + stream->room;
 			LONG high_level = environment.lRoom + environment.lRoomHF + stream->room_hf;
 
-			*room = 2.0f * gain_from_millibels(level) * rolloff;
+			/* (the quiet floor's of twice the volume and rolloff) */
+			*room = gain_from_millibels(level) * quiet_floor(2.0f * stream->volume * rolloff);
 			if (*room > 0.0f && high_level < level)
 				*room_lowpass = lowpass_coefficient(gain_from_millibels(high_level - level), cosine);
 		}
 	}
 	else
 	{
-		*left = stream->mix_left;
-		*right = stream->mix_right;
+		*left = quiet_floor(stream->volume * stream->mix_left);
+		*right = quiet_floor(stream->volume * stream->mix_right);
 	}
-	*left *= stream->volume * master_volume;
-	*right *= stream->volume * master_volume;
-	*room *= stream->volume * master_volume;
+	*left *= master_volume;
+	*right *= master_volume;
+	*room *= master_volume;
 }
 
 /* the speakers 3D voices are panned between, clockwise from the front right,
@@ -799,7 +844,6 @@ speaker (the direct path's; its room send and low passes are voice_gains'):
 	  the side and back pairs. */
 static void voice_surround_gains(const struct sdl_stream *stream, float gains[2][MAXIMUM_OUTPUT_CHANNELS])
 {
-	float scale = stream->volume * master_volume;
 	unsigned long speaker;
 
 	memset(gains, 0, 2 * sizeof(gains[0]));
@@ -820,8 +864,8 @@ static void voice_surround_gains(const struct sdl_stream *stream, float gains[2]
 			spread = 1.0f - distance / stream->minimum_distance;
 		}
 		surround_pan(side, ahead, spread, gains[0]);
-		attenuation = distance_attenuation(stream, distance, listener.rolloff_factor) *
-			gain_from_millibels(stream->direct) * voice_cone_gain(stream);
+		attenuation = direct_level(stream, distance_attenuation(stream, distance, listener.rolloff_factor)) *
+			voice_cone_gain(stream);
 		for (speaker = 0; speaker < MAXIMUM_OUTPUT_CHANNELS; speaker++)
 		{
 			gains[0][speaker] *= attenuation;
@@ -835,6 +879,12 @@ static void voice_surround_gains(const struct sdl_stream *stream, float gains[2]
 		memcpy(gains, stream->surround_bins, 2 * sizeof(gains[0]));
 		if (stream->channels == 1)
 			memset(gains[1], 0, sizeof(gains[1]));
+		/* (each of the Xbox's mix bins through its quiet floor) */
+		for (speaker = 0; speaker < MAXIMUM_OUTPUT_CHANNELS; speaker++)
+		{
+			gains[0][speaker] = quiet_floor(stream->volume * gains[0][speaker]);
+			gains[1][speaker] = quiet_floor(stream->volume * gains[1][speaker]);
+		}
 		if (output_channels == 8)
 		{
 			int row;
@@ -848,8 +898,8 @@ static void voice_surround_gains(const struct sdl_stream *stream, float gains[2]
 	}
 	for (speaker = 0; speaker < MAXIMUM_OUTPUT_CHANNELS; speaker++)
 	{
-		gains[0][speaker] *= scale;
-		gains[1][speaker] *= scale;
+		gains[0][speaker] *= master_volume;
+		gains[1][speaker] *= master_volume;
 	}
 }
 
@@ -888,8 +938,8 @@ static float hrtf_share(const struct sdl_stream *stream)
 
 /* a voice's target for this mix (hrtf_place, centered inside the voice's
 minimum distance as spatialize's pan is), its gain the pan's in the middle
-(-3 dB an ear) with the voice's distance, direct path, cone and volume, at
-share of it */
+(-3 dB an ear) with the voice's direct_level (its distance, direct path and
+volume, through the quiet floor) and cone, at share of it */
 static float hrtf_target(const struct sdl_stream *stream, float share, struct hrtf_parameters *target)
 {
 	float side, up, ahead, distance;
@@ -897,8 +947,8 @@ static float hrtf_target(const struct sdl_stream *stream, float share, struct hr
 	voice_direction(stream, &side, &up, &ahead);
 	distance = sqrtf(side * side + up * up + ahead * ahead);
 	hrtf_place(side, up, ahead, distance, stream->minimum_distance, FALSE, target);
-	target->gain = 0.70710678f * share * distance_attenuation(stream, distance, listener.rolloff_factor) *
-		gain_from_millibels(stream->direct) * voice_cone_gain(stream) * stream->volume * master_volume;
+	target->gain = 0.70710678f * share * direct_level(stream, distance_attenuation(stream, distance,
+		listener.rolloff_factor)) * voice_cone_gain(stream) * master_volume;
 	target->pair[0] = 1.0f;
 	target->pair[1] = 0.0f;
 	return target->gain;
