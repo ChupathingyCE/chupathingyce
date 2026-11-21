@@ -711,7 +711,8 @@ builds and Android. A console's renderer can take it later (the Switch's
 has its own, HALO_CONSOLE_MAP_LOAD_HOOKS); HALO_CONSOLE_NO_SHADER_PREP
 leaves it out */
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
-	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_SHADER_PREP)
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_SHADER_PREP) && \
+	!defined(HALO_CONSOLE_SHADER_PREP)
 #define HALO_CONSOLE_NO_SHADER_PREP 1
 #endif
 #if !defined(HALO_CONSOLE_NO_SHADER_PREP) && !defined(HALO_SERVER)
