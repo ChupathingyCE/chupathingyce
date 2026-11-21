@@ -3143,8 +3143,8 @@ static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struc
 
 /* flat: a 2D texture (not a cube or 3D one), the only kind given the
 anisotropy display.anisotropic_filtering forces, on the same terms as the
-OpenGL path's configure_sampler: mipmapped and filtered. bgfx's level is
-16x (bg_reset_flags) whatever the setting's number. */
+OpenGL path's configure_sampler: mipmapped and filtered, at the setting's
+level (bg_reset_flags). */
 static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires, BOOL flat)
 {
 	DWORD *state = D3D__TextureState[stage];
@@ -4382,17 +4382,23 @@ static const char bg_crt_fragment_source[] =
 	"\tfragment_color = vec4(color, 1.0);\n"
 	"}\n";
 
-/* bgfx's reset flags: vertical sync, and the most anisotropy (16x) when
+/* bgfx's reset flags: vertical sync, and anisotropy when
 display.anisotropic_filtering forces it (bg_sampler_flags; bgfx's samplers
-have either that or none) */
+have either that or none), at the setting's level: 2, 4, 8 or 16 as the
+OpenGL path's forced_anisotropy rounds it, at most the device's
+(bgfx_max_anisotropy, tools/bgfx-patches/0008, which each backend reads with
+the flags) */
 /* (sdl_platform.c's: display.vsync, or display.vrr on) */
 int platform_vsync_on(void);
+extern int bgfx_max_anisotropy;
 
 static unsigned long bg_reset_flags(void)
 {
 	unsigned long flags = platform_vsync_on() ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	long value = config_integer("display.anisotropic_filtering");
 
-	if (config_integer("display.anisotropic_filtering") >= 2)
+	bgfx_max_anisotropy = value >= 16 ? 16 : value >= 8 ? 8 : value >= 4 ? 4 : value >= 2 ? 2 : 0;
+	if (bgfx_max_anisotropy)
 		flags |= BGFX_RESET_MAXANISOTROPY;
 	return flags;
 }
