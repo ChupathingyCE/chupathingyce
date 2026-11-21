@@ -955,7 +955,8 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     units = Linux32Units(sln=sln, config=config, game_browser=getattr(sln, "game_browser", False),
                          semantics_header=semantics_header, platform_semantics_header=platform_semantics_header,
                          embedded_assets=embedded_assets, sysroot_flags=sysroot_cflags,
-                         ffmpeg=(ffmpeg_cflags, ffmpeg_libs), lua=True, jolt=True,
+                         ffmpeg=(ffmpeg_cflags, ffmpeg_libs), lua=True,
+                         jolt=getattr(sln, "with_ragdolls", True),
                          # configure.py --window-rebase: the memory window wherever
                          # HALO_WINDOW_BASE puts it (source/cseries/xbox_address.h), to
                          # test on the desktop what the Switch needs; never a build to ship
