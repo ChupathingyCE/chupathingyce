@@ -59,7 +59,7 @@ def test_rules(tmp_path):
 def test_host_checks_before_adding_the_machine():
     accept = _function(SERVER_MANAGER_C.read_text(encoding="utf-8"),
                        "boolean network_game_server_accept_client_machine_into_game(")
-    check = accept.index("network_rules_join_password_refused((uint32_t)address.address.long_words[0],")
+    check = accept.index("network_rules_join_password_refused((unsigned int)address.address.long_words[0],")
     assert check < accept.index("network_game_add_machine(&server->game, &new_machine)")
     piece = accept[check - 400:check + 500]
     # (the host's own machine never refused)
