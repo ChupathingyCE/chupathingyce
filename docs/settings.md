@@ -12,6 +12,20 @@ To change a setting:
 4. Change the value and save the file.
 5. Start the game.
 
+On a computer or Android you can also do it from the console (the `~`
+key), while the game runs:
+
+- `setting display.vsync` shows a setting and its default.
+- `setting display.vsync false` sets it and writes it into `config.toml`.
+  It takes the same values the file does, and a value it can't take is
+  refused with a line that says what it takes.
+- `setting display.` lists every setting whose name starts that way, and
+  `setting` alone lists them all.
+
+A network game still holds what it always holds (see Tuning below), and the
+console says so when you set one of those. Some settings only change at the
+next start, as they do from the file.
+
 A line that starts with `#` does nothing. Words need quotes
 (`menus = "xbox"`, not `menus = xbox`), and true and false are lowercase.
 
