@@ -1413,6 +1413,15 @@ static char const *const *const settings_page_lines[NUMBER_OF_SETTINGS_PAGES] =
 	settings_display_lines, settings_sound_lines, settings_game_lines, settings_guide_lines, settings_about_lines,
 };
 
+/* a setting's label as SETTINGS shows it: GUIDE BUTTON named as the pad
+names it (PS BUTTON, HOME BUTTON) */
+static char const *settings_label(struct settings_row const *row)
+{
+	if (!strcmp(settings_row_key(row), "controls.delta_button"))
+		return delta_pad_guide_label(ui_overlay_prompt_scheme());
+	return settings_row_label(row);
+}
+
 /* a SETTINGS line: a caption (its words), a line of information (its
 key, "version"), or a row (its index in SETTINGS' rows) */
 struct settings_line
@@ -3671,11 +3680,11 @@ static void hint_update(boolean menu_open)
 		guide_key_shown(key, sizeof(key));
 #ifdef __APPLE__
 		/* (macOS often keeps the controller's Home button) */
-		delta_hint_text_for(title, sizeof(title), !ui_overlay_keyboard(), key, config_boolean("controls.delta_button"),
-			config_boolean("delta.hold_back"), 1);
+		delta_hint_text_for(title, sizeof(title), ui_overlay_prompt_scheme(), key,
+			config_boolean("controls.delta_button"), config_boolean("delta.hold_back"), 1);
 #else
-		delta_hint_text_for(title, sizeof(title), !ui_overlay_keyboard(), key, config_boolean("controls.delta_button"),
-			config_boolean("delta.hold_back"), 0);
+		delta_hint_text_for(title, sizeof(title), ui_overlay_prompt_scheme(), key,
+			config_boolean("controls.delta_button"), config_boolean("delta.hold_back"), 0);
 #endif
 		/* (counted once it is drawn: render_toast) */
 		social_toast_push(&guide.toasts, _toast_hint, "hint", title, "Friends, party and settings", "");
@@ -4735,7 +4744,7 @@ static void render_settings(void)
 			/* (STEAM ACCOUNT and WORKSHOP FOLDER open something: a chevron) */
 			if (!settings_row_arrows(row))
 				ui_style_setting_opens();
-			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, settings_row_label(row),
+			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, settings_label(row),
 				NULL, value, on);
 		}
 #ifdef HALO_PORT_VOICE_AUDIO

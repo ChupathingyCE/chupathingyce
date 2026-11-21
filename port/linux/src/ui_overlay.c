@@ -1368,6 +1368,14 @@ int ui_overlay_keyboard(void)
 	return scheme() == 0;
 }
 
+int ui_overlay_prompt_scheme(void)
+{
+	int style, flat;
+
+	button_settings(&style, &flat);
+	return style_scheme(style);
+}
+
 float ui_overlay_key_width(const char *label, float size)
 {
 	return pill_width(label ? label : "", size);
