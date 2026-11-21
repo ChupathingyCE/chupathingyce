@@ -830,7 +830,24 @@ static struct
 	/* a console's build: the host takes players, but on more machines than
 	this build has room for (add_advertised_game) */
 	boolean over_console_limit;
+#ifdef HALO_GAME_BROWSER
+	/* the address the advertisement came from (first byte highest; 0: not
+	known), which a host behind a router is reached at rather than its
+	XNADDR's own (network_game_client_join_address) */
+	unsigned long source_address;
+#endif
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
+
+#ifdef HALO_GAME_BROWSER
+/* port: the source of the advertisement being taken
+(network_game_client_note_advertisement_source, then add_advertised_game) */
+static unsigned long network_game_client_advertisement_source;
+/* port: a host searched for at its address as well as by the broadcast
+(network_game_client_search_address: Direct IP, port/linux/game/
+direct_join.c): first byte highest, 0 for none */
+static unsigned long network_game_client_search_target;
+static word network_game_client_search_target_port;
+#endif
 
 /* the joined game's host's network version, as it advertised it (0xFFFF: not
 known, the host's own game); a client has the host's policies of the versions
@@ -2884,6 +2901,10 @@ static boolean add_advertised_game(
 			csmemcpy(network_game_client_advertised_versions[game_index].reserved,
 				advertisement->__unknown5A,
 				sizeof(network_game_client_advertised_versions[game_index].reserved));
+#ifdef HALO_GAME_BROWSER
+			network_game_client_advertised_versions[game_index].source_address =
+				network_game_client_advertisement_source;
+#endif
 #ifdef HALO_PORT_CONSOLE_LIMITS
 			/* (kept closed, as a full game is, but said so when it is joined) */
 			network_game_client_advertised_versions[game_index].over_console_limit =
@@ -3183,6 +3204,35 @@ static boolean network_game_client_idle_searching(
 						network_event("sent out a broadcast game search packet");
 						client->last_broadcast_search_time = now;
 					}
+#ifdef HALO_GAME_BROWSER
+					/* port: and to a host's address (Direct IP): a host on
+					another network, which no broadcast reaches, answers it
+					there (network_game_server_handle_message_client_
+					broadcast_game_search). The same search: an older host,
+					or OpenCE's or the Xbox's, answers it as it answers any */
+					if (success == TRUE && network_game_client_search_target)
+					{
+						struct transport_address target_address = { { { 0 } } };
+
+						target_address.address_length = IPV4_ADDRESS_LENGTH;
+						target_address.address.long_words[0] = network_game_client_search_target;
+						target_address.port = network_game_client_search_target_port ?
+							network_game_client_search_target_port : NETWORK_GAME_SERVER_PORT;
+						message = create_network_game_message(
+							_message_client_broadcast_game_search,
+							&broadcast_game_search,
+							sizeof(broadcast_game_search));
+						if (!message || !network_game_client_write(
+							client->connection,
+							message,
+							GET_MESSAGE_SIZE(*message),
+							&target_address,
+							0))
+						{
+							network_event("could not send the game search to the address being joined");
+						}
+					}
+#endif
 					else
 					{
 						network_event("network_game_client_write() failed while sending a message_client_broadcast_game_search message");
@@ -3852,6 +3902,8 @@ boolean network_game_client_join_address(
 	struct network_join_parameters join_parameters;
 	long game_index;
 
+	/* (a refusal said is this join's: network_game_client_refusal) */
+	network_game_client_refusal_text[0] = 0;
 	if (!client || client->state != _network_game_client_state_searching || client->join_in_progress ||
 		!client->connection || network_connection_connected(client->connection))
 	{
@@ -3862,22 +3914,35 @@ boolean network_game_client_join_address(
 		struct network_advertised_game *game = &client->available_games[game_index];
 		struct transport_address game_address = { { { 0 } } };
 		byte const *ina;
+		boolean by_source;
 
 		if (!network_game_client_advertised_game_is_valid(game) || game->platform != network_game_get_local_platform())
 			continue;
 		/* (the XNADDR's ina, after its size, flags and abEnet: the host's
-		system link address, first byte first) */
+		system link address, first byte first; or the address its
+		advertisement came from: a host behind a router, whose own address
+		is its home network's) */
 		ina = game->xnaddr.data + 8;
+		by_source = FALSE;
 		if ((((unsigned long)ina[0] << 24) | ((unsigned long)ina[1] << 16) | ((unsigned long)ina[2] << 8) |
 				(unsigned long)ina[3]) != address)
 		{
-			continue;
+			if (network_game_client_advertised_versions[game_index].source_address != address)
+				continue;
+			by_source = TRUE;
 		}
 		if (!network_game_client_advertised_game_compatible(client, game, TRUE))
 			return FALSE;
 		csmemset(&join_parameters, 0, sizeof(join_parameters));
 		transport_client_start((XNADDR const *)&game->xnaddr, (XNKEY const *)&game->key,
 			(XNKID const *)&game->key_id, port ? port : NETWORK_GAME_SERVER_PORT, &game_address);
+		/* (where it was heard from, not the address it says it has) */
+		if (by_source)
+		{
+			game_address.address.long_words[0] = address;
+			game_address.port = port ? port : NETWORK_GAME_SERVER_PORT;
+			game_address.address_length = IPV4_ADDRESS_LENGTH;
+		}
 		if (!game_address.address.long_words[0] || !game_address.port)
 			return FALSE;
 		network_game_generate_join_game_token(join_parameters.join_token);
@@ -3896,10 +3961,56 @@ boolean network_game_client_join_address(
 		transport_get_nonce(direct_game.nonce, sizeof(direct_game.nonce));
 		csmemset(&join_parameters, 0, sizeof(join_parameters));
 		network_game_generate_join_game_token(join_parameters.join_token);
-		network_event("map fetch: joining the host directly");
+		network_event("joining the host at the address directly");
 		return network_game_client_initiate_join_game(client, &direct_game, &join_parameters, &server_address);
 	}
 	return FALSE;
+}
+
+/* whether the host at address (first byte highest) advertises a game this
+client heard: by its XNADDR, or by where the advertisement came from */
+boolean network_game_client_address_advertised(
+	unsigned long address)
+{
+	struct network_game_client *client = global_network_game_client_get();
+	long game_index;
+
+	if (!client)
+		return FALSE;
+	for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; game_index++)
+	{
+		struct network_advertised_game *game = &client->available_games[game_index];
+		byte const *ina = game->xnaddr.data + 8;
+
+		if (!network_game_client_advertised_game_is_valid(game))
+			continue;
+		if ((((unsigned long)ina[0] << 24) | ((unsigned long)ina[1] << 16) | ((unsigned long)ina[2] << 8) |
+				(unsigned long)ina[3]) == address ||
+			network_game_client_advertised_versions[game_index].source_address == address)
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* the system link search also sent to this address and port (Direct IP:
+first byte highest, port 0 for the game's), or to none (address 0) */
+void network_game_client_search_address(
+	unsigned long address,
+	word port)
+{
+	network_game_client_search_target = address;
+	network_game_client_search_target_port = port;
+}
+
+/* the address the next advertisement taken came from
+(network_client_message_handler.c, just before it hands it over) */
+void network_game_client_note_advertisement_source(
+	struct transport_address const *source_address)
+{
+	network_game_client_advertisement_source = source_address &&
+		source_address->address_length == IPV4_ADDRESS_LENGTH ? source_address->address.long_words[0] : 0;
 }
 #endif
 

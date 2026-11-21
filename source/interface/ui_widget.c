@@ -748,6 +748,7 @@ over the Xbox's and Gearbox's menus, and its dialogs over any */
 (port/linux/game/invite_prompt.c) */
 boolean invite_prompt_active(void);
 void invite_prompt_update(boolean menu_open);
+void direct_join_update(void);
 void invite_prompt_process(void);
 void invite_prompt_pointer(struct halo_ui_pointer const *pointer);
 /* moderation's screen: the same */
@@ -10976,6 +10977,9 @@ void process_ui_widgets(
 #endif
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 #ifdef HALO_GAME_BROWSER
+	/* port: a join by address (Direct IP, connect: port/linux/game/
+	direct_join.c) looked for, its game joined once heard */
+	direct_join_update();
 	/* port: an invite on the clipboard, asked about over the menus */
 	invite_prompt_update(widget_globals.active_widgets[0] != NULL);
 	if (invite_prompt_active())

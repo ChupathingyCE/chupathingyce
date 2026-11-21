@@ -2143,6 +2143,33 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 		at that port, every time, and does not take the time of the
 		broadcast */
 		boolean direct = source_address->port && source_address->port != NETWORK_GAME_CLIENT_PORT;
+#ifdef HALO_GAME_BROWSER
+		/* port: a search from an internet address (a player joining this
+		host by its address, Direct IP: port/linux/game/direct_join.c),
+		which the broadcast never reaches, is answered there too: no more
+		often than the broadcast's answer, on a clock of its own, so a
+		stranger's searches get no more than four answers a second */
+		static unsigned long last_remote_time = 0;
+
+		if (!direct && source_address->address_length == IPV4_ADDRESS_LENGTH &&
+			source_address->address.long_words[0] && source_address->address.long_words[0] != NONE)
+		{
+			extern int log_address_local(unsigned char const *bytes, int length);
+			unsigned long value = source_address->address.long_words[0];
+			unsigned char bytes[4];
+
+			bytes[0] = (unsigned char)(value >> 24);
+			bytes[1] = (unsigned char)(value >> 16);
+			bytes[2] = (unsigned char)(value >> 8);
+			bytes[3] = (unsigned char)value;
+			if (!log_address_local(bytes, 4) && bytes[0] < 224 &&
+				(!last_remote_time || now - last_remote_time >= GAME_ADVERTISEMENT_INTERVAL))
+			{
+				direct = TRUE;
+				last_remote_time = now;
+			}
+		}
+#endif
 
 		/* (the time taken only by a search answered) */
 		if (game && !direct && last_advertised_time && now - last_advertised_time < GAME_ADVERTISEMENT_INTERVAL)

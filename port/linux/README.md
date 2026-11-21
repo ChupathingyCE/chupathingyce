@@ -414,9 +414,11 @@ The campaign is wired: Campaign, on player 1's profile (the one last used),
 continues its saved game, starts a level it has reached at a difficulty (New
 Game), or loads or deletes any profile's saved game (Load Game). The
 multiplayer screens are wired too: the Server Browser, the map and game type
-lists, Server Setup and its START GAME. A few of the PC version's functions
-still do nothing here, such as the Direct IP screen's own fields and the
-Server Browser's filter settings (`port/assets/menus/UNWIRED.md`). The
+lists, Server Setup and its START GAME. Direct IP joins a game by its address
+(`port/linux/game/direct_join.c`; the Chupathingy menus open it with X on
+System Link). A few of the PC version's functions still do nothing here,
+such as the Server Browser's filter settings
+(`port/assets/menus/UNWIRED.md`). The
 screens open, close and move between each other as the PC version's.
 
 `display.menus` chooses one of two menu sets:

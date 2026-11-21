@@ -921,7 +921,14 @@ static boolean network_game_client_handle_message_server_game_advertise(
 				}
 				else
 #endif
-				network_game_client_new_advertised_game(client, &advertisement);
+				{
+#ifdef HALO_GAME_BROWSER
+					/* port: where it came from (Direct IP joins a host behind
+					a router by it) */
+					network_game_client_note_advertisement_source(source_address);
+#endif
+					network_game_client_new_advertised_game(client, &advertisement);
+				}
 			}
 		}
 		else

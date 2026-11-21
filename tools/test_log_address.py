@@ -95,6 +95,10 @@ int main(int count, char **arguments)
 	v6[15] = 7;
 	printf("%s\n", log_address(v6, 16, 5160, text, sizeof(text)));
 	printf("said %d\n", said);
+	printf("%s\n", log_address_name("halo.example.com", text, sizeof(text)));
+	printf("%s\n", log_address_name("localhost", text, sizeof(text)));
+	printf("%s\n", log_address_name("HALO.example.com", text, sizeof(text)));
+	printf("%s\n", log_address_name("halo.example.com", text, sizeof(text)));
 	return 0;
 }
 """
@@ -169,6 +173,19 @@ def test_whole_only_when_asked(program):
     assert lines[3] == "[2601:0:0:0:0:0:0:7]:5160"
     # (the log says once why it has them)
     assert lines[4] == "said 1"
+    assert lines[5] == "halo.example.com"
+    assert lines[6] == "localhost"
+
+
+def test_host_names_are_tags(program):
+    """A host name typed to join a game by (Direct IP) is a tag in the log,
+    the same tag for the same name; localhost is as it is."""
+    lines = run(program, "tags", "203", "0", "113", "45")
+    assert re.fullmatch(r"name#[0-9a-f]{6}", lines[5])
+    assert lines[6] == "localhost"
+    assert lines[8] == lines[5]
+    assert lines[7] != lines[5]
+    assert not any("example" in line for line in lines)
 
 
 def test_environment_false_values_do_not_set(program):

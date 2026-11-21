@@ -2574,6 +2574,122 @@ static void host_setup_patch(void)
 }
 
 #ifdef HALO_GAME_BROWSER
+/* ---------- the Chupathingy menus' System Link: DIRECT IP
+
+System Link's X opens the Custom Edition menus' DIRECT IP screen, a game
+joined by its address (port/linux/game/direct_join.c), and its prompt,
+"X =DIRECT IP" (chupathingy/prompts.xml), sits left of CREATE GAME's in
+the screen's button bar. A handler and a child are added to the Xbox's
+screen as it loads; the Xbox menus keep it as it is (display.menus
+"xbox"). The handler goes where the screen's Y (CREATE GAME) is handled. */
+
+#define SYSTEM_LINK_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\server_list_screen"
+#define SYSTEM_LINK_DIRECT_IP PC_MENU_TAG_PREFIX "main_menu\\multiplayer_type_select\\direct_ip\\direct_ip_screen"
+#define SYSTEM_LINK_DIRECT_IP_PROMPT PC_MENU_TAG_PREFIX "chupathingy\\system_link\\direct_ip"
+/* (the event types' places: menu_tags' EVENTS, x and y) */
+#define SYSTEM_LINK_EVENT_X 2
+#define SYSTEM_LINK_EVENT_Y 3
+/* where the prompt goes (the menus' 640x480), left of CREATE GAME's */
+#define SYSTEM_LINK_PROMPT_X 40
+#define SYSTEM_LINK_PROMPT_Y 414
+
+static boolean handles_event(struct ui_widget_definition const *definition, short event_type)
+{
+	struct ui_widget_event_handler_reference const *handlers = xbox_pointer(definition->event_handlers.address);
+	long index;
+
+	for (index = 0; index < definition->event_handlers.count; index++)
+	{
+		if (handlers[index].event_type == event_type)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static void system_link_direct_ip_patch(void)
+{
+	long screen_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, SYSTEM_LINK_SCREEN);
+	long direct_ip = tag_loaded(UI_WIDGET_DEFINITION_TAG, SYSTEM_LINK_DIRECT_IP);
+	long prompt = tag_loaded(UI_WIDGET_DEFINITION_TAG, SYSTEM_LINK_DIRECT_IP_PROMPT);
+	struct ui_widget_definition *screen, *handler_owner;
+	struct ui_widget_child_reference const *children;
+	struct ui_widget_child_reference *grown_children;
+	struct ui_widget_event_handler_reference const *handlers;
+	struct ui_widget_event_handler_reference *grown_handlers;
+	long index;
+
+	if (screen_tag == NONE || direct_ip == NONE || prompt == NONE)
+	{
+		platform_log("menus: System Link's DIRECT IP not added (its screens are not as expected)");
+		return;
+	}
+	screen = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+	children = xbox_pointer(screen->child_widgets.address);
+	/* (added already: this map's tags were patched) */
+	for (index = 0; index < screen->child_widgets.count; index++)
+	{
+		if (children[index].widget_tag.index == prompt)
+			return;
+	}
+	/* the handler beside Y's: the screen's, else its first child's that
+	has it */
+	handler_owner = screen;
+	if (!handles_event(screen, SYSTEM_LINK_EVENT_Y))
+	{
+		for (index = 0; index < screen->child_widgets.count; index++)
+		{
+			struct ui_widget_definition *child;
+
+			if (children[index].widget_tag.index == NONE)
+				continue;
+			child = tag_get(UI_WIDGET_DEFINITION_TAG, children[index].widget_tag.index);
+			if (handles_event(child, SYSTEM_LINK_EVENT_Y))
+			{
+				handler_owner = child;
+				break;
+			}
+		}
+	}
+	if (handles_event(handler_owner, SYSTEM_LINK_EVENT_X))
+	{
+		platform_log("menus: System Link's DIRECT IP not added (its X is taken)");
+		return;
+	}
+	handlers = xbox_pointer(handler_owner->event_handlers.address);
+	grown_handlers = allocate((handler_owner->event_handlers.count + 1) * (long)sizeof(*grown_handlers));
+	grown_children = allocate((screen->child_widgets.count + 1) * (long)sizeof(*grown_children));
+	if (!grown_handlers || !grown_children)
+		return;
+	if (handler_owner->event_handlers.count)
+		memcpy(grown_handlers, handlers, handler_owner->event_handlers.count * sizeof(*grown_handlers));
+	{
+		struct ui_widget_event_handler_reference *added = &grown_handlers[handler_owner->event_handlers.count];
+
+		memset(added, 0, sizeof(*added));
+		added->event_type = SYSTEM_LINK_EVENT_X;
+		SET_FLAG(added->flags, _event_handler_open_widget_bit, TRUE);
+		reference_set(&added->widget_tag, UI_WIDGET_DEFINITION_TAG, direct_ip);
+		reference_clear(&added->sound_effect, SOUND_TAG);
+	}
+	handler_owner->event_handlers.address = XBOX_ADDRESS(grown_handlers);
+	handler_owner->event_handlers.count++;
+	memcpy(grown_children, children, screen->child_widgets.count * sizeof(*grown_children));
+	{
+		struct ui_widget_child_reference *added = &grown_children[screen->child_widgets.count];
+
+		memset(added, 0, sizeof(*added));
+		reference_set(&added->widget_tag, UI_WIDGET_DEFINITION_TAG, prompt);
+		strncpy(added->name, "direct_ip", sizeof(added->name) - 1);
+		added->horizontal_offset = SYSTEM_LINK_PROMPT_X;
+		added->vertical_offset = SYSTEM_LINK_PROMPT_Y;
+	}
+	screen->child_widgets.address = XBOX_ADDRESS(grown_children);
+	screen->child_widgets.count++;
+	platform_log("menus: System Link has DIRECT IP (X)");
+}
+#endif
+
+#ifdef HALO_GAME_BROWSER
 /* ---------- the Xbox's menus' game type editor: the game modes layer's rows
 
 The Xbox's Slayer rules screen gets MODE (NONE, SWAT) and its player
@@ -3035,7 +3151,12 @@ void menu_tags_loaded(
 	menu_tags.loaded = TRUE;
 	menu_tags.chupathingy = menus_chosen() == _menus_chupathingy;
 	if (menu_tags.chupathingy && !game_map)
+	{
 		host_setup_patch();
+#ifdef HALO_GAME_BROWSER
+		system_link_direct_ip_patch();
+#endif
+	}
 	if (menus_chosen() == _menus_pc && !game_map)
 	{
 		main_menu_delta_patch();
