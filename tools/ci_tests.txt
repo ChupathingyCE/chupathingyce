@@ -142,6 +142,7 @@ tools/test_p2p_public_address.py
 tools/test_p2p_signal_sockets.py
 tools/test_packaged_install.py
 tools/test_party_teams.py
+tools/test_pause_leave.py
 tools/test_picture_check.py
 tools/test_ping.py
 tools/test_platform_names.py
