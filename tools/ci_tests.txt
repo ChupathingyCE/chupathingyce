@@ -75,6 +75,7 @@ tools/test_http_url_rules.py
 tools/test_hud_mcc_layout.py
 tools/test_hud_safe_zone.py
 tools/test_identity.py
+tools/test_join_password.py
 tools/test_join_reasons.py
 tools/test_kcp_flush.py
 tools/test_kcp_peer.py
