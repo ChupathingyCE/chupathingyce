@@ -304,6 +304,11 @@ What we know is different from OpenGL:
 - The **RENDERER** row in the display settings switches it after a restart.
 - The 32-bit builds, Android, FreeBSD and the consoles don't have it. Android has a Vulkan renderer of its own to test.
 
+If OpenGL crashes or stutters on Linux with Mesa drivers, try
+`gl_buffer_ring = true` under `[display]` (`HALO_GL_BUFFER_RING=true` for one
+run). It reuses three buffers for each frame's vertices instead of asking
+the driver for a new one every frame. It's off by default while we test it.
+
 Tell us how it runs. Post in the Discord with your system and graphics card,
 and what looks wrong or slow next to OpenGL. Send your logs too: see
 [Help](help.md#send-your-logs). The line starting `bgfx:` in `debug.txt`
