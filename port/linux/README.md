@@ -193,7 +193,7 @@ the game browser show the same choices in message boxes):
 A maps folder that isn't the Xbox maps later (Halo PC's ui.map, or none)
 opens the setup screen on Maps instead of a message and a quit. Held Shift
 or a controller's Back at start, `--setup`, or `launcher.show_at_start =
-"always"` open it too, and so does SETUP in the menus' settings
+"always"` open it too, and so does ADVANCED SETUP in the menus' settings
 (`launcher.menu_entry`). In Steam Deck Game Mode it opens only when asked
 for: Back held at start, `--setup`, or SETUP. Runs nobody watches
 (`debug.hidden_window`, `debug.exit_after`, the null renderer) never show it.
@@ -729,7 +729,7 @@ the setting for one start of the game. It has priority over the file.
 | `game.move_old_map_folders` | `"ask"` | `HALO_MOVE_OLD_MAP_FOLDERS` | Moves maps from the old `maps/ce` and `md_maps` folders into `maps_ce/`, `maps_md/` and `maps_pc/` beside `maps/`: `"ask"`, `"yes"` or `"no"`. |
 | `launcher.show_at_start` | `"when_needed"` | `HALO_LAUNCHER_SHOW` | When the setup screen opens before the game: `"when_needed"` (the first start, missing maps, `--setup`, or Shift or a controller's Back held at start) or `"always"`. Refer to "Start the game". |
 | `launcher.hold_to_open` | `true` | `HALO_LAUNCHER_HOLD` | `true`: Shift or a controller's Back held at start opens the setup screen. |
-| `launcher.menu_entry` | `true` | `HALO_LAUNCHER_MENU_ENTRY` | `true`: SETUP in the menus' settings starts the game again on the setup screen. `false`: it is left out. |
+| `launcher.menu_entry` | `true` | `HALO_LAUNCHER_MENU_ENTRY` | `true`: ADVANCED SETUP in the menus' settings starts the game again on the setup screen. `false`: it is left out. |
 | `launcher.mode_choice`, `launcher.default_mode` | `"ask"`, `"vanilla"` | `HALO_LAUNCHER_MODE_CHOICE`, `HALO_LAUNCHER_DEFAULT_MODE` | With more than one way to play (a pack with its own menus): `"ask"` picks on the setup screen at each start, `"default"` starts `launcher.default_mode` (`"vanilla"`, or a pack's id such as `"cex"`). Refer to "Start the game". |
 | `game.language` | `""` | `HALO_LANGUAGE` | The language of the menus: `ja`, `de`, `fr`, `es` or `it`. Empty: English. |
 | `game.unlock_all_levels` | `false` | `HALO_UNLOCK_ALL_LEVELS` | `true`: a profile created afterward starts with all the campaign levels finished on all the difficulties. `false`: a new profile starts at The Pillar of Autumn, and each level opens when you finish the level before it, as on the Xbox. Existing profiles keep their progress. To start a profile over, type `profile_reset_campaign` in the console. |
