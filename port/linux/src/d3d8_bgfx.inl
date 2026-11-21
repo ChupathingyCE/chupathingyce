@@ -4382,16 +4382,29 @@ static const char bg_crt_fragment_source[] =
 	"\tfragment_color = vec4(color, 1.0);\n"
 	"}\n";
 
-/* bgfx's reset flags: vertical sync, and the most anisotropy (16x) when
-display.anisotropic_filtering forces it (bg_sampler_flags; bgfx's samplers
-have either that or none) */
-/* (sdl_platform.c's: display.vsync, or display.vrr on) */
-int platform_vsync_on(void);
+/* bgfx's reset flags: vertical sync as every renderer's frames are shown
+(platform_present_mode: display.vsync, display.vrr, tuning.present_mode), and
+the most anisotropy (16x) when display.anisotropic_filtering forces it
+(bg_sampler_flags; bgfx's samplers have either that or none). Adaptive's
+late frames shown at once are Vulkan's FIFO_RELAXED (bgfx_vsync_relaxed,
+tools/bgfx-patches/0007), set before the swap chain is made again; Direct3D
+11 has no such mode, and there each frame waits, which the log says once */
+extern int bgfx_vsync_relaxed;
 
 static unsigned long bg_reset_flags(void)
 {
-	unsigned long flags = platform_vsync_on() ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	int present = platform_present_mode();
+	unsigned long flags = present != PLATFORM_PRESENT_IMMEDIATE ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
 
+	bgfx_vsync_relaxed = present == PLATFORM_PRESENT_ADAPTIVE;
+	if (present == PLATFORM_PRESENT_ADAPTIVE && bgfx_get_renderer_type() == BGFX_RENDERER_TYPE_DIRECT3D11)
+	{
+		static BOOL said;
+
+		if (!said)
+			platform_log("tuning: present=adaptive is not in bgfx's Direct3D 11 yet: each frame waits for the display");
+		said = TRUE;
+	}
 	if (config_integer("display.anisotropic_filtering") >= 2)
 		flags |= BGFX_RESET_MAXANISOTROPY;
 	return flags;
@@ -5125,14 +5138,23 @@ window's picture waits for the display (Metal hands out the next one only
 once the display has taken one, about 3 behind), so frames faster than the
 display draw the game but go to the window only as often as the display
 shows them, leaving the game to run faster as the OpenGL path does. Vulkan
-(its immediate mode) and Direct3D 11 show a frame without waiting, so there
-every frame goes to the window, as OpenGL's do: held to the display's rate,
-a frame that came a little early was left out, and a frame limit at the
-refresh rate (display.max_fps 144 at 144 Hz) showed a frame twice a few
-times a second. A swap chain that waits all the same (no immediate mode:
-bgfx falls back to the display's pace) is noticed by its presents
-(bg_window_presented) and paced as Metal's. */
-static double bg_window_next, bg_window_interval = -1.0;
+(its immediate or mailbox mode, tools/bgfx-patches/0007) and Direct3D 11
+show a frame without waiting, so there every frame goes to the window, as
+OpenGL's do: held to the display's rate, a frame that came a little early
+was left out, and a frame limit at the refresh rate (display.max_fps 144 at
+144 Hz) showed a frame twice a few times a second. A swap chain that waits
+all the same (neither mode: bgfx falls back to the display's pace) is
+noticed by its presents (bg_window_presented) and paced as Metal's.
+
+Only presents that wait for the display count: each held half a frame of
+the display or more and came a display's frame after the one before (within
+a tenth), 30 in a row. A loading screen's frames, or a busy GPU's, take long
+too but come at no such beat: once they made every later frame wait for the
+display, on a computer whose window never did (#1367's log: V-Sync off,
+no frame limit, and bgfx at the display's rate where OpenGL ran free). A
+paced window is looked at again when a setting changes and every
+BG_WINDOW_RECHECK seconds, but on the Mac, whose Metal always waits. */
+static double bg_window_next, bg_window_last_end;
 static BOOL bg_window_paced
 #ifdef __APPLE__
 	= TRUE
@@ -5141,17 +5163,22 @@ static BOOL bg_window_paced
 /* presents in a row that waited for the display (bg_window_presented) */
 static int bg_window_waits;
 #define BG_WINDOW_WAITS_TO_PACE 30
+#ifndef __APPLE__
+#define BG_WINDOW_RECHECK 30.0
+/* when the window was paced, and config_changes() then */
+static double bg_window_paced_at;
+static unsigned long bg_window_paced_changes;
+#endif
 
-/* the display's frame interval, in seconds */
+/* the display's frame interval, in seconds: the refresh rate every
+renderer's pacing reads (sdl_platform.c's, read again after a display
+event or a second), so that a window moved to another display or a new
+display mode is paced to it */
 static double bg_display_interval(void)
 {
-	if (bg_window_interval < 0.0)
-	{
-		const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(platform_sdl_window()));
+	float refresh = platform_display_refresh_rate();
 
-		bg_window_interval = mode && mode->refresh_rate > 0.0f ? 1.0 / mode->refresh_rate : 1.0 / 60.0;
-	}
-	return bg_window_interval;
+	return refresh > 0.0f ? 1.0 / refresh : 1.0 / 60.0;
 }
 
 static BOOL bg_window_due(void)
@@ -5164,7 +5191,20 @@ static BOOL bg_window_due(void)
 	if (!bg_window_paced)
 		return TRUE;
 	now = stats_seconds();
-	if (now < next)
+#ifndef __APPLE__
+	if (config_changes() != bg_window_paced_changes || now - bg_window_paced_at >= BG_WINDOW_RECHECK)
+	{
+		/* (every frame to the window again, until its presents say) */
+		bg_window_paced = FALSE;
+		bg_window_waits = 0;
+		bg_window_last_end = 0.0;
+		return TRUE;
+	}
+#endif
+	/* (a frame a little early goes too, rather than one left out and the one
+	before shown twice: with display.max_fps at the refresh rate, 60 at 60
+	Hz, the Mac's Metal showed 56 a second; its present waits the rest) */
+	if (now < next - interval * 0.25)
 		return FALSE;
 	/* (a frame more than an interval late starts the count again) */
 	bg_window_next = now - next > interval ? now + interval : next + interval;
@@ -5174,26 +5214,37 @@ static BOOL bg_window_due(void)
 /* after a frame went to the window: when it waited for the display, the
 next goes an interval after the display took one (the display's own
 timing, which the count above drifts from); unpaced, a swap chain whose
-presents keep waiting for the display is paced from then on */
+presents keep waiting for the display, at its beat, is paced from then on */
 static void bg_window_presented(double start, double end)
 {
+	double interval, since;
+
 	if (bg.reset_flags & BGFX_RESET_VSYNC)
 		return;
+	interval = bg_display_interval();
+	since = bg_window_last_end > 0.0 ? end - bg_window_last_end : 0.0;
+	bg_window_last_end = end;
 	if (!bg_window_paced)
 	{
-		/* (half an interval: a GPU-bound frame waits too, but not every one) */
-		bg_window_waits = end - start > bg_display_interval() * 0.5 ? bg_window_waits + 1 : 0;
+		BOOL waited = end - start > interval * 0.5 && since > interval * 0.9 && since < interval * 1.1;
+
+		bg_window_waits = waited ? bg_window_waits + 1 : 0;
 		if (bg_window_waits >= BG_WINDOW_WAITS_TO_PACE)
 		{
-			platform_log("bgfx: the window waits for the display with V-Sync off, so frames go to it at the "
-				"display's rate");
+			platform_log("bgfx: the window waits for the display with V-Sync off (%d presents in a row, each "
+				"%.1f ms apart at %.2f Hz), so frames go to it at the display's rate", bg_window_waits,
+				since * 1000.0, 1.0 / interval);
 			bg_window_paced = TRUE;
-			bg_window_next = end + bg_window_interval;
+			bg_window_next = end + interval;
+#ifndef __APPLE__
+			bg_window_paced_at = end;
+			bg_window_paced_changes = config_changes();
+#endif
 		}
 		return;
 	}
-	if (end - start > bg_window_interval * 0.25)
-		bg_window_next = end + bg_window_interval;
+	if (end - start > interval * 0.25)
+		bg_window_next = end + interval;
 }
 
 /* whether the window can't be seen (bg_present's pacing): SDL's flags, and
@@ -5471,7 +5522,10 @@ static void bg_present(void)
 	bg.account.frame_seconds += frame_end - frame_start;
 	bg_pipelines_frame_end();
 	if (window)
+	{
 		bg_window_presented(frame_start, frame_end);
+		stats_log_frame_shown();
+	}
 	/* (a covered or minimized window: bgfx shows nothing then, so nothing
 	waits for the display, and the game would run as fast as it can; the
 	frames are paced to the display's rate here instead) */

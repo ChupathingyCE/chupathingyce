@@ -888,9 +888,9 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"With V-Sync on: \"vblank\" waits for the display before every frame.\n"
 		"\"adaptive\" shows a frame that missed the display at once, with a tear,\n"
-		"instead of waiting for the next. OpenGL on Windows, Linux and Android,\n"
-		"and the original Xbox; elsewhere it waits. Takes effect at the next\n"
-		"start." },
+		"instead of waiting for the next. OpenGL and Vulkan on Windows, Linux\n"
+		"and Android, and the original Xbox. Direct3D 11 and the Mac wait, as\n"
+		"the log says. Takes effect at the next start." },
 	/* (the drawing's knobs: render.c's render_tuning, which holds them in
 	network games) */
 	{ "tuning.particle_thinning", _config_integer, "1", "HALO_PARTICLE_THINNING", _environment_value,
