@@ -10,7 +10,11 @@ against what goatbutt and the OpenH1 team measured on an Xbox
       sends as one occluded at -1200 does (i3dl2_source_levels);
     - the output is half of the sum (-6.02 dB), and the limiter acts only on
       a sum over twice full scale; audio.loudness = "louder" keeps the whole
-      sum into the -1 dBFS limiter (output_scale, limit).
+      sum into the -1 dBFS limiter (output_scale, limit);
+    - the quiet floor: a gain is exact down to -44 dB, then falls away to
+      silence at -57 dB; a 3D voice's floor is of twice its volume and
+      rolloff, with its direct level on the direct path only (quiet_floor,
+      direct_level).
 
 It builds those functions of dsound_sdl.c alone. Needs clang (or cc) and
 Python 3 alone.
@@ -93,8 +97,9 @@ static float clamp_real(float value, float minimum, float maximum)
 }
 '''
 
-FUNCTIONS = ["gain_from_millibels", "frequency_cosine", "lowpass_coefficient", "dot3", "distance_attenuation",
-             "voice_direction", "voice_cone_gain", "spatialize", "voice_gains", "i3dl2_source_levels",
+FUNCTIONS = ["gain_from_millibels", "quiet_floor", "frequency_cosine", "lowpass_coefficient", "dot3",
+             "distance_attenuation", "voice_direction", "voice_cone_gain", "direct_level", "spatialize",
+             "voice_gains", "i3dl2_source_levels",
              "output_loudness_read", "output_scale"]
 
 MAIN = r'''
@@ -165,6 +170,30 @@ int main(int argc, char **argv)
 		output[1] = right;
 		output_scale(output, send, 1, output_level);
 		printf("%.9g\n", output[0]);
+		return 0;
+	}
+	if (argc > 1 && !strcmp(argv[1], "floor2d"))
+	{
+		/* floor2d <volume mB>: a 2D voice's left gain */
+		memset(&stream, 0, sizeof(stream));
+		stream.channels = 1;
+		stream.volume = gain_from_millibels(atol(argv[2]));
+		stream.mix_left = stream.mix_right = 1.0f;
+		voice_gains(&stream, &left, &right, &room, &direct_lowpass, &room_lowpass);
+		printf("%.9g\n", left);
+		return 0;
+	}
+	if (argc > 1 && !strcmp(argv[1], "floor3d"))
+	{
+		/* floor3d <distance> <minimum> <volume mB> <direct mB>: a 3D voice
+		ahead, its left gain (the pan's -3 dB in the middle), its send (its
+		room level 0) and its rolloff */
+		voice_3d(&stream, (float)atof(argv[2]), (float)atof(argv[3]));
+		stream.volume = gain_from_millibels(atol(argv[4]));
+		stream.direct = stream.direct_hf = atol(argv[5]);
+		voice_gains(&stream, &left, &right, &room, &direct_lowpass, &room_lowpass);
+		spatialize(&stream, &ignored, &ignored, &rolloff);
+		printf("%.9g %.9g %.9g\n", left, room, rolloff);
 		return 0;
 	}
 	if (argc > 1 && !strcmp(argv[1], "limit"))
@@ -238,7 +267,8 @@ def build(work):
         return None
     mixer = (SRC / "dsound_sdl.c").read_text()
     program = PRELUDE + defines(mixer, ["OUTPUT_LEVEL_XBOX", "LIMITER_CEILING_XBOX", "OUTPUT_LEVEL_LOUDER",
-                                        "LIMITER_CEILING_LOUDER"])
+                                        "LIMITER_CEILING_LOUDER", "QUIET_FLOOR_KNEE_DB", "QUIET_FLOOR_SILENCE_DB",
+                                        "QUIET_FLOOR_BOTTOM_DB"])
     program += "static float output_level = OUTPUT_LEVEL_XBOX;\nstatic float limiter_ceiling = LIMITER_CEILING_XBOX;\n"
     program += "".join(function(mixer, name) for name in FUNCTIONS) + limiter(mixer) + MAIN
     source = work / "levels.c"
@@ -328,6 +358,47 @@ def check_level(exe):
     assert abs(peak - 0.891) < 0.002, f"louder, a sum of 1.0: {peak:.4f} out"
 
 
+# a 2D voice stepped down 2 dB at a time from -40 dB
+FLOOR_STEPS = [-40.0 - 2.0 * step for step in range(11)]
+
+
+def floor_figures(exe):
+    return [(volume, db(run(exe, "floor2d", int(round(volume * 100)))[0])) for volume in FLOOR_STEPS]
+
+
+def check_floor(exe):
+    rows = floor_figures(exe)
+    previous = 0.0
+    for volume, level in rows:
+        if volume >= -44.0:
+            assert abs(level - volume) < 0.01, f"a 2D voice at {volume} dB plays at {level:.2f} dB, not exactly"
+        elif volume > -57.0:
+            assert level < volume - 1.0, f"a 2D voice at {volume} dB plays at {level:.2f} dB, above the floor's line"
+            assert level < previous, f"a 2D voice at {volume} dB is no quieter than 2 dB above it"
+        else:
+            assert level == -math.inf, f"a 2D voice at {volume} dB still plays ({level:.2f} dB)"
+        previous = level
+    # a 3D voice's floor is of twice its volume and rolloff: at -40 dB of
+    # volume and 1x rolloff (twice it -34 dB), exact; at -50 dB (twice it
+    # -44), exact; at -56 dB (twice it -50 dB), under the floor's line
+    for volume, exact in [(-40.0, True), (-50.0, True), (-56.0, False), (-64.0, None)]:
+        left, room, _ = run(exe, "floor3d", 1.0, 2.0, int(volume * 100), 0)
+        expected = volume - 3.01
+        if exact:
+            assert abs(db(left) - expected) < 0.02, f"3D at {volume} dB: {db(left):.2f} dB, not {expected:.2f}"
+            assert abs(db(room) - (volume + 6.02)) < 0.02, f"3D at {volume} dB: send {db(room):.2f} dB"
+        elif exact is False:
+            assert db(left) < expected - 1.0, f"3D at {volume} dB: {db(left):.2f} dB, above the floor's line"
+        else:
+            assert left == 0.0 and room == 0.0, f"3D at {volume} dB: still plays"
+    # the direct level counts on the direct path, not on the send: at -40 dB
+    # of volume and a direct level of -1200, the direct path (twice it -46
+    # dB) falls under the floor's line, the send stays exact
+    left, room, _ = run(exe, "floor3d", 1.0, 2.0, -4000, -1200)
+    assert db(left) < -40.0 - 12.0 - 3.01 - 1.0, f"3D, direct -1200: direct path {db(left):.2f} dB, not floored"
+    assert abs(db(room) - (-40.0 + 6.02)) < 0.02, f"3D, direct -1200: send {db(room):.2f} dB, floored by the direct level"
+
+
 def with_build(check):
     with tempfile.TemporaryDirectory() as work:
         exe = build(Path(work))
@@ -349,6 +420,10 @@ def test_output_level():
     with_build(check_level)
 
 
+def test_quiet_floor():
+    with_build(check_floor)
+
+
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as work:
         exe = build(Path(work))
@@ -365,7 +440,11 @@ if __name__ == "__main__":
               f"louder {db(run(exe, 'voice2d', 'louder')[0]):+.2f} dB")
         for loudness, amplitude in [("xbox", 1.5), ("xbox", 1.95), ("xbox", 3.0), ("louder", 1.0)]:
             print(f"  {loudness}, a sum of {amplitude}: peak {run(exe, 'limit', loudness, amplitude)[0]:.4f}")
+        print("2D voice volume -> level (dB):")
+        for volume, level in floor_figures(exe):
+            print(f"  {volume:6.1f} -> {level:8.2f}")
         check_send(exe)
         check_obstruction(exe)
         check_level(exe)
+        check_floor(exe)
         print("ok")
