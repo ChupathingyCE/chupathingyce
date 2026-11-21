@@ -162,14 +162,12 @@ static struct xbox_game_state_globals_prefix xbox_game_state_globals = { 0 };
 retail kept on the stack (16 KB and 128 KB). With the calls under them that
 was 144 KB of stack in one place, more than a Wii U application's main
 thread has, and the campaign froze after its map loaded. One buffer serves
-both: the zeroes are written before the reads begin. The original Xbox's is
-smaller (its memory is short): the reads are the same, only more of them. */
-#ifdef HALO_XBOX_CONSOLE
-#define PERSISTENT_STORAGE_BUFFER_SIZE (32*1024)
-#else
+both: the zeroes are written before the reads begin. The original Xbox keeps
+retail's stack buffers: its 512 KB stack has room for them. */
 #define PERSISTENT_STORAGE_BUFFER_SIZE (128*1024)
-#endif
+#ifndef HALO_XBOX_CONSOLE
 static byte persistent_storage_buffer[PERSISTENT_STORAGE_BUFFER_SIZE];
+#endif
 
 
 #ifdef HALO_XBOX_CONSOLE
@@ -578,9 +576,13 @@ static HANDLE game_state_open_persistent_storage(
 	const char *directory)
 {
 	char path[256];
+	enum { ZEROES_SIZE = 16*1024 };
+#ifdef HALO_XBOX_CONSOLE
+	byte zeroes[ZEROES_SIZE];
+#else
 	/* (retail's 16 KB of zeroes) */
 	byte *zeroes = persistent_storage_buffer;
-	enum { ZEROES_SIZE = 16*1024 };
+#endif
 	HANDLE file;
 	unsigned long bytes_written;
 	boolean success = FALSE;
@@ -659,7 +661,11 @@ boolean game_state_read_header_from_persistent_storage(
 	long buffer_size,
 	boolean *corrupted)
 {
+#ifdef HALO_XBOX_CONSOLE
+	byte buffer[PERSISTENT_STORAGE_BUFFER_SIZE];
+#else
 	byte *buffer = persistent_storage_buffer;
+#endif
 	HANDLE file;
 	unsigned long checksum;
 	unsigned long stored_checksum;
