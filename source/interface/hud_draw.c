@@ -1492,21 +1492,22 @@ The Xbox lays a view's HUD out in its window: the title-safe frame of the
 640x480 screen (48 columns and 36 lines in from each edge, 7.5%:
 _rasterizer_initialize), split for split screen with only 4 pixels between
 a view's window and the line between views (compute_window_bounds). So in
-split screen a view's HUD sits far in from the screen's edges and close to
-the other views', as on the Xbox (retail: compute_window_bounds at
-0x000bba00, the frame set at 0x0007fadc). "xbox" keeps that (the consoles'
-default: televisions overscan); "pc" puts it 8 in from the screen's edges,
-as Halo PC does; "auto" (the desktop's and Android's default:
-port_config.c's DEFAULT_HUD_SAFE_ZONE) is the Xbox's alone and Halo PC's in
-split screen; two numbers ("24 18") set the
-columns and the lines, 8 to 48 and 8 to 36. Only the edges that are the
-screen's move: the 4 pixels between views stay. The range and the
-two-number form follow Chimera's chimera_safe_zones, by SnowyMouse
-(GPL-3.0), thanks!
+split screen a view's window sits off its view's middle, far in from the
+screen's edges and close to the other views', as on the Xbox (retail:
+compute_window_bounds at 0x000bba00, the frame set at 0x0007fadc). "xbox"
+keeps that (the consoles' default: televisions overscan); "pc" puts the HUD
+8 in from each view's edges, as Halo PC does; "auto" (the desktop's and
+Android's default: port_config.c's DEFAULT_HUD_SAFE_ZONE) is the Xbox's
+alone and Halo PC's in split screen; two numbers ("24 18") set the columns
+and the lines, 8 to 48 and 8 to 36. The range and the two-number form follow
+Chimera's chimera_safe_zones, by SnowyMouse (GPL-3.0), thanks!
 
-Only the HUD's corners and edges move. The window itself, which the 3D
-view's projection and the crosshair are centered in, stays as it is, so the
-aim doesn't move. Local only: nothing here is sent. */
+With other than the Xbox's margins, each split screen view's window is also
+put in the middle of its view (compute_window_bounds, at its end:
+hud_safe_zone_centers_windows), so its crosshair, its aim (the view's
+projection is built about the window's middle), its first-person weapon and
+the HUD's middle pieces are in the view's middle, and every view looks the
+same. Only drawing changes: nothing here is sent or simulated. */
 enum
 {
 	HUD_SAFE_ZONE_XBOX_COLUMNS = 48,
@@ -1590,11 +1591,20 @@ static void hud_safe_zone_margins(
 	}
 }
 
+boolean hud_safe_zone_centers_windows(
+	void)
+{
+	short columns;
+	short lines;
+
+	hud_safe_zone_margins(&columns, &lines);
+	return columns != HUD_SAFE_ZONE_XBOX_COLUMNS || lines != HUD_SAFE_ZONE_XBOX_LINES;
+}
+
 void hud_safe_zone_bounds(
 	rectangle2d *bounds)
 {
 	rectangle2d const *screen = &rasterizer_globals.reserved04.screen_bounds;
-	rectangle2d const *frame = &rasterizer_globals.reserved04.frame_bounds;
 	rectangle2d const *viewport = &render.camera.viewport_bounds;
 	short columns;
 	short lines;
@@ -1605,18 +1615,15 @@ void hud_safe_zone_bounds(
 		return;
 
 	/* (in the screen's units: a wider screen's frame is as much wider,
-	_rasterizer_initialize; each edge from the frame's, so the Xbox's own
-	4 pixels at a lone column's right and a lone row's bottom stay) */
+	_rasterizer_initialize; the same in from each of the view's edges, so
+	each view's HUD sits in it as the others' do, its window in its middle:
+	compute_window_bounds) */
 	columns = (short)(columns * (screen->x1 - screen->x0) / HUD_SAFE_ZONE_SCREEN_COLUMNS);
 	lines = (short)(lines * (screen->y1 - screen->y0) / HUD_SAFE_ZONE_SCREEN_LINES);
-	if (viewport->x0 <= screen->x0)
-		bounds->x0 = (short)(bounds->x0 - (frame->x0 - screen->x0 - columns));
-	if (viewport->x1 >= screen->x1)
-		bounds->x1 = (short)(bounds->x1 + (screen->x1 - frame->x1 - columns));
-	if (viewport->y0 <= screen->y0)
-		bounds->y0 = (short)(bounds->y0 - (frame->y0 - screen->y0 - lines));
-	if (viewport->y1 >= screen->y1)
-		bounds->y1 = (short)(bounds->y1 + (screen->y1 - frame->y1 - lines));
+	bounds->x0 = (short)(viewport->x0 + columns);
+	bounds->x1 = (short)(viewport->x1 - columns);
+	bounds->y0 = (short)(viewport->y0 + lines);
+	bounds->y1 = (short)(viewport->y1 - lines);
 }
 
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE

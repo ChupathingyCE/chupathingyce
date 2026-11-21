@@ -1435,11 +1435,10 @@ real first_person_weapon_projection_scale(
 /* port: display.crosshair_position (#508), how far down (in the window's
 units, a HUD pixel) a local player's aim point is drawn, and the crosshair
 with it, from the middle of its window, where the Xbox draws both ("retail",
-0). "centered" puts them in the middle of the player's view: the same in a
-game alone, but a split screen's views reach the screen's edges past their
-windows (the title-safe frame), so the Xbox's aim is a little off their
-middle. "lowered" puts them a tenth of the view's height below its middle,
-as later Halo games do. The view itself moves (render_player_frame moves
+0). "lowered" puts them a tenth of the view's height below its middle, as
+later Halo games do. (A split screen view's window is put in the view's
+middle by display.hud_safe_zone: compute_window_bounds. "centered", which
+did that here, is retired: port_config.c's config_retire_centered_crosshair.) The view itself moves (render_player_frame moves
 its frustum's bounds, as a tiled screenshot's are), so the aim stays under
 the crosshair: what is seen and where shots go are the same, only framed
 higher or lower. Not while zoomed (the scope's picture is drawn in the
@@ -1466,9 +1465,7 @@ real first_person_aim_offset(
 		position = 0;
 		if (config_text("display.crosshair_position", text, sizeof(text)))
 		{
-			if (!strcmp(text, "centered"))
-				position = 1;
-			else if (!strcmp(text, "lowered"))
+			if (!strcmp(text, "lowered"))
 				position = 2;
 		}
 	}
@@ -1827,6 +1824,9 @@ static void compute_subframe_counts(
 	return;
 }
 
+/* port: display.hud_safe_zone (hud_draw.c) */
+boolean hud_safe_zone_centers_windows(void);
+
 void compute_window_bounds(
 	long player_index,
 	long num_players,
@@ -1907,6 +1907,25 @@ void compute_window_bounds(
 		pixel_bounds->y0 = rasterizer_globals.reserved04.screen_bounds.y0;
 	if (vertical_index+1==vertical_count)
 		pixel_bounds->y1 = rasterizer_globals.reserved04.screen_bounds.y1;
+
+	/* port: display.hud_safe_zone other than the Xbox's margins ("pc", or
+	"auto" in split screen): the window, its size kept, in the middle of
+	its view, where the Xbox's sits off it (the frame's share, 4 pixels from
+	the lines between views). Its crosshair, aim, weapon and HUD are in the
+	view's middle, and every view alike. Drawing only: the window is the
+	view's projection's, not the game's (hud_draw.c) */
+	if (num_players>1 && hud_safe_zone_centers_windows())
+	{
+		short dx = (short)(((pixel_bounds->x0+pixel_bounds->x1)-
+			(safe_frame_bounds->x0+safe_frame_bounds->x1))/2);
+		short dy = (short)(((pixel_bounds->y0+pixel_bounds->y1)-
+			(safe_frame_bounds->y0+safe_frame_bounds->y1))/2);
+
+		safe_frame_bounds->x0 += dx;
+		safe_frame_bounds->x1 += dx;
+		safe_frame_bounds->y0 += dy;
+		safe_frame_bounds->y1 += dy;
+	}
 
 	return;
 }
