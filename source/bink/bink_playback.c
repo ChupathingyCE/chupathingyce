@@ -487,6 +487,27 @@ void bink_playback_stop(
 	return;
 }
 
+/* port: a map copy is about to take the texture cache's memory while a
+movie holds it (a game started while the intro still plays: a join from an
+invite, or the network test): the movie is stopped first, as a button
+press would stop it, but without going back to the main menu, since the
+game being started is where the player goes. Two takers at once broke the
+cache: the movie's end gave the memory back to the cache while the copy
+was still writing into it. TRUE when a movie was stopped */
+boolean bink_playback_stop_for_texture_cache(
+	void)
+{
+	if (!bink_globals.initialized || !bink_globals.memory_pool_base)
+		return FALSE;
+	SET_FLAG(bink_globals.flags, _bink_playback_return_to_main_menu_when_finished_bit, FALSE);
+	bink_playback_stop();
+	/* (no movie open, but its memory still taken) */
+	if (bink_globals.memory_pool_base)
+		bink_free_texture_cache();
+
+	return TRUE;
+}
+
 void bink_playback_dispose(
 	void)
 {

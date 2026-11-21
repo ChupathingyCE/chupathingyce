@@ -128,14 +128,44 @@ int delta_hint_due(int shown, int menu_item)
 	return !menu_item && shown >= 0 && shown < DELTA_HINT_TIMES;
 }
 
+/* (halo_prompt_schemes.h's order: the keyboard, Xbox, PlayStation,
+Nintendo, Steam Deck, Wii U, Steam Controller) */
+static const char *const back_names[] = { "Back", "Back", "Share", "Minus", "View", "Minus", "Back" };
+static const char *const guide_names[] =
+{
+	"the Guide button", "the Guide button", "the PS button", "the Home button", "the Steam button",
+	"the Home button", "the Steam button",
+};
+static const char *const guide_labels[] =
+{
+	"GUIDE BUTTON", "GUIDE BUTTON", "PS BUTTON", "HOME BUTTON", "STEAM BUTTON", "HOME BUTTON", "STEAM BUTTON",
+};
+
+#define PAD_NAMES ((int)(sizeof(back_names) / sizeof(back_names[0])))
+
+const char *delta_pad_back_name(int pad)
+{
+	return back_names[pad > 0 && pad < PAD_NAMES ? pad : 1];
+}
+
+const char *delta_pad_guide_name(int pad)
+{
+	return guide_names[pad > 0 && pad < PAD_NAMES ? pad : 1];
+}
+
+const char *delta_pad_guide_label(int pad)
+{
+	return guide_labels[pad > 0 && pad < PAD_NAMES ? pad : 1];
+}
+
 void delta_hint_text(char *text, int size, int pad, const char *key, int guide_button, int hold_back)
 {
 	if (size <= 0)
 		return;
 	if (pad && hold_back)
-		snprintf(text, (size_t)size, "Hold Back for the Delta Guide");
+		snprintf(text, (size_t)size, "Hold %s for the Delta Guide", delta_pad_back_name(pad));
 	else if (pad && guide_button)
-		snprintf(text, (size_t)size, "Press the Guide button");
+		snprintf(text, (size_t)size, "Press %s", delta_pad_guide_name(pad));
 	else
 		snprintf(text, (size_t)size, "Press %s for the Delta Guide", key && key[0] ? key : "F3");
 }
