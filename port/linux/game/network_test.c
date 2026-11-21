@@ -2004,6 +2004,15 @@ void network_test_update(
 			main_set_multiplayer_map_name(map);
 			player_ui_fast_setup_network_server();
 			platform_log("network test: hosting %s", map);
+			/* (a server that could not be made, its port taken by another
+			copy or program: said, and the test stopped. Waiting left the
+			menus up until the test's time limit, and a scripted player
+			there wandered into them) */
+			if (!global_network_game_server_get())
+			{
+				platform_log("network test: not hosted: its server could not be made (the port taken by another copy?)");
+				exit(2);
+			}
 		}
 		else if (!network_test.started)
 		{
@@ -2107,10 +2116,9 @@ void network_test_update(
 				network_test.team_set = network_game_client_split_teams();
 			}
 			/* (and not before the map and the game variant are set: a host
-			whose server could not be made, its port taken by another program,
-			started the fast setup's game, of no game type, where the players
-			spawn with no weapons or grenades; it now waits, and the test
-			fails on its time limit) */
+			whose server could not be made started the fast setup's game, of
+			no game type, where the players spawn with no weapons or
+			grenades; it now stops, above) */
 			/* (debug.network_test_lobby_map: the host's second map, picked once
 			another machine is in the lobby; the start waits its delay again) */
 			if (network_test.map_set && network_test.lobby_map[0] && !network_test.lobby_map_set &&

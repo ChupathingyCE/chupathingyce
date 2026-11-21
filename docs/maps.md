@@ -226,7 +226,8 @@ waits for the list a few seconds at most as it starts. If Chupathingy maps
 ever has to stop all downloads at once, the game takes nothing from it
 until it's back. `network.maps_url` in `config.toml` says where the lists
 come from. Set it to `""` to turn Chupathingy maps off: nothing is fetched
-from it, and no map is blocked.
+from it, and no map is blocked. With `network.online` off the game asks it
+nothing either, and holds maps to the blacklist it kept last time.
 
 **Testing Chupathingy maps.** `tools/test_map_repo.py` checks the list
 reader and the downloader against a fake repository on your machine. Its

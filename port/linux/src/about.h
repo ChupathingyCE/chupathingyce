@@ -42,6 +42,10 @@ with the look's clock set (ui_style_clock) */
 void about_render(struct about_view *view, float left, float top, float right, float bottom);
 /* the words of its prompts: A's (NULL: none) and B's */
 const char *about_a_word(const struct about_view *view);
+/* this copy's version ("0.9.2 (b6eb068)") and platform ("macOS arm64,
+64-bit"), as the page shows them */
+void about_version(char *text, int size);
+void about_platform(char *text, int size);
 const char *about_b_word(const struct about_view *view, const char *close);
 
 #endif
