@@ -699,6 +699,10 @@ void scenario_tags_unload(
 #endif
 	sound_cache_close();
 	texture_cache_close();
+#ifdef HALO_CONSOLE_MARKER_LOOKUPS
+	/* port: model_find_marker's remembered answers were this map's */
+	model_marker_lookups_forget();
+#endif
 #ifdef HALO_MODS
 	/* port: the mods' tags go, after the sound cache that held their
 	sounds (port/linux/game/mods.c) */
