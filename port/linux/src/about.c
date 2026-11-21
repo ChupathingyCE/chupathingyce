@@ -66,7 +66,7 @@ static const struct about_entry page[] =
 	{ _line_text, "Xbox 3D sound and reverb: the OpenH1 contributors and chestahh." },
 	{ _line_text, "Security reports: nickarcade." },
 	{ _line_text, "Grifball court: SlappyThePirate." },
-	{ _line_text, "Testing: FASTNOOB, FLTHY, Fujibayashi Kyou, Mega, OpenRift, roundzabout, Sabriel, Shadow Phoenix, snapchipper, TanFlo and ugoboom." },
+	{ _line_text, "Testing: FASTNOOB, FLTHY, Fujibayashi Kyou, Mega, OpenRift, roundzabout, Sabriel, Shadow Phoenix, snapchipper, TanFlo, ugoboom and Wonka." },
 	{ _line_text, "Console testing: BoganEsky, claire, deeechrome, grizz_85, JanusDuo, LD50 II, LukeShortCloud, magoostus, re4thewin, The Real Napsta, TomiG117, UncookedMoa, X-ISO, xpb4me and Xiyl." },
 	{ _line_text, "HaloMD map names: MacGamingMods." },
 	{ _line_text, "Map downloads: HaloNet and the HAC2 map repository." },
