@@ -338,4 +338,16 @@ HALO_CONSOLE_NO_RAGDOLLS */
 #define HALO_PORT_RAGDOLLS
 #endif
 
+/* a profile (blam.sav) written whole or not at all: to blam.sav.tmp, flushed
+to the disk, read back, and renamed over the old one in one step, with the
+last good one kept as blam.sav.bak and taken back when blam.sav is found
+damaged (source/saved games/player_profile.c, saved_game_files.c;
+port/linux/src/xbox_files.c's halo_file_write_whole). The desktop builds'
+and Android's; a console's file layer is its own, and keeps the Xbox's
+write in place until it has been checked there */
+#if !(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER))
+#define HALO_PORT_SAFE_SAVES
+#endif
+
 #endif /* __HALO_PORT_FEATURES_H */
