@@ -1967,6 +1967,7 @@ long scenario_tags_load(
 				tag_cache_base_address, &read_complete, TRUE);
 			while (!read_complete)
 				SwitchToThread();
+			CACHE_FILE_READ_SEEN();
 			ce_header = tag_cache_base_address;
 			/* port: tags that did not all read, or whose header is not a tag
 			header (a damaged map, or one in a format this build does not
@@ -2167,6 +2168,7 @@ long scenario_tags_load(
 						&read_complete, TRUE);
 					while (!read_complete)
 						SwitchToThread();
+					CACHE_FILE_READ_SEEN();
 					if (!ce_models_tags_loaded(global_tag_instances, ce_header->tag_count, model_data,
 						ce_header->vertex_data_size, ce_header->model_data_size))
 					{
@@ -2270,6 +2272,7 @@ long scenario_tags_load(
 			{
 				SwitchToThread();
 			}
+			CACHE_FILE_READ_SEEN();
 
 			/* port: tags that did not all read, or whose header cannot be
 			trusted, are not loaded: the map is refused, as one whose header
@@ -2488,6 +2491,7 @@ boolean scenario_structure_bsp_load(
 				sound_idle();
 			}
 		}
+		CACHE_FILE_READ_SEEN();
 
 #ifdef HALO_CUSTOM_EDITION
 		/* port: a Custom Edition map's, only the one checked (the file
