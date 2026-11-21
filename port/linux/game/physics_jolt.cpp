@@ -878,7 +878,7 @@ int physics_jolt_rig_create(struct physics_jolt_rig_body const *in, int count, s
 	ragdoll->AddToPhysicsSystem(EActivation::Activate);
 	BodyInterface &bodies = the_world->system.GetBodyInterfaceNoLock();
 	for (int body = 0; body < count; body++)
-		bodies.SetLinearVelocity(ragdoll->GetBodyID(body), vec(in[body].velocity));
+		bodies.SetLinearAndAngularVelocity(ragdoll->GetBodyID(body), vec(in[body].velocity), vec(in[body].angular_velocity));
 	for (size_t slot = 0; slot < the_world->ragdolls.size(); slot++)
 	{
 		if (!the_world->ragdolls[slot])
@@ -926,6 +926,35 @@ void physics_jolt_rig_add_velocity(int ragdoll, int body, float const velocity[3
 	BodyID id = r->GetBodyID(body);
 	bodies.SetLinearVelocity(id, bodies.GetLinearVelocity(id) + vec(velocity));
 	bodies.ActivateBody(id);
+}
+
+void physics_jolt_rig_drive(int ragdoll, int body, float const position[3], float const rotation[4], float dt,
+	float weight)
+{
+	Ragdoll *r = ragdoll_get(ragdoll);
+	if (!r || body < 0 || body >= (int)r->GetBodyCount() || !(dt > 0.f) || !(weight > 0.f))
+		return;
+	weight = std::min(weight, 1.f);
+	BodyInterface &bodies = the_world->system.GetBodyInterfaceNoLock();
+	BodyID id = r->GetBodyID(body);
+	RVec3 now;
+	Quat turned;
+	bodies.GetPositionAndRotation(id, now, turned);
+	Vec3 there = vec(position);
+	Quat goal = quat(rotation);
+	if (!there.IsNaN() && !goal.IsNaN())
+	{
+		/* (the velocity and spin that reach the pose in dt: a kinematic
+		body's, as Jolt moves one) */
+		Vec3 linear = (there - Vec3(now)) / dt;
+		Vec3 axis;
+		float angle;
+		(goal * turned.Conjugated()).Normalized().GetAxisAngle(axis, angle);
+		Vec3 angular = axis * (angle / dt);
+		Vec3 v = bodies.GetLinearVelocity(id), w = bodies.GetAngularVelocity(id);
+		bodies.SetLinearAndAngularVelocity(id, v + (linear - v) * weight, w + (angular - w) * weight);
+		bodies.ActivateBody(id);
+	}
 }
 
 int physics_jolt_rig_active(int ragdoll)
