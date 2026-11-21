@@ -145,8 +145,8 @@ static const char *const hud_buttons_choices[] = { "classic", "hd", NULL };
 static const char *const reticle_size_choices[] = { "0.5", "0.75", "1", "1.25", "1.5", "2", NULL };
 static const char *const reticle_size_names[] = { "50%", "75%", "100%", "125%", "150%", "200%", NULL };
 /* the crosshair's place (display.crosshair_position) */
-static const char *const crosshair_position_choices[] = { "retail", "centered", "lowered", NULL };
-static const char *const crosshair_position_names[] = { "XBOX", "CENTERED", "LOWERED", NULL };
+static const char *const crosshair_position_choices[] = { "retail", "lowered", NULL };
+static const char *const crosshair_position_names[] = { "XBOX", "LOWERED", NULL };
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
