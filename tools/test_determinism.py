@@ -209,13 +209,16 @@ def compare(first_name, first, second_name, second):
 
 
 def run_check(binary, maps, work, game_map=DEFAULT_MAP, ticks=DEFAULT_TICKS, seed=DEFAULT_SEED, local_players=1,
-              air_turn_aim=False, tuning_most=False):
+              air_turn_aim=False, tuning_most=False, safe_zones=False):
     """Records a game and replays it twice. Returns (problems, ticks compared).
     With air_turn_aim the recording is made with the host's 180 glitch fix on
     (network.air_turn_aim) and the replays are run with it off in their own
     settings: they must play by the recording's rule, kept in it. With
     tuning_most the replays draw with every [tuning] knob at its most
-    (TUNING_MOST), the recording as retail."""
+    (TUNING_MOST), the recording as retail. With safe_zones the recording
+    lays split screen out as the Xbox does (display.hud_safe_zone "xbox")
+    and the replays with each view's window in its middle ("pc"): only the
+    drawing moves, so the hashes must agree."""
     os.makedirs(work, exist_ok=True)
     inputs = os.path.join(os.path.abspath(work), "inputs.bin")
     started = time.time()
@@ -223,6 +226,9 @@ def run_check(binary, maps, work, game_map=DEFAULT_MAP, ticks=DEFAULT_TICKS, see
     replay_env = {"HALO_NET_AIR_TURN_AIM": "false"} if air_turn_aim else None
     if tuning_most:
         replay_env = dict(replay_env or {}, **TUNING_MOST)
+    if safe_zones:
+        record_env = dict(record_env or {}, HALO_HUD_SAFE_ZONE="xbox")
+        replay_env = dict(replay_env or {}, HALO_HUD_SAFE_ZONE="pc")
     record = play(binary, maps, work, "record", "record", inputs, game_map, ticks, seed, local_players,
         extra_env=record_env)
     replay_a = play(binary, maps, work, "replay-a", "replay", inputs, game_map, ticks, seed, local_players,
@@ -316,13 +322,16 @@ def main():
         help="record with network.air_turn_aim on, replay with it off: the replays must keep the recording's")
     parser.add_argument("--tuning-most", action="store_true",
         help="record with the retail drawing, replay with every [tuning] drawing knob at its most: they must agree")
+    parser.add_argument("--safe-zones", action="store_true",
+        help="record with display.hud_safe_zone \"xbox\", replay with \"pc\" (split screen windows centered): "
+        "they must agree")
     args = parser.parse_args()
     if not os.path.exists(os.path.join(args.maps, f"{args.map}.map")):
         log(f"no {args.map}.map in {args.maps}: skipped")
         return 0
     try:
         problems, count = run_check(args.binary, args.maps, args.work, args.map, args.ticks, args.seed,
-            args.local_players, args.air_turn_aim, args.tuning_most)
+            args.local_players, args.air_turn_aim, args.tuning_most, args.safe_zones)
     except RuntimeError as error:
         log(str(error))
         return 1

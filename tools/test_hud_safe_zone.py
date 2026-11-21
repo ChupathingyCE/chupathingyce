@@ -14,10 +14,16 @@ their own, over a 640x480 screen and an 854x480 one, for one to four players:
   edges are 48 columns or 36 lines in, its edges by the lines between views
   4 pixels, so the HUD of the top left view sits far from the left and close
   to the middle (as the retail compute_window_bounds does);
-- "pc" moves only the screen's edges, to 8 in (scaled across a wider
-  screen as the Xbox's frame is), and leaves the 4 pixels between views;
+- "pc", "auto" in split screen and two numbers put each split screen
+  view's window (its size kept) in the middle of its view, so its
+  crosshair and aim are in the view's middle and every view looks alike;
+  "xbox", and any setting in a game alone, leave it where the Xbox has it;
+- "pc" puts the HUD 8 in from each of the view's edges (scaled across a
+  wider screen as the Xbox's frame is), the same on every side;
 - "auto" (the desktop's and Android's default) is the window alone and
   "pc" in split screen;
+- with any setting, each view's window and HUD stay inside its own view,
+  and the views never overlap;
 - two numbers are clamped to 8..48 and 8..36;
 - a word it doesn't know, or numbers out of range, are said in the log once.
 
@@ -75,6 +81,7 @@ unsigned long config_changes(void) { return changes; }
 short main_get_window_count(void) { return window_count; }
 static int logged;
 void platform_log(char const *format, ...) { (void)format; logged++; }
+boolean hud_safe_zone_centers_windows(void);
 '''
 
 MAIN = r'''
@@ -88,9 +95,24 @@ static void use(const char *value)
     changes++;
 }
 
+static int inside(rectangle2d const *inner, rectangle2d const *outer)
+{
+    return inner->x0 >= outer->x0 && inner->x1 <= outer->x1 && inner->y0 >= outer->y0 && inner->y1 <= outer->y1;
+}
+
+static int overlap(rectangle2d const *a, rectangle2d const *b)
+{
+    return a->x0 < b->x1 && b->x0 < a->x1 && a->y0 < b->y1 && b->y0 < a->y1;
+}
+
 int main(void)
 {
     static const int widths[] = { 640, 854 };
+    /* (each setting, and its margins in a split screen: 0 for the Xbox's) */
+    static const struct { const char *value; int columns, lines; } modes[] = {
+        { "", 0, 0 }, { "xbox", 0, 0 }, { "sideways", 0, 0 }, { "pc", 8, 8 }, { "auto", 8, 8 },
+        { "24 18", 24, 18 }, { "0,99", 8, 36 }, { "48 36", 0, 0 },
+    };
     int w;
 
     for (w = 0; w < 2; w++)
@@ -106,69 +128,97 @@ int main(void)
         frame->y0 = 36; frame->y1 = 444;
         for (players = 1; players <= 4; players++)
         {
-            long index;
+            unsigned m;
 
             window_count = (short)players;
-            for (index = 0; index < players; index++)
+            for (m = 0; m < sizeof(modes) / sizeof(modes[0]); m++)
             {
-                rectangle2d viewport, window, bounds;
-                short pc_x = (short)(frame->x0 - 8 * width / 640), pc_y = 28;
-                short custom_x = (short)(frame->x0 - 24 * width / 640), custom_y = 18;
-                int left = 0, right = 0, top = 0, bottom = 0;
+                rectangle2d views[4], huds[4];
+                long index;
 
-                compute_window_bounds(index, players, &viewport, &window);
-                render.camera.viewport_bounds = viewport;
-                render.camera.window_bounds = window;
-                left = viewport.x0 == 0; right = viewport.x1 == width;
-                top = viewport.y0 == 0; bottom = viewport.y1 == 480;
+                for (index = 0; index < players; index++)
+                {
+                    rectangle2d viewport, window, xbox_window, xbox_viewport, bounds;
+                    int left, right, top, bottom;
+                    int columns = modes[m].columns, lines = modes[m].lines;
+                    /* ("auto" is the Xbox's in a game alone) */
+                    int centered = columns && players > 1;
 
-                /* the Xbox's layout: the screen's edges the frame's, the
-                others 4 from the line between views */
-                CHECK(window.x0 == (left ? frame->x0 : viewport.x0 + 4), "xbox left");
-                /* (a lone column's right edge 4 more, as on the Xbox:
-                compute_window_bounds takes them off column 0's right) */
-                CHECK(window.x1 == (right ? frame->x1 - (index == 0 || players == 2 ? (players > 1 ? 4 : 0) : 0) :
-                    viewport.x1 - 4), "xbox right");
-                CHECK(window.y0 == (top ? frame->y0 : viewport.y0 + 4), "xbox top");
-                CHECK(window.y1 == (bottom ? frame->y1 : viewport.y1 - 4), "xbox bottom");
+                    if (players == 1 && !strcmp(modes[m].value, "auto"))
+                        columns = lines = 0;
+                    use("xbox");
+                    compute_window_bounds(index, players, &xbox_viewport, &xbox_window);
+                    use(modes[m].value);
+                    compute_window_bounds(index, players, &viewport, &window);
+                    render.camera.viewport_bounds = viewport;
+                    render.camera.window_bounds = window;
+                    hud_safe_zone_bounds(&bounds);
+                    views[index] = viewport;
+                    huds[index] = bounds;
+                    left = viewport.x0 == 0; right = viewport.x1 == width;
+                    top = viewport.y0 == 0; bottom = viewport.y1 == 480;
 
-                use("");
-                hud_safe_zone_bounds(&bounds);
-                CHECK(!memcmp(&bounds, &window, sizeof(bounds)), "no setting is the Xbox's");
-                use("xbox");
-                hud_safe_zone_bounds(&bounds);
-                CHECK(!memcmp(&bounds, &window, sizeof(bounds)), "xbox");
-                use("sideways");
-                hud_safe_zone_bounds(&bounds);
-                CHECK(!memcmp(&bounds, &window, sizeof(bounds)), "another word is the Xbox's");
+                    /* the views are the Xbox's with every setting */
+                    CHECK(!memcmp(&viewport, &xbox_viewport, sizeof(viewport)), "the view is the Xbox's");
+                    /* the Xbox's layout: the screen's edges the frame's, the
+                    others 4 from the line between views */
+                    CHECK(xbox_window.x0 == (left ? frame->x0 : viewport.x0 + 4), "xbox left");
+                    /* (a lone column's right edge 4 more, as on the Xbox:
+                    compute_window_bounds takes them off column 0's right) */
+                    CHECK(xbox_window.x1 == (right ? frame->x1 - (index == 0 || players == 2 ? (players > 1 ? 4 : 0) : 0) :
+                        viewport.x1 - 4), "xbox right");
+                    CHECK(xbox_window.y0 == (top ? frame->y0 : viewport.y0 + 4), "xbox top");
+                    CHECK(xbox_window.y1 == (bottom ? frame->y1 : viewport.y1 - 4), "xbox bottom");
 
-                use("pc");
-                hud_safe_zone_bounds(&bounds);
-                CHECK(bounds.x0 == window.x0 - (left ? pc_x : 0), "pc left");
-                CHECK(bounds.x1 == window.x1 + (right ? pc_x : 0), "pc right");
-                CHECK(bounds.y0 == window.y0 - (top ? pc_y : 0), "pc top");
-                CHECK(bounds.y1 == window.y1 + (bottom ? pc_y : 0), "pc bottom");
-                if (left)
-                    CHECK(bounds.x0 == 8 * width / 640, "pc 8 in");
-                if (top)
-                    CHECK(bounds.y0 == 8, "pc 8 down");
+                    /* the window: the Xbox's, or (other margins, in split
+                    screen) the same size in the view's middle */
+                    CHECK(window.x1 - window.x0 == xbox_window.x1 - xbox_window.x0 &&
+                        window.y1 - window.y0 == xbox_window.y1 - xbox_window.y0, "the window's size kept");
+                    if (centered)
+                    {
+                        int dx = (window.x0 + window.x1) - (viewport.x0 + viewport.x1);
+                        int dy = (window.y0 + window.y1) - (viewport.y0 + viewport.y1);
 
-                use("auto");
-                hud_safe_zone_bounds(&bounds);
-                if (players == 1)
-                    CHECK(!memcmp(&bounds, &window, sizeof(bounds)), "auto alone");
-                else
-                    CHECK(bounds.x0 == window.x0 - (left ? pc_x : 0) && bounds.y1 == window.y1 + (bottom ? pc_y : 0),
-                        "auto in split screen");
+                        CHECK(dx >= -1 && dx <= 1 && dy >= -1 && dy <= 1, "the window in the view's middle");
+                    }
+                    else
+                        CHECK(!memcmp(&window, &xbox_window, sizeof(window)), "the Xbox's window");
+                    CHECK(inside(&window, &viewport), "the window inside its view");
 
-                use("24 18");
-                hud_safe_zone_bounds(&bounds);
-                CHECK(bounds.x0 == window.x0 - (left ? custom_x : 0) && bounds.y0 == window.y0 - (top ? custom_y : 0),
-                    "two numbers");
-                use("0,99");
-                hud_safe_zone_bounds(&bounds);
-                CHECK(bounds.x0 == window.x0 - (left ? pc_x : 0) && bounds.y0 == window.y0,
-                    "two numbers clamped");
+                    /* the HUD: the window ("xbox"), or the margins in from
+                    every edge of the view */
+                    if (!columns)
+                        CHECK(!memcmp(&bounds, &window, sizeof(bounds)), "the Xbox's HUD is the window");
+                    else
+                    {
+                        short x = (short)(columns * width / 640);
+
+                        CHECK(bounds.x0 == viewport.x0 + x && bounds.x1 == viewport.x1 - x, "the columns from each side");
+                        CHECK(bounds.y0 == viewport.y0 + lines && bounds.y1 == viewport.y1 - lines,
+                            "the lines from the top and bottom");
+                    }
+                    CHECK(inside(&bounds, &viewport), "the HUD inside its view");
+                }
+                /* no view, nor its HUD, over another's */
+                {
+                    long a, b, index = 0;
+
+                    for (a = 0; a < players; a++)
+                        for (b = a + 1; b < players; b++)
+                            CHECK(!overlap(&views[a], &views[b]) && !overlap(&huds[a], &huds[b]),
+                                "views apart");
+                    (void)index;
+                }
+                /* every split screen view alike: the HUD the same distance
+                in from each side of its view */
+                if (players > 1 && modes[m].columns)
+                {
+                    long index;
+
+                    for (index = 0; index < players; index++)
+                        CHECK(huds[index].x0 - views[index].x0 == views[index].x1 - huds[index].x1 &&
+                            huds[index].y0 - views[index].y0 == views[index].y1 - huds[index].y1, "every view alike");
+                }
             }
         }
     }
