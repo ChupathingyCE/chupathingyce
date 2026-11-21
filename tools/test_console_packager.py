@@ -372,3 +372,11 @@ def test_command_line(tmp_path, disc, capsys):
     assert packager.main(["--disc", str(disc), "--target", "wiiu", "--build", str(build),
                           "--out", str(tmp_path / "out"), "--language", "de"]) == 0
     assert (tmp_path / "out" / "wiiu" / "apps" / "halo" / "maps_de").is_dir()
+
+
+def test_setting_in_an_empty_section():
+    """A [game] with nothing in it, before another section, gets the line
+    under [game], not at the file's end."""
+    text = "config_version = 2\n\n[game]\n\n[video]\nwidth = 1\n"
+    result = packager.set_setting(text, "game", "language", '"de"')
+    assert result == "config_version = 2\n\n[game]\nlanguage = \"de\"\n\n[video]\nwidth = 1\n"

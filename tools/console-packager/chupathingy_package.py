@@ -431,6 +431,8 @@ def set_setting(text, section, key, value):
             if current == section:
                 break
             current = header.group(1).strip()
+            if current == section:
+                end = index + 1
             continue
         if current == section:
             if pattern.match(line):
