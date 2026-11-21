@@ -669,3 +669,194 @@ int guide_layout_scroll_bar_pointer(struct guide_scroll_bar *bar, int scroll, fl
 	bar->hover = bar->dragging || scroll_bar_hit(bar->thumb, GUIDE_SCROLL_BAR_REACH, x, y);
 	return wanted >= 0 && wanted != scroll ? wanted : -1;
 }
+
+/* ---------- a page of lines */
+
+int guide_lines_focusable(const int *kinds, int count, int line)
+{
+	return line >= 0 && line < count && kinds[line] == GUIDE_LINE_ACTION;
+}
+
+int guide_lines_move(const int *kinds, int count, int at, int step)
+{
+	int direction = step < 0 ? -1 : 1, left = step < 0 ? -step : step;
+
+	if (guide_lines_snap(kinds, count, at, direction) < 0)
+		return -1;
+	if (!guide_lines_focusable(kinds, count, at))
+		return guide_lines_snap(kinds, count, at, direction);
+	for (; left > 0; left--)
+	{
+		int next = at + direction;
+
+		while (next >= 0 && next < count && !guide_lines_focusable(kinds, count, next))
+			next += direction;
+		if (next < 0 || next >= count)
+			break;
+		at = next;
+	}
+	return at;
+}
+
+int guide_lines_snap(const int *kinds, int count, int at, int direction)
+{
+	int line;
+
+	if (direction == 0)
+		direction = 1;
+	if (guide_lines_focusable(kinds, count, at))
+		return at;
+	if (at < 0)
+		at = 0;
+	if (at >= count)
+		at = count - 1;
+	for (line = at; line >= 0 && line < count; line += direction)
+	{
+		if (guide_lines_focusable(kinds, count, line))
+			return line;
+	}
+	for (line = at; line >= 0 && line < count; line -= direction)
+	{
+		if (guide_lines_focusable(kinds, count, line))
+			return line;
+	}
+	return -1;
+}
+
+int guide_lines_shown(const int *kinds, const float *heights, int count, int first, float room)
+{
+	/* (a little slack for float sums) */
+	const float slack = 0.5f;
+	float used = 0.0f;
+	int line;
+
+	if (first < 0)
+		first = 0;
+	for (line = first; line < count; line++)
+	{
+		if (used + heights[line] > room + slack)
+			break;
+		/* (a caption with nothing of its block under it would dangle) */
+		if (kinds[line] == GUIDE_LINE_CAPTION && line + 1 < count && used + heights[line] + heights[line + 1] > room + slack)
+			break;
+		used += heights[line];
+	}
+	if (line == first && first < count)
+		line++;
+	return line - first;
+}
+
+int guide_lines_scroll(const int *kinds, const float *heights, int count, int chosen, int first, float room)
+{
+	const float slack = 0.5f;
+	int last_start = count, line;
+	float used = 0.0f;
+
+	if (count <= 0)
+		return 0;
+	/* (the last start that still fills the room: the end never floats up) */
+	while (last_start > 0 && used + heights[last_start - 1] <= room + slack)
+		used += heights[--last_start];
+	if (last_start >= count)
+		last_start = count - 1;
+	if (first < 0)
+		first = 0;
+	if (chosen >= 0 && chosen < count)
+	{
+		if (chosen < first)
+			first = chosen;
+		/* (its block's caption, words and lines over it with it, when it
+		is the block's first action and they fit with it) */
+		if (first == chosen)
+		{
+			line = chosen;
+			used = heights[chosen];
+			while (line > 0 && kinds[line - 1] != GUIDE_LINE_ACTION &&
+				used + heights[line - 1] <= room + slack)
+			{
+				used += heights[--line];
+			}
+			first = line;
+		}
+		/* (down as little as it takes to show it) */
+		for (;;)
+		{
+			used = 0.0f;
+			for (line = first; line <= chosen; line++)
+				used += heights[line];
+			if (used <= room + slack || first >= chosen)
+				break;
+			first++;
+		}
+	}
+	return first > last_start ? last_start : first;
+}
+
+/* ---------- the sections down the left */
+
+void guide_layout_sidebar(struct guide_rect area, int count, float item_height, struct guide_sidebar_layout *out)
+{
+	float gap = GUIDE_SIDEBAR_GAP, room, y;
+	int index;
+
+	memset(out, 0, sizeof(*out));
+	if (count > GUIDE_SIDEBAR_MOST)
+		count = GUIDE_SIDEBAR_MOST;
+	if (count < 0)
+		count = 0;
+	out->count = count;
+	/* (the sections squeezed, their gaps first, when they'd pass area's foot) */
+	room = area.height;
+	if (count > 0 && count * item_height + (count - 1) * gap > room)
+	{
+		gap = count > 1 ? (room - count * item_height) / (count - 1) : 0;
+		if (gap < 0)
+		{
+			gap = 0;
+			item_height = room / count;
+		}
+	}
+	y = area.y;
+	for (index = 0; index < count; index++)
+	{
+		out->items[index].x = area.x;
+		out->items[index].y = y;
+		out->items[index].width = area.width;
+		out->items[index].height = item_height;
+		y += item_height + gap;
+	}
+}
+
+void guide_layout_columns(struct guide_rect body, float gap, float list_share, float minimum_detail,
+	struct guide_rect *list, struct guide_rect *detail)
+{
+	float room = body.width - gap, list_width = room * list_share;
+
+	if (room < 0)
+		room = 0;
+	if (room - list_width < minimum_detail)
+		list_width = room - minimum_detail;
+	if (list_width < room * 0.5f)
+		list_width = room * 0.5f;
+	*list = body;
+	list->width = list_width;
+	*detail = body;
+	detail->x = body.x + list_width + gap;
+	detail->width = room - list_width;
+}
+
+int guide_sections_go(const int *shown, int count, int current, int wanted)
+{
+	int step = wanted < current ? -1 : 1, tries;
+
+	if (count <= 0)
+		return -1;
+	wanted = ((wanted % count) + count) % count;
+	for (tries = 0; tries < count; tries++)
+	{
+		if (shown[wanted])
+			return wanted;
+		wanted = (wanted + step + count) % count;
+	}
+	return -1;
+}
