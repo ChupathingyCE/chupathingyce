@@ -337,6 +337,14 @@ static int game_enabled(void)
 	return url[0] != 0;
 }
 
+/* whether Chupathingy maps is asked for a new index now: not while
+network.online is off (what an earlier run kept still counts, its
+blacklist too) */
+static int asked_online(void)
+{
+	return config_boolean("network.online") != 0;
+}
+
 /* what an earlier run kept, read back once */
 static void load_once(void)
 {
@@ -415,6 +423,8 @@ int map_repo_game_refresh_now(void)
 	if (!game_enabled())
 		return 0;
 	load_once();
+	if (!asked_online())
+		return 0;
 	map_repo_game_url(url, (int)sizeof(url));
 	flags = refresh_flags();
 	if (!map_repo_refresh_due(now, flags))
@@ -443,6 +453,8 @@ void map_repo_game_refresh_soon(void)
 	if (!game_enabled())
 		return;
 	load_once();
+	if (!asked_online())
+		return;
 	if (!map_repo_refresh_due((long long)time(NULL), refresh_flags()))
 		return;
 	pthread_mutex_lock(&map_repo_game.lock);

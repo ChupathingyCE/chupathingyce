@@ -253,6 +253,9 @@ long distributed_latest_host_time(void);
 /* (a client) how long the host takes to have this machine's players and
 tell it back, in ticks (0 before it is measured) */
 real distributed_own_round_trip_ticks(void);
+/* (a client) milliseconds since the host's last message this game was
+taken, NONE before the first */
+long distributed_host_silent_milliseconds(void);
 /* a player's ping (the round trip of its machine's messages to the host and
 back, as the host measures it) in milliseconds: 0 for the host's own
 players, NONE before it is known */

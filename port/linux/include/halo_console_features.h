@@ -115,6 +115,14 @@ HALO_CONSOLE_IO_RETRY_FOREVER
 	short of resources for (a stalled DVD read) being tried until it goes, as
 	the retail game did; elsewhere it gives up after 5 seconds and fails
 	(cached_map_issue_async_request, cache_files_decompress_windows.c: #1149)
+HALO_CONSOLE_READ_PRIORITY
+	the cache file thread starts the read the game is waiting for first,
+	then the pending read lowest in the map file
+	(cache_file_windows_thread_proc, source/cache/cache_files_windows.c).
+	Retail kept the first pending read unless a later one was lower in the
+	file and not waited for, so a texture the frame waited on could sit
+	behind every predicted read queued before it. Only the order of the
+	reads changes. From Lord BirchWood's Vita port
 HALO_CONSOLE_LOG_BUFFER
 	debug.txt's lines kept in memory and written together, a second after
 	the first waits, and at once for an exception, an exit or a crash
@@ -213,6 +221,13 @@ HALO_CONSOLE_LIGHT_AUDIO
 	(audio.resampling, audio.reverb), on a console with one slow core (the
 	Steam Link's, where the sinc resampler and the reverb took two fifths of
 	the processor)
+HALO_CONSOLE_NO_STRUCTURE_CULLING
+	the level's surfaces walked as the original game walks them by default
+	(debug.structure_culling false, port/linux/game/structure_culling.c):
+	on a console whose processor, not its GPU, sets the frame rate, the
+	culling's tests of each surface and triangle cost more than the GPU
+	work they spare (the Vita's b30 beach: 9 of a frame's 100 ms in the
+	visibility walk with them, 4.7 without, the GPU idle either way)
 HALO_CONSOLE_HUD_ON_DEMAND
 	the high-res HUD's pictures decoded each when first drawn, as Android's
 	are, rather than a map's all at its load (hud_hires.c): about 40 MB less
@@ -320,6 +335,31 @@ HALO_CONSOLE_PARTICLE_TICKS
 	their collision tests spared at 60 frames a second. The desktop builds
 	default to moving them at every frame drawn, smooth at high refresh
 	rates, and opt in
+HALO_CONSOLE_ANIMATION_FRAMES
+	an animation's frame index taken from a real frame index by truncation
+	when it is not negative, the same integer as floor's, without the
+	library's floor (source/models/model_animations.c): the keyframe
+	readers take one for each node of each animation a tick. A negative
+	index or a NaN goes through floor as before. From Lord BirchWood's work
+HALO_CONSOLE_FEWER_WALKS
+	fewer walks over a whole array for a few of its entries, with the same
+	results: a deleted object's references cleared by visiting only the
+	objects of the types that hold any (units and projectiles;
+	objects_fix_for_deleted_object, source/objects/objects.c), and an lruv
+	cache's allocation finding the blocks in its hole along its block list
+	(lruv_block_new, source/memory/lruv_cache.c). And one difference in
+	the picture only: a new decal takes the least recently drawn room among
+	the 64 decals after the last one made, not among all 2048
+	(lruv_set_search_window, rasterizer_xbox_decals.c), so an old decal
+	that goes may not be the oldest of all. From Lord BirchWood's Vita port
+HALO_CONSOLE_MARKER_LOOKUPS
+	the last 128 answers of model_find_marker kept, by model and the
+	name's address (source/models/models.c): a marker is looked up by name
+	every frame for first-person weapons, the HUD and bots, with a binary
+	search of case-insensitive compares. A remembered answer is used only
+	when the marker it names bears the name asked for, and they are
+	forgotten as a map's tags go (scenario_tags_unload), so the answers
+	are the search's own. From Lord BirchWood's work
 HALO_CONSOLE_XBOX_MAP_SIZES
 	a console that plays the Xbox's own maps only (no Custom Edition or
 	Halo PC maps): tables the desktop builds size for those maps are sized
@@ -446,6 +486,7 @@ compile lines: source/cseries/xbox_address.h).
 
 #ifdef HALO_WIIU_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_READ_PRIORITY 1
 #define HALO_CONSOLE_NO_WRITE_WATCH 1
 #define HALO_CONSOLE_LOG_THROTTLE 1
 #define HALO_CONSOLE_WINDOW_MAXIMUM 0x10000000UL
@@ -458,6 +499,9 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "wiiu"
+#define HALO_CONSOLE_ANIMATION_FRAMES 1
+#define HALO_CONSOLE_FEWER_WALKS 1
+#define HALO_CONSOLE_MARKER_LOOKUPS 1
 #endif
 
 /* (xbox_address.h read first, with the window at its default: the units
@@ -468,6 +512,7 @@ would disagree about where the heap starts) */
 
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_READ_PRIORITY 1
 #define HALO_CONSOLE_IO_RETRY_FOREVER 1
 #define HALO_CONSOLE_LOG_BUFFER 1
 /* (the H1 Performance Build's 64 KB; the retail game had 16 KB) */
@@ -485,6 +530,9 @@ would disagree about where the heap starts) */
 #define HALO_CONSOLE_VIEW_INTERPOLATION 1
 #define HALO_CONSOLE_FLICKER_FILTER 1
 #define HALO_CONSOLE_WAITED_VISIBILITY_TESTS 1
+#define HALO_CONSOLE_ANIMATION_FRAMES 1
+#define HALO_CONSOLE_FEWER_WALKS 1
+#define HALO_CONSOLE_MARKER_LOOKUPS 1
 #endif
 
 #if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
@@ -517,6 +565,7 @@ larger maps take a campaign map's there as well) */
 
 #ifdef HALO_XBOX360_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_READ_PRIORITY 1
 #define HALO_CONSOLE_NO_WRITE_WATCH 1
 #define HALO_CONSOLE_GPU_RESOURCE_HOOKS 1
 #define HALO_CONSOLE_DEBUG_CHANNEL 1
@@ -530,6 +579,9 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "x360"
+#define HALO_CONSOLE_ANIMATION_FRAMES 1
+#define HALO_CONSOLE_FEWER_WALKS 1
+#define HALO_CONSOLE_MARKER_LOOKUPS 1
 /* (its shadow maps: 512x512 at most, beside the screen in its 10 MB of EDRAM;
 d3d8_gl.c) */
 #define HALO_CONSOLE_SHADOW_MAP_MAXIMUM 512
@@ -668,6 +720,15 @@ not on the consoles, HALO_CONSOLE_NO_TITLE_CHOICE */
 #define HALO_TITLE_CHOICE 1
 #endif
 
+/* a script that has waited 2 minutes or more in one sleep_until, said once
+in the log (source/hs/hs_runtime.c): on a console a level whose script never
+goes on looks like a hang, and its log is all there is. Not on the original
+Xbox, which keeps retail's. */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_NO_SCRIPT_WAIT_LOG)
+#define HALO_CONSOLE_SCRIPT_WAIT_LOG 1
+#endif
+
 /* a map's shaders made while its loading screen is up, from its shader key
 list (port/linux/src/d3d8_shader_prep.inl, xgpu_shader_keys.c;
 display.prepare_shaders): the OpenGL and bgfx renderers of the desktop
@@ -675,7 +736,8 @@ builds and Android. A console's renderer can take it later (the Switch's
 has its own, HALO_CONSOLE_MAP_LOAD_HOOKS); HALO_CONSOLE_NO_SHADER_PREP
 leaves it out */
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
-	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_SHADER_PREP)
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_SHADER_PREP) && \
+	!defined(HALO_CONSOLE_SHADER_PREP)
 #define HALO_CONSOLE_NO_SHADER_PREP 1
 #endif
 #if !defined(HALO_CONSOLE_NO_SHADER_PREP) && !defined(HALO_SERVER)

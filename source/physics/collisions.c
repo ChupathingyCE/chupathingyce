@@ -1716,6 +1716,15 @@ static boolean object_test_vector(
 				&object->object.bounding_sphere_center,
 				(object->object.bounding_sphere_radius)))
 		{
+#ifndef HALO_CONSOLE_NO_FORGE
+			/* (port: Forge's PHASED: its own shape passes the line, what is
+			attached to it does not - a rider stays shootable) */
+			if (TEST_FLAG(object->object.flags, _object_forge_phased_bit) &&
+				!TEST_FLAG(flags, _collision_test_forge_phased_objects_bit))
+			{
+			}
+			else
+#endif
 			if (TEST_FLAG(_object_mask_vehicle, object->object.type) &&
 				TEST_FLAG(flags, _collision_test_use_vehicle_physics_bit))
 			{

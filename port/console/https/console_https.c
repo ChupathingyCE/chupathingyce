@@ -608,8 +608,12 @@ static int tls_read_stream(mbedtls_ssl_context *ssl, struct session *session, st
 	}
 }
 
+/* request (its headers), then body (body_length bytes, none if 0): a POST's
+body goes out as it is, never copied into the request, so a report of any
+size fits (warthog-xbox #140) */
 static int request_locked(const struct console_https_trust *trust, const char *request, int request_length,
-	char *response, unsigned long size, unsigned long *received, unsigned long timeout_ms, struct stream *stream)
+	const char *body, unsigned long body_length, char *response, unsigned long size, unsigned long *received,
+	unsigned long timeout_ms, struct stream *stream)
 {
 	mbedtls_ssl_context ssl;
 	mbedtls_ssl_config config;
@@ -714,6 +718,8 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 	if (result == CONSOLE_HTTPS_OK)
 	{
 		result = tls_write(&ssl, (const unsigned char *)request, (unsigned long)request_length);
+		if (result == CONSOLE_HTTPS_OK && body_length)
+			result = tls_write(&ssl, (const unsigned char *)body, body_length);
 		if (result == CONSOLE_HTTPS_OK)
 			sent = https_port->milliseconds() | 1;
 	}
@@ -732,8 +738,8 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 		length = snprintf(line, sizeof(line), "https: %s: %s, connect %lu ms, handshake %lu ms", trust->host,
 			mbedtls_ssl_get_version(&ssl), connected - started, handshake - started);
 		if (sent && length > 0 && length < (int)sizeof(line))
-			length += snprintf(line + length, sizeof(line) - (size_t)length, ", sent %lu ms (%d bytes)",
-				sent - started, request_length);
+			length += snprintf(line + length, sizeof(line) - (size_t)length, ", sent %lu ms (%lu bytes)",
+				sent - started, (unsigned long)request_length + body_length);
 		if (first_byte && length > 0 && length < (int)sizeof(line))
 			length += snprintf(line + length, sizeof(line) - (size_t)length, ", first byte %lu ms",
 				first_byte - started);
@@ -804,7 +810,7 @@ static int pins_get(int plain, const char *path, char *buffer, unsigned long siz
 		int length;
 
 		if (!github || !(length = build_get(request, sizeof(request), CONSOLE_HTTPS_GITHUB, path)) ||
-			request_locked(github, request, length, buffer, size, &received, timeout_ms, NULL) != CONSOLE_HTTPS_OK)
+			request_locked(github, request, length, NULL, 0, buffer, size, &received, timeout_ms, NULL) != CONSOLE_HTTPS_OK)
 			return 0;
 	}
 	return console_https_parse_response(buffer, received, &status, body, body_size) && status == 200;
@@ -935,6 +941,7 @@ int console_https_request(const char *host, const char *path, const char *body, 
 	} arena;
 	char request[REQUEST_SIZE];
 	const struct console_https_trust *trust;
+	unsigned long body_length = body ? (unsigned long)strlen(body) : 0;
 	int length;
 	int result;
 
@@ -947,9 +954,9 @@ int console_https_request(const char *host, const char *path, const char *body, 
 	if (body)
 		length = snprintf(request, sizeof(request),
 			"POST %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nAccept-Encoding: identity\r\n"
-			"Content-Type: %s\r\nContent-Length: %lu\r\nConnection: close\r\n\r\n%s", path, host,
+			"Content-Type: %s\r\nContent-Length: %lu\r\nConnection: close\r\n\r\n", path, host,
 			https_port->user_agent ? https_port->user_agent : "Warthog/1",
-			content_type ? content_type : "application/json", (unsigned long)strlen(body), body);
+			content_type ? content_type : "application/json", body_length);
 	else
 		length = snprintf(request, sizeof(request),
 			"GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nAccept-Encoding: identity\r\n"
@@ -961,14 +968,14 @@ int console_https_request(const char *host, const char *path, const char *body, 
 		https_port->lock();
 	mbedtls_memory_buffer_alloc_init(arena.bytes, sizeof(arena.bytes));
 	pin_missed = 0;
-	result = request_locked(trust, request, length, response, size, received, timeout_ms, NULL);
+	result = request_locked(trust, request, length, body, body_length, response, size, received, timeout_ms, NULL);
 	/* (the site's key not pinned, or a day since the pin document was last
 	asked for: asked for now, and with new pins the request tried again) */
 	if (!strcmp(trust->host, CONSOLE_HTTPS_SITE) && pins_due(pin_missed) && pins_refresh(timeout_ms) &&
 		result == CONSOLE_HTTPS_ERROR_KEY)
 	{
 		*received = 0;
-		result = request_locked(trust, request, length, response, size, received, timeout_ms, NULL);
+		result = request_locked(trust, request, length, body, body_length, response, size, received, timeout_ms, NULL);
 	}
 #ifdef CONSOLE_HTTPS_TESTS
 	{
@@ -1065,7 +1072,7 @@ int console_https_get_stream(const char *host, const char *path, const char *hea
 		https_port->lock();
 	mbedtls_memory_buffer_alloc_init(arena.bytes, sizeof(arena.bytes));
 	pin_missed = 0;
-	result = request_locked(trust, request, length, buffer, sizeof(buffer), &received, timeout_ms, &stream);
+	result = request_locked(trust, request, length, NULL, 0, buffer, sizeof(buffer), &received, timeout_ms, &stream);
 #ifdef CONSOLE_HTTPS_TESTS
 	{
 		size_t used = 0, blocks = 0;

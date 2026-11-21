@@ -69,6 +69,12 @@ PACKAGES: List[Tuple[str, str, str]] = [
      "0a52edec5d626f8d9acf1998248d276760aff3950f44a308d27d4a2a488fe18d", "20210111T024320Z"),
     ("pool/main/g/gcc-10/libgcc-10-dev_10.2.1-6_i386.deb",
      "64a544dcf5463225603cb025a05c7b79dea9876004c09d81af2bc31ffe0ccc1e", "20210111T024320Z"),
+    # (the C++ library, which the ragdolls' Jolt Physics is built and
+    # statically linked against: tools/linux_build.py, JOLT_DIR)
+    ("pool/main/g/gcc-10/libstdc++6_10.2.1-6_i386.deb",
+     "ef9b1f03163ad32c8f940b9a9e417773ff3d2f08ad2044d9c28fed5b81de3b7e", "20210111T024320Z"),
+    ("pool/main/g/gcc-10/libstdc++-10-dev_10.2.1-6_i386.deb",
+     "4b629a2acb5e19cc0c7bf2a39f7ab7c268f977ce07e78ad9853648da93868d40", "20210111T024320Z"),
     # SDL's X11 video driver
     ("pool/main/libx/libx11/libx11-6_1.7.2-1+deb11u2_i386.deb",
      "a0307da50139370781beac6fe6d3b173493af11d0a35c43c053c539d5d67969c", "20231012T085604Z"),

@@ -181,6 +181,10 @@ SCREENS = {
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
+                # (port/linux/game/ragdolls.c: the builds with Jolt Physics,
+                # HALO_PORT_RAGDOLLS)
+                ("RAGDOLLS:", "display.ragdolls", ON_OFF,
+                 "Dead bodies fall limp and come to rest.\nOff looks like the Xbox.", "desktop"),
             ]),
             # (the menus, text, buttons, HUD and scoreboard in one list:
             # more rows than fit above the help line, so it scrolls:
@@ -199,6 +203,11 @@ SCREENS = {
                  "Draw text and titles in high resolution.", NOT_CONSOLE),
                 ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
                  "Draw the HUD in high resolution.", NOT_CONSOLE),
+                # (display.hud_safe_zone: hud_draw.c's hud_safe_zone_bounds;
+                # two numbers are in config.toml alone)
+                ("SAFE ZONES:", "display.hud_safe_zone",
+                 [("ON", "xbox"), ("SINGLE SCREEN ONLY", "auto"), ("OFF", "pc")],
+                 "Keep the HUD in from the screen's edges, as on the Xbox.\nOff moves it to the edges.", None),
                 # (the ~ key's console: terminal.c's drop-down one, or the
                 # Xbox's lines at the bottom)
                 ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],

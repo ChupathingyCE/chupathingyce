@@ -25,6 +25,8 @@ enum
 opens it), and a row's label */
 short guide_logs_rows(void);
 char const *guide_logs_row_label(short row);
+/* A's word on it: SEND, OPEN */
+char const *guide_logs_row_word(short row);
 /* a row's A: SEND MY LOGS' window, or the folder opened (a message for the
 Guide's line when it can't be: NULL otherwise) */
 char const *guide_logs_row_activate(short row);

@@ -1096,15 +1096,20 @@ void hud_calculate_point(
 	corner = absolute_placement->corner;
 	if (corner < _hud_anchor_center)
 	{
+		/* port: the corners in display.hud_safe_zone's frame ("xbox": the
+		Xbox's window) */
+		rectangle2d safe_bounds;
+
+		hud_safe_zone_bounds(&safe_bounds);
 		point.x = placement->offset.x *
 			(TEST_FLAG(corner, _hud_anchor_right_bit) ? -1 : 1) * scale +
-			render.camera.window_bounds.v[
+			safe_bounds.v[
 				((corner & FLAG(_hud_anchor_right_bit)) << 1) |
 					FLAG(_hud_anchor_right_bit)] -
 			render.camera.viewport_bounds.x0;
 		point.y = placement->offset.y *
 			(TEST_FLAG(corner, _hud_anchor_bottom_bit) ? -1 : 1) * scale +
-			render.camera.window_bounds.v[corner & FLAG(_hud_anchor_bottom_bit)] -
+			safe_bounds.v[corner & FLAG(_hud_anchor_bottom_bit)] -
 			render.camera.viewport_bounds.y0;
 	}
 	else
@@ -1481,6 +1486,146 @@ void hud_zoomed_layout_end(
 }
 
 #endif
+
+/* port: display.hud_safe_zone, how far the HUD sits from the screen's edges.
+The Xbox lays a view's HUD out in its window: the title-safe frame of the
+640x480 screen (48 columns and 36 lines in from each edge, 7.5%:
+_rasterizer_initialize), split for split screen with only 4 pixels between
+a view's window and the line between views (compute_window_bounds). So in
+split screen a view's window sits off its view's middle, far in from the
+screen's edges and close to the other views', as on the Xbox (retail:
+compute_window_bounds at 0x000bba00, the frame set at 0x0007fadc). "xbox"
+keeps that (the consoles' default: televisions overscan); "pc" puts the HUD
+8 in from each view's edges, as Halo PC does; "auto" (the desktop's and
+Android's default: port_config.c's DEFAULT_HUD_SAFE_ZONE) is the Xbox's
+alone and Halo PC's in split screen; two numbers ("24 18") set the columns
+and the lines, 8 to 48 and 8 to 36. The range and the two-number form follow
+Chimera's chimera_safe_zones, by SnowyMouse (GPL-3.0), thanks!
+
+With other than the Xbox's margins, each split screen view's window is also
+put in the middle of its view (compute_window_bounds, at its end:
+hud_safe_zone_centers_windows), so its crosshair, its aim (the view's
+projection is built about the window's middle), its first-person weapon and
+the HUD's middle pieces are in the view's middle, and every view looks the
+same. Only drawing changes: nothing here is sent or simulated. */
+enum
+{
+	HUD_SAFE_ZONE_XBOX_COLUMNS = 48,
+	HUD_SAFE_ZONE_XBOX_LINES = 36,
+	HUD_SAFE_ZONE_PC_MARGIN = 8,
+	HUD_SAFE_ZONE_SCREEN_COLUMNS = 640,
+	HUD_SAFE_ZONE_SCREEN_LINES = 480,
+};
+
+enum
+{
+	_hud_safe_zone_xbox = 0,
+	_hud_safe_zone_pc,
+	_hud_safe_zone_auto,
+	_hud_safe_zone_custom,
+};
+
+int config_text(const char *name, char *text, size_t size);
+unsigned long config_changes(void);
+short main_get_window_count(void);
+void platform_log(char const *format, ...);
+
+static void hud_safe_zone_margins(
+	short *columns,
+	short *lines)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static short mode = _hud_safe_zone_xbox;
+	static short custom_columns = HUD_SAFE_ZONE_XBOX_COLUMNS;
+	static short custom_lines = HUD_SAFE_ZONE_XBOX_LINES;
+	/* (the value last said in the log, so a wrong one is said once) */
+	static char said[32];
+
+	if (read_at != config_changes())
+	{
+		char text[32];
+		int h;
+		int v;
+
+		read_at = config_changes();
+		mode = _hud_safe_zone_xbox;
+		if (config_text("display.hud_safe_zone", text, sizeof(text)))
+		{
+			boolean say = strcmp(text, said) != 0;
+
+			if (!strcmp(text, "pc"))
+				mode = _hud_safe_zone_pc;
+			else if (!strcmp(text, "auto"))
+				mode = _hud_safe_zone_auto;
+			else if (sscanf(text, "%d%*[ ,]%d", &h, &v) == 2)
+			{
+				mode = _hud_safe_zone_custom;
+				custom_columns = (short)PIN(h, HUD_SAFE_ZONE_PC_MARGIN, HUD_SAFE_ZONE_XBOX_COLUMNS);
+				custom_lines = (short)PIN(v, HUD_SAFE_ZONE_PC_MARGIN, HUD_SAFE_ZONE_XBOX_LINES);
+				if (say && (custom_columns != h || custom_lines != v))
+					platform_log("settings: display.hud_safe_zone = \"%s\" is out of 8 to 48 and 8 to 36; using \"%d %d\"",
+						text, custom_columns, custom_lines);
+			}
+			else if (say && text[0] && strcmp(text, "xbox"))
+				platform_log("settings: display.hud_safe_zone = \"%s\" is not \"xbox\", \"pc\", \"auto\" or two numbers; "
+					"using \"xbox\"", text);
+			snprintf(said, sizeof(said), "%s", text);
+		}
+	}
+
+	if (mode == _hud_safe_zone_pc ||
+		(mode == _hud_safe_zone_auto && main_get_window_count() > 1))
+	{
+		*columns = HUD_SAFE_ZONE_PC_MARGIN;
+		*lines = HUD_SAFE_ZONE_PC_MARGIN;
+	}
+	else if (mode == _hud_safe_zone_custom)
+	{
+		*columns = custom_columns;
+		*lines = custom_lines;
+	}
+	else
+	{
+		*columns = HUD_SAFE_ZONE_XBOX_COLUMNS;
+		*lines = HUD_SAFE_ZONE_XBOX_LINES;
+	}
+}
+
+boolean hud_safe_zone_centers_windows(
+	void)
+{
+	short columns;
+	short lines;
+
+	hud_safe_zone_margins(&columns, &lines);
+	return columns != HUD_SAFE_ZONE_XBOX_COLUMNS || lines != HUD_SAFE_ZONE_XBOX_LINES;
+}
+
+void hud_safe_zone_bounds(
+	rectangle2d *bounds)
+{
+	rectangle2d const *screen = &rasterizer_globals.reserved04.screen_bounds;
+	rectangle2d const *viewport = &render.camera.viewport_bounds;
+	short columns;
+	short lines;
+
+	*bounds = render.camera.window_bounds;
+	hud_safe_zone_margins(&columns, &lines);
+	if (columns == HUD_SAFE_ZONE_XBOX_COLUMNS && lines == HUD_SAFE_ZONE_XBOX_LINES)
+		return;
+
+	/* (in the screen's units: a wider screen's frame is as much wider,
+	_rasterizer_initialize; the same in from each of the view's edges, so
+	each view's HUD sits in it as the others' do, its window in its middle:
+	compute_window_bounds) */
+	columns = (short)(columns * (screen->x1 - screen->x0) / HUD_SAFE_ZONE_SCREEN_COLUMNS);
+	lines = (short)(lines * (screen->y1 - screen->y0) / HUD_SAFE_ZONE_SCREEN_LINES);
+	bounds->x0 = (short)(viewport->x0 + columns);
+	bounds->x1 = (short)(viewport->x1 - columns);
+	bounds->y0 = (short)(viewport->y0 + lines);
+	bounds->y1 = (short)(viewport->y1 - lines);
+}
+
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 /* port: whether performance mode keeps the HUD's frames and backgrounds */
 boolean console_performance_hud_frames(void);

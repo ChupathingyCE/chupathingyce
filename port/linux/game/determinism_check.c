@@ -215,10 +215,9 @@ static void determinism_read_settings(
 			(!first_version && fread(&rules, sizeof(rules), 1, determinism_globals.inputs) != 1))
 		{
 			platform_log("determinism: %s is not a recording of this build", setting + 7);
-			if (determinism_globals.inputs)
-				fclose(determinism_globals.inputs);
-			determinism_globals.inputs = NULL;
-			return;
+			/* (stopped: a replay with nothing to replay played on with no
+			input, its ticks never counted, until the check's time limit) */
+			exit(2);
 		}
 		/* (the recording's rules, over this copy's config.toml) */
 		host_rules_set_air_turn_aim(TEST_FLAG(rules, _determinism_rule_air_turn_aim_bit) ? TRUE : FALSE);
@@ -453,6 +452,15 @@ long determinism_check_ticks_done(
 	if (determinism_globals.mode == _determinism_off || !determinism_globals.started)
 		return -1;
 	return determinism_globals.ticks_done;
+}
+
+/* whether a replay is playing a recording now: render.c's render_tuning
+lets the drawing knobs go as far as in a local game only then (a setting
+naming no recording, or one that ran out, is no replay) */
+boolean determinism_check_replaying(
+	void)
+{
+	return determinism_active() && determinism_globals.mode == _determinism_replay;
 }
 
 #else
