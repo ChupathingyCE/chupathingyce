@@ -129,6 +129,12 @@ void halo_screen_warp_blend(unsigned char on);
 debug.original_blur) */
 unsigned char halo_screen_fast_blur(void);
 #endif
+#ifdef HALO_PORT_SAFE_SAVES
+/* the file at path (an Xbox path) made to hold size bytes of data whole, or
+left as it was: TRUE once it does (port/linux/src/xbox_files.c,
+halo_port_features.h) */
+int halo_file_write_whole(const char *path, const void *data, unsigned long size);
+#endif
 /* the mouse in the menus (source/interface/ui_widget.c) */
 #include "halo_ui_pointer.h"
 
