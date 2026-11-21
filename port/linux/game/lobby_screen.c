@@ -43,7 +43,8 @@ is the server's (START GAME only lets it run: network_game_server_pause_
 countdown), and a second controller's START joins split screen and its B
 takes that player out, through the Xbox screen as they did (the first
 controller's B is the lobby's LEAVE, as is the B of a controller with no
-player here). While a gamepad here has no player and the game has room, the
+player here while the machine has one player; with more, that B does
+nothing). While a gamepad here has no player and the game has room, the
 first open slot reads PRESS START TO JOIN.
 
 Input: up and down move in the list or the menu, left and right (and the
@@ -1982,9 +1983,19 @@ static void press(short button, short controller)
 		/* (a controller with no player here, a second gamepad: its B is the
 		lobby's LEAVE, as the first controller's, and it leaves as the
 		machine's first player. It went to the guest's B, which took nobody
-		out, so a pad that wasn't the first could not leave) */
+		out, so a pad that wasn't the first could not leave. With split
+		screen's players here it is someone else's pad: its B leaves nothing,
+		as on the Xbox, so it can't take the others out of the game) */
 		if (!own_player)
-			controller = first_local_controller(game);
+		{
+			if (machine_player_count(game) > 1)
+			{
+				if (button == _gamepad_analog_button_b && lobby.dialog == _dialog_none)
+					return;
+			}
+			else
+				controller = first_local_controller(game);
+		}
 	}
 	if (lobby.dialog != _dialog_none)
 	{
