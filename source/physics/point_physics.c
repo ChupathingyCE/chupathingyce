@@ -291,3 +291,21 @@ static void render_debug_point_physics(
 
 	return;
 }
+
+/* port: the point physics of a definition, or for NONE (a particle, flag or
+antenna whose tag names none) zeros: what tag_get gave for NONE, the empty
+tag's data, without zeroing its 64 KB on every call, which a particle's
+update and its creation each made. Any other index as before */
+struct point_physics_definition *point_physics_definition_get_or_zero(
+	long index)
+{
+	static struct point_physics_definition none;
+
+	if (index == NONE)
+	{
+		csmemset(&none, 0, sizeof(none));
+		return &none;
+	}
+
+	return (struct point_physics_definition *)tag_get(POINT_PHYSICS_DEFINITION_TAG, index);
+}
