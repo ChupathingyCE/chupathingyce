@@ -652,18 +652,33 @@ static void value_fit(const char *value, float size, float room, char *out, int 
 	snprintf(out, (size_t)out_size, "...");
 }
 
-/* the next ui_style_setting's value without its arrows (ui_style_setting_plain) */
-static int setting_plain;
+/* the next ui_style_setting's value without its arrows (ui_style_setting_plain),
+and with a chevron (ui_style_setting_opens) */
+static int setting_plain, setting_opens;
 
 void ui_style_setting_plain(void)
 {
 	setting_plain = 1;
 }
 
+void ui_style_setting_opens(void)
+{
+	setting_opens = 1;
+}
+
+float ui_style_row_chevron(float x, float y, float width, float height, float size)
+{
+	float right = x + width - size * 0.6f;
+
+	ui_overlay_text(UI_FONT_MENU, size, right, y + (height - size) * 0.5f, UI_ALIGN_RIGHT, PALETTE(TAB),
+		"\xE2\x80\xBA");
+	return size * 0.6f + ui_overlay_text_width(UI_FONT_MENU, size, "\xE2\x80\xBA") + size * 0.5f;
+}
+
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected)
 {
-	int plain = setting_plain;
+	int plain = setting_plain, opens = setting_opens;
 	float size = ui_style_text_size(UI_TEXT_NAME) * scale;
 	float text_y = y + (height - size) * 0.5f, right = x + width - size * 1.2f, label_end;
 	float value_width;
@@ -685,6 +700,18 @@ void ui_style_setting(float x, float y, float width, float height, float scale, 
 		label_end = badge_x + badge_width;
 	}
 	setting_plain = 0;
+	setting_opens = 0;
+	/* (a row that opens a list or a screen: the chevron at the arrow's
+	place, its value before it) */
+	if (opens)
+	{
+		ui_overlay_text(UI_FONT_MENU, size, right, text_y, UI_ALIGN_RIGHT, PALETTE(TAB), "\xE2\x80\xBA");
+		if (!value)
+			return;
+		value_fit(value, size, right - size * 1.2f - (label_end + size * 1.5f), shown, sizeof(shown));
+		ui_style_text_scaled(UI_TEXT_NAME, scale, right - size * 1.2f, text_y, UI_ALIGN_RIGHT, shown);
+		return;
+	}
 	/* (an action row, ABOUT's or SEND MY LOGS': no value, no arrows) */
 	if (!value)
 		return;

@@ -1759,7 +1759,24 @@ char const *guide_workshop_prompt(void)
 	if (workshop_view.searching)
 		return "SEARCH";
 	if (workshop_view.page)
-		return workshop_view.description_on ? "BUTTONS" : "SELECT";
+	{
+		short options[MAXIMUM_OPTIONS], count;
+		short option;
+
+		if (workshop_view.description_on)
+			return "BUTTONS";
+		/* (the button chosen: its own word, GET, PLAY, REMOVE) */
+		rows_sync();
+		count = options_of(chosen(), workshop_view.row_view[workshop_view.row], options);
+		if (workshop_view.option < 0 || workshop_view.option >= count)
+			return NULL;
+		option = options[workshop_view.option];
+		if (option == _option_open_steam)
+			return "OPEN";
+		if (option == _option_steam_maps)
+			return "CHANGE";
+		return option_label(workshop_view.row_view[workshop_view.row], option);
+	}
 	switch (workshop_view.row_kind[workshop_view.row])
 	{
 	case _row_show:
