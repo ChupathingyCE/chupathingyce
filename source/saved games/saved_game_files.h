@@ -80,6 +80,14 @@ boolean saved_game_file_open(
 boolean synchronize_metadata_display_name_with_profile_name(
 	long profile_index,
 	wchar_t *game_display_name);
+#ifdef HALO_PORT_SAFE_SAVES
+/* port: a saved game file's block written whole or not at all, and with
+keep_backup the good one it replaces kept beside it (halo_port_features.h) */
+boolean saved_game_file_write_block(
+	long profile_index,
+	void const *block,
+	boolean keep_backup);
+#endif
 boolean saved_game_file_get_path_to_enclosing_directory(
 	long profile_index,
 	char *directory_path);

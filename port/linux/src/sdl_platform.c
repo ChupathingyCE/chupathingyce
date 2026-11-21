@@ -3104,6 +3104,25 @@ void platform_clipboard_set(const char *text)
 	SDL_SetClipboardText(text);
 }
 
+/* the battery, for the Guide's card: 1 running on it, 2 charging, 0 none
+(a desktop, or plugged in and full, or not known); its percent in percent
+(-1 not known). debug.battery stands in for one in screenshots ("40",
+"40c" charging) */
+int platform_power_state(int *percent)
+{
+	const char *fake = config_string("debug.battery");
+	SDL_PowerState state;
+
+	*percent = -1;
+	if (fake && fake[0])
+	{
+		*percent = atoi(fake);
+		return strchr(fake, 'c') ? 2 : 1;
+	}
+	state = SDL_GetPowerInfo(NULL, percent);
+	return state == SDL_POWERSTATE_ON_BATTERY ? 1 : state == SDL_POWERSTATE_CHARGING ? 2 : 0;
+}
+
 /* network.join_from_clipboard: "never" (the default), "ask" or "always"
 (true and false, of older versions, are "always" and "never":
 port_config.c) */
