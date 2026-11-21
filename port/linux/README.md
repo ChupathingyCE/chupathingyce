@@ -34,6 +34,11 @@ To build:
 - The 32-bit SDL3: `libsdl3-dev:i386` on Debian and Ubuntu, `lib32-sdl3` on
   Arch Linux. The portable build does not need it: refer to "Portable
   build".
+- The 32-bit static C++ library (`libstdc++.a`), which the ragdolls' Jolt
+  Physics is linked with: `g++-multilib` on Debian and Ubuntu, `gcc` on
+  Arch Linux (its 32-bit libraries come with it). The portable build does
+  not need it: its own system root has one. Players need no 32-bit C++
+  library either way.
 
 To start the game:
 
@@ -81,9 +86,13 @@ starts on more systems than the build machine's:
   32-bit SDL 3. This SDL loads X11, Wayland, libdecor, PipeWire, PulseAudio
   and ALSA when it starts, so it starts with whichever of them the system
   has. It is linked only to glibc. Its license is in `THIRD-PARTY-NOTICES.txt`.
+- It links Debian 11's 32-bit C++ library (GCC 10's `libstdc++.a`)
+  statically, for the ragdolls' Jolt Physics, so the build machine needs no
+  32-bit C++ library of its own.
 
 The 64-bit build (`ninja linux64`, below) is portable the same way, with
-Debian 11's 64-bit (amd64) packages.
+Debian 11's 64-bit (amd64) packages, but for the C++ library: it uses the
+system's 64-bit one, which every distribution has.
 
 At the first build, `tools/linux_sysroot.py` downloads the Debian packages
 (about 25 MB) and the source of SDL. Each package comes from
@@ -658,7 +667,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.per_pixel_lighting` | `false` | `HALO_PER_PIXEL_LIGHTING` | `false`: the models (characters, weapons, vehicles, scenery) are lit at each vertex and the light is blended between them, as on the Xbox. The light across a curved surface then shows facets, and a point light that passes close lights only the vertices it reaches. `true`: the models are lit at each pixel by the same lights (the ambient light, two distant lights and two point lights), which changes their look. |
 | `display.camo_weapon_fix` | `false` | `HALO_CAMO_WEAPON_FIX` | `true`: your camouflaged first-person weapon is drawn in the front of the depth range, so a wall close by never cuts it away. `false`: as on the Xbox, where it is drawn after the world and walls cut it. Drawing only. |
 | `display.plasma_sparks` | `false` | `HALO_PLASMA_SPARKS` | `true`: the blue sparks off a live plasma grenade are drawn, at any frame rate. On the Xbox they never showed: a particle that plays one short sequence ran its frame out in its first update, a whole tick, before it was drawn, so the native builds showed them only above 30 frames a second. `false`: as on the Xbox, at any frame rate (`source/effects/particles.c`). Settings: Video Setup, Advanced, and the Guide. |
-| `display.ragdolls` | `false` | `HALO_RAGDOLLS` | `true`: a character killed falls limp, thrown by the blow that killed it, and comes to rest where it lands, instead of its death animation's last pose. Each body is a rigid body ragdoll on Jolt Physics (`port/third_party/jolt`), made from the dying character's own model, collision model and animation graph (`game/ragdolls.c`, `game/physics_jolt.cpp`). Only the picture: the body's place, hit boxes, saved games and the network are as before, and each machine simulates its own. Four fall at once at most, twelve are kept. `false`: as on the Xbox. `debug.ragdolls` (`HALO_RAGDOLLS_DEBUG`) logs them and lets the console's `ragdolls` tests run. Builds with Jolt only (`HALO_PORT_RAGDOLLS`). Settings: Video Setup, Advanced, and the Guide. The idea is from jojoxdk's Halo 1 MCC Box3D Physics Mod. |
+| `display.ragdolls` | `false` | `HALO_RAGDOLLS` | `true`: a character killed falls limp, thrown by the blow that killed it, and comes to rest where it lands, instead of its death animation's last pose. Each body is a rigid body ragdoll on Jolt Physics (`port/third_party/jolt`), made from the dying character's own model, collision model and animation graph (`game/ragdolls.c`, `game/physics_jolt.cpp`). Only the picture: the body's place, hit boxes, saved games and the network are as before, and each machine simulates its own. Four fall at once at most, twelve are kept. If the physics runs out of memory, the bodies are laid down as on the Xbox and ragdolls stay off until the setting is turned off and on again; the game goes on. `false`: as on the Xbox. `debug.ragdolls` (`HALO_RAGDOLLS_DEBUG`) logs them and lets the console's `ragdolls` tests run. Builds with Jolt only (`HALO_PORT_RAGDOLLS`). Settings: Video Setup, Advanced, and the Guide. The idea is from jojoxdk's Halo 1 MCC Box3D Physics Mod. |
 | `display.doors_block_light` | `true` | `HALO_DOORS_BLOCK_LIGHT` | `true`: a closed door stops a dynamic light behind it (a plasma bolt, an explosion, a flashlight in the next room) from lighting the walls and objects on your side. Each door is matched with the level portals it covers once it has rested at each end of its travel; a moving door lets light through. Drawing only: the AI's sense of light and the network are unchanged (`source/objects/door_portals.c`). `false`: the light comes through the door, as on the Xbox. This replaces the old `debug.doors_pass_light` key, which is gone. |
 | `display.light_effects` | `"auto"` | `HALO_LIGHT_EFFECTS` | Light from projectiles, muzzle flashes, glowing emitters and held weapons, with soft falloff, blocked by walls. `"high"`: all of it. `"low"`: only the shots and muzzle flashes. `"off"`: the game's own lighting, as on the Xbox. `"auto"`: `"high"`, or `"off"` on a software renderer. Drawing only. LIGHT EFFECTS in the display settings. Based on chestahh's dynamic lighting in GulchCE (`port/linux/game/lighting_config.c`). Desktop only. |
 | `display.theme` | `"blue"` | `HALO_THEME` | The colors of the Delta Guide and the setup screen: `"blue"` (HALO BLUE), `"green"` (DASHBOARD GREEN), `"orange"` (VISOR ORANGE), `"live"` (LIVE ORANGE) or `"red"` (CHUPATHINGY RED). A change shows at once. |

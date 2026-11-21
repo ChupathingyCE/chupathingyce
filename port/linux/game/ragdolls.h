@@ -8,6 +8,10 @@ network or into a saved game, and no game random number is drawn.
 
 The builds with Jolt (HALO_PORT_RAGDOLLS, halo_port_features.h); every call
 below is compiled out elsewhere.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef __RAGDOLLS_H
@@ -42,8 +46,9 @@ boolean ragdolls_pose(long object_index, real_matrix4x3 *matrices, short node_co
 real_matrix4x3 *ragdolls_drawn_pose(long object_index);
 /* while a frame is drawn: each ragdoll's body's sphere is the ragdoll's
 (level of detail, lighting, culling), put back as it was at the frame's
-end, before any tick */
-void ragdolls_frame_begin(void);
+end, before any tick. TRUE: a ragdoll is kept this frame (FALSE: no object
+is drawn as one, ragdolls_drawn_pose need not be asked) */
+boolean ragdolls_frame_begin(void);
 void ragdolls_frame_end(void);
 /* (find_rendered_objects) the ragdolls whose bodies the clusters drawn did
 not find, found in the cluster each lies in and seen from there: at most
@@ -52,8 +57,9 @@ short ragdolls_find_rendered(long *result, short maximum, boolean (*unmarked)(lo
 	boolean (*mark)(long object_index));
 
 /* ---------- the console (hs.c): "ragdolls stats", and with debug.ragdolls
-the tests' "ragdolls boom|shoot|punch|kill [count] [range]" and "ragdolls
-cam <distance> <yaw> <pitch>"; TRUE: done */
+the tests' "ragdolls boom|shoot|punch|kill [count] [range]", "ragdolls
+cam <distance> <yaw> <pitch>" and "ragdolls nomemory [count]" (Jolt's
+allocations refused from the count-th on); TRUE: done */
 boolean ragdolls_command(char const *arguments);
 
 #endif // __RAGDOLLS_H

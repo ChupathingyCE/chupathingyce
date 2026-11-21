@@ -88,6 +88,10 @@ melee blow or a plain kill of the nearest living characters, those whose
 tag's name holds name, or other players' with "players"), "ragdolls cam
 <distance> <yaw> <pitch>" (the debug camera looking at the last one),
 "ragdolls shot" (a screenshot).
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "cseries.h"
@@ -497,6 +501,10 @@ static struct
 
 /* ---------- the settings */
 
+/* (Jolt out of memory: ragdolls_out_of_memory) no ragdolls until the setting
+is turned off and on again */
+static boolean ragdolls_stopped;
+
 static boolean ragdolls_enabled(
 	void)
 {
@@ -507,8 +515,10 @@ static boolean ragdolls_enabled(
 	{
 		read_at = config_changes();
 		enabled = config_boolean("display.ragdolls") != 0;
+		if (!enabled)
+			ragdolls_stopped = FALSE;
 	}
-	return enabled;
+	return enabled && !ragdolls_stopped;
 }
 
 /* (debug.ragdolls: the log, the tests) */
@@ -2924,6 +2934,27 @@ void ragdolls_note_damage(
 	}
 }
 
+/* (Jolt's memory ran out: an allocation was refused and its world's reserve
+took it, physics_jolt.cpp) every body as the game lays it again, the world
+and the level's mesh gone, and no ragdolls until the setting is turned off
+and on: they are only the picture, and the game goes on. TRUE: stopped */
+static boolean ragdolls_out_of_memory(
+	void)
+{
+	short slot;
+
+	if (!physics_jolt_out_of_memory())
+		return FALSE;
+	for (slot = 0; slot < RAGDOLL_SLOTS; slot++)
+		ragdoll_release(slot, _ragdoll_released_setting);
+	ragdoll_pending_count = 0;
+	ragdoll_world_release();
+	physics_jolt_forget_meshes();
+	ragdolls_stopped = TRUE;
+	platform_log("ragdolls: out of memory: off until display.ragdolls is turned off and on again");
+	return TRUE;
+}
+
 void ragdolls_tick(
 	void)
 {
@@ -2941,12 +2972,16 @@ void ragdolls_tick(
 		ragdoll_pending_count = 0;
 		if (ragdoll_world.built)
 			ragdoll_world_release();
+		/* (nor the level's mesh kept for the next world) */
+		physics_jolt_forget_meshes();
 		return;
 	}
 	/* (the world with the level in it made as the level starts, not at the
 	first death; a dedicated server's game none: it draws nothing) */
 	if (!ragdolls_dedicated() && global_scenario_get() && global_scenario_get()->type != _scenario_type_main_menu)
 		ragdoll_world_ready();
+	if (ragdolls_out_of_memory())
+		return;
 	/* (nothing to do) */
 	for (slot = 0; slot < RAGDOLL_SLOTS && ragdolls[slot].state == _ragdoll_free; slot++)
 		;
@@ -3068,6 +3103,8 @@ void ragdolls_tick(
 			kept--;
 		}
 	}
+	if (ragdolls_out_of_memory())
+		return;
 	ragdoll_stats.most_awake = MAX(ragdoll_stats.most_awake, awake);
 	ragdoll_stats.most_kept = MAX(ragdoll_stats.most_kept, kept);
 	elapsed = ragdoll_ms_since(started);
@@ -3122,7 +3159,7 @@ real_matrix4x3 *ragdolls_drawn_pose(
 	return ragdoll->pose;
 }
 
-void ragdolls_frame_begin(
+boolean ragdolls_frame_begin(
 	void)
 {
 	short slot;
@@ -3147,6 +3184,7 @@ void ragdolls_frame_begin(
 		object->object.bounding_sphere_radius = ragdoll->radius;
 		ragdoll_swapped.count++;
 	}
+	return ragdoll_swapped.count > 0;
 }
 
 void ragdolls_frame_end(
@@ -3473,6 +3511,14 @@ boolean ragdolls_command(
 		ragdoll_test_camera(a, b, c);
 		return TRUE;
 	}
+	/* (Jolt's allocations refused from the count-th on, as the C heap
+	refuses one: the ragdolls stop, the game goes on) */
+	if (!strcmp(word, "nomemory"))
+	{
+		physics_jolt_refuse_allocations_after(a >= 1.f ? (unsigned int)a : 1);
+		platform_log("ragdolls test: Jolt's allocations refused from the %u-th on", a >= 1.f ? (unsigned int)a : 1);
+		return TRUE;
+	}
 #ifdef HALO_CAPTURE
 	/* (a screenshot, as the screenshot key takes one: capture.c) */
 	if (!strcmp(word, "shot"))
@@ -3483,7 +3529,7 @@ boolean ragdolls_command(
 		return TRUE;
 	}
 #endif
-	platform_log("ragdolls: unknown \"%s\" (stats, boom, shoot, punch, kill, cam, shot)", arguments);
+	platform_log("ragdolls: unknown \"%s\" (stats, boom, shoot, punch, kill, cam, nomemory, shot)", arguments);
 	return FALSE;
 }
 
