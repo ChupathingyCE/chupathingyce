@@ -850,7 +850,6 @@ void game_state_create_persistent_storage(
 	return;
 }
 
-#ifndef HALO_XBOX_CONSOLE
 /* port: the saved game's header alone, read without making the file or
 reading on. FALSE for no file, or one of another size (one never written
 whole, which holds no saved game). */
@@ -881,6 +880,7 @@ boolean game_state_read_persistent_storage_header(
 	return result;
 }
 
+#ifndef HALO_XBOX_CONSOLE
 /* port: the saved game read once, into the image's block, and checked
 there: its checksum is the one game_state_write_to_persistent_storage made,
 of the whole state with the checksum's own field as zero. Retail read the

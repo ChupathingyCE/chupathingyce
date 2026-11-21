@@ -453,20 +453,23 @@ boolean game_state_test_persistent_storage(
 	struct game_state_header header;
 	boolean success;
 
-#ifndef HALO_XBOX_CONSOLE
-	/* port: no file, one never written whole or one never saved to (its
-	checksum zero) holds no saved game: said without reading it all, as
-	retail's checksum would have said after its read */
+	/* port: a file never saved to (its checksum zero) holds no saved game,
+	and on the native builds neither does no file or one never written
+	whole: said without reading it all, as retail's checksum would have
+	said after its read (and without its "checksum failed") */
 	if (corrupted)
 		*corrupted = FALSE;
+#ifndef HALO_XBOX_CONSOLE
 	if (!game_state_read_persistent_storage_header(&header, sizeof(header)) || !header.checksum)
+#else
+	if (game_state_read_persistent_storage_header(&header, sizeof(header)) && !header.checksum)
+#endif
 	{
 		*difficulty = _game_difficulty_level_normal;
 		strcpy(map_name, "");
 
 		return FALSE;
 	}
-#endif
 	if (game_state_read_header_from_persistent_storage(
 		&header,
 		&header.checksum,
@@ -1178,9 +1181,10 @@ void game_state_try_and_load_from_persistent_storage(
 	the same as before; the original Xbox keeps retail's reads. */
 	void *image = NULL;
 
+	/* (a checksum of zero is a file never saved to: no saved game, and
+	nothing to say about it) */
 	if (game_state_read_persistent_storage_header(&header, sizeof(header))
-		&& (header.checksum ||
-			(error(_error_silent, "no saved game in persistent storage"), FALSE))
+		&& header.checksum
 		&& game_state_header_valid(&header, FALSE)
 		&& (main_get_difficulty() == header.difficulty ||
 			(error(_error_silent, "the saved game is not taken: it is of difficulty %d, this game of %d",
@@ -1196,6 +1200,13 @@ void game_state_try_and_load_from_persistent_storage(
 		game_state_save();
 	}
 #else
+	/* port: a file never saved to (its stored checksum zero: the zeroes it
+	was made with) holds no saved game. Retail read all of it to find its
+	checksum wrong, and said "checksum failed on persistent storage" at
+	every map's start; that is skipped. A file that is not there yet is
+	still made by retail's read below. */
+	if (game_state_read_persistent_storage_header(&header, sizeof(header)) && !header.checksum)
+		return;
 	if (game_state_read_header_from_persistent_storage(
 			&header,
 			&header.checksum,
