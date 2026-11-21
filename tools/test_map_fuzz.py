@@ -1256,6 +1256,121 @@ def test_pc_copies_the_same_whatever_the_room(built, tmp_path):
     assert copies[None] and copies[None] == copies[16]
 
 
+def ce_map_block_over_an_entry(copies):
+    """a Custom Edition map whose first tags make copies past the tags (a
+    string list of copies entries, each a string inside the first list's
+    long one), then a string list's entry and an item collection whose one
+    permutation lies over that entry, its item reference's name where the
+    entry's string pointer is"""
+    base = TAG_CACHE["ce"]
+    text = 0x10000
+    data, offsets = ce_map_of_tags([(b"ustr", 0x10 + 0x14 + text), (b"ustr", 0x10 + copies * 0x14),
+                                    (b"ustr", 0x40 + 0x200), (b"itmc", 0x5C)])
+    first, second, third, collection = offsets["tags"]
+
+    def address(offset):
+        return base + offset - 0x800
+
+    struct.pack_into("<iII", data, first, 1, address(first + 0x10), 0)
+    string = first + 0x10 + 0x14
+    struct.pack_into("<iiiII", data, first + 0x10, text, 0, 0, address(string), 0)
+    data[string:string + text] = b"Q" * text
+    if copies:
+        struct.pack_into("<iII", data, second, copies, address(second + 0x10), 0)
+    for index in range(copies):
+        struct.pack_into("<iiiII", data, second + 0x10 + index * 0x14, 2, 0, 0,
+                         address(string + 2 + 2 * (index % (text // 2 - 4))), 0)
+    entry = third + 0x10
+    struct.pack_into("<iII", data, third, 1, address(entry), 0)
+    struct.pack_into("<iiiII", data, entry, 0x200, 0, 0, address(third + 0x40), 0)
+    data[third + 0x40:third + 0x240] = b"R" * 0x200
+    # (the permutation's reference name, 0x28 in, is the entry's string
+    # pointer, 0x0C in)
+    struct.pack_into("<iII", data, collection, 1, address(entry + 0x0C - 0x28), 0)
+    return data
+
+
+@pytest.mark.parametrize("copies", [0, 4096])
+def test_pc_block_over_an_entry_never_walked_where_it_writes(built, tmp_path, copies):
+    """a block over another tag's bytes that cannot be copied apart (here,
+    every copy is spent) is walked where it is only if the walk writes
+    nothing there: a block with a reference, index, enum or string is made
+    none instead, as its correction would change bytes the other tag was
+    checked to read. With copies to spare, it gets a copy of its own"""
+    binaries, _ = built
+    path = tmp_path / f"block_over_an_entry_{copies}.map"
+    path.write_bytes(bytes(ce_map_block_over_an_entry(copies)))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+    if copies:
+        assert "(itmc): permutations has 1 elements of 84 bytes at" in result.stderr, result.stderr[-4000:]
+        assert "which overlap another's: none" in result.stderr, result.stderr[-4000:]
+        assert "permutations[0].item" not in result.stderr, result.stderr[-4000:]
+        assert f"{copies} roots, blocks and data overlapping others' given their own copies" in result.stderr, \
+            result.stderr[-4000:]
+    else:
+        assert "(itmc): permutations has 84 bytes at" in result.stderr, result.stderr[-4000:]
+        assert "1 roots, blocks and data overlapping others' given their own copies (84 bytes)" in result.stderr, \
+            result.stderr[-4000:]
+
+
+def test_pc_bsp_block_over_its_collision_never_walked_where_it_writes(built, tmp_path):
+    """the same in a structure BSP, where nothing is copied apart: its
+    collision BSP's vertices laid over the collision BSP itself, a vertex's
+    edge index where the planes' pointer is, are made none, not walked
+    where an index correction would change that pointer after the planes
+    were checked; the BSP as corrected needs no more correction (map_fuzz.c)"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data = bytearray(ce_map())
+    instances = struct.unpack_from("<I", data, 0x800)[0] - base
+    scenario = struct.unpack_from("<I", data, 0x800 + instances + 0x14)[0] - base
+    bsps = struct.unpack_from("<I", data, 0x800 + scenario + 0x5A8)[0] - base
+    bsp_offset, _, bsp_base = struct.unpack_from("<iiI", data, 0x800 + bsps)
+    # (ce_bsp's collision BSP: its vertices block at 0x54, its planes'
+    # pointer at 0x10, a vertex's edge index 0x0C in)
+    collision = 0x18 + 0x288 + 0x40
+    struct.pack_into("<iI", data, bsp_offset + collision + 0x54, 1, bsp_base + collision + 0x10 - 0x0C)
+    path = tmp_path / "bsp_vertices_over_collision.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "collision_bsp[0].vertices has 1 elements of 16 bytes at" in result.stderr, result.stderr[-4000:]
+    assert "which overlap another's: none" in result.stderr, result.stderr[-4000:]
+    assert "first_edge_index" not in result.stderr, result.stderr[-4000:]
+    assert "not clean when checked again" not in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_bsp_block_its_check_corrects_never_walked_where_it_writes(built, tmp_path):
+    """a block with no fields of its own is still written to by its
+    element's check: a collision BSP's leaves, laid over the collision BSP's
+    nodes block, a leaf's bsp2d references there, which the collision check
+    corrects. They are made none, not walked where that correction would
+    change the nodes' pointer after the nodes were checked; the BSP as
+    corrected needs no more correction (map_fuzz.c)"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data = bytearray(ce_map())
+    instances = struct.unpack_from("<I", data, 0x800)[0] - base
+    scenario = struct.unpack_from("<I", data, 0x800 + instances + 0x14)[0] - base
+    bsps = struct.unpack_from("<I", data, 0x800 + scenario + 0x5A8)[0] - base
+    bsp_offset, _, bsp_base = struct.unpack_from("<iiI", data, 0x800 + bsps)
+    # (ce_bsp's collision BSP: its nodes block at 0, its leaves block at
+    # 0x18; a leaf 2 bytes in has its bsp2d reference count and first
+    # reference in the nodes' pointer)
+    collision = 0x18 + 0x288 + 0x40
+    struct.pack_into("<iI", data, bsp_offset + collision + 0x18, 1, bsp_base + collision + 0x02)
+    path = tmp_path / "bsp_leaves_over_nodes.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "collision_bsp[0].leaves has 1 elements of 8 bytes at" in result.stderr, result.stderr[-4000:]
+    assert "which overlap another's: none" in result.stderr, result.stderr[-4000:]
+    assert "bsp2d references from" not in result.stderr, result.stderr[-4000:]
+    assert "not clean when checked again" not in result.stderr, result.stderr[-4000:]
+
+
 def test_split_flag_is_the_loaders_alone(built, tmp_path):
     """the flag the loader gives a sound it split (bit 31 of its flags), which
     an impulse sound then plays through: a map's own is cleared as it loads,
@@ -1561,3 +1676,4 @@ def test_pc_actor_variant_grenade_type_past_the_games(built, tmp_path):
 
 if __name__ == "__main__":
     main()
+

@@ -325,6 +325,12 @@ HALO_CONSOLE_PARTICLE_TICKS
 	their collision tests spared at 60 frames a second. The desktop builds
 	default to moving them at every frame drawn, smooth at high refresh
 	rates, and opt in
+HALO_CONSOLE_ANIMATION_FRAMES
+	an animation's frame index taken from a real frame index by truncation
+	when it is not negative, the same integer as floor's, without the
+	library's floor (source/models/model_animations.c): the keyframe
+	readers take one for each node of each animation a tick. A negative
+	index or a NaN goes through floor as before. From Lord BirchWood's work
 HALO_CONSOLE_FEWER_WALKS
 	fewer walks over a whole array for a few of its entries, with the same
 	results: a deleted object's references cleared by visiting only the
@@ -336,6 +342,14 @@ HALO_CONSOLE_FEWER_WALKS
 	the 64 decals after the last one made, not among all 2048
 	(lruv_set_search_window, rasterizer_xbox_decals.c), so an old decal
 	that goes may not be the oldest of all. From Lord BirchWood's Vita port
+HALO_CONSOLE_MARKER_LOOKUPS
+	the last 128 answers of model_find_marker kept, by model and the
+	name's address (source/models/models.c): a marker is looked up by name
+	every frame for first-person weapons, the HUD and bots, with a binary
+	search of case-insensitive compares. A remembered answer is used only
+	when the marker it names bears the name asked for, and they are
+	forgotten as a map's tags go (scenario_tags_unload), so the answers
+	are the search's own. From Lord BirchWood's work
 HALO_CONSOLE_XBOX_MAP_SIZES
 	a console that plays the Xbox's own maps only (no Custom Edition or
 	Halo PC maps): tables the desktop builds size for those maps are sized
@@ -475,7 +489,9 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "wiiu"
+#define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
+#define HALO_CONSOLE_MARKER_LOOKUPS 1
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
@@ -498,7 +514,9 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_VIEW_INTERPOLATION 1
 #define HALO_CONSOLE_FLICKER_FILTER 1
 #define HALO_CONSOLE_WAITED_VISIBILITY_TESTS 1
+#define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
+#define HALO_CONSOLE_MARKER_LOOKUPS 1
 #endif
 
 #if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
@@ -545,7 +563,9 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "x360"
+#define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
+#define HALO_CONSOLE_MARKER_LOOKUPS 1
 /* (its shadow maps: 512x512 at most, beside the screen in its 10 MB of EDRAM;
 d3d8_gl.c) */
 #define HALO_CONSOLE_SHADOW_MAP_MAXIMUM 512
