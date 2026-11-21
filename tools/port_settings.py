@@ -126,6 +126,10 @@ SCREENS = {
              [("OFF", "off"), ("FXAA", "fxaa"), ("MSAA 2X", "msaa2x"), ("MSAA 4X", "msaa4x")],
              "Smooth jagged edges.",
              "android", "anti_aliasing_android"),
+            # (display.look: port_config.c's config_look_apply sets the
+            # shadows, lights, HUD and scoreboard rows the player left alone)
+            ("LOOK:", "display.look", [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox")],
+             "Xbox draws the game as the original did.\nA setting you changed keeps your value.", None),
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
