@@ -2438,6 +2438,13 @@ static void player_profile_edit_select_menu_update_extended_description(
 		index = ui_widget_setup_entry_description(list_widget, index);
 	}
 #endif
+	{
+		/* port: the Chupathingy menus' SETTINGS without ADVANCED SETUP
+		(port/linux/game/menu_functions.c) */
+		short pc_menu_settings_description_index(struct widget_instance *list_widget, short index);
+
+		index = pc_menu_settings_description_index(list_widget, index);
+	}
 
 	if (index != NONE)
 	{

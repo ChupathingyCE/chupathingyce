@@ -19,7 +19,7 @@ On Windows, Mac and Linux the first-start screen is part of a setup screen that 
 It opens by itself when your Xbox maps are missing. To open it any other time:
 
 - hold **Shift** (or **Back**/**View** on a controller) while the game starts,
-- pick **SETUP** in the game's settings, or
+- pick **ADVANCED SETUP** in the game's settings, or
 - start the game with `--setup`.
 
 In Steam Deck Game Mode it only opens when you ask for it.
