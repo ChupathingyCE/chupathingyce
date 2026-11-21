@@ -931,6 +931,10 @@ static const struct config_setting config_settings[] =
 		"The music's volume, from 0.0 to 1.0." },
 	{ "audio.effects_volume", _config_real, "1.0", "HALO_EFFECTS_VOLUME", _environment_value, _platform_all | _platform_xbox,
 		"The volume of effects and speech, from 0.0 to 1.0." },
+	/* (the original Xbox plays its own DirectSound: dsound_sdl.c's) */
+	{ "audio.loudness", _config_string, "\"xbox\"", "HALO_AUDIO_LOUDNESS", _environment_value, _platform_all,
+		"\"xbox\" plays sound at the original Xbox's level. \"louder\" plays it\n"
+		"6 dB louder, as Chupathingy did before 0.9.2." },
 	{ "audio.enabled", _config_boolean, "true", "HALO_NO_AUDIO", _environment_set_is_false, _platform_all,
 		"Play sound." },
 	/* (audio.voice_device is kept for a voice output of its own, later:
@@ -2975,9 +2979,10 @@ ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
 starting alone (game.start_with_one_player); 4, Headphone 3D on; 5, the
 Xbox's multiplayer by default (v0.9.0: no names above heads, no follow
 camera, no team changes in games you host); 6, the Xbox's own resampler
-(v0.9.1a); 7, the original Xbox's 4:3 picture (v0.9.2). A file answered for
-an earlier generation is asked about the later ones only */
-#define CONFIG_DEFAULTS_GENERATION 7
+(v0.9.1a); 7, the original Xbox's 4:3 picture (v0.9.2); 8, the Xbox's sound
+level (audio.loudness, v0.9.2). A file answered for an earlier generation is
+asked about the later ones only */
+#define CONFIG_DEFAULTS_GENERATION 8
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# Chupathingy uses this line to update the file. Leave it as it is.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -3745,6 +3750,9 @@ static const struct
 	file that names "dashboard" keeps it; one that left it commented out
 	follows "off" (config_find_new_defaults: the Xbox asks nothing) */
 	{ "display.widescreen", "\"dashboard\"", 0, "The 4:3 picture, as the original game had", 7 },
+	/* the whole sum, 6 dB over the Xbox's level, the only one until 0.9.2
+	(a file from before the setting is asked; "louder" keeps it) */
+	{ "audio.loudness", "\"louder\"", 0, "Sound at the original Xbox's level, 6 dB quieter", 8 },
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -4825,6 +4833,7 @@ static const struct
 	{ "tuning.present_mode", { "vblank", "adaptive", NULL }, NULL },
 	{ "tuning.effects", { "full", "reduced", "minimal", NULL }, NULL },
 	{ "audio.resampling", { "xbox", "sinc", "linear", NULL }, "\"xbox\"" },
+	{ "audio.loudness", { "xbox", "louder", NULL }, "\"xbox\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
 	{ "game.console_log", { "important", "all", "none", NULL }, "\"important\"" },
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },
