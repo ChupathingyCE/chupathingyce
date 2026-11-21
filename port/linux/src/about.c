@@ -211,14 +211,28 @@ static int line_wrap(int count, int kind, const char *text, float width)
 	return count;
 }
 
-static void version_text(char *text, int size)
+void about_version(char *text, int size)
 {
 	const char *watermark = build_identity_watermark();
 	/* (without an update's notice after it) */
 	const char *notice = strstr(watermark, " - ");
 
-	snprintf(text, (size_t)size, "Chupathingy %.*s", notice ? (int)(notice - watermark) : (int)strlen(watermark),
-		watermark);
+	snprintf(text, (size_t)size, "%.*s", notice ? (int)(notice - watermark) : (int)strlen(watermark), watermark);
+}
+
+void about_platform(char *text, int size)
+{
+	snprintf(text, (size_t)size, "%s %s, %d-bit", build_identity_platform(), build_identity_architecture(),
+		(int)sizeof(void *) * 8);
+}
+
+static void version_text(char *text, int size)
+{
+	/* (room for the name before it) */
+	char version[LINE_SIZE - 16];
+
+	about_version(version, sizeof(version));
+	snprintf(text, (size_t)size, "Chupathingy %s", version);
 }
 
 static int lines_make(const struct about_entry *entries, int entry_count, float width)
@@ -239,8 +253,7 @@ static int lines_make(const struct about_entry *entries, int entry_count, float 
 			count = line_wrap(count, _line_version, text, width);
 			break;
 		case _line_platform:
-			snprintf(text, sizeof(text), "%s %s, %d-bit", build_identity_platform(), build_identity_architecture(),
-				(int)sizeof(void *) * 8);
+			about_platform(text, sizeof(text));
 			count = line_wrap(count, _line_platform, text, width);
 			break;
 		case _line_text:

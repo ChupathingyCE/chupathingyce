@@ -715,8 +715,11 @@ static boolean ce_model_data_cache_read(
 
 	cache_file_read(NONE, (long)(*(unsigned long const *)context + offset), (long)size, buffer, &read_complete,
 		TRUE);
-	while (!read_complete)
+	while (!*(volatile boolean *)&read_complete)
 		SwitchToThread();
+	/* (the cache thread's data, after its flag: cache_files.h's
+	CACHE_FILE_READ_SEEN) */
+	__atomic_thread_fence(__ATOMIC_ACQUIRE);
 	return TRUE;
 }
 #endif

@@ -4263,7 +4263,7 @@ static boolean ui_widget_setup_entry_item(
 static wchar_t const *ui_widget_setup_entry_label(
 	short kind)
 {
-	return kind == _setup_entry_more_settings ? L"MORE SETTINGS" : L"SETUP";
+	return kind == _setup_entry_more_settings ? L"MORE SETTINGS" : L"ADVANCED SETUP";
 }
 
 static wchar_t const *ui_widget_setup_entry_words(

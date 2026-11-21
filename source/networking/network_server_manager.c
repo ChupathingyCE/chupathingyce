@@ -4397,12 +4397,39 @@ void network_game_server_pause_countdown(
 	struct network_game_server *server,
 	boolean pause_countdown)
 {
+	boolean was_counting;
+
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x78C, server);
 
+	was_counting = server->countdown_state.active;
 	if (pause_countdown == TRUE)
 		csmemset(&server->countdown_state, 0, sizeof(server->countdown_state));
 
 	server->countdown_state.paused = pause_countdown;
+
+	/* port: a countdown stopped here was never taken back from the clients
+	(the countdown messages only go out while it runs), so every lobby,
+	the host's own too, kept its last count: "Starting on ..." stayed up and
+	the host's lobby could not start again (#1414). The clients are told it
+	stopped with the count the game already sends when a countdown can't go
+	on (NONE, network_game_server_idle_pregame_tasks) */
+	if (pause_countdown == TRUE && was_counting &&
+		server->state == _network_game_server_state_pregame)
+	{
+		struct message_server_pregame_countdown message_packet;
+		struct network_message *message;
+
+		message_packet.seconds_to_start = NONE;
+		message = create_network_game_message(
+			_message_server_pregame_countdown,
+			&message_packet,
+			sizeof(message_packet));
+		if (message == NULL ||
+			!network_game_server_send_message_to_all_machines(server, message))
+		{
+			network_event("failed to send a message_server_pregame_countdown to all clients");
+		}
+	}
 
 	return;
 }

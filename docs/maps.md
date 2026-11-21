@@ -19,7 +19,7 @@ On Windows, Mac and Linux the first-start screen is part of a setup screen that 
 It opens by itself when your Xbox maps are missing. To open it any other time:
 
 - hold **Shift** (or **Back**/**View** on a controller) while the game starts,
-- pick **SETUP** in the game's settings, or
+- pick **ADVANCED SETUP** in the game's settings, or
 - start the game with `--setup`.
 
 In Steam Deck Game Mode it only opens when you ask for it.
@@ -226,7 +226,8 @@ waits for the list a few seconds at most as it starts. If Chupathingy maps
 ever has to stop all downloads at once, the game takes nothing from it
 until it's back. `network.maps_url` in `config.toml` says where the lists
 come from. Set it to `""` to turn Chupathingy maps off: nothing is fetched
-from it, and no map is blocked.
+from it, and no map is blocked. With `network.online` off the game asks it
+nothing either, and holds maps to the blacklist it kept last time.
 
 **Testing Chupathingy maps.** `tools/test_map_repo.py` checks the list
 reader and the downloader against a fake repository on your machine. Its
