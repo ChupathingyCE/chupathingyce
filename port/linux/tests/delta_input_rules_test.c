@@ -166,6 +166,23 @@ static void test_hint(void)
 	CHECK(!strcmp(text, "Hold Back for the Delta Guide"));
 	delta_hint_text_for(text, sizeof(text), 1, "F3", 1, 0, 0);
 	CHECK(!strcmp(text, "Press the Guide button"));
+	/* (each pad's own names: PlayStation 2, Nintendo 3, Steam Deck 4, Wii U 5) */
+	delta_hint_text(text, sizeof(text), 2, "F3", 1, 1);
+	CHECK(!strcmp(text, "Hold Share for the Delta Guide"));
+	delta_hint_text(text, sizeof(text), 2, "F3", 1, 0);
+	CHECK(!strcmp(text, "Press the PS button"));
+	delta_hint_text(text, sizeof(text), 3, "F3", 1, 1);
+	CHECK(!strcmp(text, "Hold Minus for the Delta Guide"));
+	delta_hint_text(text, sizeof(text), 3, "F3", 1, 0);
+	CHECK(!strcmp(text, "Press the Home button"));
+	delta_hint_text(text, sizeof(text), 4, "F3", 0, 1);
+	CHECK(!strcmp(text, "Hold View for the Delta Guide"));
+	delta_hint_text(text, sizeof(text), 5, "F3", 1, 0);
+	CHECK(!strcmp(text, "Press the Home button"));
+	CHECK(!strcmp(delta_pad_guide_label(2), "PS BUTTON") && !strcmp(delta_pad_guide_label(1), "GUIDE BUTTON"));
+	/* (the keyboard's and an unknown pad's: an Xbox pad's) */
+	CHECK(!strcmp(delta_pad_back_name(0), "Back") && !strcmp(delta_pad_back_name(99), "Back") &&
+		!strcmp(delta_pad_guide_label(-1), "GUIDE BUTTON"));
 }
 
 int main(void)

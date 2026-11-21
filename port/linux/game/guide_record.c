@@ -69,7 +69,6 @@ enum
 
 /* the theme's (ui_style_color), and white the same in all */
 #define COLOR_PANE_EDGE ui_style_color(UI_COLOR_ROW_EDGE)
-#define COLOR_SETTING ui_style_color(UI_COLOR_SETTING_NAME)
 #define COLOR_COUNT ui_style_color(UI_COLOR_TEXT_SOFT)
 enum
 {
@@ -340,7 +339,7 @@ static void render_medals(float left, float right, float y)
 
 	if (!count)
 	{
-		ui_style_text(UI_TEXT_STATUS, x, y + TILE_HEIGHT * 0.5f - 4, UI_ALIGN_LEFT, "None yet");
+		ui_style_text(UI_TEXT_STATUS, x, y + TILE_HEIGHT * 0.5f - 4, UI_ALIGN_LEFT, "No medals yet");
 		return;
 	}
 	width = (right - x - (count - 1) * 6) / count;
@@ -403,7 +402,6 @@ void guide_record_render(float left, float top, float right, float bottom, boole
 	float width = (right - left - PANE_GAP) * 0.5f;
 	float row_y = bottom - ROW_HEIGHT;
 	char const *value = config_boolean("display.medals") ? "ON" : "OFF";
-	float value_right = right - 14;
 
 	if (!guide_record.loaded || now - guide_record.loaded_time >= RELOAD_INTERVAL ||
 		record_profile() != guide_record.profile)
@@ -415,13 +413,9 @@ void guide_record_render(float left, float top, float right, float bottom, boole
 	render_local(left, top, width);
 	render_site(left + width + PANE_GAP, top, width);
 	render_medals(left, right, top + PANE_HEIGHT + 8);
-	/* MEDALS ON HUD, as the Guide's settings are drawn */
-	ui_style_row(left, row_y, right - left, ROW_HEIGHT, selected);
-	ui_overlay_text(UI_FONT_MENU, 10.0f, left + 12, row_y + 7, UI_ALIGN_LEFT, COLOR_SETTING, "MEDALS ON HUD");
-	ui_overlay_text(UI_FONT_MENU, 10.0f, value_right, row_y + 7, UI_ALIGN_RIGHT, COLOR_VALUE, "\xE2\x80\xBA");
-	ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 12, row_y + 7, UI_ALIGN_RIGHT, COLOR_VALUE, value);
-	ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 18 - ui_overlay_text_width(UI_FONT_MENU, 10.0f, value),
-		row_y + 7, UI_ALIGN_RIGHT, COLOR_VALUE, "\xE2\x80\xB9");
+	/* MEDALS ON HUD, the one thing here A changes: drawn as SETTINGS' rows
+	are; the rest is lines to read */
+	ui_style_setting(left, row_y, right - left, ROW_HEIGHT, 1.0f, "MEDALS ON HUD", NULL, value, selected);
 }
 
 #endif
