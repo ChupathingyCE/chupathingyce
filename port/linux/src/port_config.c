@@ -2232,6 +2232,9 @@ static const struct config_setting config_settings[] =
 		"them on the CPU except on NVIDIA. cpu or buffer forces one." },
 	{ "debug.door_portals_log", _config_boolean, "false", "HALO_DOOR_PORTALS_LOG", _environment_set_is_true, _platform_all,
 		"Log which level portals each door covers, as it is paired with them." },
+	{ "debug.time_code", _config_boolean, "false", "HALO_TIME_CODE", _environment_set_is_true, _platform_all,
+		"Draw the cutscene scripts' time code (time_code_show): the ticks since\n"
+		"it started, in the top-left corner, as Bungie's tools showed it." },
 #ifdef HALO_SHADER_PREP
 	{ "debug.draw_every_shader", _config_boolean, "false", "HALO_DRAW_EVERY_SHADER", _environment_set_is_true,
 		_platform_all,
