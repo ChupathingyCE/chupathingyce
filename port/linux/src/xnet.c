@@ -304,6 +304,32 @@ static void peer_incoming_address(int stream, struct sockaddr *address, const in
 	incoming_address(address, address_length);
 }
 
+/* whether a source as the system gave it (before peer_incoming_address) is
+an internet play peer's address: the game's socket was reached directly,
+not through the peer's stand-in, so it is not the peer (p2p_spoofed_source),
+and what came from it is dropped */
+static int spoofed_peer_source(const struct sockaddr *address, int address_length)
+{
+	return address && address_length >= (int)sizeof(struct sockaddr_in) && address->sa_family == AF_INET &&
+		p2p_spoofed_source(((const struct sockaddr_in *)address)->sin_addr.s_addr);
+}
+
+/* copies a source the system gave into the caller's address, as much as it
+has room for (as the system would have) */
+static void copy_source(struct sockaddr *address, int *address_length, const struct sockaddr_in *from,
+	int from_length)
+{
+	int copied;
+
+	if (!address || !address_length)
+		return;
+	copied = from_length < *address_length ? from_length : *address_length;
+	if (copied < 0)
+		copied = 0;
+	memcpy(address, from, (size_t)copied);
+	*address_length = copied;
+}
+
 /* the local port the game's socket is bound to (network byte order), or 0
 if it is not yet */
 static unsigned short socket_port(SOCKET socket)
@@ -512,13 +538,24 @@ int WSAAPI halo_ws_listen(SOCKET socket, int backlog)
 
 SOCKET WSAAPI halo_ws_accept(SOCKET socket, struct sockaddr *address, int *address_length)
 {
-	int result = posix_socket_accept((int)socket, address, address_length);
+	struct sockaddr_in from;
+	int from_length = (int)sizeof(from);
+	int result = posix_socket_accept((int)socket, &from, &from_length);
 
 	if (result < 0)
 	{
 		WSASetLastError(posix_socket_last_error());
 		return INVALID_SOCKET;
 	}
+	/* (a connection from a peer's address that is not its stand-in's:
+	closed, and the game sees none) */
+	if (spoofed_peer_source((struct sockaddr *)&from, from_length))
+	{
+		posix_socket_close(result);
+		WSASetLastError(WSAEWOULDBLOCK);
+		return INVALID_SOCKET;
+	}
+	copy_source(address, address_length, &from, from_length);
 	posix_socket_set_nodelay(result);
 	peer_incoming_address(1, address, address_length);
 	return (SOCKET)result;
@@ -955,6 +992,10 @@ static int delayed_receive_locked(SOCKET socket, char *buffer, int length, int f
 			posix_socket_recvfrom((int)socket, packet->data, DELAYED_PACKET_SIZE, flags,
 				(struct sockaddr *)&packet->address, &address_size) :
 			posix_socket_recv((int)socket, packet->data, DELAYED_PACKET_SIZE, flags);
+		/* (from a peer's address that is not its stand-in's: dropped, as
+		halo_ws_recvfrom drops it) */
+		if (datagram && result >= 0 && spoofed_peer_source((struct sockaddr *)&packet->address, address_size))
+			continue;
 
 		if (result < 0)
 		{
@@ -1064,11 +1105,23 @@ int WSAAPI halo_ws_recvfrom(SOCKET socket, char *buffer, int length, int flags,
 			xnet_count_datagram(1, result);
 		return result;
 	}
-	result = posix_socket_recvfrom((int)socket, buffer, length, flags, address, address_length);
-	if (result >= 0)
+	for (;;)
 	{
-		peer_incoming_address(0, address, address_length);
-		xnet_count_datagram(1, result);
+		struct sockaddr_in from;
+		int from_length = (int)sizeof(from);
+
+		result = posix_socket_recvfrom((int)socket, buffer, length, flags, &from, &from_length);
+		/* (from a peer's address that is not its stand-in's: dropped, and the
+		next one read) */
+		if (result >= 0 && spoofed_peer_source((struct sockaddr *)&from, from_length))
+			continue;
+		if (result >= 0)
+		{
+			copy_source(address, address_length, &from, from_length);
+			peer_incoming_address(0, address, address_length);
+			xnet_count_datagram(1, result);
+		}
+		break;
 	}
 	return winsock_result(result);
 }

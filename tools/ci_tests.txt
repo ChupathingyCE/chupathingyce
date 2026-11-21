@@ -140,6 +140,7 @@ tools/test_p2p_copies.py
 tools/test_p2p_host_port.py
 tools/test_p2p_public_address.py
 tools/test_p2p_signal_sockets.py
+tools/test_p2p_spoofed_source.py
 tools/test_packaged_install.py
 tools/test_party_teams.py
 tools/test_pause_leave.py
