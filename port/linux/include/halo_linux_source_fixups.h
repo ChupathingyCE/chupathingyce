@@ -81,12 +81,15 @@ void halo_screen_anti_alias(short x0, short y0, short x1, short y1);
 anti-aliasing (source/render/render.c), and what the code drawing knows of
 the draws that follow (HALO_HDR_KIND_*, 0 none: port/linux/src/d3d8_gl.c's
 hdr_draw_tag, xgpu_tone_map.h) */
-/* (the ports with port/linux/src/d3d8_gl.c, the desktop's and Android's,
-have them; the others, the original Xbox's, the Switch's and the PS3's own
-renderers, draw into their own 8 bits: nothing to do, and no stub to add
-in their ports) */
-#if defined(HALO_LINUX_PLATFORM_LAYER) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_SWITCH_CONSOLE) && \
-	!defined(HALO_CONSOLE) && !defined(HALO_CONSOLE_GL_LAYER)
+/* (the ports with port/linux/src/d3d8_gl.c, the desktop's, Android's and
+iOS's, have them; the others, the original Xbox's, the Switch's and the
+PS3's own renderers, draw into their own 8 bits: nothing to do, and no stub
+to add in their ports. The dedicated server draws nothing. Only the game's
+units see this header (the prefix headers include it without
+HALO_LINUX_PLATFORM_LAYER), so that define can't be the test here) */
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_SWITCH_CONSOLE) && !defined(HALO_CONSOLE) && \
+	!defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_WIIU_CONSOLE) && !defined(HALO_XBOX360_CONSOLE) && \
+	!defined(HALO_SERVER)
 #define HALO_PORT_HDR 1
 #endif
 #ifdef HALO_PORT_HDR
