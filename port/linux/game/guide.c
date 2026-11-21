@@ -14,7 +14,8 @@ the Guide from them (the prompt bar's B CLOSE). LB and RB (Q and E) switch them 
 click opens one, and Left goes to them from a section when nothing there
 takes it (a setting's value does): there up and down show each, and A or
 Right goes back in.
-- PLAYERS HERE lists the game's players: their Delta Tag when they share
+- PLAYERS HERE, listed only in a game (local, hosted or joined; not in
+  the menus), lists the game's players: their Delta Tag when they share
   their profile (else their game name), their platform's logo when the game
   is on Delta, and a local Mute (the chat log's, chat.c). A player verified
   in this game (the identity capability's roster, delta_peer.h) also gets
@@ -3808,20 +3809,28 @@ static short section_rows(short section)
 	}
 }
 
-/* whether a section's tab shows (WORKSHOP only with MCC on this computer) */
+/* whether a section is listed (WORKSHOP only with MCC on this computer,
+PLAYERS HERE only in a game: local, hosted or joined) */
 static boolean section_shown(short section)
 {
-	return section != SOCIAL_SECTION_WORKSHOP || guide_workshop_shown();
+	if (section == SOCIAL_SECTION_WORKSHOP)
+		return guide_workshop_shown();
+	if (section == SOCIAL_SECTION_PLAYERS_HERE)
+		return in_game();
+	return TRUE;
 }
 
 static void section_go(short section)
 {
-	/* (a section not shown is passed, the way the bumper went) */
-	short step = section < guide.section ? -1 : 1;
+	/* (a section not listed is passed, the way the bumper went) */
+	int shown[NUMBER_OF_SOCIAL_SECTIONS];
+	short index;
 
-	section = (short)((section + NUMBER_OF_SOCIAL_SECTIONS) % NUMBER_OF_SOCIAL_SECTIONS);
-	while (!section_shown(section))
-		section = (short)((section + step + NUMBER_OF_SOCIAL_SECTIONS) % NUMBER_OF_SOCIAL_SECTIONS);
+	for (index = 0; index < NUMBER_OF_SOCIAL_SECTIONS; index++)
+		shown[index] = section_shown(index);
+	section = (short)guide_sections_go(shown, NUMBER_OF_SOCIAL_SECTIONS, guide.section, section);
+	if (section < 0)
+		section = SOCIAL_SECTION_FRIENDS;
 	guide.section = section;
 	guide.first_row = 0;
 	guide.options = FALSE;
@@ -4219,13 +4228,9 @@ static void render_players(void)
 	char heading[48];
 	float y = BODY_Y + 16;
 
-	/* (in the menus: nobody to list, and it says so) */
+	/* (a game with nobody listed yet; in the menus the section isn't) */
 	if (!count)
-	{
-		ui_style_text(UI_TEXT_LINE, (CONTENT_LEFT + CONTENT_RIGHT) * 0.5f, (BODY_Y + BODY_BOTTOM) * 0.5f - 6,
-			UI_ALIGN_CENTER, "Not in a game");
 		return;
-	}
 	snprintf(heading, sizeof(heading), "PLAYERS (%d)", count);
 	ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, BODY_Y, UI_ALIGN_LEFT, heading);
 	visible = (short)((BODY_BOTTOM - y + ROW_GAP) / (ROW_HEIGHT + ROW_GAP));
@@ -5768,6 +5773,10 @@ void guide_open(void)
 	guide.opened_time = system_milliseconds();
 	/* (the section has the d-pad, as it had) */
 	guide.sidebar = FALSE;
+	/* (the section last open, unless it isn't listed now: PLAYERS HERE
+	from a game since ended) */
+	if (!section_shown(guide.section))
+		section_go((short)(guide.section + 1));
 	/* (what is held as it opens is not pressed in it) */
 	guide.held = 0xFFFFFFFF;
 	guide.repeat_held = 0;
@@ -5938,6 +5947,8 @@ void guide_update(boolean menu_open)
 	guide_logs_update();
 	/* (WORKSHOP's folders watched while it shows, or an item waits on Steam) */
 	guide_workshop_update(guide.open && guide.section == SOCIAL_SECTION_WORKSHOP);
+	/* (a section no longer listed, PLAYERS HERE as a game ends: the next
+	one; the sidebar lists what is shown each frame) */
 	if (guide.open && !section_shown(guide.section))
 		section_go((short)(guide.section + 1));
 	/* (a toast waits out the intro's video, a map's loading and the join

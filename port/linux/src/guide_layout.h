@@ -180,6 +180,13 @@ struct guide_sidebar_layout
 };
 void guide_layout_sidebar(struct guide_rect area, int count, float item_height, struct guide_sidebar_layout *out);
 
+/* the section to show for wanted, of count sections (shown: whether each
+is listed now; PLAYERS HERE only in a game, WORKSHOP only with MCC):
+wanted itself when listed, wrapping past either end, else the next listed
+one on from it the way it was asked for (down from current when wanted is
+past it, up when before it); -1 when none is listed */
+int guide_sections_go(const int *shown, int count, int current, int wanted);
+
 /* a list and the detail pane beside it in body, gap between them: the list
 list_share of the width, but the detail at least minimum_detail wide (and
 the list at least half what is left when it can't be) */

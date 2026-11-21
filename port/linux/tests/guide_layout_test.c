@@ -648,8 +648,39 @@ static void check_sidebar(void)
 	CHECK(list.width >= (300 - 12) * 0.5f - 0.01f && guide_rect_inside(detail, body), "a narrow body");
 }
 
+/* the sections listed: PLAYERS HERE (3 here) only in a game */
+static void check_sections(void)
+{
+	/* FRIENDS, PARTY, CLAN, PLAYERS HERE, RECENT, WORKSHOP, SERVICE RECORD, SETTINGS */
+	static const int menus[] = { 1, 1, 1, 0, 1, 1, 1, 1 }, game[] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+	static const int none[] = { 0, 0, 0 };
+	struct guide_rect area = { 32, 100, 116, 298 };
+	struct guide_sidebar_layout sidebar;
+	int listed, index;
+
+	/* (in the menus: RB from CLAN and LB from RECENT pass it) */
+	CHECK(guide_sections_go(menus, 8, 2, 3) == 4, "RB past PLAYERS HERE in the menus");
+	CHECK(guide_sections_go(menus, 8, 4, 3) == 2, "LB past PLAYERS HERE in the menus");
+	/* (in a game: it is there) */
+	CHECK(guide_sections_go(game, 8, 2, 3) == 3 && guide_sections_go(game, 8, 4, 3) == 3, "PLAYERS HERE in a game");
+	/* (the game ends with it open: the next one) */
+	CHECK(guide_sections_go(menus, 8, 3, 4) == 4, "a game's end moves on to RECENT");
+	/* (wrapping past either end, and nothing listed) */
+	CHECK(guide_sections_go(menus, 8, 7, 8) == 0 && guide_sections_go(menus, 8, 0, -1) == 7, "wraps");
+	CHECK(guide_sections_go(none, 3, 0, 1) == -1, "none listed");
+	/* (the sidebar: seven in the menus, eight in a game, all inside) */
+	for (listed = 7; listed <= 8; listed++)
+	{
+		guide_layout_sidebar(area, listed, 24.0f, &sidebar);
+		CHECK(sidebar.count == listed, "%d listed", listed);
+		for (index = 0; index < listed; index++)
+			CHECK(guide_rect_inside(sidebar.items[index], area), "item %d of %d inside", index, listed);
+	}
+}
+
 int main(void)
 {
+	check_sections();
 	check_sidebar();
 	check_lines();
 	check_shown();

@@ -844,3 +844,19 @@ void guide_layout_columns(struct guide_rect body, float gap, float list_share, f
 	detail->x = body.x + list_width + gap;
 	detail->width = room - list_width;
 }
+
+int guide_sections_go(const int *shown, int count, int current, int wanted)
+{
+	int step = wanted < current ? -1 : 1, tries;
+
+	if (count <= 0)
+		return -1;
+	wanted = ((wanted % count) + count) % count;
+	for (tries = 0; tries < count; tries++)
+	{
+		if (shown[wanted])
+			return wanted;
+		wanted = (wanted + step + count) % count;
+	}
+	return -1;
+}
