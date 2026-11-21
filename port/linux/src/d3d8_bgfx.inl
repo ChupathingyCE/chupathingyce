@@ -4397,7 +4397,8 @@ static unsigned long bg_reset_flags(void)
 	unsigned long flags = present != PLATFORM_PRESENT_IMMEDIATE ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
 
 	bgfx_vsync_relaxed = present == PLATFORM_PRESENT_ADAPTIVE;
-	if (present == PLATFORM_PRESENT_ADAPTIVE && bgfx_get_renderer_type() == BGFX_RENDERER_TYPE_DIRECT3D11)
+	/* (bg_d3d11: set before bgfx_init, whose flags these are first) */
+	if (present == PLATFORM_PRESENT_ADAPTIVE && bg_d3d11)
 	{
 		static BOOL said;
 
