@@ -604,9 +604,19 @@ void ui_style_panel(float x, float y, float width, float height, float share)
 	ui_overlay_outline(x, y, width, height, 12, 1.0f, fade(PALETTE(PANEL_EDGE), share));
 }
 
+/* ui_style_selection_rest's */
+static int selection_rest;
+
+void ui_style_selection_rest(int rest)
+{
+	selection_rest = rest != 0;
+}
+
 void ui_style_row(float x, float y, float width, float height, int selected)
 {
-	if (selected)
+	if (selected && selection_rest)
+		ui_style_glass(x, y, width, height, 7, PALETTE(ROW), PALETTE(SELECTED_EDGE));
+	else if (selected)
 		ui_style_surface(x, y, width, height, 7, PALETTE(ROW_ON), PALETTE(SELECTED_EDGE), 1);
 	else
 		ui_style_glass(x, y, width, height, 7, PALETTE(ROW), PALETTE(ROW_EDGE));

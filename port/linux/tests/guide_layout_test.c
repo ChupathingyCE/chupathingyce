@@ -606,8 +606,82 @@ static void check_lines(void)
 	CHECK(guide_lines_shown(kinds, heights, count, 1, 30 * 3 + 16 + 10) == 3, "the caption waits for its row");
 }
 
+/* the sections down the left, and a list beside its detail */
+static void check_sidebar(void)
+{
+	struct guide_rect area = { 32, 100, 116, 298 };
+	struct guide_sidebar_layout sidebar;
+	struct guide_rect list, detail, body = { 162, 100, 446, 298 };
+	int count, index, other;
+
+	for (count = 0; count <= GUIDE_SIDEBAR_MOST + 2; count++)
+	{
+		guide_layout_sidebar(area, count, 24.0f, &sidebar);
+		CHECK(sidebar.count == (count > GUIDE_SIDEBAR_MOST ? GUIDE_SIDEBAR_MOST : count), "%d sections", count);
+		for (index = 0; index < sidebar.count; index++)
+		{
+			CHECK(guide_rect_inside(sidebar.items[index], area), "item %d of %d inside", index, count);
+			CHECK(sidebar.items[index].height > 0, "item %d of %d has height", index, count);
+			for (other = index + 1; other < sidebar.count; other++)
+				CHECK(!guide_rect_overlap(sidebar.items[index], sidebar.items[other]), "items %d and %d", index, other);
+		}
+	}
+	/* (eight sections fit at their full height with their gaps) */
+	guide_layout_sidebar(area, 8, 24.0f, &sidebar);
+	CHECK(sidebar.items[7].height == 24.0f && sidebar.items[1].y - sidebar.items[0].y == 24.0f + GUIDE_SIDEBAR_GAP,
+		"eight at full size");
+	/* (the sections start at the top: nothing of the Guide's own at the foot) */
+	CHECK(sidebar.items[0].y == area.y, "from the top");
+	/* (more than fit: squeezed, the last one still inside at the foot) */
+	guide_layout_sidebar(area, GUIDE_SIDEBAR_MOST, 30.0f, &sidebar);
+	CHECK(sidebar.items[GUIDE_SIDEBAR_MOST - 1].y + sidebar.items[GUIDE_SIDEBAR_MOST - 1].height <=
+		area.y + area.height + 0.01f, "squeezed into the area");
+	/* (the list and its detail: apart, in the body, the detail at least its minimum) */
+	guide_layout_columns(body, 12.0f, 0.53f, 190.0f, &list, &detail);
+	CHECK(guide_rect_inside(list, body) && guide_rect_inside(detail, body), "columns in the body");
+	CHECK(!guide_rect_overlap(list, detail) && detail.x - (list.x + list.width) >= 11.99f, "columns apart");
+	CHECK(detail.width >= 190.0f - 0.01f, "the detail's minimum (%.1f)", detail.width);
+	CHECK(list.x + list.width + 12 + detail.width <= body.x + body.width + 0.01f, "they fill the body");
+	/* (a narrow body: the list keeps half) */
+	body.width = 300;
+	guide_layout_columns(body, 12.0f, 0.53f, 250.0f, &list, &detail);
+	CHECK(list.width >= (300 - 12) * 0.5f - 0.01f && guide_rect_inside(detail, body), "a narrow body");
+}
+
+/* the sections listed: PLAYERS HERE (3 here) only in a game */
+static void check_sections(void)
+{
+	/* FRIENDS, PARTY, CLAN, PLAYERS HERE, RECENT, WORKSHOP, SERVICE RECORD, SETTINGS */
+	static const int menus[] = { 1, 1, 1, 0, 1, 1, 1, 1 }, game[] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+	static const int none[] = { 0, 0, 0 };
+	struct guide_rect area = { 32, 100, 116, 298 };
+	struct guide_sidebar_layout sidebar;
+	int listed, index;
+
+	/* (in the menus: RB from CLAN and LB from RECENT pass it) */
+	CHECK(guide_sections_go(menus, 8, 2, 3) == 4, "RB past PLAYERS HERE in the menus");
+	CHECK(guide_sections_go(menus, 8, 4, 3) == 2, "LB past PLAYERS HERE in the menus");
+	/* (in a game: it is there) */
+	CHECK(guide_sections_go(game, 8, 2, 3) == 3 && guide_sections_go(game, 8, 4, 3) == 3, "PLAYERS HERE in a game");
+	/* (the game ends with it open: the next one) */
+	CHECK(guide_sections_go(menus, 8, 3, 4) == 4, "a game's end moves on to RECENT");
+	/* (wrapping past either end, and nothing listed) */
+	CHECK(guide_sections_go(menus, 8, 7, 8) == 0 && guide_sections_go(menus, 8, 0, -1) == 7, "wraps");
+	CHECK(guide_sections_go(none, 3, 0, 1) == -1, "none listed");
+	/* (the sidebar: seven in the menus, eight in a game, all inside) */
+	for (listed = 7; listed <= 8; listed++)
+	{
+		guide_layout_sidebar(area, listed, 24.0f, &sidebar);
+		CHECK(sidebar.count == listed, "%d listed", listed);
+		for (index = 0; index < listed; index++)
+			CHECK(guide_rect_inside(sidebar.items[index], area), "item %d of %d inside", index, listed);
+	}
+}
+
 int main(void)
 {
+	check_sections();
+	check_sidebar();
 	check_lines();
 	check_shown();
 	check_marquee();
