@@ -753,9 +753,10 @@ static const struct config_setting config_settings[] =
 	/* (port/linux/game/ragdolls.c; Video Setup's RAGDOLLS. Live) */
 	{ "display.ragdolls", _config_boolean, "false", "HALO_RAGDOLLS", _environment_value, _platform_desktop,
 		"true: a character killed plays its death animation and falls limp\n"
-		"partway through it, as in Halo 2 and 3 (at once for an explosion, a\n"
-		"melee blow or a vehicle's hit), and comes to rest where it lands\n"
-		"(Jolt Physics). false (the\n"
+		"partway through it, as in Halo 2 and 3 (one thrown into the air by an\n"
+		"explosion, a melee blow or a vehicle's hit flies in its airborne\n"
+		"death animation and goes limp where it lands), and comes to rest\n"
+		"where it lands (Jolt Physics). false (the\n"
 		"default): its death animation, as on the Xbox. Drawing only: the\n"
 		"body, hit boxes, saved games and the network are as before. The idea\n"
 		"is from jojoxdk's Halo 1 MCC Box3D Physics Mod." },

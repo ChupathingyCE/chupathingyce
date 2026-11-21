@@ -63,11 +63,17 @@ first (the one the game picks for the blow's direction and the part hit, as
 ever) and goes limp partway through it. unit_died (not a feigned one) names
 the body, and each tick after that its animation is watched for the moment
 the ragdoll takes over:
-- at once, the tick after the death, for a big blow (an explosion, a melee
-  blow, a vehicle's hit or a shot that pushes harder than 4 m/s), one dying
-  in the air (its airborne death) and one with no death animation (a hard
-  kill's animation that throws the body back plays: its throw is the
-  animation's own);
+- a body that a blow (an explosion, a melee blow, a vehicle's hit or a shot
+  that pushes harder than 4 m/s) throws into the air, or that dies in the
+  air, flies on the game's own path playing the game's airborne death
+  ("airborne-dead"), and the ragdoll takes over as it meets the ground or a
+  wall (any joint of it about to pass into the level the next tick), or
+  when the game lands it (in place of "landing-dead");
+- at once, the tick after the death, for a big blow that leaves the body on
+  its feet, and for one with no death animation (a hard kill's animation
+  that throws the body back plays: its throw is the animation's own); a
+  body thrown that has no airborne death (its biped's "has no dying
+  airborne", or the game never plays one) goes limp at once too;
 - else at the animation's key frame where the animation has one; when its
   trunk (pelvis to head) leans 30 degrees further from upright than at the
   death (the body falling: not one that sinks to its knees and kneels a
@@ -199,8 +205,13 @@ enum
 	/* the death animation awaited this many ticks after the death (the
 	biped's update picks it the tick after the blow, or the same tick) */
 	RAGDOLL_ANIMATION_WAIT_TICKS = 3,
-	/* the joints of the upper body watched for a fall into the level */
-	RAGDOLL_IMPACT_NODES = 16,
+	/* the joints watched for a fall into the level (the upper body's; a body
+	thrown, all of them) */
+	RAGDOLL_IMPACT_NODES = 24,
+	/* a body thrown: this long for the game to play its airborne death (it
+	does after three ticks in the air), and at most this long in the air */
+	RAGDOLL_LIFT_TICKS = 8,
+	RAGDOLL_FLIGHT_TICKS_MOST = 300,
 	/* a ragdoll that takes over from a death animation is pulled toward its
 	pose this many ticks */
 	RAGDOLL_DRIVE_TICKS = 8,
@@ -298,6 +309,9 @@ death (radians: 30 degrees) */
 /* a blow this hard (4 m/s), world units a tick: no death animation, a
 ragdoll at once */
 #define RAGDOLL_BIG_BLOW (4.0f / 3.048f / TICKS_PER_SECOND)
+/* a blow throws the body into the air when it leaves it rising this fast
+(1.5 m/s), world units a tick, or off the ground */
+#define RAGDOLL_LIFT (1.5f / 3.048f / TICKS_PER_SECOND)
 /* the most a part moves (10 m/s: a hard kill's animation throws a marine
 back that fast) or turns (a turn and a half a second, in radians a second)
 as the animation had it when the ragdoll takes over */
@@ -457,10 +471,12 @@ enum
 	_ragdoll_handoff_airborne,
 	_ragdoll_handoff_seat,
 	_ragdoll_handoff_no_animation,
+	_ragdoll_handoff_no_airborne_animation,
 	_ragdoll_handoff_animation_over,
 	_ragdoll_handoff_key_frame,
 	_ragdoll_handoff_fallen,
 	_ragdoll_handoff_impact,
+	_ragdoll_handoff_landed,
 	_ragdoll_handoff_time,
 	NUMBER_OF_RAGDOLL_HANDOFFS
 };
@@ -468,8 +484,9 @@ enum
 static char const *const ragdoll_handoff_names[NUMBER_OF_RAGDOLL_HANDOFFS] =
 {
 	"an explosion", "a melee blow", "a vehicle's hit", "a big blow", "dying in the air", "in a seat",
-	"no death animation", "the death animation over", "the animation's key frame", "falling",
-	"about to meet the level", "partway through the animation",
+	"no death animation", "thrown, with no airborne death", "the death animation over",
+	"the animation's key frame", "falling", "about to meet the level", "landed",
+	"partway through the animation",
 };
 
 /* the hand-offs that follow the death animation: pulled toward its pose
@@ -494,6 +511,14 @@ struct ragdoll_pending
 	boolean have_previous;
 	short previous_animation;
 	short node_count;
+	/* thrown into the air (or dead in it): flying on the game's path, its
+	airborne death playing, since flight_tick; flew: the game played its
+	airborne death; blow: why it was thrown (_ragdoll_handoff_...) */
+	boolean flying, flew;
+	short blow;
+	unsigned long flight_tick;
+	/* how its root node moved the last tick kept (world units a tick) */
+	real_vector3d motion;
 	/* its head's node (NONE: none), and how far its trunk leaned from
 	upright at the death (radians) */
 	short head_node;
@@ -2804,6 +2829,20 @@ static boolean ragdoll_start(
 				velocity.k *= RAGDOLL_LAUNCH_SPEED / speed;
 			}
 		}
+		/* (from the tick before but another animation now - landed, its
+		airborne death over -: the whole body moving as it last moved) */
+		if (animated && !same_animation)
+		{
+			real speed = ragdoll_length(&from->motion);
+
+			velocity = speed > RAGDOLL_ANIMATED_SPEED ? *global_zero_vector3d : from->motion;
+			if (speed > RAGDOLL_ANIMATED_SPEED)
+			{
+				velocity.i = from->motion.i * RAGDOLL_ANIMATED_SPEED / speed;
+				velocity.j = from->motion.j * RAGDOLL_ANIMATED_SPEED / speed;
+				velocity.k = from->motion.k * RAGDOLL_ANIMATED_SPEED / speed;
+			}
+		}
 		for (index = 0; index < ragdoll->particle_count; index++)
 		{
 			struct ragdoll_particle *particle = &ragdoll->particles[index];
@@ -2850,7 +2889,7 @@ static boolean ragdoll_start(
 	}
 	ragdoll->generation = ragdoll_generation;
 	ragdoll->state = _ragdoll_awake;
-	ragdoll->drive_ticks = same_animation && RAGDOLL_HANDOFF_ANIMATED(from->handoff) ? RAGDOLL_DRIVE_TICKS : 0;
+	ragdoll->drive_ticks = animated && RAGDOLL_HANDOFF_ANIMATED(from->handoff) ? RAGDOLL_DRIVE_TICKS : 0;
 	ragdoll->started = ragdoll->woken = ++ragdoll_sequence;
 	ragdoll->body = object->object.position;
 	ragdoll->started_tick = ragdoll_ticks;
@@ -2866,7 +2905,7 @@ static boolean ragdoll_start(
 			note ? (note->vehicle ? "a vehicle's hit" : note->explosion ? "an explosion" : note->melee ? "a melee blow" :
 			"a blow") : "no blow", note ? (double)note->speed : 0.0, !animated ? "from its pose now" :
 			same_animation ? "from its death animation's last tick, moving as it moved" :
-			"from its pose the tick before, moving as the game moves it",
+			"from its pose the tick before, moving as it last moved",
 			ragdoll->drive_ticks ? ", pulled toward the animation" : "");
 	}
 	return TRUE;
@@ -2997,30 +3036,39 @@ static short ragdoll_room(
 
 /* ---------- the death animation */
 
-/* the death animation the body plays (NULL: none, or not that now) */
+/* the death animation the body plays (NULL: none, or not that now); in_the_air:
+its airborne death too */
 static struct animation const *ragdoll_death_animation(
-	struct object_datum *object)
+	struct object_datum *object,
+	boolean in_the_air)
 {
 	struct unit_datum const *unit = (struct unit_datum const *)object;
 	struct animation_graph const *graph;
 	short index = object->object.animation.state.index;
 
-	if (unit->unit.animation.state != _unit_state_dying || object->object.animation.animation_graph_index == NONE)
+	if ((unit->unit.animation.state != _unit_state_dying &&
+		(!in_the_air || unit->unit.animation.state != _unit_state_dying_airborne)) ||
+		object->object.animation.animation_graph_index == NONE)
+	{
 		return NULL;
+	}
 	graph = animation_graph_definition_get(object->object.animation.animation_graph_index);
 	if (!graph || !VALID_INDEX(index, graph->animations.count))
 		return NULL;
 	return TAG_BLOCK_GET_ELEMENT(&graph->animations, index, struct animation);
 }
 
-/* the joints of a body's upper body (its head, neck, spine and arms), at
-most RAGDOLL_IMPACT_NODES */
+/* the joints of a body's upper body (its head, neck, spine and arms; with
+whole_body its pelvis and legs too), at most RAGDOLL_IMPACT_NODES */
 static short ragdoll_impact_nodes(
 	struct object_datum *object,
 	short node_count,
-	short *nodes)
+	short *nodes,
+	boolean whole_body)
 {
-	static char const *const parts[] = { "head", "neck", "spine", "clavicle", "upperarm", "forearm", "hand" };
+	static char const *const parts[] = { "head", "neck", "spine", "clavicle", "upperarm", "forearm", "hand",
+		"pelvis", "thigh", "calf", "horselink", "foot" };
+	short part_count = whole_body ? (short)NUMBEROF(parts) : 7;
 	struct object_definition *definition = object_definition_get(object->definition_index);
 	struct model const *model = definition && definition->object.model.index != NONE ?
 		model_definition_get(definition->object.model.index) : NULL;
@@ -3034,7 +3082,7 @@ static short ragdoll_impact_nodes(
 
 		if (ragdoll_node_excluded(name))
 			continue;
-		for (part = 0; part < (short)NUMBEROF(parts); part++)
+		for (part = 0; part < part_count; part++)
 		{
 			if (ragdoll_name_has(name, parts[part]))
 			{
@@ -3091,10 +3139,109 @@ static void ragdoll_keep_previous(
 		}
 		pending->lean = ragdoll_lean(live, pending->head_node);
 	}
+	if (pending->have_previous && pending->node_count == node_count)
+		ragdoll_between(&pending->previous[0].position, &live[0].position, &pending->motion);
+	else
+		pending->motion = *global_zero_vector3d;
 	memcpy(pending->previous, live, node_count * sizeof(real_matrix4x3));
 	pending->node_count = node_count;
 	pending->previous_animation = object->object.animation.state.index;
 	pending->have_previous = TRUE;
+}
+
+/* whether any of the watched joints (pending->impact_nodes, found the first
+time) would pass into the level the next tick, moving on as it moved since
+the tick before */
+static boolean ragdoll_meets_level(
+	struct ragdoll_pending *pending,
+	struct object_datum *object,
+	real_matrix4x3 const *live,
+	short node_count)
+{
+	short index;
+
+	if (!pending->have_previous || pending->node_count != node_count)
+		return FALSE;
+	if (pending->impact_count == NONE)
+		pending->impact_count = ragdoll_impact_nodes(object, node_count, pending->impact_nodes, pending->flying);
+	for (index = 0; index < pending->impact_count; index++)
+	{
+		short node = pending->impact_nodes[index];
+		real_point3d ahead = live[node].position;
+		real_vector3d moved;
+
+		ragdoll_between(&pending->previous[node].position, &live[node].position, &moved);
+		ragdoll_move(&ahead, &moved, 1.f);
+		if (ragdoll_finite(&ahead) &&
+			!collision_test_point(RAGDOLL_SOLID_FLAGS, &live[node].position, NONE) &&
+			collision_test_point(RAGDOLL_SOLID_FLAGS, &ahead, NONE))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* whether a body thrown (or dead in the air) may fly on the game's path with
+its airborne death playing: its biped has one, and it is in the air or
+leaving the ground */
+static boolean ragdoll_may_fly(
+	struct object_datum *object)
+{
+	struct unit_datum const *unit = (struct unit_datum const *)object;
+	struct biped_datum const *biped = (struct biped_datum const *)object;
+
+	if (object->object.parent_object_index != NONE ||
+		TEST_FLAG(biped_definition_get(object->definition_index)->biped.flags, _biped_has_no_dying_airborne_bit))
+	{
+		return FALSE;
+	}
+	return unit->unit.animation.state == _unit_state_dying_airborne ||
+		TEST_FLAG(biped->biped.flags, _biped_airborne_bit) ||
+		object->object.translational_velocity.k > RAGDOLL_LIFT;
+}
+
+/* a tick of a body flying (ragdoll_may_fly): its ragdoll due as it meets the
+level in the air, when the game lands it, or, the game playing no airborne
+death a few ticks on, as the blow's (NONE: not yet) */
+static short ragdoll_flight(
+	struct ragdoll_pending *pending,
+	struct object_datum *object,
+	real_matrix4x3 const *live,
+	short node_count)
+{
+	struct unit_datum const *unit = (struct unit_datum const *)object;
+	struct biped_datum const *biped = (struct biped_datum const *)object;
+	char state = unit->unit.animation.state;
+
+	if (TEST_FLAG(biped->biped.flags, _biped_limp_body_physics_active_bit))
+		return _ragdoll_handoff_animation_over;
+	if (state == _unit_state_dying_airborne)
+	{
+		pending->flew = TRUE;
+		if (ragdoll_ticks - pending->flight_tick >= RAGDOLL_FLIGHT_TICKS_MOST)
+			return _ragdoll_handoff_time;
+		/* (any joint about to meet the ground or a wall) */
+		if (pending->previous_animation == object->object.animation.state.index &&
+			ragdoll_meets_level(pending, object, live, node_count))
+		{
+			return _ragdoll_handoff_impact;
+		}
+		return NONE;
+	}
+	/* (the game landed it: its "landing-dead" would play now) */
+	if (pending->flew)
+		return _ragdoll_handoff_landed;
+	if (state != _unit_state_dying)
+		return _ragdoll_handoff_animation_over;
+	/* (the game plays the airborne death after three ticks in the air: none
+	by now, none at all, or the body never left the ground) */
+	if (ragdoll_ticks - pending->flight_tick >= RAGDOLL_LIFT_TICKS)
+	{
+		return TEST_FLAG(biped->biped.flags, _biped_airborne_bit) ? _ragdoll_handoff_no_airborne_animation :
+			pending->blow;
+	}
+	return NONE;
 }
 
 /* a tick of a body that died and has no ragdoll yet: whether its ragdoll is
@@ -3109,25 +3256,43 @@ static void ragdoll_watch(
 	real_matrix4x3 const *live = (real_matrix4x3 const *)object_header_block_get(pending->object_index,
 		&object->object.node_matrices);
 	short node_count = (short)(object->object.node_matrices.size / (short)sizeof(real_matrix4x3));
-	struct animation const *animation = ragdoll_death_animation(object);
+	struct animation const *animation = ragdoll_death_animation(object, pending->flying);
 	short frame = object->object.animation.state.frame_index;
 	short handoff = NONE;
-	short index;
+	short blow = !note ? NONE : note->vehicle ? _ragdoll_handoff_vehicle : note->explosion ? _ragdoll_handoff_explosion :
+		note->melee ? _ragdoll_handoff_melee : note->speed > RAGDOLL_BIG_BLOW ? _ragdoll_handoff_blow : NONE;
 
 	if (node_count < 1 || node_count > RAGDOLL_MAXIMUM_NODES)
 		handoff = _ragdoll_handoff_no_animation;
-	else if (note && note->vehicle)
-		handoff = _ragdoll_handoff_vehicle;
-	else if (note && note->explosion)
-		handoff = _ragdoll_handoff_explosion;
-	else if (note && note->melee)
-		handoff = _ragdoll_handoff_melee;
-	else if (note && note->speed > RAGDOLL_BIG_BLOW)
-		handoff = _ragdoll_handoff_blow;
+	else if (pending->flying)
+		handoff = ragdoll_flight(pending, object, live, node_count);
+	/* (a big blow, or a death in the air: flying, its airborne death
+	playing, where the body is thrown into the air and has one; else limp
+	at once) */
+	else if (blow != NONE || unit->unit.animation.state == _unit_state_dying_airborne)
+	{
+		if (ragdoll_may_fly(object))
+		{
+			pending->flying = TRUE;
+			pending->flew = FALSE;
+			pending->blow = blow != NONE ? blow : _ragdoll_handoff_airborne;
+			pending->flight_tick = ragdoll_ticks;
+			/* (all its joints watched for the ground or a wall) */
+			pending->impact_count = NONE;
+			if (ragdolls_debug())
+			{
+				platform_log("ragdolls: %08lx (%s) thrown (%s, rising %.1f m/s): flying, its airborne death playing",
+					(unsigned long)pending->object_index, ragdoll_object_name(pending->object_index),
+					ragdoll_handoff_names[pending->blow], (double)(object->object.translational_velocity.k *
+					RAGDOLL_JOLT_METRES * TICKS_PER_SECOND));
+			}
+			animation = ragdoll_death_animation(object, TRUE);
+		}
+		else
+			handoff = blow != NONE ? blow : _ragdoll_handoff_airborne;
+	}
 	else if (object->object.parent_object_index != NONE)
 		handoff = _ragdoll_handoff_seat;
-	else if (unit->unit.animation.state == _unit_state_dying_airborne)
-		handoff = _ragdoll_handoff_airborne;
 	else if (TEST_FLAG(biped->biped.flags, _biped_limp_body_physics_active_bit))
 		handoff = _ragdoll_handoff_animation_over;
 	else if (!animation || animation->frame_count < 2)
@@ -3150,28 +3315,10 @@ static void ragdoll_watch(
 			handoff = _ragdoll_handoff_fallen;
 		else if (frame >= (short)(animation->frame_count * RAGDOLL_HANDOFF_FRACTION))
 			handoff = _ragdoll_handoff_time;
-		else
-		{
-			/* (its head, spine or arms about to pass into the level: a fall
-			into a wall, or onto the ground) */
-			if (pending->impact_count == NONE)
-				pending->impact_count = ragdoll_impact_nodes(object, node_count, pending->impact_nodes);
-			for (index = 0; index < pending->impact_count && handoff == NONE; index++)
-			{
-				short node = pending->impact_nodes[index];
-				real_point3d ahead = live[node].position;
-				real_vector3d moved;
-
-				ragdoll_between(&pending->previous[node].position, &live[node].position, &moved);
-				ragdoll_move(&ahead, &moved, 1.f);
-				if (ragdoll_finite(&ahead) &&
-					!collision_test_point(RAGDOLL_SOLID_FLAGS, &live[node].position, NONE) &&
-					collision_test_point(RAGDOLL_SOLID_FLAGS, &ahead, NONE))
-				{
-					handoff = _ragdoll_handoff_impact;
-				}
-			}
-		}
+		/* (its head, spine or arms about to pass into the level: a fall into
+		a wall, or onto the ground) */
+		else if (ragdoll_meets_level(pending, object, live, node_count))
+			handoff = _ragdoll_handoff_impact;
 	}
 	if (handoff == NONE)
 	{
@@ -3208,7 +3355,7 @@ static void ragdoll_drive(
 
 	ragdoll->drive_ticks--;
 	/* (the animation over, the game's limp body on: limp now) */
-	if (!ragdoll_death_animation(object) || ragdoll->jolt == NONE ||
+	if (!ragdoll_death_animation(object, TRUE) || ragdoll->jolt == NONE ||
 		ragdoll->jolt_generation != physics_jolt_generation())
 	{
 		ragdoll->drive_ticks = 0;
@@ -3296,6 +3443,10 @@ void ragdolls_unit_died(
 		pending->node_count = 0;
 		pending->head_node = NONE;
 		pending->lean = 0.f;
+		pending->flying = pending->flew = FALSE;
+		pending->blow = NONE;
+		pending->flight_tick = ragdoll_ticks;
+		pending->motion = *global_zero_vector3d;
 	}
 	ragdoll_pending_count++;
 	ragdoll_last_death = unit_index;
@@ -3482,7 +3633,8 @@ void ragdolls_tick(
 			{
 				short node_count = (short)(object->object.node_matrices.size / (short)sizeof(real_matrix4x3));
 
-				if (ragdoll_death_animation(object) && node_count >= 1 && node_count <= RAGDOLL_MAXIMUM_NODES)
+				if (ragdoll_death_animation(object, pending->flying) && node_count >= 1 &&
+					node_count <= RAGDOLL_MAXIMUM_NODES)
 				{
 					ragdoll_keep_previous(pending, object, (real_matrix4x3 const *)object_header_block_get(
 						pending->object_index, &object->object.node_matrices), node_count);
@@ -3838,16 +3990,18 @@ static void ragdoll_test_stats(
 		jolt.bodies, jolt.active_bodies, jolt.steps, jolt.steps ? (double)jolt.step_ms_total / jolt.steps : 0.0,
 		(double)jolt.bytes_now / 1048576.0, (double)jolt.bytes_peak / 1048576.0);
 	platform_log("ragdolls stats: death animations watched %lu ticks, %.4f ms a tick; due: %lu explosion, %lu melee, "
-		"%lu vehicle, %lu big blow, %lu in the air, %lu seat, %lu no animation, %lu animation over, "
-		"%lu key frame, %lu falling, %lu meeting the level, %lu partway", ragdoll_stats.watched,
+		"%lu vehicle, %lu big blow, %lu in the air, %lu seat, %lu no animation, %lu no airborne death, "
+		"%lu animation over, %lu key frame, %lu falling, %lu meeting the level, %lu landed, %lu partway",
+		ragdoll_stats.watched,
 		ragdoll_stats.watched ? ragdoll_stats.watch_ms / ragdoll_stats.watched : 0.0,
 		ragdoll_stats.handoffs[_ragdoll_handoff_explosion], ragdoll_stats.handoffs[_ragdoll_handoff_melee],
 		ragdoll_stats.handoffs[_ragdoll_handoff_vehicle], ragdoll_stats.handoffs[_ragdoll_handoff_blow],
 		ragdoll_stats.handoffs[_ragdoll_handoff_airborne],
 		ragdoll_stats.handoffs[_ragdoll_handoff_seat], ragdoll_stats.handoffs[_ragdoll_handoff_no_animation],
+		ragdoll_stats.handoffs[_ragdoll_handoff_no_airborne_animation],
 		ragdoll_stats.handoffs[_ragdoll_handoff_animation_over], ragdoll_stats.handoffs[_ragdoll_handoff_key_frame],
 		ragdoll_stats.handoffs[_ragdoll_handoff_fallen], ragdoll_stats.handoffs[_ragdoll_handoff_impact],
-		ragdoll_stats.handoffs[_ragdoll_handoff_time]);
+		ragdoll_stats.handoffs[_ragdoll_handoff_landed], ragdoll_stats.handoffs[_ragdoll_handoff_time]);
 }
 
 /* (the tests) the target's head: the hit geometry's node (NONE: none) and
