@@ -213,6 +213,17 @@ int posix_rename_directory(const char *from, const char *to)
 	return MoveFileA(from, to) ? 0 : fail();
 }
 
+int posix_sync(int descriptor)
+{
+	/* (_commit is FlushFileBuffers on the descriptor's handle) */
+	return _commit(descriptor);
+}
+
+int posix_replace_file(const char *from, const char *to)
+{
+	return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) ? 0 : fail();
+}
+
 int posix_make_directory(const char *path)
 {
 	return CreateDirectoryA(path, NULL) ? 0 : fail();
