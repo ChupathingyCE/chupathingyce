@@ -704,6 +704,15 @@ not on the consoles, HALO_CONSOLE_NO_TITLE_CHOICE */
 #define HALO_TITLE_CHOICE 1
 #endif
 
+/* a script that has waited 2 minutes or more in one sleep_until, said once
+in the log (source/hs/hs_runtime.c): on a console a level whose script never
+goes on looks like a hang, and its log is all there is. Not on the original
+Xbox, which keeps retail's. */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_NO_SCRIPT_WAIT_LOG)
+#define HALO_CONSOLE_SCRIPT_WAIT_LOG 1
+#endif
+
 /* a map's shaders made while its loading screen is up, from its shader key
 list (port/linux/src/d3d8_shader_prep.inl, xgpu_shader_keys.c;
 display.prepare_shaders): the OpenGL and bgfx renderers of the desktop

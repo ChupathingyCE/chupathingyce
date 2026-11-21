@@ -38,6 +38,8 @@ void bink_playback_dispose(void);
 void bink_playback_render(void);
 void bink_playback_start(const char *full_pathname, unsigned long flags);
 void bink_playback_update(void);
+/* (port: a map copy taking the texture cache's memory from a movie) */
+boolean bink_playback_stop_for_texture_cache(void);
 
 /* ---------- globals */
 
