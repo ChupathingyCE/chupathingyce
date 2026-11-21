@@ -1430,13 +1430,16 @@ def test_look(program, directory, defaults, kind):
 	case = Case(program, directory / "look_xbox")
 	set_look_file(case, kind, {"display.look": '"xbox"', "display.doors_block_light": "true"})
 	values, output = case.get(*LOOK_SETTINGS, "display.light_effects", "display.particle_limit")
+	# (a console that draws the maps' own text and HUD, HALO_CONSOLE_NO_HIRES,
+	# and has no Light effects: the look leaves those as they are)
+	hires = "true" if kind == "console" else "false"
 	check(values["display.look"] == "xbox" and values["display.shadow_resolution"] == "128" and
-		values["display.scoreboard_background"] == "false" and values["display.high_res_hud"] == "false" and
-		values["display.high_res_text"] == "false" and values["display.hud_safe_zone"] == "xbox", f"look/xbox: {values}")
+		values["display.scoreboard_background"] == "false" and values["display.high_res_hud"] == hires and
+		values["display.high_res_text"] == hires and values["display.hud_safe_zone"] == "xbox", f"look/xbox: {values}")
 	check(values["display.doors_block_light"] == "true", f"look/xbox: the player's doors lost: {values}")
 	check(values["display.particle_limit"] == defaults.get("display.particle_limit", "4096"), f"look/xbox: {values}")
 	# (Light effects are the desktop's alone)
-	if kind != "android":
+	if kind not in ("android", "console"):
 		check(values["display.light_effects"] == "off", f"look/xbox: {values}")
 	knobs = look_knobs(look_lines(output)[0])
 	check(knobs["look"] == ("xbox", "") and knobs["shadows"] == ("128", "(look)") and

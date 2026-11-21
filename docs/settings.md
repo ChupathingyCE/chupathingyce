@@ -153,8 +153,8 @@ anything about play. It's separate from `[tuning]`, which is about
 frame rate; where a `[tuning]` preset sets one of the same settings (Potato
 sets 128 shadows), the preset's value wins.
 
-The original Xbox starts at `"xbox"`; every other build starts at
-`"chupathingy"`. The log says the look and its settings when the game
+The original Xbox, the Xbox 360 and the Wii U start at `"xbox"`; the
+computers, Android and the Switch start at `"chupathingy"`. The log says the look and its settings when the game
 starts and at each map (`look: at=boot`, `look: at=map`), and each change
 (`look: change`). The table is made from the code by `tools/look_table.py`
 (`tools/test_look_table.py` checks it).
@@ -172,6 +172,21 @@ starts and at each map (`look: at=boot`, `look: at=map`), and each change
 | `display.hud_safe_zone` | desktop, Android, original Xbox | `auto` | the default | `xbox` | The HUD 48 and 36 in from the screen's edges in split screen too. |
 
 <!-- end of look table -->
+
+A look only sets what a build has and draws. On the consoles that start at
+`"xbox"`, that is:
+
+- Original Xbox: no panel behind the scoreboard. Its shadows, lighting and
+  text are the Xbox's already, and its HUD margins are the Xbox's by
+  default.
+- Xbox 360: shadows at 128 (256 before), light through closed doors, no
+  panel behind the scoreboard, and the maps' own fonts for the text. It has
+  no Light effects and no high-res HUD pictures, so those stay as they are,
+  and its HUD margins are the Xbox's by default.
+- Wii U: shadows at 128 (256 before), light through closed doors and no
+  panel behind the scoreboard. It draws the maps' own text and HUD and has
+  no Light effects, so those stay as they are, and its HUD margins are the
+  Xbox's by default.
 
 Left out on purpose: the resolution, anti-aliasing, filtering, the frame
 rate and smooth motion change how sharp and smooth the picture is, not

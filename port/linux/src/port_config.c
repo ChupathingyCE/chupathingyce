@@ -186,9 +186,9 @@ anti-aliasing. The server draws nothing: the Xbox's. */
 #endif
 
 /* display.look's default (config_look_apply): the Chupathingy look, which is
-the settings' own defaults, everywhere but the original Xbox, which keeps
-the original game's look */
-#ifdef HALO_XBOX_CONSOLE
+the settings' own defaults, on the computers, Android and the Switch; the
+original game's look on the original Xbox, the Xbox 360 and the Wii U */
+#if defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_WIIU_CONSOLE)
 #define DEFAULT_LOOK "\"xbox\""
 #else
 #define DEFAULT_LOOK "\"chupathingy\""
@@ -419,8 +419,9 @@ static const struct config_setting config_settings[] =
 		"How the game looks. \"chupathingy\" is the best this port draws.\n"
 		"\"xbox\" is the original game's look: the settings below that\n"
 		"differ go back to the Xbox's (docs/settings.md lists them). A setting\n"
-		"you set yourself keeps your value. Drawing only. The original Xbox\n"
-		"starts at \"xbox\"; the others at \"chupathingy\"." },
+		"you set yourself keeps your value. Drawing only. The original Xbox,\n"
+		"the Xbox 360 and the Wii U start at \"xbox\"; the others at\n"
+		"\"chupathingy\"." },
 	{ "display.shadow_resolution", _config_integer, DEFAULT_SHADOW_RESOLUTION, "HALO_SHADOW_RESOLUTION",
 		_environment_value, _platform_all,
 		"Shadow size in pixels: 128, 256, 512 or 1024. The Xbox used 128." },
@@ -5254,7 +5255,12 @@ static const char *const config_looks[NUMBER_OF_LOOKS] = { "chupathingy", "xbox"
 
 /* The settings a look sets, in the log's order: each look's value, NULL
 for the setting's own default (the Chupathingy look's, for now, are all
-the defaults). A setting that is not this build's is left out. */
+the defaults). A setting that is not this build's is left out, and so is
+one that draws nothing on a build that has it: the Light effects on the
+consoles (HALO_CONSOLE_NO_LIGHT_EFFECTS), the high-res text and HUD where
+the maps' own are drawn (HALO_CONSOLE_NO_HIRES), and the high-res HUD on
+the Xbox 360, whose build has only the fonts (warthog-360's
+embed_assets --no-hud). */
 static const struct
 {
 	const char *name;
@@ -5264,11 +5270,17 @@ static const struct
 } config_look_knobs[] =
 {
 	{ "display.shadow_resolution", "shadows", { NULL, "128" } },
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
 	{ "display.light_effects", "light_effects", { NULL, "off" } },
+#endif
 	{ "display.doors_block_light", "doors_block_light", { NULL, "false" } },
 	{ "display.scoreboard_background", "scoreboard_panel", { NULL, "false" } },
+#if !defined(HALO_CONSOLE_NO_HIRES) && !defined(HALO_XBOX360_CONSOLE)
 	{ "display.high_res_hud", "high_res_hud", { NULL, "false" } },
+#endif
+#ifndef HALO_CONSOLE_NO_HIRES
 	{ "display.high_res_text", "high_res_text", { NULL, "false" } },
+#endif
 	{ "display.hud_safe_zone", "safe_zone", { NULL, "xbox" } },
 };
 
