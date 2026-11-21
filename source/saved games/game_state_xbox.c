@@ -158,6 +158,19 @@ static HANDLE game_state_open_persistent_storage(
 
 static struct xbox_game_state_globals_prefix xbox_game_state_globals = { 0 };
 
+/* port: the persistent storage's zeroes and its checksum's reads, which
+retail kept on the stack (16 KB and 128 KB). With the calls under them that
+was 144 KB of stack in one place, more than a Wii U application's main
+thread has, and the campaign froze after its map loaded. One buffer serves
+both: the zeroes are written before the reads begin. The original Xbox's is
+smaller (its memory is short): the reads are the same, only more of them. */
+#ifdef HALO_XBOX_CONSOLE
+#define PERSISTENT_STORAGE_BUFFER_SIZE (32*1024)
+#else
+#define PERSISTENT_STORAGE_BUFFER_SIZE (128*1024)
+#endif
+static byte persistent_storage_buffer[PERSISTENT_STORAGE_BUFFER_SIZE];
+
 
 #ifdef HALO_XBOX_CONSOLE
 /* the console has no room beside the game state (3.3 MB on a 64 MB box), so a
@@ -565,7 +578,9 @@ static HANDLE game_state_open_persistent_storage(
 	const char *directory)
 {
 	char path[256];
-	byte zeroes[16*1024];
+	/* (retail's 16 KB of zeroes) */
+	byte *zeroes = persistent_storage_buffer;
+	enum { ZEROES_SIZE = 16*1024 };
 	HANDLE file;
 	unsigned long bytes_written;
 	boolean success = FALSE;
@@ -589,9 +604,9 @@ static HANDLE game_state_open_persistent_storage(
 			success = TRUE;
 			if (GetFileSize(file, NULL) != GAME_STATE_FILE_SIZE)
 			{
-				memset(zeroes, 0, sizeof(zeroes));
-				if (!WriteFile(file, zeroes, sizeof(zeroes), &bytes_written, NULL) ||
-					bytes_written != sizeof(zeroes) ||
+				memset(zeroes, 0, ZEROES_SIZE);
+				if (!WriteFile(file, zeroes, ZEROES_SIZE, &bytes_written, NULL) ||
+					bytes_written != ZEROES_SIZE ||
 					SetFilePointer(file, GAME_STATE_FILE_SIZE, NULL, FILE_BEGIN) ==
 						INVALID_SET_FILE_POINTER ||
 					!SetEndOfFile(file))
@@ -644,7 +659,7 @@ boolean game_state_read_header_from_persistent_storage(
 	long buffer_size,
 	boolean *corrupted)
 {
-	byte buffer[128*1024];
+	byte *buffer = persistent_storage_buffer;
 	HANDLE file;
 	unsigned long checksum;
 	unsigned long stored_checksum;
@@ -686,7 +701,7 @@ boolean game_state_read_header_from_persistent_storage(
 			remaining_size = buffer_size-header_size;
 			while (remaining_size>0)
 			{
-				read_size = MIN(sizeof(buffer), remaining_size);
+				read_size = MIN(PERSISTENT_STORAGE_BUFFER_SIZE, remaining_size);
 				if (ReadFile(file, buffer, read_size, &bytes_read, NULL) &&
 					bytes_read == read_size)
 				{
