@@ -813,6 +813,16 @@ int network_rules_address_full(uint32_t address, uint32_t const *others, int cou
 	return same >= maximum;
 }
 
+int network_rules_address_joins_as_lan(uint32_t address)
+{
+	return network_rules_address_is_local(address) || (address & 0xFFC00000u) == 0x64400000u;
+}
+
+int network_rules_join_password_refused(uint32_t address, int has_password)
+{
+	return has_password && !network_rules_address_joins_as_lan(address);
+}
+
 /* ---------- chupa-43a's facts */
 
 static unsigned rules_word(uint8_t const *bytes)

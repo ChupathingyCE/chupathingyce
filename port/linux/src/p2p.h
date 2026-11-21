@@ -40,6 +40,10 @@ int p2p_hosting_listable_invite(char *text, int size);
 public now, so going private or setting a password makes a new one; one
 that is no longer public is replaced at once */
 void p2p_hosting_invite_announced(const char *invite);
+/* whether the game this machine hosts has a password (Server Setup's
+PASSWORD: p2p_set_hosting_password): its host then takes joins from the
+internet only through the locked invite (network_server_manager.c) */
+int p2p_hosting_has_password(void);
 #ifdef HALO_GAME_BROWSER
 unsigned long p2p_peer_public_address(unsigned long game_address);
 unsigned long p2p_public_address(void);

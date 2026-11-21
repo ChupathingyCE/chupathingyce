@@ -643,4 +643,20 @@ the game already in others: 1 if maximum or more of them have its
 address, it not a local network's */
 int network_rules_address_full(uint32_t address, uint32_t const *others, int count, long maximum);
 
+/* ---------- a game with a password: joins from the internet */
+
+/* whether a machine joining from an IPv4 address (host byte order) is on a
+network of the host's own, where a game with a password takes a join as a
+LAN game does: a local network's (network_rules_address_is_local), or
+100.64/10's: internet play's peers, who reached the host through its locked
+invite, which only the password opens (p2p.c), and private networks such as
+Tailscale's. Any other address is the internet's */
+int network_rules_address_joins_as_lan(uint32_t address);
+
+/* whether a host refuses a machine joining from address (host byte order)
+for the password (_rejection_code_bad_password): the game has one
+(has_password), and the machine came from the internet straight to the
+game's port, not through the invite. A game without a password: never */
+int network_rules_join_password_refused(uint32_t address, int has_password);
+
 #endif /* __NETWORK_RULES_H */
