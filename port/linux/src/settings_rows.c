@@ -203,6 +203,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
 #endif
 	{ _in_audio, "SPEAKERS", "audio.channels", _kind_choices, channels_choices, NULL, 1, 0 },
+	{ _in_audio, "LOUDNESS", "audio.loudness", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_audio, "HEADPHONE 3D", "audio.hrtf", _kind_choices, hrtf_choices, NULL, 0, 0 },
 	{ _in_audio, "REVERB", "audio.reverb", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "DOPPLER", "audio.doppler", _kind_toggle, NULL, NULL, 0, 0 },
