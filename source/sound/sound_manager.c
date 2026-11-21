@@ -2464,9 +2464,31 @@ static void update_channel_for_impulse_sound(
 	else
 	{
 		struct platform_sound_channel_properties properties;
+		/* port: the gain of the permutation the channel plays, or, when it
+		plays none, of the one the sound is on. A chained sound whose next
+		part is not in the sound cache yet can leave its channel dry while
+		the sound waits for that part, and the gain was read through the
+		channel's null permutation (a crash on the sound thread) */
+		struct sound_permutation const *gain_permutation = channel->playing_permutation;
 
-		properties.gain =
-			channel->playing_permutation->gain * definition->gain_modifier * gain;
+		if (!gain_permutation)
+		{
+			struct sound_pitch_range *pitch_range;
+
+			if (!VALID_INDEX(sound->pitch_range_index, definition->pitch_ranges.count))
+				return;
+			pitch_range = TAG_BLOCK_GET_ELEMENT(
+				&definition->pitch_ranges,
+				sound->pitch_range_index,
+				struct sound_pitch_range);
+			if (!VALID_INDEX(sound->permutation_index, pitch_range->permutations.count))
+				return;
+			gain_permutation = TAG_BLOCK_GET_ELEMENT(
+				&pitch_range->permutations,
+				sound->permutation_index,
+				struct sound_permutation);
+		}
+		properties.gain = gain_permutation->gain * definition->gain_modifier * gain;
 
 		channel_set_properties_hardware(channel_index, &properties, TRUE);
 
