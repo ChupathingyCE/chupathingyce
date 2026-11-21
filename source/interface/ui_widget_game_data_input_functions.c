@@ -2438,13 +2438,16 @@ static void player_profile_edit_select_menu_update_extended_description(
 		index = ui_widget_setup_entry_description(list_widget, index);
 	}
 #endif
+#ifndef HALO_XBOX_CONSOLE
 	{
 		/* port: the Chupathingy menus' SETTINGS without ADVANCED SETUP
-		(port/linux/game/menu_functions.c) */
+		(port/linux/game/menu_functions.c; the original Xbox has only its
+		own menus) */
 		short pc_menu_settings_description_index(struct widget_instance *list_widget, short index);
 
 		index = pc_menu_settings_description_index(list_widget, index);
 	}
+#endif
 
 	if (index != NONE)
 	{
