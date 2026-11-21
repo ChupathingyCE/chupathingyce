@@ -1665,6 +1665,17 @@ static void start_game(boolean start)
 		if (start)
 			network_game_server_dedicated_start_countdown(server);
 	}
+	/* (cancelled: the host's own count goes at once, so the next frame
+	doesn't read the old one back as a start before the server's NONE
+	reaches its client, #1414) */
+	if (!start)
+	{
+		struct network_game_client *client = global_network_game_client_get();
+
+		if (client)
+			network_game_client_countdown_timer_update(client, NONE);
+		lobby.seconds = NONE;
+	}
 }
 
 /* a controller's READY: its own player's (a split screen's guest too) */
