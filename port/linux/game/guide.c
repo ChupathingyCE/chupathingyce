@@ -6175,6 +6175,10 @@ static void handle_pressed(unsigned int pressed)
 
 void guide_process(void)
 {
+	/* (CONFIRM BUTTON: RIGHT swaps the pads' A and B for the Guide alone,
+	while it has the input) */
+	platform_guide_confirm_swap((guide.open || guide.follow_active) &&
+		!strcmp(config_string("delta.confirm_button"), "right"));
 	if (!guide.open && !guide.follow_active)
 		return;
 	if (guide.signing_in)
