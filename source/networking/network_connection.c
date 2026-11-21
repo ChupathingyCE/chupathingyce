@@ -1717,6 +1717,10 @@ static boolean network_connection_idle_server_reliable_endpoint(
 	return success;
 }
 
+/* port: until when every connection's silence is timed from now, after a
+stall of this machine's own (network_connection_idle) */
+static unsigned long network_connection_stall_until;
+
 boolean network_connection_idle(
 	struct network_connection *connection,
 	long timeout,
@@ -1732,6 +1736,25 @@ boolean network_connection_idle(
 		connection);
 
 	SET_FLAG(connection->flags, _connection_going_stale_bit, FALSE);
+	/* port: no connection looked at for more than 5 seconds is this
+	machine's own stall (a long map load or copy as it joins), not the
+	other side's silence: what the other side sent meanwhile is waiting to
+	be read. For a second after such a stall every connection's silence is
+	timed from now, not from before it, so a joiner doesn't time its host
+	out the moment its load ends */
+	{
+		static unsigned long last_idle_time;
+
+		if (last_idle_time && current_time - last_idle_time > MILLISECONDS_PER_SECOND * 5)
+		{
+			error(_error_silent, "connections not looked at for %lu ms (a stall here): their silence is timed from now",
+				current_time - last_idle_time);
+			network_connection_stall_until = current_time + MILLISECONDS_PER_SECOND;
+		}
+		last_idle_time = current_time;
+		if ((long)(network_connection_stall_until - current_time) > 0)
+			connection->last_keep_alive_time = current_time;
+	}
 	if (timeout)
 	{
 		/* (differences, which the millisecond clock's wrap leaves right) */

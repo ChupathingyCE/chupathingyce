@@ -182,9 +182,11 @@ static void debug_check_pointer_overrun(
 	void *pointer,
 	const char *file,
 	long line);
+#ifdef DEBUG_MEMORY_RANDOM_FILL
 static void debug_memory_fill_with_random(
 	void *pointer,
 	unsigned long size);
+#endif
 static void debug_memory_add_pointer(
 	struct debug_memory_header *header);
 static void debug_memory_remove_pointer(
@@ -602,9 +604,22 @@ void *debug_realloc(
 		result = header + 1;
 		if (size > old_size)
 		{
+#ifdef DEBUG_MEMORY_RANDOM_FILL
 			debug_memory_fill_with_random(
 				(byte *)result + old_size,
 				size - old_size);
+#elif !defined(HALO_CONSOLE_NO_DEBUG_ASSERTS)
+			/* port: the grown bytes filled as debug_malloc fills a new block
+			(0xCA, and not at all in a console's release-style build), not
+			with the game's local random numbers as retail did
+			(DEBUG_MEMORY_RANDOM_FILL). The Xbox reallocated on the game's
+			thread alone; here other threads grow their arrays too, and each
+			word filled took a number from the sequence the game's effects,
+			particles and decals draw from (100 KB of growth is 50,000 of
+			them), at whatever moment that thread got there, with an
+			unguarded read and write of the seed besides */
+			csmemset((byte *)result + old_size, 0xCA, size - old_size);
+#endif
 		}
 	}
 
@@ -737,6 +752,7 @@ static void debug_check_pointer_overrun(
 	return;
 }
 
+#ifdef DEBUG_MEMORY_RANDOM_FILL
 static void debug_memory_fill_with_random(
 	void *pointer,
 	unsigned long size)
@@ -761,6 +777,7 @@ static void debug_memory_fill_with_random(
 
 	return;
 }
+#endif
 
 static void debug_memory_add_pointer(
 	struct debug_memory_header *header)
