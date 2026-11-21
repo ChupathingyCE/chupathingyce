@@ -1992,17 +1992,35 @@ static void hrtf_fade(unsigned long frames)
 
 /* the voices' sum (frames of output_channels) at the output's level
 (OUTPUT_LEVEL_XBOX), and the reverb's send (frames of mono) with it, the
-reverb playing at it too */
+reverb playing at it too. A change of audio.loudness moves to the new level
+over PARAMETER_RAMP_FRAMES, as a voice's volume does, so that it does not
+click */
 static void output_scale(float *output, float *send, unsigned long frames, float level)
 {
-	unsigned long index;
+	/* (the level the last frame played at; below 0 before the first mix) */
+	static float applied = -1.0f;
+	const float step = (OUTPUT_LEVEL_LOUDER - OUTPUT_LEVEL_XBOX) / (float)PARAMETER_RAMP_FRAMES;
+	unsigned long index, channel;
 
-	if (level == 1.0f)
+	if (applied < 0.0f)
+		applied = level;
+	if (applied == level)
+	{
+		if (level == 1.0f)
+			return;
+		for (index = 0; index < frames * output_channels; index++)
+			output[index] *= level;
+		for (index = 0; index < frames; index++)
+			send[index] *= level;
 		return;
-	for (index = 0; index < frames * output_channels; index++)
-		output[index] *= level;
+	}
 	for (index = 0; index < frames; index++)
-		send[index] *= level;
+	{
+		applied = clamp_real(level, applied - step, applied + step);
+		for (channel = 0; channel < output_channels; channel++)
+			output[index * output_channels + channel] *= applied;
+		send[index] *= applied;
+	}
 }
 
 static void mix(float *output, unsigned long frames)

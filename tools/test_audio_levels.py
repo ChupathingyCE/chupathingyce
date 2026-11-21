@@ -191,6 +191,24 @@ int main(int argc, char **argv)
 		printf("%.9g\n", peak);
 		return 0;
 	}
+	if (argc > 1 && !strcmp(argv[1], "ramp"))
+	{
+		/* ramp: a sum of 1.0 at "xbox", then audio.loudness changed to
+		"louder" between two mixes: each frame's level of the next 96 */
+		float output[2 * 96], send[96];
+		unsigned long frame;
+
+		for (frame = 0; frame < 96; frame++)
+			output[2 * frame] = output[2 * frame + 1] = send[frame] = 1.0f;
+		output_scale(output, send, 1, OUTPUT_LEVEL_XBOX);
+		for (frame = 0; frame < 96; frame++)
+			output[2 * frame] = output[2 * frame + 1] = send[frame] = 1.0f;
+		output_scale(output, send, 96, OUTPUT_LEVEL_LOUDER);
+		for (frame = 0; frame < 96; frame++)
+			printf("%.9g ", output[2 * frame]);
+		printf("\n");
+		return 0;
+	}
 	return 1;
 }
 '''
@@ -238,7 +256,7 @@ def build(work):
         return None
     mixer = (SRC / "dsound_sdl.c").read_text()
     program = PRELUDE + defines(mixer, ["OUTPUT_LEVEL_XBOX", "LIMITER_CEILING_XBOX", "OUTPUT_LEVEL_LOUDER",
-                                        "LIMITER_CEILING_LOUDER"])
+                                        "LIMITER_CEILING_LOUDER", "PARAMETER_RAMP_FRAMES"])
     program += "static float output_level = OUTPUT_LEVEL_XBOX;\nstatic float limiter_ceiling = LIMITER_CEILING_XBOX;\n"
     program += "".join(function(mixer, name) for name in FUNCTIONS) + limiter(mixer) + MAIN
     source = work / "levels.c"
@@ -326,6 +344,11 @@ def check_level(exe):
     assert peak <= 1.0001 and peak > 0.99, f"a sum of 3.0: {peak:.4f} out"
     peak = run(exe, "limit", "louder", 1.0)[0]
     assert abs(peak - 0.891) < 0.002, f"louder, a sum of 1.0: {peak:.4f} out"
+    # a change of audio.loudness ramps over PARAMETER_RAMP_FRAMES (64), with
+    # no step: it does not click
+    levels = run(exe, "ramp")
+    assert all(b >= a and b - a < 0.01 for a, b in zip([0.5] + levels, levels)), "the change of level steps"
+    assert levels[62] < 1.0 and abs(levels[63] - 1.0) < 1e-6 and levels[-1] == 1.0, "the ramp is not 64 frames"
 
 
 def with_build(check):
