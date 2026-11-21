@@ -242,6 +242,8 @@ struct bg_texture
 	struct xgpu_texture_description description;
 	bgfx_texture_handle_t texture;
 	BOOL created, mipmapped, failed;
+	/* made as 32-bit texels whatever its format (bg_texture_unpacked) */
+	BOOL unpacked;
 	/* the frame it was last bound in: a change after that is a new
 	texture, so the frame's earlier draws keep what they drew with */
 	unsigned long used_frame;
@@ -2771,9 +2773,50 @@ static void bg_downsample(const unsigned char *source, unsigned long width, unsi
 	}
 }
 
+/* a Halo PC texture whose channels are read from other places than they are
+stored: its texels are moved here, as they are decoded, to where the OpenGL
+path's texture swizzle reads them (xbox_textures.c's upload); bgfx has no
+swizzle of its own. A DXT one is decoded for it */
+static BOOL bg_texture_unpacked(const struct xgpu_texture_description *description)
+{
+	return description->pc_meter || description->pc_multipurpose;
+}
+
+/* a level's 32-bit ARGB texels (0xAARRGGBB) with their channels where the
+shaders read them: a Halo PC HUD meter's fill order (alpha) as its color and
+its shape (red) as its alpha (D3DCOMMON_PORT_PC_METER); a Halo PC
+multipurpose map's blue, green, alpha and red as red, green, blue and alpha
+(D3DCOMMON_PORT_PC_MULTIPURPOSE) */
+static void bg_texture_channels(const struct xgpu_texture_description *description, unsigned int *texels,
+	unsigned long count)
+{
+	unsigned long index;
+
+	for (index = 0; index < count; index++)
+	{
+		unsigned int texel = texels[index];
+		unsigned int alpha = texel >> 24, red = (texel >> 16) & 0xff, green = (texel >> 8) & 0xff, blue = texel & 0xff;
+
+		if (description->pc_meter)
+			texels[index] = (red << 24) | (alpha << 16) | (alpha << 8) | alpha;
+		else if (description->pc_multipurpose)
+			texels[index] = (red << 24) | (blue << 16) | (green << 8) | alpha;
+	}
+}
+
+/* a level as 32-bit texels, a DXT one decoded (bg_texture_unpacked's) */
+static BOOL bg_texture_decode(const struct xgpu_texture_description *description, unsigned long level,
+	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination)
+{
+	if (description->compressed)
+		return xgpu_texture_dxt_decode_level(description, level, source, destination);
+	return xgpu_texture_decode_level(description, level, source, palette, destination);
+}
+
 static void bg_texture_upload(struct bg_texture *entry, const unsigned char *base, const D3DCOLOR *palette)
 {
 	struct xgpu_texture_description *description = &entry->description;
+	BOOL unpacked = bg_texture_unpacked(description);
 	int dxt = description->compressed ? xgpu_texture_dxt(description) : 0;
 	unsigned long levels = description->levels ? description->levels : 1, level, full = 1, size, face, provided;
 	BOOL volume = description->depth > 1;
@@ -2784,6 +2827,14 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 		entry->failed = TRUE;
 		return;
 	}
+	/* (a texture made the other way for the pixels here before: made again) */
+	if (entry->created && entry->unpacked != unpacked)
+	{
+		bgfx_destroy_texture(entry->texture);
+		entry->created = FALSE;
+	}
+	if (unpacked)
+		dxt = 0;
 	/* bgfx's mipmapped textures have every level down to 1x1 (it has no
 	maximum level); the levels a texture lacks are made from its last */
 	size = description->width > description->height ? description->width : description->height;
@@ -2815,6 +2866,7 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 			return;
 		}
 		entry->created = TRUE;
+		entry->unpacked = unpacked;
 		entry->mipmapped = levels > 1;
 	}
 	for (face = 0; face < (description->cube_map ? 6UL : 1UL); face++)
@@ -2845,7 +2897,8 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 		else if (level == from)
 		{
 			memory = bgfx_alloc((uint32_t)(width * height * depth * 4));
-			xgpu_texture_decode_level(description, level, source, palette, (unsigned long *)memory->data);
+			if (!bg_texture_decode(description, level, source, palette, (unsigned long *)memory->data))
+				memset(memory->data, 0, width * height * depth * 4);
 		}
 		else
 		{
@@ -2856,7 +2909,7 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 			unsigned long *decoded = malloc(from_width * from_height * from_depth * 4), x, y, z;
 
 			memory = bgfx_alloc((uint32_t)(width * height * depth * 4));
-			if (decoded && xgpu_texture_decode_level(description, from, source, palette, decoded))
+			if (decoded && bg_texture_decode(description, from, source, palette, decoded))
 			{
 				for (z = 0; z < depth; z++)
 				for (y = 0; y < height; y++)
@@ -2870,6 +2923,8 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 			}
 			free(decoded);
 		}
+		if (unpacked)
+			bg_texture_channels(description, (unsigned int *)memory->data, width * height * depth);
 		if (volume)
 			bgfx_update_texture_3d(entry->texture, (uint8_t)level, 0, 0, 0, (uint16_t)width, (uint16_t)height,
 				(uint16_t)depth, memory);
