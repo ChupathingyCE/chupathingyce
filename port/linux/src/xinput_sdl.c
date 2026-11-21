@@ -1347,7 +1347,9 @@ click, rclick, wheel, below), shot, fire (the trigger held all its second),
 fireshot (fire, and a shot 600 ms in), press:<key> and type:<text>
 (keystrokes for a text box or the console: press:Ctrl+F, type:spv3:), the
 debug camera's fly tokens
-(test_input_debug_camera) or wait (none), separated by spaces or commas */
+(test_input_debug_camera), aim:<x>:<y> (the mouse moved that many pixels at
+the token's start, as the game's aim takes it: test_input_aim) or wait
+(none), separated by spaces or commas */
 static char test_input_menu[4096];
 static Uint64 test_input_menu_since;
 
@@ -1623,6 +1625,37 @@ static void test_input_menu_keys(struct platform_input_state *input)
 		if (scancode != SDL_SCANCODE_UNKNOWN)
 			input->keys[scancode] = 1;
 	}
+}
+
+/* debug.test_input's aim:<x>:<y>: the mouse moved that many pixels at the
+token's start, added to the motion the game's aim reads
+(halo_linux_mouse_look) as mouse_poll adds a captured mouse's */
+static void test_input_aim(void)
+{
+	static Uint64 step_done = (Uint64)-1;
+	static Uint64 script_done = 0;
+	Uint64 step;
+	size_t length;
+	const char *token = test_input_menu_current(&length);
+	char text[32];
+	int x = 0, y = 0;
+
+	if (!token || length <= 4 || length >= sizeof(text) || strncmp(token, "aim:", 4))
+		return;
+	memcpy(text, token, length);
+	text[length] = 0;
+	step = (SDL_GetTicks() - test_input_menu_since) / 1000;
+	/* (once a token: a script that starts again starts its count again) */
+	if ((step_done == step && script_done == test_input_menu_since) || sscanf(text, "aim:%d:%d", &x, &y) != 2)
+		return;
+	step_done = step;
+	script_done = test_input_menu_since;
+	pthread_mutex_lock(&mouse_lock);
+	mouse_pending_x += (float)x;
+	mouse_pending_y += (float)y;
+	mouse_aimed_ms = SDL_GetTicks();
+	pthread_mutex_unlock(&mouse_lock);
+	platform_log("test input: aim %d %d", x, y);
 }
 
 /* the debug camera's tokens of debug.test_input "menu:", each the middle
@@ -2968,6 +3001,7 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		keys_held_over_switch(&input);
 		test_input_menu_keys(&input);
 		test_input_debug_camera(&input);
+		test_input_aim();
 		debug_camera_poll(&input);
 		chat_escape_update(&input);
 		if (!console_is_active() && !chat_typing)

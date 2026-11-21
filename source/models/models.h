@@ -56,6 +56,9 @@ void model_node_matrices_from_orientations(
 short model_find_marker(
 	long model_index,
 	char const *name);
+#ifdef HALO_CONSOLE_MARKER_LOOKUPS
+void model_marker_lookups_forget(void);
+#endif
 struct real_matrix4x3 *model_get_default_inverse_matrix(
 	struct model *model,
 	short node_index);
