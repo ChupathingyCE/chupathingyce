@@ -27,6 +27,7 @@ struct host_vk_backend host_vkb;
 void *host_vk_window;
 int host_vk_present_marker;
 int host_vk_self_test;
+int host_vk_present_mode = HOST_VK_PRESENT_VBLANK;
 
 #define B host_vkb
 

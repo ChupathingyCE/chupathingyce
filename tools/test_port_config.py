@@ -57,6 +57,7 @@ DEFAULTS = {
 		"display.follow_camera": "off",
 		"network.team_change": "off",
 		"audio.resampling": "xbox",
+		"audio.loudness": "xbox",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
@@ -69,6 +70,7 @@ DEFAULTS = {
 		"display.follow_camera": "off",
 		"network.team_change": "off",
 		"audio.resampling": "xbox",
+		"audio.loudness": "xbox",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
@@ -81,6 +83,7 @@ DEFAULTS = {
 		"display.follow_camera": "off",
 		"network.team_change": "off",
 		"audio.resampling": "xbox",
+		"audio.loudness": "xbox",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
@@ -100,6 +103,7 @@ DEFAULTS = {
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "off",
 		"audio.resampling": "xbox",
+		"audio.loudness": "xbox",
 		"display.player_names": "none",
 		"display.follow_camera": "off",
 		"network.team_change": "off",
@@ -121,14 +125,15 @@ OLD = {
 	"display.follow_camera": "long_waits",
 	"network.team_change": "balanced",
 	"audio.resampling": "sinc",
+	"audio.loudness": "louder",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
-	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling", "audio.loudness"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling", "audio.loudness"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling", "audio.loudness"],
 	"server": [],
 	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player", "display.follow_camera", "network.team_change",
-		"audio.resampling"],
+		"audio.resampling", "audio.loudness"],
 }
 # the changes of the second question (game.defaults_answered = 2), the
 # third (3), the fourth (4), the fifth (5) and the latest
@@ -138,10 +143,11 @@ SECOND = ["network.tunnel_port"]
 THIRD = ["game.start_with_one_player"]
 FOURTH = ["audio.hrtf"]
 FIFTH = ["display.player_names", "display.follow_camera", "network.team_change"]
-LATEST = ["audio.resampling"]
+LATEST = ["audio.resampling", "audio.loudness"]
 # (the seventh, the original Xbox's 4:3 picture, is the Xbox's only, which
-# asks nothing: test_xbox_follows_new_defaults)
-GENERATION = "7"
+# asks nothing: test_xbox_follows_new_defaults; the sixth, audio.resampling,
+# and the eighth, audio.loudness, are both asked after the fifth)
+GENERATION = "8"
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
