@@ -148,6 +148,10 @@ boolean game_state_read_persistent_storage_header(
 	void *header,
 	long header_size);
 #ifndef HALO_XBOX_CONSOLE
+/* the block a saved game, a revert or a core is read into, let go (a map
+that is not a campaign's, and the end) */
+void game_state_image_buffer_release(
+	void);
 void *game_state_read_persistent_storage_image(
 	long checksum_offset,
 	long buffer_size);

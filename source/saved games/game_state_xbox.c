@@ -193,21 +193,31 @@ it once checked (game_state_image_accept). The block it is read into is made
 at the first read and kept: a revert, a core and the saved game each made
 and freed one of the game state's whole size (16 MB on the consoles), which
 a console's heap may not have in one piece by then. Only a campaign reads
-one, so the most the game holds is no more than before. */
+one, so the most the game holds is no more than before. It is let go when a
+map that is not a campaign's starts, and at the end
+(game_state_image_buffer_release). */
+static void *game_state_image;
+static long game_state_image_size;
+
 static void *game_state_image_buffer(
 	long size)
 {
-	static void *image;
-	static long image_size;
-
-	if (size > image_size)
+	if (size > game_state_image_size)
 	{
-		free(image);
-		image = malloc(size);
-		image_size = image ? size : 0;
+		free(game_state_image);
+		game_state_image = malloc(size);
+		game_state_image_size = game_state_image ? size : 0;
 	}
 
-	return image;
+	return game_state_image;
+}
+
+void game_state_image_buffer_release(
+	void)
+{
+	free(game_state_image);
+	game_state_image = NULL;
+	game_state_image_size = 0;
 }
 #endif
 

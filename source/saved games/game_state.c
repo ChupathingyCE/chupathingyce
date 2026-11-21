@@ -285,6 +285,10 @@ static void game_state_call_after_load_procs(
 void game_state_dispose(
 	void)
 {
+#ifndef HALO_XBOX_CONSOLE
+	/* port: the saved game's block (game_state_xbox.c) */
+	game_state_image_buffer_release();
+#endif
 	game_state_free_buffer();
 	game_state_close_file();
 
@@ -320,6 +324,13 @@ void game_state_initialize_for_new_map(
 	game_state_globals.locked = TRUE;
 	game_state_globals.saved_game_valid = FALSE;
 	game_state_globals.revert_time = NONE;
+#ifndef HALO_XBOX_CONSOLE
+	/* port: a map that is not a campaign's reverts to no checkpoint and
+	takes no saved game: the block one is read into is let go for its heap
+	(game_state_xbox.c) */
+	if (global_scenario_get()->type != _scenario_type_solo)
+		game_state_image_buffer_release();
+#endif
 
 	memset(game_state_globals.header, 0, sizeof(*game_state_globals.header));
 
