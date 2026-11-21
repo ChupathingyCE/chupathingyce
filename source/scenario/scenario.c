@@ -392,6 +392,14 @@ struct scenario *global_scenario_try_and_get(
 	return global_scenario;
 }
 
+/* port: the loaded structure bsp, or NULL with none (a failed switch),
+without global_structure_bsp_get's assert: the main loop checks for one */
+struct structure_bsp *global_structure_bsp_try_and_get(
+	void)
+{
+	return global_structure_bsp;
+}
+
 struct scenario *global_scenario_get(
 	void)
 {

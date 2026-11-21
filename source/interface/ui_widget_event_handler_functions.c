@@ -924,6 +924,7 @@ symbols in this file:
 #include "networking/network_messages.h"
 #include "networking/network_server_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "pause_leave.h" /* port: port/linux/game/pause_leave.h */
 #include "saved games/game_state.h"
 #include "saved games/player_profile.h"
 #include "interface/ui_widget_definitions.h"
@@ -2553,10 +2554,7 @@ static boolean network_game_remove_local_player(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: a mouse or keyboard event has no controller (the Xbox asserted
-	one); the player is then the pause screen's */
-	short controller_index = event && event->controller_index >= 0 && event->controller_index < 4 ?
-		event->controller_index : widget->local_player_index;
+	short controller_index;
 
 	/* port: a multiplayer map played alone (its pause screen: ui_widget.c's
 	ui_check_for_pause_game) has no network game to leave: the main menu,
@@ -2566,8 +2564,15 @@ static boolean network_game_remove_local_player(
 		main_goto_main_menu();
 		return TRUE;
 	}
-	if (controller_index == NONE)
-		controller_index = 0;
+	/* port: the player of the press's controller (the Xbox's), else the
+	pause screen's: a mouse's press has no controller (the Xbox asserted
+	one), and with one person playing any controller drives their pause
+	screen, so the press's controller can have no player here (a gamepad
+	on another port: pause_leave.h) */
+	controller_index = pause_leave_controller(
+		event ? event->controller_index : NONE,
+		event && network_game_client_local_player_exists(event->controller_index),
+		widget->local_player_index);
 	network_game_client_local_player_quit(controller_index);
 	/* port: a split screen player who quit, the others staying, is not
 	joined to the next game */
