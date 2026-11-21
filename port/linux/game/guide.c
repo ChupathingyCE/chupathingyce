@@ -169,6 +169,8 @@ long pc_menu_pause_guide_label(void);
 void ui_widgets_port_pause_game(boolean pause);
 /* the platform layer's clipboard (sdl_platform.c) */
 int platform_clipboard_get(char *text, int size);
+/* (sdl_platform.c's: 1 on the battery, 2 charging, 0 none; its percent, -1 not known) */
+int platform_power_state(int *percent);
 void platform_clipboard_set(char const *text);
 /* delta_peer.c's and delta_peer_game.c's: a platform's registry name, and
 this machine's party tag told to its game's host (party_teams) */
@@ -216,6 +218,8 @@ enum
 	MESSAGE_TIME = 6000,
 	/* (as Delta Profile's dialogs: DIALOG_SETTLE) */
 	CONFIRM_SETTLE = 400,
+	/* the battery asked about this often (the card's) */
+	BATTERY_INTERVAL = 30000,
 	/* the browser thread told where the player is this often */
 	WHERE_INTERVAL = 1000,
 	/* the game's verified players looked at for RECENT this often */
@@ -4002,9 +4006,48 @@ static void logs_target(float x0, float y0, float x1, float y1, short index)
 	target_add(x0, y0, x1, y1, _target_logs, index);
 }
 
+/* the battery on the card: only running on one or charging (a desktop,
+or a laptop plugged in and full, shows nothing); the system asked every
+BATTERY_INTERVAL, not every frame. Its percent and a small battery,
+left of right */
+static void render_battery(float right, float y)
+{
+	static unsigned long asked;
+	static int state, percent;
+	unsigned long now = system_milliseconds();
+	char text[32];
+	float width = 15, height = 7, x;
+	unsigned int color = COLOR_LABEL;
+	int level;
+
+	if (!asked || now - asked >= BATTERY_INTERVAL)
+	{
+		asked = now ? now : 1;
+		state = platform_power_state(&percent);
+	}
+	if (!state)
+		return;
+	if (percent < 0)
+		snprintf(text, sizeof(text), "%s", state == 2 ? "Charging" : "Battery");
+	else
+		snprintf(text, sizeof(text), state == 2 ? "%d%% \xC2\xB7 Charging" : "%d%%", percent);
+	x = right - ui_overlay_text_width(UI_FONT_MENU_SMALL, 9.0f, text);
+	ui_overlay_text(UI_FONT_MENU_SMALL, 9.0f, right, y, UI_ALIGN_RIGHT, color, text);
+	/* (low, on the battery: the warning's color) */
+	level = percent < 0 ? 100 : percent > 100 ? 100 : percent;
+	if (state == 1 && level <= 15)
+		color = ui_style_color(UI_COLOR_WARNING);
+	x -= width + 8;
+	ui_overlay_outline(x, y + 1, width, height + 1, 1.5f, 1.0f, color);
+	ui_overlay_rect(x + width, y + 3, 2, height - 3, 0, color);
+	ui_overlay_rect(x + 2, y + 3, (width - 4) * (float)level / 100.0f, height - 3, 0.5f, color);
+}
+
 static void render_card(void)
 {
 	ui_style_card(CONTENT_LEFT, CONTENT_RIGHT, HEADER_Y, guide.name, guide.status, guide.color, "DELTA");
+	/* (left of the title) */
+	render_battery(CONTENT_RIGHT - ui_overlay_text_width(UI_FONT_TITLE, 17.0f, "DELTA") - 16, HEADER_Y + 12);
 }
 
 static void render_tabs(void)
