@@ -58,6 +58,35 @@ path beside the old one:
 - **A 20 Hz high pass** before the limiter, for the maps' sounds that carry
   energy below hearing.
 
+## Levels and routing (0.9.2)
+
+More of goatbutt and the OpenH1 team's measurements, re-implemented in our
+mixer from the behavior they recorded (no code taken):
+
+- **The reverb send** is twice the voice's room level at the direct path's
+  distance rolloff, with no cap: an Xbox's reverb was 6.0 dB over room level
+  plus direct rolloff from half a unit to 20 units. The room rolloff factor
+  did nothing. The game sets it to 0 and every map's environment has 0, so
+  before, our reverb never fell off with distance: 6 dB under the Xbox's at a
+  voice's minimum distance, and 6, 14 and 20 dB over at 4, 10 and 20 times it.
+- **Obstruction reaches the send**: a voice obstructed at -1200 (LF ratio 0)
+  reverberated as one occluded at -1200 did. Only obstruction's LF ratio part
+  is the direct path's alone.
+- **The output level**: every sound came out at exactly half of the sum
+  (-6.02 dB), 2D, 3D and reverb, on stereo and AC-3, and a sum over full
+  scale still came out whole up to twice it. `audio.loudness = "xbox"` (the
+  default) does the same, with the limiter acting only over twice full
+  scale; `"louder"` keeps the level before 0.9.2.
+
+- **The quiet floor**: an Xbox played a gain exactly down to about -44 dB,
+  then let it fall away on a straight line in dB to silence at -57 dB. A 2D
+  voice's floor is of its volume at each mix bin; a 3D voice's of twice its
+  volume and rolloff, with its direct level (obstruction, occlusion) on the
+  direct path and without on the reverb send; the pan and HRTF come after.
+  Our line ends at DirectSound's -100 dB at -57 dB in.
+
+`tools/test_audio_levels.py` checks each.
+
 The 100 ms hold of a new room's reverb delays was already in
 `dsound_xbox_reverb.inl`. `tools/test_audio_doppler.py` checks the Doppler
 law, the Xbox resampler's weights and the high pass.
@@ -107,7 +136,8 @@ speakers.
 
 The reverb keeps the mixer's interface (`reverb_update`, `reverb_process`,
 `reverb_clear`): each 3D voice's room send, at the listener's and its own
-room levels with occlusion and the Room HF low pass, on a mono bus. Its four
+room levels with occlusion and obstruction, twice that at the direct
+path's distance rolloff, and the Room HF low pass, on a mono bus. Its four
 channels play from the front and back pairs on 5.1; on 7.1 the back pair is
 shared between the side and back speakers; on stereo each side's back
 channel plays at -3 dB with its front, as the Xbox's stereo downmix did.

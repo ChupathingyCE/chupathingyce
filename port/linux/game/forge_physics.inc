@@ -52,7 +52,9 @@ static unsigned char forge_physics_flags(
 }
 
 /* the object's collision switch as its physics has it: set for a phased
-one, cleared for another only where this set it */
+one, cleared for another only where this set it. (The consoles build this
+file but leave Forge's hooks out, HALO_CONSOLE_NO_FORGE: there the object
+flag that lets shots pass is not in objects.h, and the switch alone is set.) */
 static void forge_physics_apply(
 	struct forge_placed *placed)
 {
@@ -69,13 +71,17 @@ static void forge_physics_apply(
 	{
 		if (!TEST_FLAG(object->object.flags, _object_no_collisions_bit))
 			SET_FLAG(object->object.flags, _object_no_collisions_bit, TRUE);
+#ifndef HALO_CONSOLE_NO_FORGE
 		SET_FLAG(object->object.flags, _object_forge_phased_bit, TRUE);
+#endif
 		placed->phased_applied = TRUE;
 	}
 	else if (placed->phased_applied)
 	{
 		SET_FLAG(object->object.flags, _object_no_collisions_bit, FALSE);
+#ifndef HALO_CONSOLE_NO_FORGE
 		SET_FLAG(object->object.flags, _object_forge_phased_bit, FALSE);
+#endif
 		placed->phased_applied = FALSE;
 	}
 }
