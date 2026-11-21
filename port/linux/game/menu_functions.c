@@ -2251,6 +2251,12 @@ static void views_show(struct widget_instance *list, char const *view)
 		/* (the rows: the Gearbox menus' button bar is after them) */
 		if (!strncmp(child->name, "op_", 3))
 			child->visible = !mark || view_mark_has(mark->name, view);
+#ifndef HALO_PORT_RAGDOLLS
+		/* (RAGDOLLS, in a build without them: configure.py
+		--without-ragdolls. The last row of its view, so no gap) */
+		if (!strcmp(child->name, "op_ragdolls"))
+			child->visible = FALSE;
+#endif
 	}
 	views_scroll(list, view);
 	if (list->focused_child && !list->focused_child->visible)
