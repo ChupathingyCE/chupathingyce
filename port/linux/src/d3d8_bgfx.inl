@@ -2305,7 +2305,8 @@ the resolved pixels. Every target at the screen's size is multisampled, the
 back buffer, its depth buffer and what is drawn with them (a frame
 buffer's attachments have the same samples). A change of the setting
 between frames makes new targets (bg_target_get's key), cleared once as
-any new one. FXAA, SMAA and supersampling are the OpenGL path's only. */
+any new one. Supersampling is the screen's size (screen_mode_choose);
+FXAA and SMAA are the OpenGL path's only. */
 static int bg_screen_samples(void)
 {
 	static int unsupported;
@@ -6002,6 +6003,10 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 		bgfx_shutdown();
 		return FALSE;
 	}
+	/* (supersampling's limit, as the OpenGL path's GL_MAX_TEXTURE_SIZE:
+	screen_mode_choose draws the screen's targets at twice the size, at
+	most this) */
+	maximum_target_size = (GLint)bgfx_get_caps()->limits.maxTextureSize;
 	return TRUE;
 }
 
