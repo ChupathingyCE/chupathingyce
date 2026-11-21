@@ -805,14 +805,8 @@ void guide_layout_sidebar(struct guide_rect area, int count, float item_height, 
 	if (count < 0)
 		count = 0;
 	out->count = count;
-	if (item_height > area.height / 2)
-		item_height = area.height / 2;
-	out->close.x = area.x;
-	out->close.width = area.width;
-	out->close.height = item_height;
-	out->close.y = area.y + area.height - item_height;
-	/* (the sections squeezed, their gaps first, when they'd reach CLOSE) */
-	room = out->close.y - GUIDE_SIDEBAR_APART - area.y;
+	/* (the sections squeezed, their gaps first, when they'd pass area's foot) */
+	room = area.height;
 	if (count > 0 && count * item_height + (count - 1) * gap > room)
 	{
 		gap = count > 1 ? (room - count * item_height) / (count - 1) : 0;

@@ -9,8 +9,8 @@ data social.c's.
 
 The panel: the player's card (their name and what they're doing), then
 the sections down the left (FRIENDS, PARTY, CLAN, PLAYERS HERE, RECENT,
-WORKSHOP, SERVICE RECORD and SETTINGS, with CLOSE apart at their foot)
-beside the one shown. LB and RB (Q and E) switch them from anywhere, a
+WORKSHOP, SERVICE RECORD and SETTINGS) beside the one shown; B closes
+the Guide from them (the prompt bar's B CLOSE). LB and RB (Q and E) switch them from anywhere, a
 click opens one, and Left goes to them from a section when nothing there
 takes it (a setting's value does): there up and down show each, and A or
 Right goes back in.
@@ -534,8 +534,6 @@ static struct
 	/* the sections down the left have the d-pad (Left from a section,
 	until A or Right goes back into it) */
 	boolean sidebar;
-	/* ... its cursor on CLOSE */
-	boolean sidebar_close;
 	/* SETTINGS' page shown (_settings_page_*) */
 	short settings_page;
 	/* SETTINGS' scroll bar, as last drawn, for the mouse */
@@ -4110,7 +4108,7 @@ static float list_width(void)
 }
 
 /* the sections down the left, the one shown lit (with the plasma while
-they have the d-pad), and CLOSE apart at their foot */
+they have the d-pad) */
 static void render_sidebar(void)
 {
 	struct guide_rect area = { SIDEBAR_LEFT, BODY_Y, SIDEBAR_WIDTH, BODY_BOTTOM - BODY_Y };
@@ -4126,7 +4124,7 @@ static void render_sidebar(void)
 		char const *name = social_section_name(sections[index]);
 		char fitted[48];
 
-		if (shown && guide.sidebar && !guide.sidebar_close)
+		if (shown && guide.sidebar)
 			ui_style_row(item->x, item->y, item->width, item->height, TRUE);
 		else if (shown)
 			ui_style_row_chosen(item->x, item->y, item->width, item->height);
@@ -4144,13 +4142,6 @@ static void render_sidebar(void)
 		}
 		target_add(item->x, item->y, item->x + item->width, item->y + item->height, _target_tab, sections[index]);
 	}
-	/* (CLOSE, apart: lit when the sidebar's cursor is on it) */
-	if (guide.sidebar && guide.sidebar_close)
-		ui_style_row(layout.close.x, layout.close.y, layout.close.width, layout.close.height, TRUE);
-	ui_overlay_text(UI_FONT_MENU, size, layout.close.x + 10, layout.close.y + (layout.close.height - size) * 0.5f,
-		UI_ALIGN_LEFT, ui_style_color(UI_COLOR_TAB), "CLOSE");
-	target_add(layout.close.x, layout.close.y, layout.close.x + layout.close.width,
-		layout.close.y + layout.close.height, _target_close, 0);
 	/* (a faint line between them and the section) */
 	ui_overlay_rect(CONTENT_LEFT - 8, BODY_Y, 1, BODY_BOTTOM - BODY_Y, 0, ui_style_color(UI_COLOR_RULE));
 }
@@ -5348,10 +5339,10 @@ static short prompts_build(struct ui_style_prompt *prompts)
 	short count = 0;
 	boolean back = FALSE, add_friend = FALSE;
 
-	/* (the sections down the left: into one, or CLOSE) */
+	/* (the sections down the left: into one, or close the Guide) */
 	if (guide.sidebar && !guide.about)
 	{
-		prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", guide.sidebar_close ? "CLOSE" : "OPEN");
+		prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", "OPEN");
 		prompt_add(prompts, &count, UI_BUTTON_B, "ESC", "CLOSE");
 		return count;
 	}
@@ -6142,11 +6133,10 @@ static void handle(unsigned int pressed)
 static void sidebar_enter(void)
 {
 	guide.sidebar = TRUE;
-	guide.sidebar_close = FALSE;
 }
 
 /* the sections' d-pad: up and down the sections (each shown as the cursor
-reaches it) and CLOSE, A or Right into the section, B closes the Guide */
+reaches it), A or Right into the section, B closes the Guide */
 static void sidebar_handle(unsigned int pressed)
 {
 	short sections[NUMBER_OF_SOCIAL_SECTIONS], count = sections_shown(sections), at = 0, index;
@@ -6163,32 +6153,18 @@ static void sidebar_handle(unsigned int pressed)
 	}
 	if (pressed & (GUIDE_INPUT_A | GUIDE_INPUT_RIGHT))
 	{
-		if (guide.sidebar_close)
-			guide_close();
-		else
-			guide.sidebar = FALSE;
+		guide.sidebar = FALSE;
 		return;
 	}
 	if (pressed & (GUIDE_INPUT_LEFT_BUMPER | GUIDE_INPUT_RIGHT_BUMPER))
 	{
-		guide.sidebar_close = FALSE;
 		section_go((short)(guide.section + ((pressed & GUIDE_INPUT_RIGHT_BUMPER) ? 1 : -1)));
 		return;
 	}
-	if (pressed & GUIDE_INPUT_UP)
-	{
-		if (guide.sidebar_close)
-			guide.sidebar_close = FALSE;
-		else if (at > 0)
-			section_go(sections[at - 1]);
-	}
-	else if (pressed & GUIDE_INPUT_DOWN)
-	{
-		if (at + 1 < count)
-			section_go(sections[at + 1]);
-		else
-			guide.sidebar_close = TRUE;
-	}
+	if ((pressed & GUIDE_INPUT_UP) && at > 0)
+		section_go(sections[at - 1]);
+	else if ((pressed & GUIDE_INPUT_DOWN) && at + 1 < count)
+		section_go(sections[at + 1]);
 }
 
 /* whether Left goes to the sections: nothing in the section takes it now

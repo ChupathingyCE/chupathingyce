@@ -167,19 +167,15 @@ int guide_lines_scroll(const int *kinds, const float *heights, int count, int ch
 
 /* the Guide's sections down the left of its panel: an item each, from
 area's top, item_height high with GUIDE_SIDEBAR_GAP under each (less
-when they wouldn't fit), and CLOSE apart from them at area's foot. Nothing
-overlaps, all of it in area */
+when they wouldn't fit). Nothing overlaps, all of it in area */
 enum
 {
 	GUIDE_SIDEBAR_MOST = 12,
 	GUIDE_SIDEBAR_GAP = 3,
-	/* (at least this between the last section and CLOSE) */
-	GUIDE_SIDEBAR_APART = 12,
 };
 struct guide_sidebar_layout
 {
 	struct guide_rect items[GUIDE_SIDEBAR_MOST];
-	struct guide_rect close;
 	int count;
 };
 void guide_layout_sidebar(struct guide_rect area, int count, float item_height, struct guide_sidebar_layout *out);

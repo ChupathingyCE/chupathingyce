@@ -618,14 +618,10 @@ static void check_sidebar(void)
 	{
 		guide_layout_sidebar(area, count, 24.0f, &sidebar);
 		CHECK(sidebar.count == (count > GUIDE_SIDEBAR_MOST ? GUIDE_SIDEBAR_MOST : count), "%d sections", count);
-		CHECK(guide_rect_inside(sidebar.close, area), "CLOSE in the sidebar (%d)", count);
-		CHECK(sidebar.close.y + sidebar.close.height >= area.y + area.height - 0.01f, "CLOSE at its foot (%d)", count);
 		for (index = 0; index < sidebar.count; index++)
 		{
 			CHECK(guide_rect_inside(sidebar.items[index], area), "item %d of %d inside", index, count);
 			CHECK(sidebar.items[index].height > 0, "item %d of %d has height", index, count);
-			CHECK(sidebar.items[index].y + sidebar.items[index].height + GUIDE_SIDEBAR_APART <= sidebar.close.y + 0.01f,
-				"item %d of %d apart from CLOSE", index, count);
 			for (other = index + 1; other < sidebar.count; other++)
 				CHECK(!guide_rect_overlap(sidebar.items[index], sidebar.items[other]), "items %d and %d", index, other);
 		}
@@ -634,6 +630,12 @@ static void check_sidebar(void)
 	guide_layout_sidebar(area, 8, 24.0f, &sidebar);
 	CHECK(sidebar.items[7].height == 24.0f && sidebar.items[1].y - sidebar.items[0].y == 24.0f + GUIDE_SIDEBAR_GAP,
 		"eight at full size");
+	/* (the sections start at the top: nothing of the Guide's own at the foot) */
+	CHECK(sidebar.items[0].y == area.y, "from the top");
+	/* (more than fit: squeezed, the last one still inside at the foot) */
+	guide_layout_sidebar(area, GUIDE_SIDEBAR_MOST, 30.0f, &sidebar);
+	CHECK(sidebar.items[GUIDE_SIDEBAR_MOST - 1].y + sidebar.items[GUIDE_SIDEBAR_MOST - 1].height <=
+		area.y + area.height + 0.01f, "squeezed into the area");
 	/* (the list and its detail: apart, in the body, the detail at least its minimum) */
 	guide_layout_columns(body, 12.0f, 0.53f, 190.0f, &list, &detail);
 	CHECK(guide_rect_inside(list, body) && guide_rect_inside(detail, body), "columns in the body");
