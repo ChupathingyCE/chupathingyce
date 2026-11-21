@@ -141,6 +141,19 @@ void game_state_write_to_persistent_storage(
 	unsigned long *header_checksum,
 	long header_size,
 	long buffer_size);
+#ifndef HALO_XBOX_CONSOLE
+/* port: the saved game's header alone, then the whole file read once and
+checked, then taken (game_state_try_and_load_from_persistent_storage) */
+boolean game_state_read_persistent_storage_header(
+	void *header,
+	long header_size);
+void *game_state_read_persistent_storage_image(
+	long checksum_offset,
+	long buffer_size);
+void game_state_take_persistent_storage_image(
+	void *image,
+	long buffer_size);
+#endif
 void game_state_read_from_persistent_storage(
 	void *buffer,
 	long buffer_size);

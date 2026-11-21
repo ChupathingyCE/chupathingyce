@@ -453,6 +453,20 @@ boolean game_state_test_persistent_storage(
 	struct game_state_header header;
 	boolean success;
 
+#ifndef HALO_XBOX_CONSOLE
+	/* port: no file, one never written whole or one never saved to (its
+	checksum zero) holds no saved game: said without reading it all, as
+	retail's checksum would have said after its read */
+	if (corrupted)
+		*corrupted = FALSE;
+	if (!game_state_read_persistent_storage_header(&header, sizeof(header)) || !header.checksum)
+	{
+		*difficulty = _game_difficulty_level_normal;
+		strcpy(map_name, "");
+
+		return FALSE;
+	}
+#endif
 	if (game_state_read_header_from_persistent_storage(
 		&header,
 		&header.checksum,
@@ -1154,7 +1168,34 @@ void game_state_try_and_load_from_persistent_storage(
 	void)
 {
 	struct game_state_header header;
+#ifndef HALO_XBOX_CONSOLE
+	/* port: the header first, and the rest only for a saved game that can
+	be taken. Retail read and checksummed the whole file (16 MB here) at
+	every start of a campaign map, then read it all again to take it: a
+	stall of seconds on a console's SD card, for a file that was often
+	never written (its checksum zero), or of another map or difficulty.
+	The file is read once now, and taken from that read. What is taken is
+	the same as before; the original Xbox keeps retail's reads. */
+	void *image = NULL;
 
+	if (game_state_read_persistent_storage_header(&header, sizeof(header))
+		&& (header.checksum ||
+			(error(_error_silent, "no saved game in persistent storage"), FALSE))
+		&& game_state_header_valid(&header, FALSE)
+		&& (main_get_difficulty() == header.difficulty ||
+			(error(_error_silent, "the saved game is not taken: it is of difficulty %d, this game of %d",
+				header.difficulty, main_get_difficulty()), FALSE))
+		&& (image = game_state_read_persistent_storage_image(
+			(long)((char *)&header.checksum - (char *)&header), GAME_STATE_SIZE)) != NULL)
+	{
+		game_state_note_event("saved game loaded");
+		game_state_call_before_load_procs();
+		game_state_take_persistent_storage_image(image, GAME_STATE_SIZE);
+		game_difficulty_level_set(main_get_difficulty());
+		game_state_call_after_load_procs();
+		game_state_save();
+	}
+#else
 	if (game_state_read_header_from_persistent_storage(
 			&header,
 			&header.checksum,
@@ -1175,6 +1216,7 @@ void game_state_try_and_load_from_persistent_storage(
 		game_state_call_after_load_procs();
 		game_state_save();
 	}
+#endif
 
 	return;
 }
