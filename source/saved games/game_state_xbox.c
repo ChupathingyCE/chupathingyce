@@ -204,7 +204,9 @@ static void *game_state_image_buffer(
 {
 	if (size > game_state_image_size)
 	{
-		free(game_state_image);
+		/* (the game's free takes no NULL: debug_memory.c) */
+		if (game_state_image)
+			free(game_state_image);
 		game_state_image = malloc(size);
 		game_state_image_size = game_state_image ? size : 0;
 	}
@@ -215,7 +217,8 @@ static void *game_state_image_buffer(
 void game_state_image_buffer_release(
 	void)
 {
-	free(game_state_image);
+	if (game_state_image)
+		free(game_state_image);
 	game_state_image = NULL;
 	game_state_image_size = 0;
 }
