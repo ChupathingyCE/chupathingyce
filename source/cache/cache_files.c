@@ -1025,8 +1025,9 @@ static boolean cache_file_stubbs_read(
 	if (offset < 0 || size <= 0 || offset > cache_file_globals.header.file_length - size)
 		return FALSE;
 	cache_file_read(NONE, offset, size, buffer, &read_complete, TRUE);
-	while (!read_complete)
+	while (!*(volatile boolean *)&read_complete)
 		SwitchToThread();
+	CACHE_FILE_READ_SEEN();
 	return read_complete == TRUE;
 }
 #endif

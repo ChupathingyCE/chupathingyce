@@ -1269,6 +1269,8 @@ void *_texture_cache_bitmap_get_hardware_format(
 			{
 				if (texture->loaded)
 				{
+					/* (port: the cache thread's data, after its flag) */
+					CACHE_FILE_READ_SEEN();
 					if (!texture->used)
 					{
 #ifdef HALO_XBOX_CONSOLE
