@@ -19,4 +19,10 @@ void stats_log_set_renderer(
 	const char *vendor,
 	const char *renderer);
 
+/* a frame that went to the window, by any renderer (sdl_platform.c's
+OpenGL swap, d3d8_bgfx.inl, d3d8_vk.inl): the line's shown= says how many a
+second did, beside fps=, the frames drawn. Fewer are shown than drawn where
+the window takes no more than the display's rate (bgfx's pacing) */
+void stats_log_frame_shown(void);
+
 #endif
