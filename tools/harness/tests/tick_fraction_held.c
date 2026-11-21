@@ -46,6 +46,10 @@ static void game_frame(real seconds) { (void)seconds; }
 /* port: chester's MCC game speed (mcc_game_speed.c): off without an MCC map */
 static real mcc_game_speed_client(real speed) { return speed; }
 static void mcc_game_speed_frame(void) {}
+/* (a bsp is always loaded: no switch fails here) */
+struct structure_bsp { int unused; };
+static struct structure_bsp bsp;
+static struct structure_bsp *global_structure_bsp_try_and_get(void) { return &bsp; }
 
 #include "under_test.inc"
 
