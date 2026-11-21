@@ -1,0 +1,130 @@
+diff --git a/src/bgfx.cpp b/src/bgfx.cpp
+--- a/src/bgfx.cpp
++++ b/src/bgfx.cpp
+@@ -8076,4 +8076,10 @@ namespace bgfx
+ 
+ } // namespace bgfx
+ 
++// BGFX_RESET_MAXANISOTROPY's level: 2, 4, 8 or 16, at most the device's,
++// or 0 for the device's most. Set by the application (it declares the same
++// variable); each renderer reads it as it reads the reset flags.
++extern "C" int bgfx_max_anisotropy;
++int bgfx_max_anisotropy = 0;
++
+ #include "bgfx.idl.inl"
+diff --git a/src/renderer_d3d11.cpp b/src/renderer_d3d11.cpp
+--- a/src/renderer_d3d11.cpp
++++ b/src/renderer_d3d11.cpp
+@@ -10,6 +10,9 @@
+ #	include "video_d3d11.h"
+ #	include <bx/pixelformat.h>
+ 
++// (the application's BGFX_RESET_MAXANISOTROPY level: bgfx.cpp, tools/bgfx-patches/0008)
++extern "C" int bgfx_max_anisotropy;
++
+ namespace bgfx { namespace d3d11
+ {
+ 	inline const wchar_t* toViewNameW(wchar_t* _out, const char* _viewName)
+@@ -2563,6 +2566,10 @@ namespace bgfx { namespace d3d11
+ 			if (!!(_reset & BGFX_RESET_MAXANISOTROPY) )
+ 			{
+ 				maxAnisotropy = D3D11_REQ_MAXANISOTROPY;
++				if (bgfx_max_anisotropy > 0)
++				{
++					maxAnisotropy = bx::min<uint32_t>(maxAnisotropy, uint32_t(bgfx_max_anisotropy) );
++				}
+ 			}
+ 
+ 			if (m_maxAnisotropy != maxAnisotropy)
+diff --git a/src/renderer_d3d12.cpp b/src/renderer_d3d12.cpp
+--- a/src/renderer_d3d12.cpp
++++ b/src/renderer_d3d12.cpp
+@@ -22,6 +22,9 @@ PFN_PIX_GET_THREAD_INFO      bgfx_PIXGetThreadInfo;
+ PFN_PIX_EVENTS_REPLACE_BLOCK bgfx_PIXEventsReplaceBlock;
+ #endif // BGFX_CONFIG_DEBUG_ANNOTATION && (BX_PLATFORM_WINDOWS || BX_PLATFORM_WINRT)
+ 
++// (the application's BGFX_RESET_MAXANISOTROPY level: bgfx.cpp, tools/bgfx-patches/0008)
++extern "C" int bgfx_max_anisotropy;
++
+ namespace bgfx { namespace d3d12
+ {
+ 	struct PrimInfo
+@@ -3435,6 +3438,10 @@ namespace bgfx { namespace d3d12
+ 			if (!!(_reset & BGFX_RESET_MAXANISOTROPY) )
+ 			{
+ 				m_maxAnisotropy = D3D12_REQ_MAXANISOTROPY;
++				if (bgfx_max_anisotropy > 0)
++				{
++					m_maxAnisotropy = bx::min<uint32_t>(m_maxAnisotropy, uint32_t(bgfx_max_anisotropy) );
++				}
+ 			}
+ 			else
+ 			{
+diff --git a/src/renderer_gl.cpp b/src/renderer_gl.cpp
+--- a/src/renderer_gl.cpp
++++ b/src/renderer_gl.cpp
+@@ -12,6 +12,9 @@
+ #	include <bx/scanner.h>
+ #	include "emscripten.h"
+ 
++// (the application's BGFX_RESET_MAXANISOTROPY level: bgfx.cpp, tools/bgfx-patches/0008)
++extern "C" int bgfx_max_anisotropy;
++
+ namespace bgfx { namespace gl
+ {
+ 	struct PrimInfo
+@@ -4205,7 +4208,7 @@ namespace bgfx { namespace gl
+ 		void updateResolution(const SwapChain& _swapChain, uint32_t _reset)
+ 		{
+ 			float maxAnisotropy = !!(_reset & BGFX_RESET_MAXANISOTROPY)
+-				? m_maxAnisotropyDefault
++				? (bgfx_max_anisotropy > 0 ? bx::min(m_maxAnisotropyDefault, float(bgfx_max_anisotropy) ) : m_maxAnisotropyDefault)
+ 				: 0.0f
+ 				;
+ 
+diff --git a/src/renderer_mtl.cpp b/src/renderer_mtl.cpp
+--- a/src/renderer_mtl.cpp
++++ b/src/renderer_mtl.cpp
+@@ -33,6 +33,9 @@ extern "C" bgfx_mtl_stats_t bgfx_mtl_stats;
+ bgfx_mtl_stats_t bgfx_mtl_stats;
+ extern "C" char bgfx_gpu_name[256];
+ 
++// (the application's BGFX_RESET_MAXANISOTROPY level: bgfx.cpp, tools/bgfx-patches/0008)
++extern "C" int bgfx_max_anisotropy;
++
+ namespace bgfx { namespace mtl
+ {
+ 	struct PrimInfo
+@@ -2119,7 +2122,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 			SwapChainMtl* swapChain = m_mainFrameBuffer.m_swapChain;
+ 
+ 			const uint32_t maxAnisotropy = !!(_reset & BGFX_RESET_MAXANISOTROPY)
+-				? 16
++				? (bgfx_max_anisotropy > 0 ? bx::min<uint32_t>(16, uint32_t(bgfx_max_anisotropy) ) : 16)
+ 				: 1
+ 				;
+ 
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -20,6 +20,9 @@ extern "C" int bgfx_vk_gpu_timer;
+ #	import <Metal/Metal.h>
+ #endif // BX_PLATFORM_OSX
+ 
++// (the application's BGFX_RESET_MAXANISOTROPY level: bgfx.cpp, tools/bgfx-patches/0008)
++extern "C" int bgfx_max_anisotropy;
++
+ namespace bgfx { namespace vk
+ {
+ 	struct PrimInfo
+@@ -3741,6 +3744,10 @@ VK_IMPORT_DEVICE
+ 			if (!!(_reset & BGFX_RESET_MAXANISOTROPY) )
+ 			{
+ 				maxAnisotropy = m_deviceProperties.limits.maxSamplerAnisotropy;
++				if (bgfx_max_anisotropy > 0)
++				{
++					maxAnisotropy = bx::min(maxAnisotropy, float(bgfx_max_anisotropy) );
++				}
+ 			}
+ 
+ 			if (m_maxAnisotropy != maxAnisotropy)
