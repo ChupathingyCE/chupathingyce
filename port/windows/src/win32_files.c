@@ -221,7 +221,26 @@ int posix_sync(int descriptor)
 
 int posix_replace_file(const char *from, const char *to)
 {
-	return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) ? 0 : fail();
+	int attempt;
+
+	/* (a virus scanner, the search indexer or a backup program can hold
+	either file open for a moment without sharing its deletion, and the
+	move is then refused: it is tried again for up to half a second) */
+	for (attempt = 0; ; attempt++)
+	{
+		DWORD error;
+
+		if (MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+			return 0;
+		error = GetLastError();
+		if (attempt >= 10 ||
+			(error != ERROR_ACCESS_DENIED && error != ERROR_SHARING_VIOLATION && error != ERROR_LOCK_VIOLATION))
+		{
+			break;
+		}
+		Sleep(50);
+	}
+	return fail();
 }
 
 int posix_make_directory(const char *path)
