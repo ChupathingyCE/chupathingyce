@@ -148,6 +148,10 @@ void ui_overlay_layer(int layer);
 color's alpha dims it (a prompt that does nothing now) */
 float ui_overlay_button(int button, float size, float x, float y, unsigned int color);
 float ui_overlay_button_width(int button, float size);
+/* while set, ui_overlay_button draws A as the pad's right face button and
+B as its bottom one (the Guide's CONFIRM BUTTON: RIGHT, delta.confirm_button,
+while the Guide draws; the game's menus and HUD never) */
+void ui_overlay_set_confirm_swap(int swap);
 /* the same in a game's prompts (input.hud_buttons): DKrumpp's flat buttons,
 whatever input.button_look gives the menus (he drew the gems for menus) */
 float ui_overlay_hud_button(int button, float size, float x, float y, unsigned int color);

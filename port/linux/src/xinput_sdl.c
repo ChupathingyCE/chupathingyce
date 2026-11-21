@@ -521,9 +521,21 @@ each analog button), up for the game until let go of */
 static WORD guide_released_buttons;
 static unsigned int guide_released_analog;
 
+/* CONFIRM BUTTON: RIGHT while the Guide itself has the input
+(platform_guide_confirm_swap); never for the others that take it the
+Guide's way (the Forge menu, the halt screen) */
+static BOOL guide_confirm_swap;
+
+void platform_guide_confirm_swap(int swap)
+{
+	guide_confirm_swap = swap != 0;
+}
+
 void platform_guide_capture(int capture)
 {
 	guide_capture = capture != 0;
+	/* (whoever takes it now: unswapped until the Guide says otherwise) */
+	guide_confirm_swap = FALSE;
 	if (!guide_capture)
 		guide_held = 0;
 }
@@ -705,6 +717,10 @@ static void capture_asks(const struct platform_input_state *input, SDL_Gamepad *
 }
 
 #endif
+/* the keyboard's Enter and Escape this poll, while the Guide has the
+first player's input (kept out of CONFIRM BUTTON's swap) */
+static BYTE guide_key_a, guide_key_b;
+
 /* the keyboard, as the Guide reads it */
 static void guide_keyboard(const struct platform_input_state *input, XINPUT_GAMEPAD *pad)
 {
@@ -3008,7 +3024,15 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		{
 #ifdef HALO_GUIDE
 			if (guide_capture)
+			{
 				guide_keyboard(&input, &state->Gamepad);
+				/* (the keyboard's Enter and Escape kept apart from the pads'
+				A and B, which CONFIRM BUTTON may swap) */
+				guide_key_a = state->Gamepad.bAnalogButtons[XINPUT_GAMEPAD_A];
+				guide_key_b = state->Gamepad.bAnalogButtons[XINPUT_GAMEPAD_B];
+				state->Gamepad.bAnalogButtons[XINPUT_GAMEPAD_A] = 0;
+				state->Gamepad.bAnalogButtons[XINPUT_GAMEPAD_B] = 0;
+			}
 			else
 #endif
 			if (input.menus)
@@ -3034,6 +3058,27 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 					sdl_gamepad_state(gamepad, &state->Gamepad);
 			}
 		}
+#ifdef HALO_GUIDE
+		/* (CONFIRM BUTTON: RIGHT, the Guide's alone: the pads' right face
+		button is its A, the bottom one its B; then the keyboard's back in) */
+		if (guide_capture)
+		{
+			BYTE *buttons = state->Gamepad.bAnalogButtons;
+
+			if (guide_confirm_swap)
+			{
+				BYTE a = buttons[XINPUT_GAMEPAD_A];
+
+				buttons[XINPUT_GAMEPAD_A] = buttons[XINPUT_GAMEPAD_B];
+				buttons[XINPUT_GAMEPAD_B] = a;
+			}
+			if (guide_key_a > buttons[XINPUT_GAMEPAD_A])
+				buttons[XINPUT_GAMEPAD_A] = guide_key_a;
+			if (guide_key_b > buttons[XINPUT_GAMEPAD_B])
+				buttons[XINPUT_GAMEPAD_B] = guide_key_b;
+			guide_key_a = guide_key_b = 0;
+		}
+#endif
 		test_input_gamepad(&state->Gamepad);
 		touch_input_gamepad(&state->Gamepad);
 #ifdef HALO_ANDROID

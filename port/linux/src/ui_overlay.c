@@ -1278,9 +1278,25 @@ static float button_width_look(int button, float size, int flat_override)
 	return pill_width(pill_label(device, button), size);
 }
 
+/* ui_overlay_set_confirm_swap's: the menus' A and B drawn swapped */
+static int confirm_swap;
+
+void ui_overlay_set_confirm_swap(int swap)
+{
+	confirm_swap = swap != 0;
+}
+
+/* the button a prompt's A or B is pressed with (the pad's keys stay) */
+static int confirm_button(int button)
+{
+	if (!confirm_swap || scheme() == PROMPT_SCHEME_KEYBOARD)
+		return button;
+	return button == UI_BUTTON_A ? UI_BUTTON_B : button == UI_BUTTON_B ? UI_BUTTON_A : button;
+}
+
 float ui_overlay_button_width(int button, float size)
 {
-	return button_width_look(button, size, -1);
+	return button_width_look(confirm_button(button), size, -1);
 }
 
 static float button_look(int button, float size, float x, float y, unsigned int color, int flat_override)
@@ -1350,7 +1366,7 @@ static float button_look(int button, float size, float x, float y, unsigned int 
 
 float ui_overlay_button(int button, float size, float x, float y, unsigned int color)
 {
-	return button_look(button, size, x, y, color, -1);
+	return button_look(confirm_button(button), size, x, y, color, -1);
 }
 
 float ui_overlay_hud_button_width(int button, float size)
