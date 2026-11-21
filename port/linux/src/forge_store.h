@@ -14,6 +14,10 @@ first, read back and checked, then renamed over the old one.
 No SDL or game dependency: the game gives the folder
 (platform_folder(_port_folder_forge)), and the tests
 (port/linux/tests/forge_files_test.c) their scratch folder's.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef __FORGE_STORE_H
