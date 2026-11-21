@@ -162,6 +162,29 @@ Xbox read them */
 #define ANIMATION_ALIGNED_COPIES 1
 #endif
 
+/* (a map's point or real where it lies: copied out where the macro above
+says so, read in place elsewhere) */
+#ifdef ANIMATION_ALIGNED_COPIES
+static __inline real_point3d animation_point_at(void const *address)
+{
+	real_point3d point;
+
+	memcpy(&point, address, sizeof(point));
+	return point;
+}
+
+static __inline real animation_real_at(void const *address)
+{
+	real value;
+
+	memcpy(&value, address, sizeof(value));
+	return value;
+}
+#else
+#define animation_point_at(address) (*(real_point3d const *)(address))
+#define animation_real_at(address) (*(real const *)(address))
+#endif
+
 /* ---------- constants */
 
 enum
@@ -954,7 +977,7 @@ void animation_get_node_orientations(
 				}
 				else
 				{
-					orientation->translation = *(real_point3d *)data;
+					orientation->translation = animation_point_at(data);
 					data += sizeof(real_point3d);
 				}
 			}
@@ -971,7 +994,7 @@ void animation_get_node_orientations(
 					1,
 					sizeof(real_point3d)))
 				{
-					orientation->translation = *((real_point3d *)(data+header->default_translations_offset)+node_index);
+					orientation->translation = animation_point_at((real_point3d const *)(data+header->default_translations_offset)+node_index);
 				}
 				else
 				{
@@ -981,7 +1004,7 @@ void animation_get_node_orientations(
 			}
 			else
 			{
-				orientation->translation = *(real_point3d *)default_data;
+				orientation->translation = animation_point_at(default_data);
 				default_data += sizeof(real_point3d);
 			}
 			translation_flags >>= 1;
@@ -994,7 +1017,7 @@ void animation_get_node_orientations(
 				}
 				else
 				{
-					orientation->scale = *(real *)data;
+					orientation->scale = animation_real_at(data);
 					data += sizeof(real);
 				}
 			}
@@ -1004,7 +1027,7 @@ void animation_get_node_orientations(
 			}
 			else
 			{
-				orientation->scale = *(real *)default_data;
+				orientation->scale = animation_real_at(default_data);
 				default_data += sizeof(real);
 			}
 			scale_flags >>= 1;
@@ -1090,7 +1113,7 @@ void replacement_animation_apply(
 				}
 				else
 				{
-					orientation->translation = *(real_point3d *)data;
+					orientation->translation = animation_point_at(data);
 					data += sizeof(real_point3d);
 				}
 			}
@@ -1104,7 +1127,7 @@ void replacement_animation_apply(
 				}
 				else
 				{
-					orientation->scale = *(real *)data;
+					orientation->scale = animation_real_at(data);
 					data += sizeof(real);
 				}
 			}
@@ -1180,7 +1203,7 @@ void overlay_animation_apply(
 				}
 				else
 				{
-					translation = *(real_point3d *)data;
+					translation = animation_point_at(data);
 					data += sizeof(real_point3d);
 				}
 				orientation->translation.x += translation.x;
@@ -1199,7 +1222,7 @@ void overlay_animation_apply(
 				}
 				else
 				{
-					scale = *(real *)data;
+					scale = animation_real_at(data);
 					data += sizeof(real);
 				}
 				orientation->scale *= scale;
@@ -1280,7 +1303,7 @@ void overlay_animation_apply_scaled(
 				}
 				else
 				{
-					translation = *(real_point3d *)data;
+					translation = animation_point_at(data);
 					data += sizeof(real_point3d);
 				}
 				orientation->translation.x += translation.x*animation_scale;
@@ -1299,7 +1322,7 @@ void overlay_animation_apply_scaled(
 				}
 				else
 				{
-					scale = *(real *)data;
+					scale = animation_real_at(data);
 					data += sizeof(real);
 				}
 				orientation->scale *= scale*animation_scale+inverse_animation_scale;

@@ -88,10 +88,15 @@ void hud_calculate_point(
 	boolean in_multiplayer,
 	real override_scale,
 	point2d *result);
-/* port: the current view's window with display.hud_safe_zone's margins at
-the screen's edges ("xbox": the window itself, as on the Xbox) */
+/* port: the current view's window with display.hud_safe_zone's margins in
+from the view's edges ("xbox": the window itself, as on the Xbox) */
 void hud_safe_zone_bounds(
 	rectangle2d *bounds);
+/* port: TRUE when display.hud_safe_zone has other than the Xbox's margins
+now: each split screen view's window goes in its view's middle
+(compute_window_bounds) */
+boolean hud_safe_zone_centers_windows(
+	void);
 #ifdef HALO_PORT_WIDE_INTERFACE
 boolean hud_multitexture_overlays_follow_zoom(
 	struct tag_block const *multitexture_overlays);

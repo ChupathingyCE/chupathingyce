@@ -729,7 +729,10 @@ short network_game_client_get_local_machine_index(
 	return machine_index;
 }
 
-void network_game_client_local_player_quit(
+/* port: this machine's player of the controller in the client's game, NULL
+for none (network_game_client_local_player_quit's search, also asked by
+network_game_client_local_player_exists) */
+static struct network_player *network_game_client_local_player(
 	short controller_index)
 {
 	long player_index;
@@ -739,11 +742,11 @@ void network_game_client_local_player_quit(
 	struct network_player *player;
 	struct network_player *test_player;
 
+	player = NULL;
 	if (global_network_game_client)
 	{
 		machine = network_game_client_get_machine(global_network_game_client);
 		game = network_game_client_get_game(global_network_game_client);
-		player = NULL;
 		if (machine)
 		{
 			player_index = 0;
@@ -764,7 +767,27 @@ void network_game_client_local_player_quit(
 				player_machine_index += sizeof(struct network_player);
 			}
 		}
+	}
 
+	return player;
+}
+
+/* port: whether the controller has a player of this machine's in the
+client's game (a pause screen's LEAVE GAME: pause_leave.h) */
+boolean network_game_client_local_player_exists(
+	short controller_index)
+{
+	return network_game_client_local_player(controller_index) != NULL;
+}
+
+void network_game_client_local_player_quit(
+	short controller_index)
+{
+	struct network_player *player;
+
+	if (global_network_game_client)
+	{
+		player = network_game_client_local_player(controller_index);
 		if (player &&
 			!network_game_client_request_remove_player(
 				global_network_game_client,

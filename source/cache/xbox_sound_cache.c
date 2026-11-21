@@ -738,6 +738,8 @@ boolean _sound_cache_sound_request(
 				sound->cache_block_index);
 			if (cache_sound->loaded)
 			{
+				/* (port: the cache thread's data, after its flag) */
+				CACHE_FILE_READ_SEEN();
 				if (!cache_sound->initialized)
 				{
 					cache_sound->initialized = TRUE;

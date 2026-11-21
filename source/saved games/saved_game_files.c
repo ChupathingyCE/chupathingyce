@@ -1037,6 +1037,118 @@ boolean saved_game_file_open(
 	return success;
 }
 
+#ifdef HALO_PORT_SAFE_SAVES
+/* port: a profile written whole or not at all (halo_port_features.h). The
+Xbox wrote blam.sav in place, so a crash, a power cut or a pulled drive in
+the write left it cut short or half old, half new: its checksum failed and
+the profile came back as the defaults. The block now goes through
+halo_file_write_whole (the file is the old one or the new one, never a part
+of either), and the one there before, when its checksum is good, is kept as
+blam.sav.bak (not the blank block a new profile's file starts as):
+enumerate_memory_units takes it back for a blam.sav whose checksum fails.
+Only the profiles' files: a game variant (blam.lst) is written as before */
+
+static char const saved_game_file_backup_suffix[] = ".bak";
+
+/* the file at path read whole into block, when its checksum is good */
+static boolean saved_game_file_read_valid_block(
+	char const *path,
+	long checksum_data_size,
+	byte *block)
+{
+	struct file_reference file;
+	XCALCSIG_SIGNATURE checksum;
+	boolean valid = FALSE;
+
+	if (file_reference_create_from_path(&file, path, FALSE) &&
+		file_exists(&file) &&
+		file_open(&file, FLAG(_permission_read_bit)))
+	{
+		if (file_get_eof(&file) == SAVED_GAME_FILE_BLOCK_SIZE &&
+			file_read(&file, SAVED_GAME_FILE_BLOCK_SIZE, block))
+		{
+			saved_game_file_generate_checksum(block, (word)checksum_data_size, &checksum);
+			valid = !csmemcmp(&checksum, block+checksum_data_size, sizeof(checksum));
+		}
+		file_close(&file);
+	}
+
+	return valid;
+}
+
+static boolean saved_game_file_backup_path(
+	char const *path,
+	char *backup_path)
+{
+	return _snprintf(backup_path, MAXIMUM_FILENAME_LENGTH, "%s%s", path, saved_game_file_backup_suffix) > 0 &&
+		strlen(path) + sizeof(saved_game_file_backup_suffix) - 1 <= MAXIMUM_FILENAME_LENGTH;
+}
+
+boolean saved_game_file_write_block(
+	long profile_index,
+	void const *block,
+	boolean keep_backup)
+{
+	struct enumerated_saved_game_file file;
+	long memory_unit = SAVED_GAME_FILE_INDEX_MEMORY_UNIT(profile_index);
+	long n = SAVED_GAME_FILE_INDEX_FILE_INDEX(profile_index);
+	byte previous_block[SAVED_GAME_FILE_BLOCK_SIZE];
+	char backup_path[MAXIMUM_FILENAME_LENGTH+1];
+	boolean written = FALSE;
+
+	if (memory_unit==_memory_unit_hard_drive &&
+		(n >= 0) && (n < MAXIMUM_ENUMERATED_SAVED_GAME_FILES_ANY_TYPE_PER_MEMORY_UNIT) &&
+		get_nth_entry_in_mapfile((word)memory_unit, (word)n, &file))
+	{
+		file.path[MAXIMUM_FILENAME_LENGTH] = 0;
+
+		/* the one there now, if it is whole and not this one, is the backup
+		(a damaged one is not: the backup there stays) */
+		if (keep_backup && file.type == _saved_game_file_type_player_profile &&
+			saved_game_file_backup_path(file.path, backup_path) &&
+			saved_game_file_read_valid_block(file.path, PLAYER_PROFILE_CHECKSUM_DATA_SIZE, previous_block) &&
+			csmemcmp(previous_block, block, SAVED_GAME_FILE_BLOCK_SIZE) &&
+			!halo_file_write_whole(backup_path, previous_block, SAVED_GAME_FILE_BLOCK_SIZE))
+		{
+			error(_error_silent, "couldn't keep a backup of '%s'", file.path);
+		}
+
+		written = (boolean)halo_file_write_whole(file.path, block, SAVED_GAME_FILE_BLOCK_SIZE);
+		if (!written)
+		{
+			error(_error_silent, "couldn't write '%s' (#%d); the file is as it was", file.path, GetLastError());
+		}
+	}
+	else
+	{
+		error(_error_silent, "get_nth_entry_in_mapfile() failed in saved_game_file_write_block()");
+	}
+
+	return written;
+}
+
+/* a profile whose checksum fails taken back from its backup, when that one's
+is good: TRUE once the file is whole again */
+static boolean saved_game_file_restore_backup(
+	char const *path,
+	long checksum_data_size)
+{
+	byte block[SAVED_GAME_FILE_BLOCK_SIZE];
+	char backup_path[MAXIMUM_FILENAME_LENGTH+1];
+	boolean restored = FALSE;
+
+	if (saved_game_file_backup_path(path, backup_path) &&
+		saved_game_file_read_valid_block(backup_path, checksum_data_size, block))
+	{
+		restored = (boolean)halo_file_write_whole(path, block, SAVED_GAME_FILE_BLOCK_SIZE);
+		error(_error_silent, restored ? "'%s' was damaged: restored from its backup" :
+			"'%s' was damaged: its backup could not be put back", path);
+	}
+
+	return restored;
+}
+#endif
+
 boolean synchronize_metadata_display_name_with_profile_name(
 	long profile_index,
 	wchar_t *game_display_name)
@@ -1973,6 +2085,13 @@ static void enumerate_memory_units(
 									{
 										error(_error_silent, "failed to open saved game file to verify checksum");
 									}
+#ifdef HALO_PORT_SAFE_SAVES
+									/* port: a damaged profile taken back from its backup (above) */
+									if (!file.valid && file.type == _saved_game_file_type_player_profile)
+									{
+										file.valid = saved_game_file_restore_backup(file.path, checksum_data_size);
+									}
+#endif
 
 									if (!enumerate_saved_game_file(&file))
 									{
