@@ -8,6 +8,7 @@ tools/test_air_turn_aim.py
 tools/test_android_asm_convert.py
 tools/test_android_mcc_memory.py
 tools/test_audio_balance.py
+tools/test_audio_levels.py
 tools/test_bgfx_build_patches.py
 tools/test_bgfx_formats.py
 tools/test_bgfx_overlay_textures.py
@@ -58,6 +59,7 @@ tools/test_fog_screen_camera.py
 tools/test_footer_prompts.py
 tools/test_forge_files.py
 tools/test_forge_mouse_look.py
+tools/test_forge_unaimed_weapons.py
 tools/test_game_list_rules.py
 tools/test_gamespy_listing.py
 tools/test_guide_layout.py
@@ -142,6 +144,7 @@ tools/test_p2p_public_address.py
 tools/test_p2p_signal_sockets.py
 tools/test_packaged_install.py
 tools/test_party_teams.py
+tools/test_pause_leave.py
 tools/test_picture_check.py
 tools/test_ping.py
 tools/test_platform_names.py

@@ -680,7 +680,15 @@ struct game_options
 typedef char game_options_size_assert[
 	sizeof(struct game_options) == 0x10C ? 1 : -1];
 
+/* port: packed (retail's layout, 0x38B bytes) on the original Xbox only.
+Packed, the structure and its global had no alignment, and the windows'
+cameras' floats sat at odd addresses: PowerPC takes an exception on a
+misaligned float store (the Wii U's main menu with two local players). The
+other builds give it its natural alignment; the fields are where they were,
+only the end is padded. */
+#ifdef HALO_XBOX_CONSOLE
 #pragma pack(push, 1)
+#endif
 struct _screenshot_and_framerate_globals
 {
 	short count;
@@ -694,10 +702,18 @@ struct _screenshot_and_framerate_globals
 	boolean framerate_reset;
 	boolean halt_recursion_lock;
 };
+#ifdef HALO_XBOX_CONSOLE
 #pragma pack(pop)
 
 typedef char screenshot_and_framerate_globals_size_assert[
 	sizeof(struct _screenshot_and_framerate_globals) == 0x38B ? 1 : -1];
+#else
+typedef char screenshot_and_framerate_globals_windows_offset_assert[
+	offsetof(struct _screenshot_and_framerate_globals, windows) == 8 ? 1 : -1];
+typedef char screenshot_and_framerate_globals_framerate_samples_offset_assert[
+	offsetof(struct _screenshot_and_framerate_globals, framerate_samples) ==
+		8 + sizeof(struct render_window) * (MAXIMUM_WINDOWS + 1) ? 1 : -1];
+#endif
 
 #ifndef HALO_XBOX_CONSOLE
 void network_test_update(boolean main_menu_loaded, real seconds);
@@ -4747,8 +4763,18 @@ void main_loop(
 #endif
 					render_frame &= !game_engine_running() || game_time_get()>=3;
 
+					/* port: a structure bsp switch that failed left no bsp and
+					the main menu on its way (scenario_switch_structure_bsp):
+					nothing is drawn, and the camera and Forge's monitor don't
+					move, in a bsp that isn't there (game_time_update runs no
+					tick either) */
+					if (!global_structure_bsp_try_and_get())
+						render_frame = FALSE;
+
 					MAIN_STAGE("collision_log_continue_period");
 					collision_log_continue_period(1);
+					if (global_structure_bsp_try_and_get())
+					{
 					MAIN_STAGE("director_update");
 					director_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
 					MAIN_STAGE("observer_update");
@@ -4763,6 +4789,7 @@ void main_loop(
 						forge_update();
 					}
 #endif
+					}
 					MAIN_STAGE("collision_log_end_period");
 					collision_log_end_period();
 					MAIN_STAGE("game_engine_update_non_deterministic");

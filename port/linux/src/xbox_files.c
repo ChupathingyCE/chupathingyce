@@ -1490,6 +1490,129 @@ BOOL WINAPI CopyFileA(LPCSTR existing_file_name, LPCSTR new_file_name, BOOL fail
 	return success;
 }
 
+#ifdef HALO_PORT_SAFE_SAVES
+/* ---------- files written whole or not at all
+
+halo_file_write_whole (halo_linux_source_fixups.h): the data goes to
+path.tmp, is flushed to the disk and read back, and only then takes the
+file's name, in one step (posix_replace_file). Whenever the game stops,
+the file is the old one or the new one, never a part of either; a .tmp left
+by a stop is written over by the next write. A debug build stops itself at
+one of the steps for the tests, as a crash or a power cut would there
+(HALO_TEST_SAVE_CRASH = written, verified or replaced; or step:name, the
+step of the file of that name alone, such as verified:blam.sav) */
+
+static void write_whole_step(const char *step, const char *path)
+{
+#ifndef HALO_RELEASE
+	const char *asked = getenv("HALO_TEST_SAVE_CRASH");
+	size_t length = strlen(step);
+	const char *name = path;
+	const char *at;
+
+	for (at = path; *at; at++)
+	{
+		if (*at == '/' || *at == '\\')
+			name = at + 1;
+	}
+	if (asked && !strncmp(asked, step, length) &&
+		(!asked[length] || (asked[length] == ':' && !strcmp(asked + length + 1, name))))
+	{
+		_exit(86);
+	}
+#else
+	(void)step;
+	(void)path;
+#endif
+}
+
+static BOOL write_whole_all(int descriptor, const void *data, unsigned long size)
+{
+	unsigned long total = 0;
+
+	while (total < size)
+	{
+		ssize_t count = write(descriptor, (const char *)data + total, size - total);
+
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0)
+			return FALSE;
+		total += (unsigned long)count;
+	}
+	return TRUE;
+}
+
+/* whether the file at path holds exactly size bytes of data */
+static BOOL write_whole_matches(const char *path, const void *data, unsigned long size)
+{
+	char *contents = (char *)malloc(size + 1);
+	unsigned long total = 0;
+	int descriptor;
+	BOOL matches;
+
+	if (!contents)
+		return FALSE;
+	descriptor = open(path, O_RDONLY | O_CLOEXEC);
+	if (descriptor < 0)
+	{
+		free(contents);
+		return FALSE;
+	}
+	/* (one byte more than asked for: a longer file is not this one) */
+	while (total < size + 1)
+	{
+		ssize_t count = read(descriptor, contents + total, size + 1 - total);
+
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0)
+			break;
+		total += (unsigned long)count;
+	}
+	close(descriptor);
+	matches = total == size && !memcmp(contents, data, size);
+	free(contents);
+	return matches;
+}
+
+int halo_file_write_whole(const char *xbox_path, const void *data, unsigned long size)
+{
+	char path[1024], temporary[1040];
+	int descriptor;
+	BOOL written;
+
+	platform_translate_path(xbox_path, path, sizeof(path));
+	if ((size_t)snprintf(temporary, sizeof(temporary), "%s.tmp", path) >= sizeof(temporary))
+		return FALSE;
+	descriptor = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+	if (descriptor < 0)
+	{
+		platform_set_last_error_from_errno(errno);
+		return FALSE;
+	}
+	written = write_whole_all(descriptor, data, size) && posix_sync(descriptor) == 0;
+	if (!written)
+		platform_set_last_error_from_errno(errno);
+	written = close(descriptor) == 0 && written;
+	write_whole_step("written", path);
+	written = written && write_whole_matches(temporary, data, size);
+	write_whole_step("verified", path);
+	if (written && posix_replace_file(temporary, path) != 0)
+	{
+		platform_set_last_error_from_errno(errno);
+		written = FALSE;
+	}
+	if (!written)
+	{
+		unlink(temporary);
+		return FALSE;
+	}
+	write_whole_step("replaced", path);
+	return TRUE;
+}
+#endif
+
 BOOL WINAPI CreateDirectoryA(LPCSTR path_name, LPSECURITY_ATTRIBUTES security_attributes)
 {
 	char path[1024];

@@ -58,6 +58,24 @@ play (on a renderer that does not wait for them: bgfx, a parallel GL driver) */
 and the most a load without one does */
 #define PREP_WAIT_SECONDS 5.0
 #define PREP_LOAD_SECONDS 0.5
+#ifdef HALO_CONSOLE_SHADER_PREP
+/* a console that compiles each shader as it is asked, on the thread that
+asks (the Wii U's CafeGLSL), takes a minute or more to bring a map in
+from its file: the keys are made a frame's budget at a time all through
+that, and the loading screen's wait is counted from when the game first
+asks for it (d3d8_gl_map_waiting: the map's file read, only the shaders
+left), for as long as the port says (HALO_CONSOLE_SHADER_PREP_WAIT_SECONDS).
+What is left then is made at its draws. A map's second load reads what the
+first made from the console's own shader cache. */
+#ifndef HALO_CONSOLE_SHADER_PREP_WAIT_SECONDS
+#define HALO_CONSOLE_SHADER_PREP_WAIT_SECONDS 15.0
+#endif
+/* (a frame's time for them once only they are left: the loading screen
+drawn a few times a second meanwhile) */
+#ifndef HALO_CONSOLE_SHADER_PREP_WAIT_BUDGET
+#define HALO_CONSOLE_SHADER_PREP_WAIT_BUDGET 0.2
+#endif
+#endif
 /* the most programs waiting on the driver or bgfx's threads at once, and
 the longest bgfx's threads are waited for one (it failed) */
 #define PREP_PENDING_MAXIMUM 4096
@@ -92,6 +110,11 @@ static struct
 	/* started at the loading screen, which waits; the time it started */
 	BOOL loading;
 	double started;
+#ifdef HALO_CONSOLE_SHADER_PREP
+	/* the time the loading screen first waited for the keys
+	(d3d8_gl_map_waiting), -1 before */
+	double waiting;
+#endif
 	/* keys made, failed or found made already; of the keys */
 	unsigned long done, total;
 	/* made, and how long it took (logged once the map's keys are all done) */
@@ -525,6 +548,20 @@ static BOOL prep_in_parallel(void)
 	return xgpu_parallel_compile;
 }
 
+/* whether the loading screen's wait for the keys is over */
+static BOOL prep_wait_over(double now)
+{
+#ifdef HALO_CONSOLE_SHADER_PREP
+	/* (from the loading screen's first wait; none while the map's file is
+	read, unless no wait ever comes) */
+	if (prep.waiting < 0.0)
+		return now - prep.started > 600.0;
+	return now - prep.waiting > HALO_CONSOLE_SHADER_PREP_WAIT_SECONDS;
+#else
+	return now - prep.started > PREP_WAIT_SECONDS;
+#endif
+}
+
 /* each frame (D3DDevice_Present): the map's keys, as far as the frame's
 budget goes */
 static void prep_frame(void)
@@ -534,7 +571,7 @@ static void prep_frame(void)
 	if (!prep.total || prep.reported || !prep_renderer_up())
 		return;
 	start = prep_seconds();
-	if (prep.loading && start - prep.started > PREP_WAIT_SECONDS)
+	if (prep.loading && prep_wait_over(start))
 		prep.loading = FALSE;
 	if (!prep.loading && !prep_in_parallel())
 	{
@@ -547,6 +584,10 @@ static void prep_frame(void)
 		return;
 	}
 	deadline = start + (prep.loading ? PREP_LOADING_BUDGET : PREP_PLAY_BUDGET);
+#ifdef HALO_CONSOLE_SHADER_PREP
+	if (prep.loading && prep.waiting >= 0.0)
+		deadline = start + HALO_CONSOLE_SHADER_PREP_WAIT_BUDGET;
+#endif
 	prep_collect(deadline, FALSE);
 	while (prep.next < prep.keys.count && prep.pending_count < PREP_PENDING_MAXIMUM && prep_seconds() < deadline)
 		prep_start(&prep.keys.keys[prep.next++]);
@@ -584,6 +625,9 @@ static void prep_begin(const char *map, BOOL loading)
 	prep.loading = loading;
 	prep.where = "at the loading screen";
 	prep.started = prep_seconds();
+#ifdef HALO_CONSOLE_SHADER_PREP
+	prep.waiting = -1.0;
+#endif
 	if (!*map)
 		return;
 	if ((stock = xgpu_shader_keys_stock(&stock_size)) != NULL)
@@ -644,7 +688,12 @@ int d3d8_gl_map_waiting(void)
 {
 	if (!prep.loading || !prep.total || !prep_enabled())
 		return FALSE;
-	if (prep.reported || prep_seconds() - prep.started > PREP_WAIT_SECONDS)
+#ifdef HALO_CONSOLE_SHADER_PREP
+	/* (the wait counted from here: prep_wait_over) */
+	if (prep.waiting < 0.0)
+		prep.waiting = prep_seconds();
+#endif
+	if (prep.reported || prep_wait_over(prep_seconds()))
 	{
 		prep.loading = FALSE;
 		return FALSE;
