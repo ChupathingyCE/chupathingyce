@@ -1855,7 +1855,12 @@ static struct bg_shader *bg_fragment_shader(const struct nv2a_pixel_shader_key *
 		if (entry->hash == hash && entry->flags == flags && !memcmp(&entry->key, key, sizeof(*key)))
 			return bg_shader_ready(entry->shader) ? entry->shader : NULL;
 	}
+	/* (bgfx's samplers have no LOD bias: the water's ripples' bias,
+	D3DTSS_MIPMAPLODBIAS, is the lookup's, as on OpenGL ES; bg_uniforms sets
+	texture_lod_bias) */
+	nv2a_pixel_shader_lod_bias = TRUE;
 	glsl = nv2a_pixel_shader_to_glsl(key);
+	nv2a_pixel_shader_lod_bias = FALSE;
 	entry = calloc(1, sizeof(*entry));
 	entry->hash = hash;
 	entry->key = *key;
