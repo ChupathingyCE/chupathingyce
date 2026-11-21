@@ -52,8 +52,11 @@ closed), a click on a row or an option, and A's word */
 short guide_workshop_rows(void);
 void guide_workshop_move(short step);
 /* the d-pad's left and right: Show's, Sort's and the page row's value
-stepped (on another row, nothing) */
-void guide_workshop_side(short step);
+stepped; TRUE when the Workshop took it (on another row of its list it
+doesn't: the Guide's sections have it) */
+boolean guide_workshop_side(short step);
+/* whether it would take them now (guide_workshop_side's TRUE) */
+boolean guide_workshop_side_offered(void);
 /* a click on a row's arrow (target kind GUIDE_WORKSHOP_TARGET_PAGE, its
 index the row's times two, plus 1 for the right one) */
 void guide_workshop_arrow_click(short index);
@@ -106,7 +109,8 @@ calls do nothing, their arguments unevaluated */
 #define guide_workshop_update(a0) ((void)sizeof(a0), (void)0)
 #define guide_workshop_rows() ((short)0)
 #define guide_workshop_move(a0) ((void)sizeof(a0), (void)0)
-#define guide_workshop_side(a0) ((void)sizeof(a0), (void)0)
+#define guide_workshop_side(a0) ((void)sizeof(a0), (boolean)0)
+#define guide_workshop_side_offered() ((boolean)0)
 #define guide_workshop_arrow_click(a0) ((void)sizeof(a0), (void)0)
 #define guide_workshop_wheel(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (boolean)0)
 #define guide_workshop_click(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (boolean)0)

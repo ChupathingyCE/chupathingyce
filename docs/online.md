@@ -61,7 +61,7 @@ switch its sections:
 - **PARTY**: play together as a group of up to 8. Start a party, invite
   friends, or join with a code. When the leader joins or hosts a game, the
   party follows.
-- **PLAYERS HERE**: the players in your game. Mute someone, or add them
+- **PLAYERS HERE**: the players in your game. It's listed only while you're in one. Mute someone, or add them
   as a friend.
 - **RECENT**: Delta players from your last games.
 - **CLAN**: your clan, if you're in one. Clans are made on the site.

@@ -165,4 +165,32 @@ is its block's first action and they fit too; never so far down that room shows 
 under the last line */
 int guide_lines_scroll(const int *kinds, const float *heights, int count, int chosen, int first, float room);
 
+/* the Guide's sections down the left of its panel: an item each, from
+area's top, item_height high with GUIDE_SIDEBAR_GAP under each (less
+when they wouldn't fit). Nothing overlaps, all of it in area */
+enum
+{
+	GUIDE_SIDEBAR_MOST = 12,
+	GUIDE_SIDEBAR_GAP = 3,
+};
+struct guide_sidebar_layout
+{
+	struct guide_rect items[GUIDE_SIDEBAR_MOST];
+	int count;
+};
+void guide_layout_sidebar(struct guide_rect area, int count, float item_height, struct guide_sidebar_layout *out);
+
+/* the section to show for wanted, of count sections (shown: whether each
+is listed now; PLAYERS HERE only in a game, WORKSHOP only with MCC):
+wanted itself when listed, wrapping past either end, else the next listed
+one on from it the way it was asked for (down from current when wanted is
+past it, up when before it); -1 when none is listed */
+int guide_sections_go(const int *shown, int count, int current, int wanted);
+
+/* a list and the detail pane beside it in body, gap between them: the list
+list_share of the width, but the detail at least minimum_detail wide (and
+the list at least half what is left when it can't be) */
+void guide_layout_columns(struct guide_rect body, float gap, float list_share, float minimum_detail,
+	struct guide_rect *list, struct guide_rect *detail);
+
 #endif
