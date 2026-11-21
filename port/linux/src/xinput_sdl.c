@@ -3130,8 +3130,31 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 	return ERROR_SUCCESS;
 }
 
+/* the Guide's buzz (platform_guide_buzz): until when, and how strong */
+#define GUIDE_BUZZ_TIME 120
+#define GUIDE_BUZZ_LOW 0x3000
+#define GUIDE_BUZZ_HIGH 0x5000
+static Uint64 guide_buzz_until;
+
+/* the first player's pads (port 0's, and those sharing its player) buzz
+for GUIDE_BUZZ_TIME: the Guide's refused press. The game's own rumble,
+refreshed every frame, keeps it up meanwhile (XInputSetState) */
+void platform_guide_buzz(void)
+{
+	SDL_Gamepad *gamepads[PORT_COUNT];
+	int count = sdl_gamepads(gamepads), port;
+
+	guide_buzz_until = SDL_GetTicks() + GUIDE_BUZZ_TIME;
+	for (port = 0; port < PORT_COUNT; port++)
+	{
+		if ((port == 0 || port_gamepad_shared[port]) && port_gamepad(gamepads, count, port))
+			SDL_RumbleGamepad(port_gamepad(gamepads, count, port), GUIDE_BUZZ_LOW, GUIDE_BUZZ_HIGH, GUIDE_BUZZ_TIME);
+	}
+}
+
 DWORD WINAPI XInputSetState(HANDLE device, PXINPUT_FEEDBACK feedback)
 {
+	WORD low, high;
 	int port = controller_port(device);
 	SDL_Gamepad *gamepads[PORT_COUNT];
 	int count;
@@ -3147,12 +3170,19 @@ DWORD WINAPI XInputSetState(HANDLE device, PXINPUT_FEEDBACK feedback)
 		touch_input_rumble(feedback->Rumble.wLeftMotorSpeed, feedback->Rumble.wRightMotorSpeed);
 #endif
 	count = sdl_gamepads(gamepads);
+	low = feedback->Rumble.wLeftMotorSpeed;
+	high = feedback->Rumble.wRightMotorSpeed;
+	/* (the Guide's buzz, while it lasts, not stopped by the game's) */
+	if (port == 0 && SDL_GetTicks() < guide_buzz_until)
+	{
+		low = low > GUIDE_BUZZ_LOW ? low : GUIDE_BUZZ_LOW;
+		high = high > GUIDE_BUZZ_HIGH ? high : GUIDE_BUZZ_HIGH;
+	}
 	if (port_gamepad(gamepads, count, port))
 	{
 		/* the game refreshes the motors every frame; rumble a little longer
 		than that so they do not stutter */
-		SDL_RumbleGamepad(port_gamepad(gamepads, count, port), feedback->Rumble.wLeftMotorSpeed,
-			feedback->Rumble.wRightMotorSpeed, 100);
+		SDL_RumbleGamepad(port_gamepad(gamepads, count, port), low, high, 100);
 	}
 	if (port == 0)
 	{
@@ -3163,8 +3193,7 @@ DWORD WINAPI XInputSetState(HANDLE device, PXINPUT_FEEDBACK feedback)
 		{
 			if (port_gamepad_shared[other] && port_gamepad(gamepads, count, other))
 			{
-				SDL_RumbleGamepad(port_gamepad(gamepads, count, other), feedback->Rumble.wLeftMotorSpeed,
-					feedback->Rumble.wRightMotorSpeed, 100);
+				SDL_RumbleGamepad(port_gamepad(gamepads, count, other), low, high, 100);
 			}
 		}
 	}

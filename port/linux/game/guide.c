@@ -169,6 +169,8 @@ long pc_menu_pause_guide_label(void);
 void ui_widgets_port_pause_game(boolean pause);
 /* the platform layer's clipboard (sdl_platform.c) */
 int platform_clipboard_get(char *text, int size);
+/* (xinput_sdl.c's: the first player's pads buzz briefly) */
+void platform_guide_buzz(void);
 /* (sdl_platform.c's: 1 on the battery, 2 charging, 0 none; its percent, -1 not known) */
 int platform_power_state(int *percent);
 void platform_clipboard_set(char const *text);
@@ -1405,7 +1407,7 @@ static char const *const settings_game_lines[] =
 static char const *const settings_guide_lines[] =
 {
 	"#OPENING", "controls.delta", "controls.delta_button", "delta.menu_item",
-	"#CONTROLLER", "delta.confirm_button",
+	"#CONTROLLER", "delta.confirm_button", "delta.rumble",
 	"#NOTIFICATIONS", "delta.notify_in_game", "delta.notify_online",
 	"#PRIVACY", "network.share_presence",
 	"#DEVICES", "@devices", "@link",
@@ -5235,12 +5237,13 @@ static void prompt_add(struct ui_style_prompt *prompts, short *count, int button
 	prompts[(*count)++].word = word;
 }
 
-static void render_prompts(void)
+/* the prompt bar's prompts now (at most MAXIMUM_PROMPTS): their count */
+enum { MAXIMUM_PROMPTS = 6 };
+
+static short prompts_build(struct ui_style_prompt *prompts)
 {
-	struct ui_style_prompt prompts[6];
-	float starts[6], ends[6];
 	char const *word = NULL;
-	short count = 0, index;
+	short count = 0;
 	boolean back = FALSE, add_friend = FALSE;
 
 	if (guide.about)
@@ -5250,11 +5253,7 @@ static void render_prompts(void)
 			prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", word);
 		prompt_add(prompts, &count, UI_BUTTON_B, "ESC",
 			about_b_word(&guide.about_view, guide.about_from_settings ? "BACK" : "CLOSE"));
-		ui_style_prompts(CONTENT_RIGHT, PROMPTS_Y, 15.0f, prompts, count, starts, ends);
-		for (index = 0; index < count; index++)
-			target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19, _target_prompt,
-				(short)prompts[index].button);
-		return;
+		return count;
 	}
 	switch (guide.section)
 	{
@@ -5404,9 +5403,32 @@ static void render_prompts(void)
 		prompt_add(prompts, &count, UI_BUTTON_X, "M", "INVITE");
 	prompt_add(prompts, &count, UI_BUTTON_B, "ESC", guide.signing_in && signing_in_here() &&
 		guide.connect.state == BROWSER_CONNECT_CONFIRM && !guide.connect.answered ? "NO" : back ? "BACK" : "CLOSE");
+	return count;
+}
+
+static void render_prompts(void)
+{
+	struct ui_style_prompt prompts[MAXIMUM_PROMPTS];
+	float starts[MAXIMUM_PROMPTS], ends[MAXIMUM_PROMPTS];
+	short count = prompts_build(prompts), index;
+
 	ui_style_prompts(CONTENT_RIGHT, PROMPTS_Y, 15.0f, prompts, count, starts, ends);
 	for (index = 0; index < count; index++)
 		target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19, _target_prompt, (short)prompts[index].button);
+}
+
+/* whether A does something now: its prompt shows */
+static boolean a_offered(void)
+{
+	struct ui_style_prompt prompts[MAXIMUM_PROMPTS];
+	short count = prompts_build(prompts), index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (prompts[index].button == UI_BUTTON_A)
+			return TRUE;
+	}
+	return FALSE;
 }
 
 /* the key DELTA's prompts show (controls.delta's; on a Mac one that isn't
@@ -6133,7 +6155,12 @@ static void handle_pressed(unsigned int pressed)
 	if (guide.section == SOCIAL_SECTION_WORKSHOP && (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
 		guide_workshop_side((pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 	if (pressed & GUIDE_INPUT_A)
+	{
+		/* (A with nothing to do: a short buzz on the pad, delta.rumble) */
+		if (!a_offered() && config_boolean("delta.rumble"))
+			platform_guide_buzz();
 		activate();
+	}
 	else if ((pressed & GUIDE_INPUT_X) && guide.section == SOCIAL_SECTION_PLAYERS_HERE)
 		player_mute_toggle(guide.row[guide.section]);
 	else if ((pressed & GUIDE_INPUT_Y) && guide.section == SOCIAL_SECTION_PLAYERS_HERE)
