@@ -182,6 +182,15 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef HALO_CONSOLE_NO_FORGE
+/* (the consoles leave Forge's hooks out: director.c has no monitor camera
+there and the console's input no Forge keys. The Wii U's linker drops the
+calls unused, the 360's links every one, so they are nothing here) */
+#define director_forge_camera(local_player_index, fly, position, forward) \
+	((void)(local_player_index), (void)(fly), (void)(position), (void)(forward))
+#define halo_forge_keys() 0UL
+#endif
+
 void platform_log(const char *format, ...);
 /* xinput_sdl.c's: the mouse's look since the last call */
 int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch);
