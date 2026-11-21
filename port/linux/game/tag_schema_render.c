@@ -1684,7 +1684,10 @@ static boolean particle_system_particle_state_check(
 /* a type whose states loop takes time going round them; a particle state's
 sequence (the next one, for rotational sprites) has sprites, which a
 particle's sprite is taken modulo (particle_systems_render): a type with one
-that does not is disabled */
+that does not is disabled. A rotational state whose bitmap has no next
+sequence (Halo PC's burning flame, which the Custom Edition flamethrower's
+flames use) is drawn face-on from its own sequence (particle_systems_render,
+build_sprite_rotational), so its own is the one that needs sprites then */
 static boolean particle_system_type_check(
 	struct tag_validation *validation,
 	void *base)
@@ -1719,6 +1722,8 @@ static boolean particle_system_type_check(
 			(type->complex_sprite_render_mode == _particle_system_type_complex_sprite_render_mode_rotational);
 
 		loop_time += state->duration_lower_bound + state->transition_time_lower_bound;
+		if (bitmap && sequence_index >= bitmap->sequences.count)
+			sequence_index = state->sequence_index;
 		if (!TEST_FLAG(type->flags, _particle_system_type_disabled_bit) &&
 			(!bitmap || state->sequence_index < 0 || sequence_index >= bitmap->sequences.count ||
 				((struct bitmap_group_sequence *)xbox_pointer(bitmap->sequences.address))[sequence_index].sprites.count <= 0))

@@ -842,6 +842,34 @@ void model_node_matrices_from_orientations(
 	return;
 }
 
+#ifdef HALO_CONSOLE_MARKER_LOOKUPS
+/* port: the last 128 answers of model_find_marker, by model and the name's
+address (the callers pass string literals and tag strings, whose addresses
+hold). A hit is returned only when the marker it names bears the name asked
+for, so an entry that is stale, torn (another thread asking at once: there
+is no lock) or shared by two lookups can only miss. Forgotten as a map's
+tags go (model_marker_lookups_forget), so a remembered index is always one
+this map's own search found */
+enum
+{
+	MODEL_MARKER_LOOKUPS = 128
+};
+static struct
+{
+	long model_index;
+	char const *name;
+	short marker_index;
+} model_marker_lookups[MODEL_MARKER_LOOKUPS];
+
+void model_marker_lookups_forget(
+	void)
+{
+	csmemset(model_marker_lookups, 0, sizeof(model_marker_lookups));
+
+	return;
+}
+#endif
+
 short model_find_marker(
 	long model_index,
 	char const *name)
@@ -851,6 +879,21 @@ short model_find_marker(
 		struct model *model = model_definition_get(model_index);
 		short lower_bound = 0;
 		short upper_bound = (short)model->markers.count - 1;
+#ifdef HALO_CONSOLE_MARKER_LOOKUPS
+		unsigned long slot = (((unsigned long)model_index * 2654435761UL) ^
+			((unsigned long)(size_t)name >> 2)) % MODEL_MARKER_LOOKUPS;
+
+		if (model_marker_lookups[slot].model_index == model_index && model_marker_lookups[slot].name == name)
+		{
+			short remembered = model_marker_lookups[slot].marker_index;
+
+			if (remembered >= 0 && remembered < model->markers.count &&
+				!_stricmp(name, TAG_BLOCK_GET_ELEMENT(&model->markers, remembered, struct model_marker)->name))
+			{
+				return remembered;
+			}
+		}
+#endif
 
 		while (lower_bound <= upper_bound)
 		{
@@ -863,6 +906,11 @@ short model_find_marker(
 
 			if (comparison == 0)
 			{
+#ifdef HALO_CONSOLE_MARKER_LOOKUPS
+				model_marker_lookups[slot].model_index = model_index;
+				model_marker_lookups[slot].name = name;
+				model_marker_lookups[slot].marker_index = marker_index;
+#endif
 				return marker_index;
 			}
 			if (comparison < 0)

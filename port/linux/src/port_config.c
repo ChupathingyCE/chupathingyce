@@ -864,6 +864,14 @@ static const struct config_setting config_settings[] =
 		"Vulkan anyway. Read when Chupathingy starts." },
 #endif
 #endif
+#if !defined(HALO_GL_ES) && !defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_CONSOLE) && !defined(HALO_SWITCH_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_SERVER)
+	{ "display.gl_buffer_ring", _config_boolean, "false", "HALO_GL_BUFFER_RING", _environment_value, _platform_desktop,
+		"OpenGL: stream the frame's vertices and indices through a ring of three\n"
+		"buffers, each reused once the GPU is done with it, instead of asking\n"
+		"the driver for a new 32 MB buffer every frame. Try it if OpenGL crashes\n"
+		"or stutters on Linux with Mesa. Off by default while it is tested.\n"
+		"Read when Chupathingy starts." },
+#endif
 
 	/* ---- tuning: performance knobs that change only what is drawn
 	(config_tuning_apply). The preset fills in the [display] limits it
