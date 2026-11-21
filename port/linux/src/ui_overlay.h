@@ -373,6 +373,9 @@ Each tab's left and right in starts and ends (NULL: not wanted), for the
 pointer */
 void ui_style_tabs(float left, float right, float y, float height, const char *const *names, int count,
 	int selected, const char *left_key, const char *right_key, float *starts, float *ends);
+/* the next ui_style_tabs' end glyphs: these buttons (UI_BUTTON_*), not the
+bumpers (a page's tabs inside a section, as LT and RT) */
+void ui_style_tabs_buttons(int left_button, int right_button);
 /* the prompt bar's prompts, right-aligned at right: each a button's glyph
 (the keyboard's: key, as "ESC", or the game's own key when NULL), then its
 word; their places in starts and ends (NULL: not wanted) */
