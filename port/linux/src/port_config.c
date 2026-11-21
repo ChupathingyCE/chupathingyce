@@ -437,8 +437,7 @@ static const struct config_setting config_settings[] =
 	{ "display.crosshair_position", _config_string, "\"retail\"", "HALO_CROSSHAIR_POSITION", _environment_value,
 		_platform_all,
 		"Where the crosshair and your aim sit: \"retail\" (the middle of the\n"
-		"title-safe frame, as on the Xbox), \"centered\" (the middle of your\n"
-		"view; only different in split screen) or \"lowered\" (a tenth of the\n"
+		"title-safe frame, as on the Xbox) or \"lowered\" (a tenth of the\n"
 		"view's height below the middle). The view moves with it, so shots\n"
 		"still go where the crosshair is. Zoomed, it's in the middle." },
 	{ "display.hud_safe_zone", _config_string, DEFAULT_HUD_SAFE_ZONE, "HALO_HUD_SAFE_ZONE", _environment_value,
@@ -446,7 +445,9 @@ static const struct config_setting config_settings[] =
 		"How far the HUD sits from the screen's edges: \"xbox\" (48 and 36\n"
 		"in, as on the Xbox), \"pc\" (8 in, as Halo PC), \"auto\" (the Xbox's\n"
 		"alone, Halo PC's in split screen) or two numbers, \"24 18\" (8 to\n"
-		"48 across, 8 to 36 down). As Chimera's chimera_safe_zones." },
+		"48 across, 8 to 36 down). As Chimera's chimera_safe_zones. Other\n"
+		"than \"xbox\", each split screen view's crosshair and aim are in\n"
+		"its middle." },
 	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
 		_platform_all,
 		"Draw your weapon and arms. false hides them." },
@@ -888,9 +889,9 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"With V-Sync on: \"vblank\" waits for the display before every frame.\n"
 		"\"adaptive\" shows a frame that missed the display at once, with a tear,\n"
-		"instead of waiting for the next. OpenGL on Windows, Linux and Android,\n"
-		"and the original Xbox; elsewhere it waits. Takes effect at the next\n"
-		"start." },
+		"instead of waiting for the next. OpenGL and Vulkan on Windows, Linux\n"
+		"and Android, and the original Xbox. Direct3D 11 and the Mac wait, as\n"
+		"the log says. Takes effect at the next start." },
 	/* (the drawing's knobs: render.c's render_tuning, which holds them in
 	network games) */
 	{ "tuning.particle_thinning", _config_integer, "1", "HALO_PARTICLE_THINNING", _environment_value,
@@ -4613,6 +4614,41 @@ static char *config_drop_retired_sections(const char *text)
 	return result;
 }
 
+/* display.crosshair_position "centered" (before) put a split screen
+view's crosshair and aim in the view's middle; display.hud_safe_zone does
+that now ("pc", and "auto" in split screen: compute_window_bounds). A file
+with "centered" gets "retail" in its place, and a display.hud_safe_zone
+of "xbox" (written, or the consoles' default) "auto", so that the player's
+split screen stays as it was and a game alone as the Xbox's. Said in the
+log. Returns the new text, or NULL if there was nothing to change */
+static char *config_retire_centered_crosshair(const char *text, toml_datum_t table)
+{
+	toml_datum_t position = toml_seek(table, "display.crosshair_position");
+	toml_datum_t safe_zone = toml_seek(table, "display.hud_safe_zone");
+	int xbox_safe_zone;
+	char *result;
+
+	if (position.type != TOML_STRING || strcmp(position.u.s, "centered"))
+		return NULL;
+	xbox_safe_zone = safe_zone.type == TOML_STRING ? !strcmp(safe_zone.u.s, "xbox") :
+		!strcmp(DEFAULT_HUD_SAFE_ZONE, "\"xbox\"");
+	result = config_text_with_line(text, "display.crosshair_position", "crosshair_position = \"retail\"\n");
+	if (result && xbox_safe_zone)
+	{
+		char *both = config_text_with_line(result, "display.hud_safe_zone", "hud_safe_zone = \"auto\"\n");
+
+		free(result);
+		result = both;
+	}
+	if (result)
+	{
+		platform_log("settings: display.crosshair_position = \"centered\" is retired; it is \"retail\" now%s "
+			"(display.hud_safe_zone puts each split screen view's crosshair in its middle)",
+			xbox_safe_zone ? ", and display.hud_safe_zone = \"auto\"" : "");
+	}
+	return result;
+}
+
 /* a file that holds a setting under its older name (config_renamed): that
 name's lines are taken out of it (its value, and its line commented out at
 the default with its help text of that day, each with the comment above it
@@ -4824,7 +4860,8 @@ static const struct
 	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
-	{ "display.crosshair_position", { "retail", "centered", "lowered", NULL }, "\"retail\"" },
+	/* ("centered" is retired: config_retire_centered_crosshair) */
+	{ "display.crosshair_position", { "retail", "lowered", NULL }, "\"retail\"" },
 	/* (two numbers, "24 18", are taken too: the log line for anything else
 	is hud_draw.c's hud_safe_zone_margins) */
 	{ "display.hud_safe_zone", { "xbox", "pc", "auto", NULL }, NULL },
@@ -5640,6 +5677,29 @@ static void config_load(void)
 					{
 						toml_free(forwarded_result);
 						free(forwarded);
+					}
+				}
+			}
+			{
+				/* (display.crosshair_position "centered", retired) */
+				char *retired = config_retire_centered_crosshair(text, result.toptab);
+				toml_result_t retired_result;
+
+				if (retired)
+				{
+					retired_result = toml_parse(retired, (int)strlen(retired));
+					if (retired_result.ok)
+					{
+						toml_free(result);
+						free(text);
+						result = retired_result;
+						text = retired;
+						updated = text;
+					}
+					else
+					{
+						toml_free(retired_result);
+						free(retired);
 					}
 				}
 			}

@@ -411,6 +411,38 @@ typedef void (*hs_inspection_procedure)(
 	long value,
 	char *buffer);
 
+/* port: a PowerPC (and 32-bit ARM, whose VFP loads fault the same) takes
+an exception on a misaligned float. There a script's stack keeps its frames
+and allocations on 4 bytes (hs_stack_push, hs_stack_allocate), and its reals
+are read and written through copies; elsewhere they are read in place, as
+the Xbox read them. devkitPPC defines __PPC__ (not __powerpc__), so all the
+names are checked. */
+#if defined(__powerpc__) || defined(__ppc__) || defined(__PPC__) || defined(_ARCH_PPC) || defined(_M_PPC) || \
+	defined(__arm__)
+#define HS_ALIGNED_STACK 1
+static __inline real hs_real_get(
+	void const *address)
+{
+	real value;
+
+	memcpy(&value, address, sizeof(value));
+
+	return value;
+}
+
+static __inline void hs_real_set(
+	void *address,
+	real value)
+{
+	memcpy(address, &value, sizeof(value));
+
+	return;
+}
+#else
+#define hs_real_get(address) (*(real const *)(address))
+#define hs_real_set(address, value) (*(real *)(address) = (value))
+#endif
+
 /* ---------- structures */
 
 struct hs_runtime_globals
@@ -1494,6 +1526,11 @@ static boolean hs_stack_push(
 	struct hs_stack_frame *new_frame = (struct hs_stack_frame *)
 		((byte *)thread->stack+thread->stack->size+sizeof(struct hs_stack_frame));
 
+#ifdef HS_ALIGNED_STACK
+	/* port: the frame on 4 bytes (HS_ALIGNED_STACK) */
+	new_frame = (struct hs_stack_frame *)(((size_t)new_frame+3) & ~(size_t)3);
+#endif
+
 	/* port: MCC uses its own bound; Xbox/CE keep the inline stack limit. */
 	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x35e, thread_index,
 		(byte *) (new_frame+1)<mcc_hs_stack_end(thread),
@@ -2505,33 +2542,35 @@ void hs_evaluate_arithmetic(
 	}
 	else
 	{
-		real argument = *value;
+		real argument = hs_real_get(value);
 
 		if (*argument_index==0)
 		{
-			*result = argument;
+			hs_real_set(result, argument);
 		}
 		else
 		{
+			/* (the result read where each case reads it, so the Xbox's
+			and the desktop's code is as before) */
 			switch (function_index)
 			{
 			case _hs_function_plus:
-				*result = *result+argument;
+				hs_real_set(result, hs_real_get(result)+argument);
 				break;
 			case _hs_function_minus:
-				*result = *result-argument;
+				hs_real_set(result, hs_real_get(result)-argument);
 				break;
 			case _hs_function_times:
-				*result = *result*argument;
+				hs_real_set(result, hs_real_get(result)*argument);
 				break;
 			case _hs_function_divide:
-				*result = *result/argument;
+				hs_real_set(result, hs_real_get(result)/argument);
 				break;
 			case _hs_function_min:
-				*result = MIN(*result, argument);
+				hs_real_set(result, MIN(hs_real_get(result), argument));
 				break;
 			case _hs_function_max:
-				*result = MAX(*result, argument);
+				hs_real_set(result, MAX(hs_real_get(result), argument));
 				break;
 			default:
 				display_assert(NULL, "c:\\halo\\source\\hs\\hs_library_internal_runtime.h", 0x111, TRUE);
@@ -2550,7 +2589,7 @@ void hs_evaluate_arithmetic(
 	}
 	else
 	{
-		*(real *)&result_long = *result;
+		*(real *)&result_long = hs_real_get(result);
 
 		hs_return(thread_index, result_long);
 	}
@@ -3250,16 +3289,15 @@ static void *hs_stack_allocate(
 		return NULL;
 	}
 
-#if defined(__powerpc__) || defined(__ppc__) || defined(_M_PPC) || defined(__arm__)
-	/* port: a PowerPC (and 32-bit ARM, whose VFP loads fault the same)
-	faults on a misaligned float (a script's arithmetic
-	put its reals after a short): allocations start on 4 bytes there; the
-	Xbox's layout is kept elsewhere */
+#ifdef HS_ALIGNED_STACK
+	/* port: allocations start on 4 bytes (HS_ALIGNED_STACK: a script's
+	arithmetic put its reals after a short); the Xbox's layout is kept
+	elsewhere */
 	{
 		long padding = (long)(-(long)(size_t)(frame->data+frame->size) & 3);
 
 		if (padding &&
-			size+padding>thread->stack_data+HS_THREAD_STACK_SIZE-(frame->data+frame->size))
+			size+padding>mcc_hs_stack_end(thread)-(frame->data+frame->size))
 		{
 			hs_stack_overflow(thread_index);
 
@@ -3372,7 +3410,7 @@ static void hs_global_reconcile_read(
 			break;
 		case _hs_type_real:
 			*(real *)&global->value = external->address
-				? *(real *)external->address
+				? hs_real_get(external->address)
 				: _hs_type_real_default;
 			break;
 		case _hs_type_short_integer:
@@ -3603,7 +3641,7 @@ static void hs_global_reconcile_write(
 		case _hs_type_real:
 			value = *(real *)&global->value;
 			if (external->address)
-				*(real *)external->address = value;
+				hs_real_set(external->address, value);
 			break;
 		case _hs_type_short_integer:
 			if (external->address)

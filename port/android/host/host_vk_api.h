@@ -56,5 +56,12 @@ extern int host_vk_presenting;
 /* config.toml's debug.vk_present_marker and debug.vk_self_test */
 extern int host_vk_present_marker;
 extern int host_vk_self_test;
+/* how the game wants its frames shown, as every renderer shows them
+(sdl_platform.h's platform_present_mode, the same values): the swapchain's
+present mode follows it, made again when it changes */
+#define HOST_VK_PRESENT_IMMEDIATE 0
+#define HOST_VK_PRESENT_VBLANK 1
+#define HOST_VK_PRESENT_ADAPTIVE 2
+extern int host_vk_present_mode;
 
 #endif

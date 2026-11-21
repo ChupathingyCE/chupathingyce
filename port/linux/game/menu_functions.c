@@ -2531,17 +2531,37 @@ static void profile_gamepad_layout(struct widget_instance *picture)
 }
 
 /* the Chupathingy menus' settings picture (port/assets/menus/chupathingy):
-a frame for each of its nine rows (SETUP's last), then the Xbox's five button settings,
-which CONTROLS' row shows for the edited profile */
+a frame for each of its nine rows, then the Xbox's five button settings,
+which CONTROLS' row shows for the edited profile. Without ADVANCED SETUP
+the rows after it keep their frames and words
+(pc_menu_settings_description_index, below) */
 #define CHUPATHINGY_FIRST_LAYOUT_FRAME 9
-/* SETUP's frame, and its words in the descriptions (after ABOUT's) */
-#define CHUPATHINGY_SETUP_FRAME 7
-#define CHUPATHINGY_SETUP_DESCRIPTION 7
 
 /* ABOUT's row (the picture's frame for it is blank): this build and the
 project, in the picture's place (its about_text) */
-#define CHUPATHINGY_ABOUT_FRAME 6
+#define CHUPATHINGY_ABOUT_FRAME 7
 #define CHUPATHINGY_ABOUT_LENGTH 512
+
+/* The Chupathingy menus' SETTINGS (chupathingy/settings.xml, the list with
+a save_item) without ADVANCED SETUP, ADVANCED SETUP's place the seventh
+row: the rows after it are a place higher, so their description's words
+and picture are the next ones, the ones they have with it
+(ui_widget_game_data_input_functions.c's
+player_profile_edit_select_menu_update_extended_description) */
+#define CHUPATHINGY_SETUP_PLACE 6
+
+short pc_menu_settings_description_index(struct widget_instance *list_widget, short index)
+{
+	extern boolean pc_menu_setup_shown(void);
+	struct widget_instance *child;
+
+	if (index == NONE || index < CHUPATHINGY_SETUP_PLACE || !list_widget || pc_menu_setup_shown())
+		return index;
+	for (child = list_widget->child; child && strcmp(child->name, "save_item"); child = child->next)
+	{
+	}
+	return child ? (short)(index + 1) : index;
+}
 
 /* (a line's width in the font the draw mode has) */
 static short chupathingy_about_width(char const *text, long length)
@@ -2678,17 +2698,6 @@ static void chupathingy_settings_picture(struct widget_instance *picture)
 {
 	extern boolean pc_menu_setup_shown(void);
 	struct player_profile *profile = player_ui_get_edit_player_profile();
-
-	/* (without SETUP, SAVE CHANGES is in its place: its words and picture,
-	the next ones) */
-	if (!pc_menu_setup_shown() && picture->animation.current_frame_index == CHUPATHINGY_SETUP_FRAME)
-	{
-		struct widget_instance *text = named(picture->parent, "description_text", 0);
-
-		picture->animation.current_frame_index = CHUPATHINGY_SETUP_FRAME + 1;
-		if (text)
-			text->parameters.text_box.string_list_index = CHUPATHINGY_SETUP_DESCRIPTION + 1;
-	}
 
 	chupathingy_settings_about(picture);
 	if (picture->animation.current_frame_index == PROFILE_GAMEPAD_FRAME)
