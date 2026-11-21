@@ -185,6 +185,7 @@ symbols in this file:
 #include "cache/cache_files.h"
 #include "cache/cache_files_decompress_windows.h"
 #include "cache/texture_cache.h"
+#include "bink/bink_playback.h" /* port: bink_playback_stop_for_texture_cache */
 #include "interface/ui_widget.h"
 #include "interface/missing_maps_screen.h" /* port: a console with no ui.map */
 #ifdef HALO_CUSTOM_EDITION
@@ -1043,6 +1044,11 @@ boolean cache_files_precache_map_begin(
 
 				return FALSE;
 			}
+			/* port: one taker of the texture cache's memory at a time: a
+			movie holding it (the intro, still playing as a game starts) is
+			stopped first (bink_playback_stop_for_texture_cache) */
+			if (bink_playback_stop_for_texture_cache())
+				error(_error_silent, "map copy: stopped the movie that held the texture cache's memory");
 			buffer = texture_cache_steal_memory(buffer_size);
 			map_file = cached_map_file_get(map_file_index);
 

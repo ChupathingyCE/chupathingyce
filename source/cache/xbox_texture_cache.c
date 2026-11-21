@@ -476,6 +476,10 @@ void *texture_cache_steal_memory(
 		"c:\\halo\\SOURCE\\cache\\xbox_texture_cache.c",
 		0x140,
 		!xbox_texture_cache_globals.stolen_memory);
+	/* port: said in a release build too, where the assert isn't checked: a
+	second taker breaks the cache (bink_playback_stop_for_texture_cache) */
+	if (xbox_texture_cache_globals.stolen_memory)
+		error(_error_silent, "### ERROR texture cache: its memory taken again while taken (%ld bytes)", size);
 	lruv_resize(
 		xbox_texture_cache_globals.cache,
 		remaining_page_count);

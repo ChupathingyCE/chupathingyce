@@ -42,7 +42,10 @@ handler (netgame_unjoin_player), the team swap is the Xbox's, the countdown
 is the server's (START GAME only lets it run: network_game_server_pause_
 countdown), and a second controller's START joins split screen and its B
 takes that player out, through the Xbox screen as they did (the first
-controller's B is the lobby's LEAVE).
+controller's B is the lobby's LEAVE, as is the B of a controller with no
+player here while the machine has one player; with more, that B does
+nothing). While a gamepad here has no player and the game has room, the
+first open slot reads PRESS START TO JOIN.
 
 Input: up and down move in the list or the menu, left and right (and the
 shoulders) move between the panes, A acts, B leaves, X changes team, Y opens
@@ -410,6 +413,8 @@ static struct
 	struct social_state social;
 	int social_serial;
 	unsigned long social_time;
+	/* a gamepad here may join with START: the first open slot says so */
+	boolean join_hint;
 } lobby;
 
 /* ---------- small helpers */
@@ -727,6 +732,48 @@ static short local_player_of(struct network_game const *game, short controller)
 static short local_player_index(struct network_game const *game)
 {
 	return local_player_of(game, 0);
+}
+
+/* this machine's players (split screen: more than one) */
+static short machine_player_count(struct network_game const *game)
+{
+	short controller, count = 0;
+
+	for (controller = 0; controller < LOCAL_PLAYERS; controller++)
+		count += local_player_of(game, controller) != NONE ? 1 : 0;
+	return count;
+}
+
+/* the controller of this machine's first player (0 with none) */
+static short first_local_controller(struct network_game const *game)
+{
+	short controller;
+
+	for (controller = 0; controller < LOCAL_PLAYERS; controller++)
+	{
+		if (local_player_of(game, controller) != NONE)
+			return controller;
+	}
+	return 0;
+}
+
+/* split screen: a gamepad here with no player in the game, which joins
+with START (the Xbox pregame screen's own), while the game has room */
+static boolean controller_can_join(struct network_game const *game)
+{
+	short controller;
+
+	if (!game || lobby.state == _lobby_preview || lobby.count >= lobby.maximum_players)
+		return FALSE;
+	for (controller = 1; controller < LOCAL_PLAYERS; controller++)
+	{
+		if (input_has_gamepad(controller) && local_player_of(game, controller) == NONE &&
+			!player_ui_local_player_wants_to_play_multiplayer(controller))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 /* the client's READY, said to the host and said again while its state
@@ -1177,6 +1224,7 @@ static void read_game(void)
 	else
 		client_ready_frame(game);
 	read_players(game, local, host_machine, hosting);
+	lobby.join_hint = controller_can_join(game);
 	if (hosting)
 		host_state_send(game);
 	lobby.seconds = network_game_client_get_seconds_to_game_start(client);
@@ -1388,6 +1436,7 @@ static void debug_sample(char const *spec)
 	memset(&lobby.preview_game, 0, sizeof(lobby.preview_game));
 	lobby.preview_game.open = 1;
 	lobby.seconds = strstr(spec, "countdown") ? 5 : 0;
+	lobby.join_hint = strstr(spec, "join") != NULL && lobby.state != _lobby_preview;
 	read_menu(NULL);
 	read_status(NULL);
 	if (lobby.state == _lobby_hosted && strstr(spec, "countdown"))
@@ -1665,6 +1714,17 @@ static void start_game(boolean start)
 		if (start)
 			network_game_server_dedicated_start_countdown(server);
 	}
+	/* (cancelled: the host's own count goes at once, so the next frame
+	doesn't read the old one back as a start before the server's NONE
+	reaches its client, #1414) */
+	if (!start)
+	{
+		struct network_game_client *client = global_network_game_client_get();
+
+		if (client)
+			network_game_client_countdown_timer_update(client, NONE);
+		lobby.seconds = NONE;
+	}
 }
 
 /* a controller's READY: its own player's (a split screen's guest too) */
@@ -1918,11 +1978,35 @@ static void press(short button, short controller)
 {
 	if (system_milliseconds() - lobby.opened_time < SETTLE)
 		return;
-	if (controller > 0 && !lobby.debug && !lobby.preview &&
-		(button == _gamepad_binary_button_start || button == _gamepad_analog_button_b))
+	if (controller > 0 && !lobby.debug && !lobby.preview)
 	{
-		guest_press(button, controller);
-		return;
+		struct network_game const *game = network_game_get_game();
+		boolean own_player = local_player_of(game, controller) != NONE;
+
+		/* (START joins; B takes out a guest, a player of its own with the
+		machine's others staying) */
+		if (button == _gamepad_binary_button_start ||
+			(button == _gamepad_analog_button_b && own_player && machine_player_count(game) > 1))
+		{
+			guest_press(button, controller);
+			return;
+		}
+		/* (a controller with no player here, a second gamepad: its B is the
+		lobby's LEAVE, as the first controller's, and it leaves as the
+		machine's first player. It went to the guest's B, which took nobody
+		out, so a pad that wasn't the first could not leave. With split
+		screen's players here it is someone else's pad: its B leaves nothing,
+		as on the Xbox, so it can't take the others out of the game) */
+		if (!own_player)
+		{
+			if (machine_player_count(game) > 1)
+			{
+				if (button == _gamepad_analog_button_b && lobby.dialog == _dialog_none)
+					return;
+			}
+			else
+				controller = first_local_controller(game);
+		}
 	}
 	if (lobby.dialog != _dialog_none)
 	{
@@ -2240,13 +2324,21 @@ static void draw_row(struct lobby_row const *row, short order, int column, int v
 	}
 }
 
-static void draw_open_slot(int column, int visible_row)
+/* an open slot; the first, while a gamepad here may join, says how */
+static void draw_open_slot(int column, int visible_row, boolean join)
 {
 	struct lobby_rect r = lobby_layout_row(&lobby.layout, column, visible_row);
+	float text_y = r.y + (r.height - 7.0f) * 0.5f + 0.5f;
 
 	ui_overlay_outline(r.x, r.y + 1, r.width, r.height - 2, 3, 0.75f, COLOR_OPEN);
-	ui_overlay_text(UI_FONT_MENU, 7.0f, r.x + 10, r.y + (r.height - 7.0f) * 0.5f + 0.5f, UI_ALIGN_LEFT, COLOR_OPEN,
-		"OPEN SLOT");
+	/* (in words: the key the keyboard last used would name the wrong
+	button, and it is a gamepad's START) */
+	if (join)
+	{
+		ui_overlay_text(UI_FONT_MENU, 7.0f, r.x + 10, text_y, UI_ALIGN_LEFT, COLOR_PROMPT, "PRESS START TO JOIN");
+		return;
+	}
+	ui_overlay_text(UI_FONT_MENU, 7.0f, r.x + 10, text_y, UI_ALIGN_LEFT, COLOR_OPEN, "OPEN SLOT");
 }
 
 /* a column's open slots past the ones it shows */
@@ -2264,6 +2356,7 @@ static void draw_list(void)
 	struct lobby_layout const *layout = &lobby.layout;
 	char text[64];
 	int column, index;
+	boolean join = lobby.join_hint;
 
 	/* the head: PLAYERS and the count; the teams' counts in two columns */
 	ui_overlay_text_glow(UI_FONT_MENU, HEAD_SIZE, layout->list_head.x + 2, layout->list_head.y + 2, UI_ALIGN_LEFT,
@@ -2298,7 +2391,10 @@ static void draw_list(void)
 		int shown = layout->count[column] - layout->first[column];
 
 		for (index = 0; index < layout->open[column]; index++)
-			draw_open_slot(column, shown + index);
+		{
+			draw_open_slot(column, shown + index, join);
+			join = FALSE;
+		}
 		/* (more rows than fit: how many are past the end) */
 		if (layout->count[column] - layout->first[column] > layout->rows)
 		{
