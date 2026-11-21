@@ -521,9 +521,21 @@ each analog button), up for the game until let go of */
 static WORD guide_released_buttons;
 static unsigned int guide_released_analog;
 
+/* CONFIRM BUTTON: RIGHT while the Guide itself has the input
+(platform_guide_confirm_swap); never for the others that take it the
+Guide's way (the Forge menu, the halt screen) */
+static BOOL guide_confirm_swap;
+
+void platform_guide_confirm_swap(int swap)
+{
+	guide_confirm_swap = swap != 0;
+}
+
 void platform_guide_capture(int capture)
 {
 	guide_capture = capture != 0;
+	/* (whoever takes it now: unswapped until the Guide says otherwise) */
+	guide_confirm_swap = FALSE;
 	if (!guide_capture)
 		guide_held = 0;
 }
@@ -3019,7 +3031,7 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		{
 			BYTE *buttons = state->Gamepad.bAnalogButtons;
 
-			if (!strcmp(config_string("delta.confirm_button"), "right"))
+			if (guide_confirm_swap)
 			{
 				BYTE a = buttons[XINPUT_GAMEPAD_A];
 
