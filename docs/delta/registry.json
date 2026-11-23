@@ -1,6 +1,6 @@
 {
   "registry": 1,
-  "description": "Every number Delta assigns. registry.md explains each one; tools/test_delta_registry.py checks this file against the game's code.",
+  "description": "Every number Delta assigns. registry.md explains each one. Numbers are assigned by pull request to this repository and never reused (CONTRIBUTING.md). Chupathingy's game repository checks its code against its own copy of this registry (docs/delta/registry.json there, kept in step with this file; tools/test_delta_registry.py there), not yet against this file.",
   "platforms": [
     {
       "number": 0,
@@ -18,7 +18,7 @@
       "name": "Windows",
       "class": "pc",
       "for": "Chupathingy",
-      "status": "ours"
+      "status": "in use"
     },
     {
       "number": 2,
@@ -27,7 +27,7 @@
       "name": "Mac",
       "class": "pc",
       "for": "Chupathingy",
-      "status": "ours"
+      "status": "in use"
     },
     {
       "number": 3,
@@ -36,7 +36,7 @@
       "name": "Linux",
       "class": "pc",
       "for": "Chupathingy",
-      "status": "ours"
+      "status": "in use"
     },
     {
       "number": 4,
@@ -45,7 +45,7 @@
       "name": "Android",
       "class": "handheld",
       "for": "Chupathingy",
-      "status": "ours"
+      "status": "in use"
     },
     {
       "number": 5,
@@ -54,7 +54,7 @@
       "name": "SteamOS",
       "class": "handheld",
       "for": "Chupathingy",
-      "status": "ours"
+      "status": "in use"
     },
     {
       "number": 6,
@@ -63,7 +63,7 @@
       "name": "Xbox",
       "class": "console",
       "for": "Chupathingy (warthog-xbox)",
-      "status": "ours"
+      "status": "in use"
     },
     {
       "number": 7,
@@ -72,7 +72,7 @@
       "name": "Xbox 360",
       "class": "console",
       "for": "Chupathingy (warthog-360)",
-      "status": "ours"
+      "status": "in use"
     },
     {
       "number": 8,
@@ -81,7 +81,7 @@
       "name": "Wii U",
       "class": "console",
       "for": "Chupathingy (warthog-wiiu)",
-      "status": "ours"
+      "status": "in use"
     },
     {
       "number": 9,
@@ -90,7 +90,7 @@
       "name": "Switch",
       "class": "console",
       "for": "Chupathingy (warthog-switch), port by thelinkin",
-      "status": "ours"
+      "status": "in use"
     },
     {
       "number": 10,
@@ -126,7 +126,7 @@
       "name": "FreeBSD",
       "class": "pc",
       "for": "Renkoto (port/unix)",
-      "status": "in our tree"
+      "status": "in Chupathingy's tree"
     },
     {
       "number": 14,
@@ -310,8 +310,9 @@
     {
       "bit": 16,
       "name": "server_badge",
-      "status": "in use",
-      "ports_never_send": false
+      "status": "built, keys not issued",
+      "ports_never_send": false,
+      "note": "BADGE_ASK and BADGE are built and clients offer the bit, but no badge key has been issued yet: no build accepts a certificate, and a host offers the bit only when it has one"
     },
     {
       "bit": 17,
@@ -359,7 +360,8 @@
       "bit": 24,
       "name": "mcc_maps",
       "status": "in use",
-      "ports_never_send": false
+      "ports_never_send": false,
+      "note": "a room-wide content gate for MCC maps, plus HOST_NUMBER (39). No map identity on the wire: MAP (17) carries families 0 to 4 only, so an MCC map is never identified by hash over Delta Peer"
     },
     {
       "bit": 25,
@@ -482,15 +484,15 @@
       },
       {
         "version": 42,
-        "by": "ports that play 42's layout; our clients play it by the host's number"
+        "by": "ports that play 42's layout; Chupathingy's clients play it by the host's number"
       },
       {
         "version": 43,
-        "by": "hosts of MCC maps"
+        "by": "OpenCE's 43 hosts; chupa-43a's hosts of MCC maps (development builds, no release)"
       },
       {
         "version": 44,
-        "by": "current"
+        "by": "current: announced when the signed table's row for a wire lists it for hosting (with no row a desktop build or server hosts 41, a console 32; the built-in number in the code is 32); from chupa-44a, the number a host plays an MCC map's game at"
       }
     ],
     "closed_bit": {
@@ -498,6 +500,241 @@
       "meaning": "a GOAT H1 host closed to other builds sets bit 15 of its version: closed, never joinable"
     }
   },
+  "ports": {
+    "game": 5150,
+    "system_link_search": 5151,
+    "delta_peer": 5160,
+    "map_share_tcp": 5153
+  },
+  "xbox_title_id": {
+    "value": "0x43480001",
+    "where": "the original Xbox build (warthog-xbox), not this repository"
+  },
+  "delta_major": 1,
+  "platform_policy": {
+    "description": "each platform's defaults (peer.md, Platform policy): the most players a game it hosts has (0: never hosts), the most of a game it joins, the most it joins with its player's opt-in, its memory class (log2 of megabytes, 0 unknown), and whether it plays network co-op",
+    "rows": [
+      {
+        "platform": 0,
+        "key": "unknown",
+        "host_players": 128,
+        "join_players": 128,
+        "join_players_opt_in": 128,
+        "memory_class": 0,
+        "coop": true
+      },
+      {
+        "platform": 1,
+        "key": "pc_windows",
+        "host_players": 128,
+        "join_players": 128,
+        "join_players_opt_in": 128,
+        "memory_class": 12,
+        "coop": true
+      },
+      {
+        "platform": 2,
+        "key": "pc_macos",
+        "host_players": 128,
+        "join_players": 128,
+        "join_players_opt_in": 128,
+        "memory_class": 12,
+        "coop": true
+      },
+      {
+        "platform": 3,
+        "key": "pc_linux",
+        "host_players": 128,
+        "join_players": 128,
+        "join_players_opt_in": 128,
+        "memory_class": 12,
+        "coop": true
+      },
+      {
+        "platform": 4,
+        "key": "android",
+        "host_players": 128,
+        "join_players": 128,
+        "join_players_opt_in": 128,
+        "memory_class": 11,
+        "coop": true
+      },
+      {
+        "platform": 5,
+        "key": "steam_deck",
+        "host_players": 128,
+        "join_players": 128,
+        "join_players_opt_in": 128,
+        "memory_class": 14,
+        "coop": true
+      },
+      {
+        "platform": 6,
+        "key": "xbox",
+        "host_players": 16,
+        "join_players": 32,
+        "join_players_opt_in": 128,
+        "memory_class": 6,
+        "coop": false
+      },
+      {
+        "platform": 7,
+        "key": "xbox360",
+        "host_players": 32,
+        "join_players": 32,
+        "join_players_opt_in": 128,
+        "memory_class": 9,
+        "coop": true
+      },
+      {
+        "platform": 8,
+        "key": "wiiu",
+        "host_players": 32,
+        "join_players": 32,
+        "join_players_opt_in": 128,
+        "memory_class": 10,
+        "coop": true
+      },
+      {
+        "platform": 9,
+        "key": "switch",
+        "host_players": 16,
+        "join_players": 16,
+        "join_players_opt_in": 128,
+        "memory_class": 12,
+        "coop": true
+      },
+      {
+        "platform": 10,
+        "key": "psp",
+        "host_players": 16,
+        "join_players": 16,
+        "join_players_opt_in": 128,
+        "memory_class": 6,
+        "coop": false
+      },
+      {
+        "platform": 11,
+        "key": "vita",
+        "host_players": 16,
+        "join_players": 16,
+        "join_players_opt_in": 128,
+        "memory_class": 9,
+        "coop": false
+      },
+      {
+        "platform": 12,
+        "key": "xbox_uwp",
+        "host_players": 128,
+        "join_players": 128,
+        "join_players_opt_in": 128,
+        "memory_class": 12,
+        "coop": true
+      },
+      {
+        "platform": 13,
+        "key": "pc_freebsd",
+        "host_players": 128,
+        "join_players": 128,
+        "join_players_opt_in": 128,
+        "memory_class": 12,
+        "coop": true
+      },
+      {
+        "platform": 14,
+        "key": "ps3",
+        "host_players": 16,
+        "join_players": 16,
+        "join_players_opt_in": 128,
+        "memory_class": 8,
+        "coop": false
+      },
+      {
+        "platform": 15,
+        "key": "ps4",
+        "host_players": 16,
+        "join_players": 16,
+        "join_players_opt_in": 128,
+        "memory_class": 12,
+        "coop": true
+      },
+      {
+        "platform": 16,
+        "key": "ps5",
+        "host_players": 16,
+        "join_players": 16,
+        "join_players_opt_in": 128,
+        "memory_class": 13,
+        "coop": true
+      },
+      {
+        "platform": 17,
+        "key": "n64",
+        "host_players": 0,
+        "join_players": 8,
+        "join_players_opt_in": 16,
+        "memory_class": 3,
+        "coop": false
+      },
+      {
+        "platform": 18,
+        "key": "pc_legacy",
+        "host_players": 16,
+        "join_players": 16,
+        "join_players_opt_in": 128,
+        "memory_class": 7,
+        "coop": false
+      },
+      {
+        "platform": 19,
+        "key": "steamlink",
+        "host_players": 0,
+        "join_players": 16,
+        "join_players_opt_in": 128,
+        "memory_class": 8,
+        "coop": false
+      },
+      {
+        "platform": 20,
+        "key": "ios",
+        "host_players": 128,
+        "join_players": 128,
+        "join_players_opt_in": 128,
+        "memory_class": 11,
+        "coop": true
+      },
+      {
+        "platform": 21,
+        "key": "tvos",
+        "host_players": 128,
+        "join_players": 128,
+        "join_players_opt_in": 128,
+        "memory_class": 11,
+        "coop": true
+      },
+      {
+        "platform": 22,
+        "key": "dreamcast",
+        "host_players": 0,
+        "join_players": 8,
+        "join_players_opt_in": 16,
+        "memory_class": 4,
+        "coop": false
+      }
+    ]
+  },
+  "platform_key_flags": [
+    {
+      "value": 1,
+      "name": "opted_in",
+      "meaning": "the player opted in to games above join_players, up to join_players_opt_in"
+    },
+    {
+      "value": 2,
+      "name": "dedicated",
+      "meaning": "a dedicated server: hosts, and has no players of its own"
+    }
+  ],
   "internet_listing": {
     "description": "a host's signed listing on internet play's brokers (label hceu-lobby-1), shared with OpenCE's builds (registry.md, Internet listing). A browser ignores a flag it doesn't know, and keeps every stamp byte as it came: the signature covers them.",
     "flags": [
@@ -604,15 +841,686 @@
       ]
     }
   },
-  "ports": {
-    "game": 5150,
-    "system_link_search": 5151,
-    "delta_peer": 5160,
-    "map_share_tcp": 5153
-  },
-  "xbox_title_id": {
-    "value": "0x43480001",
-    "where": "the original Xbox build (warthog-xbox), not this repository"
-  },
-  "delta_major": 1
+  "messages": [
+    {
+      "type": 1,
+      "name": "HELLO",
+      "direction": "client to host",
+      "capability": null
+    },
+    {
+      "type": 2,
+      "name": "WELCOME",
+      "direction": "host to client",
+      "capability": null
+    },
+    {
+      "type": 3,
+      "name": "LEGACY",
+      "direction": "host to client",
+      "capability": null
+    },
+    {
+      "type": 4,
+      "name": "ROSTER",
+      "direction": "host to client",
+      "capability": null
+    },
+    {
+      "type": 5,
+      "name": "BYE",
+      "direction": "either",
+      "capability": null
+    },
+    {
+      "type": 6,
+      "name": "PROFILE",
+      "direction": "client to host",
+      "capability": "profile"
+    },
+    {
+      "type": 7,
+      "name": "TABLE",
+      "direction": "either",
+      "capability": null
+    },
+    {
+      "type": 8,
+      "name": "TABLE_HAVE",
+      "direction": "either",
+      "capability": null
+    },
+    {
+      "type": 9,
+      "name": "MOD_CHALLENGE",
+      "direction": "host to client",
+      "capability": "moderation"
+    },
+    {
+      "type": 10,
+      "name": "MOD_PROOF",
+      "direction": "client to host",
+      "capability": "moderation"
+    },
+    {
+      "type": 11,
+      "name": "MOD_STATE",
+      "direction": "host to client",
+      "capability": "moderation"
+    },
+    {
+      "type": 12,
+      "name": "MOD_ACTION",
+      "direction": "client to host",
+      "capability": "moderation"
+    },
+    {
+      "type": 13,
+      "name": "MOD_RESULT",
+      "direction": "host to client",
+      "capability": "moderation"
+    },
+    {
+      "type": 14,
+      "name": "MOD_NOTICE",
+      "direction": "host to client",
+      "capability": "moderation"
+    },
+    {
+      "type": 15,
+      "name": "MOD_BIND",
+      "direction": "host to client",
+      "capability": "moderation"
+    },
+    {
+      "type": 16,
+      "name": "MOD_BIND_ANSWER",
+      "direction": "client to host",
+      "capability": "moderation"
+    },
+    {
+      "type": 17,
+      "name": "MAP",
+      "direction": "host to client",
+      "capability": "ce_maps"
+    },
+    {
+      "type": 18,
+      "name": "CHAT_CONFIG",
+      "direction": "host to client",
+      "capability": "chat or server_messages"
+    },
+    {
+      "type": 19,
+      "name": "CHAT_SAY",
+      "direction": "client to host",
+      "capability": "chat"
+    },
+    {
+      "type": 20,
+      "name": "CHAT_LINE",
+      "direction": "host to client",
+      "capability": "chat or server_messages"
+    },
+    {
+      "type": 21,
+      "name": "CHAT_REFUSED",
+      "direction": "host to client",
+      "capability": "chat"
+    },
+    {
+      "type": 22,
+      "name": "TRAITS",
+      "direction": "host to client",
+      "capability": "bomb and bomb_traits"
+    },
+    {
+      "type": 23,
+      "name": "TEAM_REQUEST",
+      "direction": "client to host",
+      "capability": "team_change"
+    },
+    {
+      "type": 24,
+      "name": "TEAM_RESULT",
+      "direction": "host to client",
+      "capability": "team_change"
+    },
+    {
+      "type": 25,
+      "name": "BADGE_ASK",
+      "direction": "client to host",
+      "capability": "server_badge"
+    },
+    {
+      "type": 26,
+      "name": "BADGE",
+      "direction": "host to client",
+      "capability": "server_badge"
+    },
+    {
+      "type": 27,
+      "name": "UNIT_VITALS",
+      "direction": "host to client",
+      "capability": "object_sync"
+    },
+    {
+      "type": 28,
+      "name": "OBJECT_NAMES",
+      "direction": "host to client",
+      "capability": "object_sync"
+    },
+    {
+      "type": 29,
+      "name": "HOST_RULES",
+      "direction": "host to client",
+      "capability": "host_rules"
+    },
+    {
+      "type": 30,
+      "name": "ID_CHALLENGE",
+      "direction": "host to client",
+      "capability": "identity"
+    },
+    {
+      "type": 31,
+      "name": "ID_PROOF",
+      "direction": "client to host",
+      "capability": "identity"
+    },
+    {
+      "type": 32,
+      "name": "ID_CARD",
+      "direction": "host to client",
+      "capability": "identity"
+    },
+    {
+      "type": 33,
+      "name": "PARTY_TAG",
+      "direction": "client to host",
+      "capability": "party_teams"
+    },
+    {
+      "type": 34,
+      "name": "VOICE_UP",
+      "direction": "client to host",
+      "capability": "voice"
+    },
+    {
+      "type": 35,
+      "name": "VOICE_DOWN",
+      "direction": "host to client",
+      "capability": "voice"
+    },
+    {
+      "type": 36,
+      "name": "VOICE_CONFIG",
+      "direction": "host to client",
+      "capability": "voice"
+    },
+    {
+      "type": 37,
+      "name": "REPORT",
+      "direction": "client to host",
+      "capability": "reports"
+    },
+    {
+      "type": 38,
+      "name": "REPORT_RESULT",
+      "direction": "host to client",
+      "capability": "reports"
+    },
+    {
+      "type": 39,
+      "name": "HOST_NUMBER",
+      "direction": "host to client",
+      "capability": "mcc_maps"
+    },
+    {
+      "type": 40,
+      "name": "LOBBY_READY",
+      "direction": "client to host",
+      "capability": "lobby_ready"
+    },
+    {
+      "type": 41,
+      "name": "LOBBY_STATE",
+      "direction": "host to client",
+      "capability": "lobby_ready"
+    }
+  ],
+  "map_families": [
+    {
+      "number": 0,
+      "name": "xbox"
+    },
+    {
+      "number": 1,
+      "name": "custom_edition"
+    },
+    {
+      "number": 2,
+      "name": "halomd"
+    },
+    {
+      "number": 3,
+      "name": "halo_pc"
+    },
+    {
+      "number": 4,
+      "name": "pack"
+    }
+  ],
+  "host_rules_flags": [
+    {
+      "value": 1,
+      "name": "player_names",
+      "meaning": "names above other players' heads allowed"
+    },
+    {
+      "value": 2,
+      "name": "follow_camera",
+      "meaning": "a follow camera while waiting to respawn allowed"
+    },
+    {
+      "value": 4,
+      "name": "late_join_hold",
+      "meaning": "a player who joins a game in progress waits for the next game"
+    },
+    {
+      "value": 8,
+      "name": "joins_locked",
+      "meaning": "the host takes no new machines now"
+    },
+    {
+      "value": 16,
+      "name": "air_turn_aim",
+      "meaning": "a shot fired while turned around in mid-air goes where the player aims"
+    }
+  ],
+  "game_modes": [
+    {
+      "bit": 0,
+      "name": "swat",
+      "mode": "SWAT"
+    },
+    {
+      "bit": 1,
+      "name": "hardcore",
+      "mode": "Hardcore"
+    },
+    {
+      "bit": 2,
+      "name": "gun_game",
+      "mode": "Gun Game"
+    },
+    {
+      "bit": 3,
+      "name": "infection",
+      "mode": "Infection"
+    }
+  ],
+  "permissions": [
+    {
+      "value": 1,
+      "name": "view",
+      "meaning": "status, players, bans, log, audit, playlists, settings"
+    },
+    {
+      "value": 2,
+      "name": "warn",
+      "meaning": "warn"
+    },
+    {
+      "value": 4,
+      "name": "kick",
+      "meaning": "kick"
+    },
+    {
+      "value": 8,
+      "name": "ban_timed",
+      "meaning": "ban for no longer than MOD_STATE's ban minutes"
+    },
+    {
+      "value": 16,
+      "name": "ban",
+      "meaning": "ban for longer, or for ever"
+    },
+    {
+      "value": 32,
+      "name": "unban",
+      "meaning": "unban"
+    },
+    {
+      "value": 64,
+      "name": "map",
+      "meaning": "maps, the playlist, the game"
+    },
+    {
+      "value": 128,
+      "name": "settings",
+      "meaning": "settings, game types"
+    },
+    {
+      "value": 256,
+      "name": "roles",
+      "meaning": "roles: accounts, moderators, the link"
+    },
+    {
+      "value": 512,
+      "name": "invite",
+      "meaning": "invite roles below one's own (the server's and the site's role lists; not in MOD_STATE)"
+    },
+    {
+      "value": 1024,
+      "name": "console",
+      "meaning": "the server console's own: tokens, accounts (the server's and the site's role lists; not in MOD_STATE)"
+    }
+  ],
+  "device_certificate_flags": [
+    {
+      "value": 1,
+      "name": "legacy",
+      "meaning": "enrolled with a player key"
+    },
+    {
+      "value": 2,
+      "name": "console",
+      "meaning": "a console"
+    }
+  ],
+  "device_capabilities": [
+    {
+      "value": 1,
+      "name": "play",
+      "meaning": "prove identity in games"
+    },
+    {
+      "value": 2,
+      "name": "stats",
+      "meaning": "confirm stats lines, send reports"
+    },
+    {
+      "value": 4,
+      "name": "profile",
+      "meaning": "privacy and clan answers from the game"
+    },
+    {
+      "value": 8,
+      "name": "moderate",
+      "meaning": "sign in to moderation; the server still checks the role"
+    },
+    {
+      "value": 16,
+      "name": "social",
+      "meaning": "friends, presence, invites"
+    },
+    {
+      "value": 32,
+      "name": "devices",
+      "meaning": "approve another device's code, revoke another device of the account"
+    }
+  ],
+  "report_reasons": [
+    {
+      "number": 1,
+      "name": "cheating",
+      "meaning": "cheating"
+    },
+    {
+      "number": 2,
+      "name": "abuse",
+      "meaning": "abuse in chat or voice"
+    },
+    {
+      "number": 3,
+      "name": "griefing",
+      "meaning": "griefing or betraying"
+    },
+    {
+      "number": 4,
+      "name": "name",
+      "meaning": "an offensive name"
+    },
+    {
+      "number": 5,
+      "name": "other",
+      "meaning": "something else"
+    }
+  ],
+  "moderation_actions": [
+    {
+      "number": 1,
+      "name": "warn"
+    },
+    {
+      "number": 2,
+      "name": "kick"
+    },
+    {
+      "number": 3,
+      "name": "ban"
+    },
+    {
+      "number": 4,
+      "name": "end_game"
+    },
+    {
+      "number": 5,
+      "name": "next_map"
+    },
+    {
+      "number": 6,
+      "name": "mute"
+    },
+    {
+      "number": 7,
+      "name": "unmute"
+    },
+    {
+      "number": 8,
+      "name": "lock"
+    },
+    {
+      "number": 9,
+      "name": "unlock"
+    }
+  ],
+  "labels": {
+    "description": "text constants that go into signatures, hashes and topic names. They are wire constants: never change, translate or rename one, even when it names a project. A trailing line feed is part of the label.",
+    "list": [
+      {
+        "label": "chupathingy identity issuer v1\n",
+        "kind": "signature",
+        "used_for": "the issuer certificate (CISS)",
+        "page": "link.md"
+      },
+      {
+        "label": "chupathingy device cert v1\n",
+        "kind": "signature",
+        "used_for": "a device certificate (CDEV)",
+        "page": "link.md"
+      },
+      {
+        "label": "chupathingy device revocations v1\n",
+        "kind": "signature",
+        "used_for": "the revocation list (CREV)",
+        "page": "link.md"
+      },
+      {
+        "label": "chupathingy device id\n",
+        "kind": "hash",
+        "used_for": "a device ID: the first 16 bytes of SHA-256 of the label and the key",
+        "page": "link.md"
+      },
+      {
+        "label": "chupathingy legacy enroll v1\n",
+        "kind": "signature",
+        "used_for": "enrolling a device with a player key",
+        "page": "link.md"
+      },
+      {
+        "label": "chupathingy device refresh v1\n",
+        "kind": "signature",
+        "used_for": "refreshing a device certificate",
+        "page": "link.md"
+      },
+      {
+        "label": "chupathingy device token v1\n",
+        "kind": "signature",
+        "used_for": "asking for a device token",
+        "page": "link.md"
+      },
+      {
+        "label": "chupathingy device start v1\n",
+        "kind": "signature",
+        "used_for": "starting sign-in by code",
+        "page": "link.md"
+      },
+      {
+        "label": "chupathingy device code v1\n",
+        "kind": "hash",
+        "used_for": "the code a device shows when signing in by code",
+        "page": "link.md"
+      },
+      {
+        "label": "chupathingy device confirm v1\n",
+        "kind": "signature",
+        "used_for": "confirming sign-in by code",
+        "page": "link.md"
+      },
+      {
+        "label": "chupathingy device signout v1\n",
+        "kind": "signature",
+        "used_for": "signing a device out",
+        "page": null
+      },
+      {
+        "label": "halo-ce-universal player id\n",
+        "kind": "hash",
+        "used_for": "a player ID from a player key",
+        "page": "link.md"
+      },
+      {
+        "label": "halo-ce-universal moderator key\n",
+        "kind": "hash",
+        "used_for": "a moderator key's seed from a player key",
+        "page": "control.md"
+      },
+      {
+        "label": "delta identity proof v1\n",
+        "kind": "signature",
+        "used_for": "ID_PROOF, a player's proof in a game",
+        "page": "peer.md"
+      },
+      {
+        "label": "delta moderation proof v1\n",
+        "kind": "signature",
+        "used_for": "MOD_PROOF",
+        "page": "peer.md"
+      },
+      {
+        "label": "delta moderation action v1\n",
+        "kind": "signature",
+        "used_for": "MOD_ACTION",
+        "page": "peer.md"
+      },
+      {
+        "label": "delta moderation bind v1\n",
+        "kind": "signature",
+        "used_for": "MOD_BIND_ANSWER",
+        "page": "peer.md"
+      },
+      {
+        "label": "delta control request v1\n",
+        "kind": "signature",
+        "used_for": "a server's Delta Control request to the site",
+        "page": "control.md"
+      },
+      {
+        "label": "delta control response v1\n",
+        "kind": "hash",
+        "used_for": "the site's Delta Control response (keyed BLAKE2b)",
+        "page": "control.md"
+      },
+      {
+        "label": "chupathingy server badge v1\n",
+        "kind": "signature",
+        "used_for": "a server badge certificate",
+        "page": null
+      },
+      {
+        "label": "chupathingy server badge proof v2\n",
+        "kind": "signature",
+        "used_for": "BADGE's proof",
+        "page": "peer.md"
+      },
+      {
+        "label": "chupathingy server badge announce v1\n",
+        "kind": "signature",
+        "used_for": "the server's signature of its invite and the time in a game list announce",
+        "page": null
+      },
+      {
+        "label": "chupathingy console id v1\n",
+        "kind": "hash",
+        "used_for": "a console's ID in the console link",
+        "page": null
+      },
+      {
+        "label": "chupathingy console link v1\n",
+        "kind": "signature",
+        "used_for": "a linked console's requests (followed by confirm, profile or report)",
+        "page": null
+      },
+      {
+        "label": "chupathingy console link commit v1\n",
+        "kind": "hash",
+        "used_for": "the console link's commitment",
+        "page": null
+      },
+      {
+        "label": "chupathingy console link code v1\n",
+        "kind": "hash",
+        "used_for": "the console link's code",
+        "page": null
+      },
+      {
+        "label": "chupathingy console claim v1\n",
+        "kind": "signature",
+        "used_for": "a console's stats claim",
+        "page": null
+      },
+      {
+        "label": "chupathingy probe",
+        "kind": "signature",
+        "used_for": "PROBE_ANSWER, before joining",
+        "page": "list.md"
+      },
+      {
+        "label": "hceu-lobby-1",
+        "kind": "signature",
+        "used_for": "a host's internet listing over the brokers",
+        "page": null
+      },
+      {
+        "label": "hceu/2",
+        "kind": "hash",
+        "used_for": "a keyed hash (HMAC) in internet play's signalling",
+        "page": null
+      },
+      {
+        "label": "hceu/3/",
+        "kind": "topic",
+        "used_for": "the MQTT topic prefix of internet play's signalling (probe answers too)",
+        "page": "list.md"
+      },
+      {
+        "label": "doorbell/",
+        "kind": "topic",
+        "used_for": "the MQTT topic prefix of the doorbell",
+        "page": "link.md"
+      }
+    ]
+  }
 }
