@@ -143,6 +143,48 @@ Numbers seen in the wild:
 | 44 | current |
 | version with bit 15 set (0x8000) | a GOAT H1 host closed to other builds: closed, never joinable |
 
+## Internet listing
+
+A host's listing on internet play's brokers: the signed record a browser
+reads to show a public game and join it by its invite (signed with
+`hceu-lobby-1`). OpenCE's builds publish and read the
+same listing, so its flags and stamp are shared with them.
+
+### Listing flags
+
+The listing's flags byte. A browser ignores a flag it doesn't know.
+
+| Value | Name | Meaning | Status |
+| --- | --- | --- | --- |
+| 1 | `open` | the game takes joins now | in use |
+| 2 | `in_progress` | a game is under way | in use |
+| 4 | `teams` | a team game | in use |
+| 8 | `closed` | the host stopped: this listing ends its game (a tombstone) | in use |
+| 16 | `password` | the invite's token is sealed with a password's key | in use |
+| 32 | `dedicated_opence` | a dedicated server's game, as OpenCE's network version 39 says it ([versioning.md](versioning.md#legacy-versions)); a dedicated server that announces 39 or later sets it with 128 | in use |
+| 64 |  | reserved for Content Evolved | reserved, pending its pull request |
+| 128 | `dedicated` | a dedicated server's game, nobody playing at the host (Chupathingy's); either 32 or 128 lists a game as dedicated | in use |
+
+### Listing stamp
+
+The 8 bytes before the listing's signature. The signature covers them, so
+a browser keeps every byte as it came, including the ones it doesn't read.
+
+| Byte | Name | Meaning | Status |
+| --- | --- | --- | --- |
+| 0 | `kind` | the game's kind, from network version 37: an OpenCE game type in the low seven bits and Hardcore in bit 7 ([versioning.md](versioning.md#legacy-versions)). A host that announces an older number, and a closed listing, send 0 | in use |
+| 1 |  | reserved for Content Evolved | reserved, pending its pull request |
+| 2 to 7 |  | none yet: a host sends 0 | reserved |
+
+### How to ask for a flag or a stamp byte
+
+The same way as any number: a pull request on
+[ChupathingyCE/delta-spec](https://github.com/ChupathingyCE/delta-spec)
+that adds it to its registry.md and registry.json, saying what it
+means, who sets it and what a browser that doesn't know it does. Since
+OpenCE's builds read the same listing, say too how theirs treat it. Until
+the pull request is merged, send 0 there.
+
 ## Other numbers
 
 | What | Number |

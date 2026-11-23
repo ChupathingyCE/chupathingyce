@@ -103,3 +103,20 @@ def test_other_platform_lists_use_registered_keys():
     numbers = {platform["key"]: platform["number"] for platform in REGISTRY["platforms"] if platform["key"]}
     for name, number in re.findall(r"DREF_PLATFORM_(\w+) = (\d+)", reference):
         assert numbers[name.lower()] == int(number), name
+
+
+def test_internet_listing_matches_p2p_lobby():
+    lobby = (ROOT / "port" / "linux" / "src" / "p2p_lobby.c").read_text()
+    flags = {int(value) for value in re.findall(r"\b_listing_\w+ = (\d+),", lobby)}
+    listing = REGISTRY["internet_listing"]
+    in_use = {flag["value"] for flag in listing["flags"] if flag["status"] == "in use"}
+    assert in_use == flags
+    for flag in listing["flags"]:
+        assert flag["value"] in (1, 2, 4, 8, 16, 32, 64, 128) and flag["status"], flag
+        assert (flag["name"] is None) == (flag["status"] != "in use"), flag
+        assert f"| {flag['value']} |" in REGISTRY_MD, flag
+    stamp = listing["stamp"]
+    assert stamp["size"] == int(re.search(r"\bSTAMP_SIZE = (\d+),", lobby).group(1))
+    assert [entry["byte"] for entry in stamp["bytes"]] == list(range(stamp["size"]))
+    assert stamp["bytes"][0]["name"] == "kind"
+    assert all(entry["name"] is None for entry in stamp["bytes"][1:])

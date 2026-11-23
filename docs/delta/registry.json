@@ -498,6 +498,112 @@
       "meaning": "a GOAT H1 host closed to other builds sets bit 15 of its version: closed, never joinable"
     }
   },
+  "internet_listing": {
+    "description": "a host's signed listing on internet play's brokers (label hceu-lobby-1), shared with OpenCE's builds (registry.md, Internet listing). A browser ignores a flag it doesn't know, and keeps every stamp byte as it came: the signature covers them.",
+    "flags": [
+      {
+        "value": 1,
+        "name": "open",
+        "meaning": "the game takes joins now",
+        "status": "in use"
+      },
+      {
+        "value": 2,
+        "name": "in_progress",
+        "meaning": "a game is under way",
+        "status": "in use"
+      },
+      {
+        "value": 4,
+        "name": "teams",
+        "meaning": "a team game",
+        "status": "in use"
+      },
+      {
+        "value": 8,
+        "name": "closed",
+        "meaning": "the host stopped: this listing ends its game (a tombstone)",
+        "status": "in use"
+      },
+      {
+        "value": 16,
+        "name": "password",
+        "meaning": "the invite's token is sealed with a password's key",
+        "status": "in use"
+      },
+      {
+        "value": 32,
+        "name": "dedicated_opence",
+        "meaning": "a dedicated server's game, as OpenCE's network version 39 says it; a dedicated server that announces 39 or later sets it with 128",
+        "status": "in use"
+      },
+      {
+        "value": 64,
+        "name": null,
+        "meaning": "reserved for Content Evolved",
+        "status": "reserved, pending its pull request"
+      },
+      {
+        "value": 128,
+        "name": "dedicated",
+        "meaning": "a dedicated server's game, nobody playing at the host (Chupathingy's); either 32 or 128 lists a game as dedicated",
+        "status": "in use"
+      }
+    ],
+    "stamp": {
+      "size": 8,
+      "bytes": [
+        {
+          "byte": 0,
+          "name": "kind",
+          "meaning": "the game's kind, from network version 37: an OpenCE game type in the low seven bits and Hardcore in bit 7 (versioning.md, Legacy versions). A host that announces an older number, and a closed listing, send 0",
+          "status": "in use"
+        },
+        {
+          "byte": 1,
+          "name": null,
+          "meaning": "reserved for Content Evolved",
+          "status": "reserved, pending its pull request"
+        },
+        {
+          "byte": 2,
+          "name": null,
+          "meaning": "none yet: a host sends 0",
+          "status": "reserved"
+        },
+        {
+          "byte": 3,
+          "name": null,
+          "meaning": "none yet: a host sends 0",
+          "status": "reserved"
+        },
+        {
+          "byte": 4,
+          "name": null,
+          "meaning": "none yet: a host sends 0",
+          "status": "reserved"
+        },
+        {
+          "byte": 5,
+          "name": null,
+          "meaning": "none yet: a host sends 0",
+          "status": "reserved"
+        },
+        {
+          "byte": 6,
+          "name": null,
+          "meaning": "none yet: a host sends 0",
+          "status": "reserved"
+        },
+        {
+          "byte": 7,
+          "name": null,
+          "meaning": "none yet: a host sends 0",
+          "status": "reserved"
+        }
+      ]
+    }
+  },
   "ports": {
     "game": 5150,
     "system_link_search": 5151,
