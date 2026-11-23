@@ -9,7 +9,7 @@ game's own copy of this registry (`docs/delta/registry.json` and
 read this repository's files yet.
 
 Numbers are assigned by pull request to this repository and approved by the
-spec's maintainers ([CONTRIBUTING.md](CONTRIBUTING.md#numbers)). Numbers
+spec's maintainers ([CONTRIBUTING.md](https://github.com/ChupathingyCE/delta-spec/blob/main/CONTRIBUTING.md#numbers)). Numbers
 are never reused. A number stays with what it was given to, even if that
 project stops.
 
@@ -201,7 +201,7 @@ a browser keeps every byte as it came, including the ones it doesn't read.
 
 ### How to ask for a flag or a stamp byte
 
-The same way as any number ([CONTRIBUTING.md](CONTRIBUTING.md#numbers)): a
+The same way as any number ([CONTRIBUTING.md](https://github.com/ChupathingyCE/delta-spec/blob/main/CONTRIBUTING.md#numbers)): a
 pull request that adds it to this page and to registry.json, saying what it
 means, who sets it and what a browser that doesn't know it does. Since
 OpenCE's builds read the same listing, say too how theirs treat it. Until
