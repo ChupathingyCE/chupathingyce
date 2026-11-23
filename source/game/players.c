@@ -1489,7 +1489,14 @@ static void player_spawn(
 				struct game_globals_player_information);
 			if (player_information->player_unit.index != NONE)
 			{
+#ifndef HALO_CONSOLE_NO_FORGE
+				/* port: a campaign mission's globals have no multiplayer
+				information (a Forge game on one, port/linux/game/forge_ai.inc):
+				its players are the campaign's unit */
+				if (game_engine_running() && game_globals->multiplayer_information.count > 0)
+#else
 				if (game_engine_running())
+#endif
 				{
 					multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 						&game_globals->multiplayer_information,

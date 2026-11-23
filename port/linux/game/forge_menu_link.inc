@@ -73,7 +73,8 @@ static void forge_menu_asks_run(
 			forge_category_choose(first, second);
 			break;
 		case _forge_menu_ask_property:
-			forge_property_apply(first, second);
+			/* (the menu's row: the property it is for what is held) */
+			forge_property_apply(forge_property_of_row(first), second);
 			break;
 		case _forge_menu_ask_undo:
 			forge_undo_step(FALSE);
@@ -134,6 +135,9 @@ static void forge_menu_asks_run(
 				forge_menu_notice("%s", "That layout can't be deleted.");
 			}
 			break;
+		case _forge_menu_ask_clear_ai:
+			forge_ai_clear(first != 0);
+			break;
 		}
 	}
 	forge_menu_ask_count = 0;
@@ -167,6 +171,9 @@ void forge_menu_view_get(
 	view->holding = object_try_and_get(forge_globals.held_object_index) != NULL || forge_globals.held_marker_id != 0;
 	view->map_index = forge_menu_map();
 	view->objects = forge_objects_counted();
+	view->ai_alive = forge_ai_alive();
+	view->ai_dead = forge_ai_dead_only();
+	view->ai_waiting = forge_globals.ai_waiting_count;
 	view->undo = forge_globals.undo_cursor;
 	view->redo = (short)(forge_globals.undo_count - forge_globals.undo_cursor);
 	view->snap = forge_globals.snap;
@@ -189,6 +196,14 @@ char const *forge_speed_name(
 	return names[PIN(speed, 0, NUMBER_OF_FORGE_SPEEDS - 1)];
 }
 
+/* (an AI character's rows: its AI team, its AI, its respawn, whether it is
+placed at the start, its yaw: no team, pitch, roll or physics) */
+static short const forge_character_property_rows[] =
+{
+	_forge_property_ai_team, _forge_property_ai, _forge_property_respawn, _forge_property_place_at_start,
+	_forge_property_yaw,
+};
+
 short forge_property_count(
 	void)
 {
@@ -197,7 +212,25 @@ short forge_property_count(
 	if (!forge_properties_get(&properties))
 		return 0;
 	/* (a marker's: team, game type, kind, yaw) */
-	return properties.spawn ? 4 : NUMBER_OF_FORGE_PROPERTIES;
+	if (properties.spawn)
+		return 4;
+	if (properties.character)
+		return (short)NUMBEROF(forge_character_property_rows);
+	/* (an object's: every one but an AI character's own) */
+	return _forge_property_physics + 1;
+}
+
+short forge_property_of_row(
+	short row)
+{
+	struct forge_properties properties;
+
+	if (row >= 0 && row < (short)NUMBEROF(forge_character_property_rows) && forge_properties_get(&properties) &&
+		properties.character && !properties.spawn)
+	{
+		return forge_character_property_rows[row];
+	}
+	return row;
 }
 
 boolean forge_property_text(
@@ -254,11 +287,19 @@ boolean forge_property_text(
 		}
 		return TRUE;
 	}
-	switch (row)
+	switch (forge_property_of_row(row))
 	{
 	case _forge_property_team:
 		snprintf(label, (size_t)label_size, "%s", "TEAM");
 		snprintf(value, (size_t)value_size, "%s", properties.team == 0 ? "RED" : properties.team == 1 ? "BLUE" : "NEUTRAL");
+		break;
+	case _forge_property_ai_team:
+		snprintf(label, (size_t)label_size, "%s", "AI TEAM");
+		snprintf(value, (size_t)value_size, "%s", forge_ai_team_names[PIN(properties.ai_team, 0, NUMBER_OF_FORGE_AI_TEAMS - 1)]);
+		break;
+	case _forge_property_ai:
+		snprintf(label, (size_t)label_size, "%s", "AI");
+		snprintf(value, (size_t)value_size, "%s", properties.ai_on ? "ON" : "OFF");
 		break;
 	case _forge_property_respawn:
 		snprintf(label, (size_t)label_size, "%s", "RESPAWN");

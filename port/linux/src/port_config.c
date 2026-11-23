@@ -1780,8 +1780,9 @@ static const struct config_setting config_settings[] =
 		"map's own tags. See docs/mods.md." },
 #ifndef HALO_CONSOLE_NO_FORGE
 	{ "game.forge", _config_boolean, "false", "HALO_FORGE", _environment_value, _platform_desktop,
-		"Forge, the layout editor of the multiplayer maps: FORGE in the\n"
-		"Multiplayer menu, and the console's forge commands. Local games only.\n"
+		"Forge, the layout editor of the multiplayer maps and the campaign\n"
+		"missions (their AI characters): FORGE in the Multiplayer menu, and the\n"
+		"console's forge commands. Local games only.\n"
 		"FORGE in the Delta Guide's SETTINGS. See docs/forge.md." },
 #endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,

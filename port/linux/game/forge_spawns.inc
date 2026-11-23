@@ -780,8 +780,9 @@ short forge_spawn_location(
 	absolute = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
 	if (absolute < 0 || absolute >= FORGE_SPAWN_PLAYERS)
 		return _forge_spawn_location_map;
+	/* (none: a campaign mission's own starts, forge_ai.inc, else the map's) */
 	if (forge_globals.spawn_count <= 0)
-		return _forge_spawn_location_map;
+		return forge_campaign_spawn_location(player_index, location);
 	game_bit = forge_spawn_game_bit();
 	teams = game_engine_running() && game_engine_has_teams();
 	first = !(forge_globals.spawns_spawned & (1UL << absolute));
@@ -867,5 +868,5 @@ short forge_spawn_location(
 	}
 	forge_globals.spawns_spawned |= 1UL << absolute;
 	forge_globals.spawn_wait_since[absolute] = 0;
-	return _forge_spawn_location_map;
+	return forge_campaign_spawn_location(player_index, location);
 }

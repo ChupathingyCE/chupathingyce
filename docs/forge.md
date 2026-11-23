@@ -1,6 +1,6 @@
 # Forge
 
-Forge is a layout editor for the multiplayer maps. You fly the map as a monitor, place, move, turn and delete objects, put down your own spawn points, teleporters and game type objects (CTF flags, hill points, oddball spawns, race checkpoints), and save the result as a layout. A saved layout can then be played as a normal game of any game type.
+Forge is a layout editor for the multiplayer maps and the campaign missions. You fly the map as a monitor, place, move, turn and delete objects, put down your own spawn points, teleporters and game type objects (CTF flags, hill points, oddball spawns, race checkpoints), place AI characters on a campaign mission, and save the result as a layout. A saved layout can then be played as a normal game of any game type.
 
 It's off by default. Turn it on with FORGE in the Delta Guide's SETTINGS, or `game.forge = true` in `config.toml` (`HALO_FORGE=1`). The Multiplayer menu shows FORGE the next time the menus load. Forge is local only: a Forge game is a game you play alone, and a layout is played as a local game. Nothing of it is sent over the network.
 
@@ -10,7 +10,7 @@ It's off by default. Turn it on with FORGE in the Delta Guide's SETTINGS, or `ga
 
    ![The Multiplayer menu with FORGE](screenshots/forge-multiplayer.jpg)
 
-2. The Forge lobby lists the multiplayer maps you have. Pick one with up and down, then A (or right) to go to its rows:
+2. The Forge lobby lists the multiplayer maps you have, then the campaign missions you have. Pick one with up and down, then A (or right) to go to its rows:
    - on FORGE: NEW LAYOUT, or one of the map's saved layouts to carry on with it;
    - on PLAY: GAME TYPE (left and right: slayer, team slayer, capture the flag, king of the hill, oddball, race), then a layout to play.
 
@@ -49,11 +49,11 @@ The keyboard's keys are `controls.forge_*` in `config.toml` (see [settings.md](s
 
 X (E) opens the Forge menu: a narrow panel at the right of the screen, so the map stays in view. Its title and the budget are at the top, then the tabs, the list, a box about the row chosen, and the prompts at its foot. It works like the Delta Guide: LB and RB (Q and E) change the tab, the d-pad (arrows or WASD) moves, A (Enter) chooses, B (Esc) goes back, and the mouse can click rows and prompts. X closes it.
 
-- OBJECT BROWSER: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, TELEPORTERS, OBJECTIVES, SPAWNING) with how many objects each has. A opens a category, and A on an object places it in your hands. The count at the top right is the budget: 256 objects and markers.
+- OBJECT BROWSER: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, AI, TELEPORTERS, OBJECTIVES, SPAWNING) with how many objects each has. A opens a category, and A on an object places it in your hands. The count at the top right is the budget: 256 objects and markers.
 
   ![OBJECTS](screenshots/forge-objects.jpg)
 
-- PROPERTIES: what you hold, if you placed it. It opens here when you hold something. Left and right change a value: team, respawn time, placed at start, yaw, pitch and roll, reset rotation, and physics (normal, fixed: never moves, phased: no collision, shots pass through). A spawn point has its team, game type, kind and facing; a teleporter its channel; a game type object its index (a CTF flag's team, a hill's number).
+- PROPERTIES: what you hold, if you placed it. It opens here when you hold something. Left and right change a value: team, respawn time, placed at start, yaw, pitch and roll, reset rotation, and physics (normal, fixed: never moves, phased: no collision, shots pass through). An AI character has its AI TEAM, AI (on or off), RESPAWN (never, or 10, 30, 60 or 120 seconds after it dies), placed at start and yaw. A spawn point has its team, game type, kind and facing; a teleporter its channel; a game type object its index (a CTF flag's team, a hill's number).
 
   ![PROPERTIES](screenshots/forge-properties.jpg)
 
@@ -61,15 +61,33 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
 
   ![LAYOUTS](screenshots/forge-layouts.jpg)
 
-- OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), PLAY AS SPARTAN and CONTROLS.
+- OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), CLEAR DEAD AI, CLEAR ALL AI (press it twice), PLAY AS SPARTAN and CONTROLS.
 
   ![OPTIONS](screenshots/forge-options.jpg)
 
 A layout's spawn points replace the map's own for the players they fit (the game type, the team). A game type object replaces the map's own of that type (a CTF flag: that team's). Any type the layout has none of keeps the map's.
 
+## AI characters
+
+A multiplayer map has no AI characters in its files. A campaign mission does, so the AI category has them on a campaign map and is empty on a multiplayer map. The missions come from your own maps folder, like the multiplayer maps.
+
+![AI on a campaign mission](screenshots/forge-ai-fight.jpg)
+
+- **The mission stays out.** A Forge game, or a layout played, on a campaign mission is the same local game as on a multiplayer map. The mission's scripts don't run and its encounters aren't created, so there is no cinematic and none of its own characters. You start at the mission's own starting point unless the layout has spawn points. There is no announcer (a mission has none).
+- **What a character is.** The AI category lists the mission's actor variants that have a body: grunts, jackals, elites, hunters, marines, the Flood and so on, each with the weapon the mission gives it (`Elite Major Plasma Rifle`). A vehicle's crew (a dropship's gunner) is not offered. A placed character gets its variant's weapon, grenades and camouflage and fights as the mission's own do.
+- **AI TEAM.** DEFAULT is the character's own side. PLAYER, HUMAN, COVENANT, FLOOD and SENTINEL put it on that side. Marines are on your side, as in the campaign.
+- **AI.** OFF makes it stand where you put it, facing the way you turned it. It can still be shot.
+- **RESPAWN.** NEVER, or the time after its death before it comes back where you put it.
+- **The counts.** The HUD shows `AI 6/32, 3 dead`. At most 32 characters are alive at once. Past that, a character that should come back (a respawn, a new round, a layout loaded) waits until one alive dies, and the HUD says how many wait. A dead character doesn't count against the budget, but it stays in the layout: the next round brings it back and a save keeps it. Its body goes after 45 seconds, or sooner when more than 32 bodies lie around.
+- **Clearing.** OPTIONS > CLEAR DEAD AI takes the dead characters out of the layout. CLEAR ALL AI takes every character out (press it twice). Neither can be undone.
+
+  ![OPTIONS with CLEAR DEAD AI and CLEAR ALL AI](screenshots/forge-ai-options.jpg)
+
+AI characters are saved in the layout with their AI team, AI and respawn (layout versions 2 and 3, which were already part of the format). A layout of a multiplayer map that has character records still loads: the map doesn't have those characters, so they are skipped and the log says so.
+
 ## From the console
 
-- `forge start bloodgulch` starts a Forge game of Blood Gulch (any of the Xbox multiplayer maps, by its short name: `beavercreek`, `hangemhigh`, `longest`...).
+- `forge start bloodgulch` starts a Forge game of Blood Gulch (any of the Xbox multiplayer maps or the campaign missions, by its short name: `beavercreek`, `hangemhigh`, `longest`, `a30`, `b30`...).
 - `forge start bloodgulch my_layout` starts it with a saved layout placed.
 - `forge play bloodgulch my_layout ctf` plays a saved layout as `slayer` (the default), `teamslayer`, `ctf`, `king`, `oddball` or `race`.
 - `forge layouts` lists the saved layouts (a damaged one is listed as such, never read).
@@ -89,4 +107,4 @@ Every file goes through the validator before anything is read from it, whether y
 
 ## Console commands
 
-Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags` to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`.
+Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge clearai dead|all`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags`, `ai` to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`, `forge kill #id` (an AI character).
