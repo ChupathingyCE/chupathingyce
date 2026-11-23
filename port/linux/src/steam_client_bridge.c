@@ -395,6 +395,28 @@ void steam_bridge_open(int use_steamcmd)
 	pthread_mutex_unlock(&bridge.lock);
 }
 
+void steam_bridge_restart(int use_steamcmd)
+{
+	int running;
+
+	pthread_mutex_lock(&bridge.lock);
+	running = bridge.running;
+	if (running)
+	{
+		/* (its session ends and a new one connects: the items asked for
+		meanwhile wait, as while it first connects) */
+		bridge.use_steamcmd = use_steamcmd;
+		bridge.stop = 1;
+		bridge.reopen = 1;
+		bridge.sign_in = 0;
+		bridge.status = STEAM_BRIDGE_CONNECTING;
+		bridge.connect_time = system_milliseconds();
+	}
+	pthread_mutex_unlock(&bridge.lock);
+	if (!running)
+		steam_bridge_open(use_steamcmd);
+}
+
 void steam_bridge_close(void)
 {
 	pthread_mutex_lock(&bridge.lock);
