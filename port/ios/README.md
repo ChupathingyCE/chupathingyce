@@ -13,8 +13,10 @@ UIKit launcher that imports your Xbox disc image or a zip of your maps.
 - `app/`: the launcher (`app/project.yml`, made into an Xcode project by
   XcodeGen)
 
-**Not in the nightlies or releases yet.** No workflow builds this port. Build
-it yourself and sideload the `.ipa` (SideStore, AltStore, Sideloadly or
+**Not in the nightlies or releases yet.** The Build workflow's `ios` job builds
+the iPhone and iPad app and the Apple TV's, unsigned, and keeps each `.ipa` for
+three days (`docs/ci.md`), but they are not published. Download one from a run,
+or build it yourself, and sideload the `.ipa` (SideStore, AltStore, Sideloadly or
 Xcode).
 
 ## Building

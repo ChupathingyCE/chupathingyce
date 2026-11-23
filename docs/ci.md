@@ -16,7 +16,8 @@ It also builds each platform whose own files the pull request changes, using the
 |---|---|
 | `port/windows/`, `server/windows/`, `tools/windows_build.py` | `windows`, `windows64`, `server-windows` |
 | `port/android/`, `tools/android*` | `android64` |
-| `port/macos/`, `port/ios/`, `tools/macos_build.py` | `macos` |
+| `port/macos/`, `tools/macos_build.py` | `macos` |
+| `port/ios/` | `ios` (the iPhone and iPad app, and the Apple TV's) |
 | `port/unix/`, `tools/unix64_build.py` | `freebsd64` |
 | `server/`, `tools/server_build.py` | `server` (x64 only) |
 | `tools/linux64_build.py`, `tools/linux_sysroot.py`, `tools/bgfx-patches/`, the bgfx renderer files | `linux64` |
@@ -25,7 +26,7 @@ Changes to documentation alone (`*.md`, `docs/`) don't build.
 
 ## The full matrix
 
-Every platform (Linux 32/64, FreeBSD, Windows 32/64, macOS, Android, the dedicated servers and their container) builds when:
+Every platform (Linux 32/64, FreeBSD, Windows 32/64, macOS, iOS and tvOS, Android, the dedicated servers and their container) builds when:
 
 - the pull request has the **`ci: full`** label. Adding the label runs the pull request's latest Build again (`.github/workflows/full-build-label.yml`), and later pushes keep building in full while the label is there.
 - the pull request comes from a `batch/*` branch (several pull requests landed together).

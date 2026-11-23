@@ -197,6 +197,7 @@ jobs:
       windows: ${{ steps.plan.outputs.windows }}
       android: ${{ steps.plan.outputs.android }}
       macos: ${{ steps.plan.outputs.macos }}
+      ios: ${{ steps.plan.outputs.ios }}
       freebsd: ${{ steps.plan.outputs.freebsd }}
       server: ${{ steps.plan.outputs.server }}
       linux64: ${{ steps.plan.outputs.linux64 }}
@@ -215,7 +216,7 @@ jobs:
           out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; echo "$1=$2"; }
           everything() {
             echo "the full matrix: $1"
-            for area in full windows android macos freebsd server linux64; do out "$area" true; done
+            for area in full windows android macos ios freebsd server linux64; do out "$area" true; done
             out server_archs '["x86","x64","arm64"]'
             exit 0
           }
@@ -236,7 +237,8 @@ jobs:
           out full false
           out windows "$(has '^(port/windows/|server/windows/|tools/windows_build\.py$)')"
           out android "$(has '^(port/android/|tools/android)')"
-          out macos "$(has '^(port/macos/|port/ios/|tools/macos_build\.py$)')"
+          out macos "$(has '^(port/macos/|tools/macos_build\.py$)')"
+          out ios "$(has '^port/ios/')"
           out freebsd "$(has '^(port/unix/|tools/unix64_build\.py$)')"
           out server "$(has '^(server/|tools/server_build\.py$)')"
           out linux64 "$(has '^(tools/linux64_build\.py$|tools/linux_sysroot\.py$|tools/bgfx-patches/|port/linux/src/(d3d8_bgfx|bgfx_))')"
@@ -1916,6 +1918,144 @@ jobs:
           path: .ccache
           key: ccache-macos-${{ github.sha }}
 
+  ios:
+    needs: [gate, plan]
+    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.ios == 'true'
+    # iPhone and iPad (the Vision Pro runs the iPad app) and the Apple TV: the
+    # game as a static library (port/ios/build.py: ninja ios, ninja tvos) with
+    # its own SDL3, linked into the app that XcodeGen makes of
+    # port/ios/app/project.yml, built unsigned. The .ipa is for a sideloading
+    # tool to sign (port/ios/README.md). SDL3 is the one tools/android_build.py
+    # pins, built once and cached. No ccache: the game's build takes a few minutes.
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ios
+            scheme: ChupathingyCE
+            sdk: iphoneos
+            destination: generic/platform=iOS
+            lib: lib
+            system: iOS
+          - platform: tvos
+            scheme: ChupathingyCE-tvOS
+            sdk: appletvos
+            destination: generic/platform=tvOS
+            lib: lib-tvos
+            system: tvOS
+    env:
+      IOS_MINIMUM: "16.4"
+    steps:
+      - name: Install the toolchain
+        timeout-minutes: 10
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_ANALYTICS: "1"
+        run: brew install ninja xcodegen
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+
+      # (SDL3's tag and commit, from where the Android build pins them)
+      - name: The SDL3 pin
+        run: |
+          python3 - >> "$GITHUB_ENV" <<'PIN'
+          import re
+          source = open("tools/android_build.py").read()
+          for name in ("SDL_TAG", "SDL_COMMIT"):
+              match = re.search("^" + name + ' = "([^"]+)"', source, re.M)
+              print(name + "=" + match.group(1))
+          PIN
+
+      - uses: actions/cache/restore@v4
+        id: cache-1
+        if: env.CACHE_RESTORE == 'true'
+        with:
+          path: build/sdl3-${{ matrix.platform }}
+          key: ${{ matrix.platform }}-sdl3-${{ hashFiles('tools/android_build.py') }}
+
+      # (without SDL's camera: the game has no use for one, and it needs
+      # CoreMedia and a camera usage description)
+      - name: SDL3
+        if: steps.cache-1.outputs.cache-hit != 'true'
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          SYSTEM: ${{ matrix.system }}
+        run: |
+          mkdir -p build
+          git clone -q --depth 1 --branch "$SDL_TAG" https://github.com/libsdl-org/SDL.git build/SDL3
+          test "$(git -C build/SDL3 rev-parse HEAD)" = "$SDL_COMMIT"
+          cmake -S build/SDL3 -B "build/sdl3-$PLATFORM-build" -G Ninja \
+            -DCMAKE_SYSTEM_NAME="$SYSTEM" -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_MINIMUM" -DCMAKE_BUILD_TYPE=Release \
+            -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
+            -DSDL_CAMERA=OFF -DCMAKE_INSTALL_PREFIX="$PWD/build/sdl3-$PLATFORM"
+          ninja -C "build/sdl3-$PLATFORM-build" install
+          ls -l "build/sdl3-$PLATFORM/lib"
+
+      # (the runner's Android SDK left out: configure.py would set up the
+      # Android builds too)
+      - name: Game
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          env -u ANDROID_HOME -u ANDROID_SDK_ROOT -u ANDROID_NDK_HOME -u ANDROID_NDK_ROOT -u ANDROID_NDK_LATEST_HOME \
+            python3 configure.py --release --console-port port/ios "--$PLATFORM-sdl" "build/sdl3-$PLATFORM"
+          grep -q "^build $PLATFORM:" build.ninja
+          ninja "$PLATFORM"
+
+      # internet play's brokers, and the certificate authorities its HTTPS is
+      # checked against (curl's copy of Mozilla's, checked against the digest
+      # curl publishes beside it): port/ios/src/ios_main.c
+      - name: The app
+        working-directory: port/ios/app
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          SCHEME: ${{ matrix.scheme }}
+          SDK: ${{ matrix.sdk }}
+          DESTINATION: ${{ matrix.destination }}
+          LIB: ${{ matrix.lib }}
+        run: |
+          mkdir -p "$LIB"
+          cp "../../../build/$PLATFORM/libhalo.a" "../../../build/sdl3-$PLATFORM/lib/libSDL3.a" "$LIB/"
+          cp ../../assets/network/brokers.txt Resources/
+          curl -fsSL https://curl.se/ca/cacert.pem -o Resources/cacert.pem
+          curl -fsSL https://curl.se/ca/cacert.pem.sha256 | awk '{ print $1 "  Resources/cacert.pem" }' | shasum -a 256 -c -
+          xcodegen generate
+          xcodebuild -project ChupathingyCE.xcodeproj -scheme "$SCHEME" -configuration Release \
+            -sdk "$SDK" -destination "$DESTINATION" -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build > xcodebuild.log 2>&1 \
+            || { grep -E 'error:|\*\* BUILD' xcodebuild.log | tail -60
+                 grep -E -A30 'Undefined symbols|duplicate symbol' xcodebuild.log | head -120; exit 1; }
+          mkdir -p Payload
+          cp -R "build/Build/Products/Release-$SDK/ChupathingyCE.app" Payload/
+          zip -qry "../../../chupathingyce-$PLATFORM-release.ipa" Payload
+          ls -lh "../../../chupathingyce-$PLATFORM-release.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-${{ matrix.platform }}-release
+          path: chupathingyce-${{ matrix.platform }}-release.ipa
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-${{ matrix.platform }}
+          path: port/ios/app/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-1.outputs.cache-hit != 'true' }}
+        with:
+          path: build/sdl3-${{ matrix.platform }}
+          key: ${{ matrix.platform }}-sdl3-${{ hashFiles('tools/android_build.py') }}
+
   ci-ok:
     # The run in one check: green when every job that had to run passed. A
     # platform job left out by the plan job counts as passed on a fast
@@ -1924,7 +2064,7 @@ jobs:
     # to merge: a release's run is checked job by job before anything ships
     # (ChupathingyCE/command, tools/public_build.py).
     needs: [gate, plan, info, linux, linux-tests, linux-big-endian, linux64, freebsd64, server, server-container,
-            server-windows, android64, windows, windows64, macos]
+            server-windows, android64, windows, windows64, macos, ios]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -1939,7 +2079,7 @@ jobs:
           echo "full matrix: ${FULL:-unknown}"
           jq -e --arg full "$FULL" --arg event "$EVENT" '
             ["linux64", "freebsd64", "server", "server-container", "server-windows", "android64",
-             "windows", "windows64", "macos"] as $platforms
+             "windows", "windows64", "macos", "ios"] as $platforms
             | to_entries | all(
                 .value.result == "success"
                 or (.key == "info" and $event != "workflow_dispatch" and .value.result == "skipped")
@@ -1955,7 +2095,7 @@ jobs:
     # each is always kept, and any other cache (a release branch's, a key
     # without a hash) is left alone, so the repository stays under its
     # 10 GB and main's compile caches are not the ones evicted.
-    needs: [gate, linux, linux64, freebsd64, server, server-windows, android64, windows, windows64, macos]
+    needs: [gate, linux, linux64, freebsd64, server, server-windows, android64, windows, windows64, macos, ios]
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'ChupathingyCE/chupathingyce' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
