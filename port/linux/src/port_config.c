@@ -1784,6 +1784,23 @@ static const struct config_setting config_settings[] =
 		"missions (their AI characters): FORGE in the Multiplayer menu, and the\n"
 		"console's forge commands. Local games only.\n"
 		"FORGE in the Delta Guide's SETTINGS. See docs/forge.md." },
+	/* (forge.h FORGE_BUILD_MAXIMUM_OBJECTS and _AI: a build with the console's
+	tables keeps the console's numbers) */
+#ifdef HALO_CONSOLE_LIMITS
+	{ "game.forge_objects", _config_integer, "256", "HALO_FORGE_OBJECTS", _environment_value, _platform_desktop,
+		"Forge: the most objects and markers a layout holds (64 to 256 on this\n"
+		"build). A layout of more places what fits. See docs/forge.md." },
+	{ "game.forge_ai", _config_integer, "32", "HALO_FORGE_AI", _environment_value, _platform_desktop,
+		"Forge: the most AI characters alive at once (8 to 32 on this build).\n"
+		"Past it, the rest wait for room. See docs/forge.md." },
+#else
+	{ "game.forge_objects", _config_integer, "512", "HALO_FORGE_OBJECTS", _environment_value, _platform_desktop,
+		"Forge: the most objects and markers a layout holds (64 to 512). A\n"
+		"layout of more places what fits. See docs/forge.md." },
+	{ "game.forge_ai", _config_integer, "128", "HALO_FORGE_AI", _environment_value, _platform_desktop,
+		"Forge: the most AI characters alive at once (8 to 128). Past it, the\n"
+		"rest wait for room. See docs/forge.md." },
+#endif
 #endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"

@@ -3,9 +3,10 @@ FORGE_AI.INC
 
 AI characters in Forge (included by forge.c, for its statics).
 
-The maps: a multiplayer map has no AI characters in its tags. The campaign
-missions do: the ten of them are Forge's maps too, after the multiplayer
-ones (forge_maps' campaign entries), played from the player's own copy, as
+The maps: a multiplayer map has no AI characters in its tags; they are
+brought in from the player's own campaign maps as a Forge game of one
+loads (forge_ai_tags.c). The campaign missions have their own: the ten of
+them are Forge's maps too, after the multiplayer ones (forge_maps' campaign entries), played from the player's own copy, as
 the lobby lists every map whose file is installed. A Forge game, or a
 layout played, on a mission is the same local game as on a multiplayer
 map (forge_game_ask), but the mission stays out of it (forge_mission_off):
@@ -35,7 +36,8 @@ yaw. In a Forge game the humans are the player's allies, as every
 mission's script makes them.
 
 The counts: the HUD and the Forge menu show the characters alive, dead
-and waiting. At most FORGE_MAXIMUM_AI are alive at once; past it a
+and waiting. At most forge_ai_maximum() are alive at once (game.forge_ai:
+128 on a desktop build, 32 with the console's limits); past it a
 respawn, a new round's or a layout's character waits until one alive is
 fewer. A dead one counts nowhere in the budget, but stays the layout's
 (the next round brings it back, a saved layout keeps it); its body goes
@@ -397,7 +399,7 @@ static short forge_ai_clear(
 	forge_undo_forget(cleared_ids, cleared);
 	forge_placed_update();
 	platform_log("forge: cleared %d %s AI; budget %d/%d objects, AI %d alive, %d dead, %d waiting", cleared,
-		all ? "placed" : "dead", forge_objects_counted(), FORGE_MAXIMUM_OBJECTS, forge_ai_alive(), forge_ai_dead_only(),
+		all ? "placed" : "dead", forge_objects_counted(), forge_objects_budget(), forge_ai_alive(), forge_ai_dead_only(),
 		forge_globals.ai_waiting_count);
 	if (!cleared)
 		forge_menu_notice("%s", all ? "No AI to clear." : "No dead AI to clear.");
@@ -470,7 +472,7 @@ static void forge_ai_life_update(
 			continue;
 		/* (no room: waiting, its body gone, until one alive is fewer) */
 		forge_placed_update();
-		if (forge_ai_alive() >= FORGE_MAXIMUM_AI)
+		if (forge_ai_alive() >= forge_ai_maximum())
 		{
 			if (!placed->waiting)
 			{
@@ -479,7 +481,7 @@ static void forge_ai_life_update(
 				placed->object_index = NONE;
 				placed->waiting = TRUE;
 				platform_log("forge: %s (#%ld) waits to respawn: %d characters alive", forge_tag_leaf(placed->tag_index),
-					placed->id, FORGE_MAXIMUM_AI);
+					placed->id, forge_ai_maximum());
 			}
 			continue;
 		}
@@ -644,8 +646,9 @@ static void forge_ai_log(
 		data_iterator_new(&iterator, actor_data);
 		while (data_iterator_next(&iterator))
 			actors++;
-		platform_log("forge: ai listed: %d (alive %d, dead %d, waiting %d); the game's actors: %d", listed, forge_ai_alive(),
-			forge_ai_dead_only(), forge_globals.ai_waiting_count, actors);
+		platform_log("forge: ai listed: %d (alive %d, dead %d, waiting %d); the game's actors: %d, props %d of %d", listed,
+			forge_ai_alive(), forge_ai_dead_only(), forge_globals.ai_waiting_count, actors, (int)prop_data->actual_count,
+			(int)prop_data->maximum_count);
 	}
 }
 

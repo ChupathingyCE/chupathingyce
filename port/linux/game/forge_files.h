@@ -9,7 +9,8 @@ tools/test_forge_files.py) builds it on its own.
 
 A layout is <stem>.hmv in the Forge folder's folder of its map
 (forge_store.h: <save root>/forge/<map>/). Binary, little-endian, at most
-64 KB:
+64 KB (256 records at most before the desktop builds' budget grew: a
+layout of more is refused by those builds as having too many):
 
 	header  64 bytes
 	  magic        char[4]  "HFRG"
@@ -24,7 +25,7 @@ A layout is <stem>.hmv in the Forge folder's folder of its map
 	                        is only logged)
 	  pack count   u16      0 to 8
 	  path count   u16      0 to 256
-	  record count u16      0 to 256
+	  record count u16      0 to 512
 	  meta size    u16      4 to 2048
 	  payload size u32      the bytes after the header, exactly
 	  checksum     u32      CRC-32 (IEEE) of those bytes
@@ -73,7 +74,7 @@ at all:
 - header: the magic; the version 1 to 7 (above 7: newer; 0: refused); the
   header size 64; no unknown flag; the map name [a-z0-9_], 1 to 31
   characters, only zeros after it, and the map expected (the folder's);
-- counts: packs at most 8, paths at most 256, records at most 256, meta at
+- counts: packs at most 8, paths at most 256, records at most 512, meta at
   most 2048 bytes;
 - the payload size exactly the bytes after the header, and its CRC-32;
 - each pack: its name [a-z0-9_ -], 1 to 24 characters, zeros after it;
@@ -116,8 +117,8 @@ a record whose tag the map does not have is skipped, and the budget
 #define FORGE_FILE_MAXIMUM_SIZE 65536
 #define FORGE_FILE_MAXIMUM_PATHS 256
 #define FORGE_FILE_MAXIMUM_PACKS 8
-/* (forge.h FORGE_MAXIMUM_OBJECTS) */
-#define FORGE_FILE_MAXIMUM_RECORDS 256
+/* (forge.h FORGE_MAXIMUM_OBJECTS: a desktop build's) */
+#define FORGE_FILE_MAXIMUM_RECORDS 512
 #define FORGE_FILE_MAXIMUM_META 2048
 #define FORGE_FILE_PATH_MAXIMUM_LENGTH 127
 #define FORGE_FILE_PACK_SIZE 32

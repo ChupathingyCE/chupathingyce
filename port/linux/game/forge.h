@@ -23,10 +23,32 @@ game.forge is true: nothing of it runs until then.
 
 /* ---------- constants */
 
+/* the most a layout may hold, objects and markers, and AI characters alive
+at once: the build's (game.forge_objects and game.forge_ai choose within
+them: forge_objects_budget, forge_ai_maximum). A desktop build's, within
+its engine's tables (halo_port_capacity.h: 8192 objects, 1024 drawn a
+frame, 1024 actors, 8192 props, 128 swarms) with room left: 512 objects
+and 128 characters (their weapons, about 400 objects) and the map's own
+fit what a frame draws; 128 characters alive kept about 2,300 props (of
+8192) in a measured fight; a build with
+the console's tables (HALO_CONSOLE_LIMITS: 2048 objects, 256 actors, 768
+props), the console's numbers */
+#ifdef HALO_CONSOLE_LIMITS
+#define FORGE_BUILD_MAXIMUM_OBJECTS 256
+#define FORGE_BUILD_MAXIMUM_AI 32
+#else
+#define FORGE_BUILD_MAXIMUM_OBJECTS 512
+#define FORGE_BUILD_MAXIMUM_AI 128
+#endif
+/* the settings' least */
+#define FORGE_MINIMUM_OBJECTS 64
+#define FORGE_MINIMUM_AI 8
+
 enum
 {
-	/* the budget of a session: objects and markers placed */
-	FORGE_MAXIMUM_OBJECTS = 256,
+	/* the budget of a session's table: objects and markers placed (the
+	budget itself: forge_objects_budget) */
+	FORGE_MAXIMUM_OBJECTS = FORGE_BUILD_MAXIMUM_OBJECTS,
 	/* a readable name's bytes (UTF-8) */
 	FORGE_NAME_SIZE = 64,
 	/* the markers of a layout (forge_spawns.inc: player spawn points,
@@ -34,8 +56,9 @@ enum
 	FORGE_MAXIMUM_SPAWNS = 64,
 	FORGE_SPAWN_TABLE = FORGE_MAXIMUM_SPAWNS,
 	/* (forge_ai.inc) the AI characters of a layout alive at once, within
-	the objects' budget: past it the rest wait for room */
-	FORGE_MAXIMUM_AI = 32,
+	the objects' budget, at most: past forge_ai_maximum the rest wait for
+	room */
+	FORGE_MAXIMUM_AI = FORGE_BUILD_MAXIMUM_AI,
 };
 
 /* the Forge menu's OBJECTS categories (forge_menu.c), in its order */
@@ -172,6 +195,11 @@ struct forge_item
 	char name[FORGE_NAME_SIZE];
 	/* how many of it this session has placed that are still there */
 	short placed;
+	/* (an AI character brought in from a campaign map, on a multiplayer
+	map: forge_ai_tags.c) its faction and the mission it came from
+	("Covenant", "The Silent Cartographer"), else "" */
+	char faction[16];
+	char from[FORGE_NAME_SIZE];
 };
 
 struct game_variant;
@@ -330,6 +358,14 @@ boolean forge_category_item(
 not) */
 short forge_budget_objects(
 	void);
+/* the most objects and markers a layout may hold (game.forge_objects,
+FORGE_MINIMUM_OBJECTS to FORGE_MAXIMUM_OBJECTS), and AI characters alive at
+once (game.forge_ai, FORGE_MINIMUM_AI to FORGE_MAXIMUM_AI): read as a Forge
+game's map loads */
+short forge_objects_budget(
+	void);
+short forge_ai_maximum(
+	void);
 
 /* ---------- prototypes/FORGE_MENU_LINK.INC
 
@@ -440,6 +476,27 @@ short forge_spawn_location(
 	struct player_starting_location *location);
 
 /* ---------- prototypes/FORGE_AI.INC */
+
+/* (forge_ai_tags.c) whether a map loading is a Forge game's (or a layout
+played) of a multiplayer map, with Forge on: its AI characters are brought
+in from the player's campaign maps; a mission's name as Forge says it
+("The Silent Cartographer" for "b30"), "" for none */
+boolean forge_ai_tags_wanted(
+	char const *scenario_name);
+char const *forge_mission_title(
+	char const *short_name);
+
+/* (the Forge menu, a multiplayer map) the factions of AI characters and
+where each came from, or that no campaign map of it is there: how many
+lines, each "Covenant: The Silent Cartographer" or "Flood" with missing
+set; 0 off a multiplayer map */
+short forge_ai_faction_line(
+	short faction,
+	char *line,
+	int size,
+	boolean *missing);
+short forge_ai_faction_lines(
+	void);
 
 /* (hs_runtime.c, encounters.c) whether this is a Forge game, or a layout
 played, on a campaign mission: the mission's scripts do not run and its
