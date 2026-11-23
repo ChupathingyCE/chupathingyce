@@ -129,7 +129,8 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
                            them, cleared (the Forge menu's CLEAR DEAD AI,
                            CLEAR ALL AI)
   forge kill #<id>         (tests) a layout's AI character killed
-  forge board #<id>        (tests) the Spartan into a layout's vehicle
+  forge board #<id>        (tests) the Spartan into a layout's vehicle;
+                           "#<id> walk <seat>" at a seat's way in
   forge where | budget | objects | spawns | netflags | ai  the state in the log
   forge shot               (tests) a screenshot, as the screenshot key
 */
@@ -147,6 +148,7 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
 #include "devices/device_controls.h"
 #include "devices/device_definitions.h"
 #include "devices/device_light_fixtures.h"
+#include "models/model_definitions.h"
 #include "game/game.h"
 #include "game/game_allegiance.h"
 #include "game/game_engine.h"
@@ -867,6 +869,7 @@ static void forge_menu_asks_run(void);
 static boolean forge_placed_dead(struct forge_placed const *placed);
 static short forge_packs_of(short pack_category);
 static void forge_campaign_seats_tune(void);
+static void forge_flyable_tune(void);
 static void forge_ai_count(void);
 static short forge_ai_alive(void);
 static short forge_ai_dead_only(void);
@@ -4659,6 +4662,7 @@ void forge_update(
 	{
 		forge_globals.palette_built = FALSE;
 		forge_campaign_seats_tune();
+		forge_flyable_tune();
 	}
 	forge_session_update();
 	/* (the layout's teleporters and flags the engine's, before the tick) */
@@ -5425,6 +5429,24 @@ boolean forge_command(
 
 		if (!vehicle || unit_index == NONE || forge_globals.active || vehicle->object.type != _object_type_vehicle)
 			return FALSE;
+		/* ("#<id> walk <seat>": the Spartan put at the seat's way in, on
+		foot, for the action button to board it as a player would) */
+		{
+			char const *walk = strstr(rest, " walk ");
+			real_point3d entry;
+
+			if (walk && sscanf(walk + 6, "%hd", &seat_index) == 1 &&
+				seat_index >= 0 && seat_index < unit_definition_get(vehicle->definition_index)->unit.seats.count &&
+				unit_get_seat_entrance_point(unit_index, vehicle_index, seat_index, &entry, NULL, NULL))
+			{
+				object_set_position(unit_index, &entry, NULL, NULL);
+				platform_log("forge: the Spartan at seat %d's way in of %s, %.2f %.2f %.2f (the tests)", seat_index,
+					forge_tag_leaf(vehicle->definition_index), entry.x, entry.y, entry.z);
+				return TRUE;
+			}
+			if (walk)
+				return FALSE;
+		}
 		for (seat_index = 0; seat_index < unit_definition_get(vehicle->definition_index)->unit.seats.count; seat_index++)
 		{
 			long occupant = NONE;
@@ -5470,6 +5492,17 @@ boolean forge_command(
 		{
 			platform_log("forge: no camera");
 			return FALSE;
+		}
+		{
+			long player_index = local_player_get_player_index(forge_globals.local_player_index);
+			long unit_index = player_index != NONE ? player_get(player_index)->unit_index : NONE;
+			struct unit_datum *unit = unit_index != NONE ? unit_get(unit_index) : NULL;
+
+			if (unit && unit->object.parent_object_index != NONE)
+			{
+				platform_log("forge: the Spartan rides %s, seat %d",
+					forge_tag_leaf(object_get(unit->object.parent_object_index)->definition_index), unit->unit.parent_seat_index);
+			}
 		}
 		platform_log("forge: %s; camera at %.2f %.2f %.2f looking %.2f %.2f %.2f; holding %s at %.2f; aiming at %s; "
 			"%ld spawned, %ld deleted; budget %d/%d; snap %s; layout \"%s\"",
@@ -5733,4 +5766,5 @@ with this file's) */
 #include "forge_physics.inc"
 #include "forge_precision.inc"
 #include "forge_ai.inc"
+#include "forge_flyable.inc"
 #include "forge_menu_link.inc"

@@ -490,6 +490,20 @@ boolean forge_ai_tags_wanted(
 char const *forge_mission_title(
 	char const *short_name);
 
+/* (vehicles.c, a human plane's tick) a Pelican or dropship a player flies
+in Forge (forge_flyable.inc): its velocity into the level's structure
+this tick taken away */
+void forge_flyable_sweep(
+	long vehicle_index);
+/* (following_camera.c) a unit's chase camera distance scale: a flown
+Pelican's or dropship's, else 1 */
+real forge_flyable_camera_scale(
+	long unit_index);
+/* (the same) its hover's lift for the campaign's factor */
+real forge_flyable_lift(
+	long vehicle_index,
+	real factor);
+
 /* (the Forge menu, a multiplayer map) a category's packs brought in from
 the campaign maps (the AI's factions, the campaign's vehicles and
 objects) and where each came from, or that no campaign map of it is
