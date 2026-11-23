@@ -71,6 +71,10 @@ enum
 	/* (AI characters: the map's actor variants that name their unit, none
 	on a multiplayer map: forge_ai.inc) */
 	_forge_category_ai,
+	/* (on a multiplayer map: the campaign's vehicles and objects, brought
+	in from the player's own campaign maps: forge_ai_tags.c) */
+	_forge_category_campaign_vehicles,
+	_forge_category_campaign_objects,
 	/* (teleporters: SENDER and RECEIVER, linked by their channel, no tag of
 	the map's: forge_netgame.inc) */
 	_forge_category_teleporters,
@@ -198,7 +202,7 @@ struct forge_item
 	/* (an AI character brought in from a campaign map, on a multiplayer
 	map: forge_ai_tags.c) its faction and the mission it came from
 	("Covenant", "The Silent Cartographer"), else "" */
-	char faction[16];
+	char faction[32];
 	char from[FORGE_NAME_SIZE];
 };
 
@@ -486,17 +490,19 @@ boolean forge_ai_tags_wanted(
 char const *forge_mission_title(
 	char const *short_name);
 
-/* (the Forge menu, a multiplayer map) the factions of AI characters and
-where each came from, or that no campaign map of it is there: how many
-lines, each "Covenant: The Silent Cartographer" or "Flood" with missing
-set; 0 off a multiplayer map */
+/* (the Forge menu, a multiplayer map) a category's packs brought in from
+the campaign maps (the AI's factions, the campaign's vehicles and
+objects) and where each came from, or that no campaign map of it is
+there: how many lines, each "Covenant: The Silent Cartographer" or "Flood"
+with missing set; 0 off a multiplayer map or for another category */
 short forge_ai_faction_line(
-	short faction,
+	short category,
+	short line_index,
 	char *line,
 	int size,
 	boolean *missing);
 short forge_ai_faction_lines(
-	void);
+	short category);
 
 /* (hs_runtime.c, encounters.c) whether this is a Forge game, or a layout
 played, on a campaign mission: the mission's scripts do not run and its

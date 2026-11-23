@@ -73,6 +73,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #ifndef HALO_CONSOLE_NO_FORGE
 
 #include "tag_files/tag_groups.h"
+#include "cache/cache_files.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
 #include "sound/sound_definitions.h"
@@ -107,7 +108,7 @@ enum
 	/* a mission's expanded size and tag data at most */
 	FORGE_AI_MAXIMUM_FILE = 512 * 1024 * 1024,
 	FORGE_AI_MAXIMUM_TAG_DATA = 0x01600000,
-	FORGE_AI_MAXIMUM_SOURCES = 4,
+	FORGE_AI_MAXIMUM_SOURCES = 6,
 	FORGE_AI_MAXIMUM_ROOTS = 16,
 	FORGE_AI_MAXIMUM_MAPS = 4,
 	/* the tags brought in, all factions together */
@@ -141,11 +142,14 @@ used), their characters (those of them the mission has) */
 static struct forge_ai_faction_definition
 {
 	char const *name;
+	/* FORGE_AI_PACK_* (forge_ai_tags.h): the Forge menu's category */
+	short category;
 	char const *maps[FORGE_AI_MAXIMUM_MAPS];
+	/* each an actor variant's path, or "<group> <path>" */
 	char const *roots[FORGE_AI_MAXIMUM_ROOTS];
 } const forge_ai_factions[] =
 {
-	{ "Covenant", { "b30", "a50", "b40", "d20" },
+	{ "Covenant", FORGE_AI_PACK_AI, { "b30", "a50", "b40", "d20" },
 	{
 		"characters\\grunt\\grunt minor plasma pistol",
 		"characters\\grunt\\grunt major plasma pistol",
@@ -160,7 +164,7 @@ static struct forge_ai_faction_definition
 		"characters\\elite\\elite commander\\elite commander energy sword",
 		"characters\\hunter\\hunter",
 	} },
-	{ "Marines", { "a30", "b40", "b30" },
+	{ "Marines", FORGE_AI_PACK_AI, { "a30", "b40", "b30" },
 	{
 		"characters\\marine\\marine assault rifle",
 		"characters\\marine\\marine assault rifle major",
@@ -168,7 +172,7 @@ static struct forge_ai_faction_definition
 		"characters\\marine_armored\\marine_armored assault rifle major",
 		"characters\\marine_armored\\marine_armored sniper rifle",
 	} },
-	{ "Flood", { "c20", "d20", "c10", "d40" },
+	{ "Flood", FORGE_AI_PACK_AI, { "c20", "d20", "c10", "d40" },
 	{
 		"characters\\flood_infection\\flood_infection",
 		"characters\\floodcarrier\\floodcarrier",
@@ -177,13 +181,89 @@ static struct forge_ai_faction_definition
 		"characters\\floodcombat elite\\floodcombat elite plasma rifle",
 		"characters\\floodcombat elite\\floodcombat elite shotgun",
 	} },
-	{ "Sentinels", { "c20", "c10", "d40" },
+	{ "Sentinels", FORGE_AI_PACK_AI, { "c20", "c10", "d40" },
 	{
 		"characters\\sentinel\\sentinel",
 		"characters\\sentinel\\sentinel major",
 	} },
+	/* (the campaign's vehicles the multiplayer maps lack, and the campaign's
+	own Warthog and Scorpion and Ghost; no rocket Warthog: the campaign has
+	none) */
+	{ "Covenant vehicles", FORGE_AI_PACK_VEHICLES, { "b40", "c40", "a50", "d20" },
+	{
+		"vehi vehicles\\banshee\\banshee",
+		"vehi vehicles\\wraith\\wraith",
+		"vehi vehicles\\c gun turret\\c gun turret",
+		"vehi vehicles\\ghost\\ghost",
+	} },
+	{ "UNSC vehicles", FORGE_AI_PACK_VEHICLES, { "b40", "a10" },
+	{
+		"vehi vehicles\\warthog\\warthog",
+		"vehi vehicles\\scorpion\\scorpion",
+	} },
+	{ "Dropships", FORGE_AI_PACK_VEHICLES, { "b30", "a50", "b40" },
+	{
+		"vehi vehicles\\pelican\\pelican",
+		"vehi vehicles\\c_dropship\\c_dropship",
+	} },
+	/* (decorations and objects) */
+	{ "Covenant objects", FORGE_AI_PACK_OBJECTS, { "c10", "b30" },
+	{
+		"scen scenery\\c_storage\\c_storage",
+		"scen scenery\\c_storage_large\\c_storage_large",
+		"scen scenery\\c_field_generator\\c_field_generator",
+		"scen scenery\\c_uplink\\c_uplink",
+		"scen scenery\\landing beacon\\landing beacon",
+	} },
+	{ "Forerunner objects", FORGE_AI_PACK_OBJECTS, { "b30", "c10" },
+	{
+		"lifi levels\\b30\\devices\\light fixtures\\light fixture ceiling1\\light fixture ceiling1",
+		"lifi levels\\b30\\devices\\light fixtures\\light fixture floor1\\light fixture floor1",
+		"lifi levels\\b30\\devices\\light fixtures\\light fixture floor2\\light fixture floor2",
+		"lifi levels\\b30\\devices\\light fixtures\\light fixture wall1\\light fixture wall1",
+		"lifi levels\\b30\\devices\\light fixtures\\light fixture wall3\\light fixture wall3",
+		"mach levels\\b30\\devices\\interior tech objects\\holo display square\\holo display square",
+		"mach levels\\b30\\devices\\interior tech objects\\holo display tall\\holo display tall",
+		"mach levels\\b30\\devices\\interior tech objects\\holo display wide\\holo display wide",
+		"mach levels\\b30\\devices\\interior tech objects\\holo control ring\\holo control ring",
+		"mach levels\\b30\\devices\\doors\\door small\\door small",
+		"ctrl levels\\b30\\devices\\interior tech objects\\holo control\\holo control",
+	} },
+	{ "Wreckage and barricades", FORGE_AI_PACK_OBJECTS, { "c10" },
+	{
+		"scen scenery\\vehicles\\pelican_crashed\\pelican_crashed",
+		"scen scenery\\vehicles\\c_dropship_crashed\\c_dropship_crashed",
+		"scen levels\\b40\\scenery\\b40_metal_small\\metal_small",
+		"scen levels\\b40\\scenery\\b40_metal_tall\\metal_tall",
+		"scen levels\\b40\\scenery\\b40_metal_wide\\metal_wide",
+	} },
+	{ "Plants and trees", FORGE_AI_PACK_OBJECTS, { "b30" },
+	{
+		"scen scenery\\trees\\tree_leafy\\tree_leafy",
+		"scen scenery\\trees\\tree_leafy_medium\\tree_leafy_medium",
+		"scen scenery\\trees\\tree_leafy_doublewide\\tree_leafy_doublewide",
+		"scen scenery\\trees\\tree_leafy_fallentrunk\\tree_leafy_fallentrunk",
+		"scen scenery\\trees\\tree_leafy_stump\\tree_leafy_stump",
+		"scen scenery\\plants\\vines_hanging\\vines_hanging",
+	} },
 };
 #define NUMBER_OF_FORGE_AI_FACTIONS ((short)NUMBEROF(forge_ai_factions))
+
+/* a root's group (an actor variant's if it names none) and path */
+static unsigned long root_group(
+	char const *root)
+{
+	if (strlen(root) > 5 && root[4] == ' ')
+		return ((unsigned long)(byte)root[0] << 24) | ((unsigned long)(byte)root[1] << 16) |
+			((unsigned long)(byte)root[2] << 8) | (unsigned long)(byte)root[3];
+	return FORGE_AI_ACTOR_VARIANT_TAG;
+}
+
+static char const *root_path(
+	char const *root)
+{
+	return strlen(root) > 5 && root[4] == ' ' ? root + 5 : root;
+}
 
 /* the Xbox's tag header (cache_files.c's) */
 struct forge_ai_tag_header
@@ -1640,12 +1720,15 @@ static short source_reach(
 	{
 		long absolute;
 
+		unsigned long group_tag = root_group(faction->roots[root]);
+		char const *path = root_path(faction->roots[root]);
+
 		for (absolute = 0; absolute < source->tag_count; absolute++)
 		{
 			struct cache_file_tag_instance *instance = source_instance(source, absolute);
 
-			if ((unsigned long)instance->group_tag == FORGE_AI_ACTOR_VARIANT_TAG && instance->base_address &&
-				!_stricmp(source_tag_name(source, absolute), faction->roots[root]))
+			if ((unsigned long)instance->group_tag == group_tag && instance->base_address &&
+				!_stricmp(source_tag_name(source, absolute), path))
 			{
 				if (!source->wanted[absolute])
 				{
@@ -1977,7 +2060,7 @@ takes memory: a 32-bit build has little left in one piece) */
 	for (faction = 0; faction < NUMBER_OF_FORGE_AI_FACTIONS; faction++)
 	{
 		if (forge_ai_tags.faction_source[faction] != NONE)
-			platform_log("forge ai: %s: %d characters from %s.map", forge_ai_factions[faction].name,
+			platform_log("forge ai: %s: %d from %s.map", forge_ai_factions[faction].name,
 				forge_ai_tags.faction_roots[faction], forge_ai_tags.sources[forge_ai_tags.faction_source[faction]].map);
 	}
 	platform_log("forge ai: %ld tags added to %s's %ld in %lu ms", forge_ai_tags.count, scenario_name, existing,
@@ -2172,6 +2255,22 @@ boolean forge_ai_tags_faction(
 	return TRUE;
 }
 
+short forge_ai_tags_faction_category(
+	short faction)
+{
+	return faction >= 0 && faction < NUMBER_OF_FORGE_AI_FACTIONS ? forge_ai_factions[faction].category : NONE;
+}
+
+/* whether the Forge menu offers a tag: the map's own, an actor variant, or
+one of a pack's own objects (not a tag they need: their weapons, effects,
+the campaign's energy sword) */
+boolean forge_ai_tags_offered(
+	long tag_index)
+{
+	return !tag_source(tag_index) || tag_get_group_tag(tag_index) == FORGE_AI_ACTOR_VARIANT_TAG ||
+		forge_ai_tags_faction_of(tag_index) != NONE;
+}
+
 /* the faction a character's tag is of (its actor variant's name), NONE */
 short forge_ai_tags_faction_of(
 	long tag_index)
@@ -2184,7 +2283,7 @@ short forge_ai_tags_faction_of(
 	{
 		for (root = 0; root < FORGE_AI_MAXIMUM_ROOTS && forge_ai_factions[faction].roots[root]; root++)
 		{
-			if (!_stricmp(name, forge_ai_factions[faction].roots[root]))
+			if (!_stricmp(name, root_path(forge_ai_factions[faction].roots[root])))
 				return faction;
 		}
 	}
