@@ -200,8 +200,8 @@ char const *forge_speed_name(
 placed at the start, its yaw: no team, pitch, roll or physics) */
 static short const forge_character_property_rows[] =
 {
-	_forge_property_ai_team, _forge_property_ai, _forge_property_respawn, _forge_property_place_at_start,
-	_forge_property_yaw,
+	_forge_property_ai_team, _forge_property_ai, _forge_property_ai_move, _forge_property_ai_route,
+	_forge_property_ai_vehicles, _forge_property_respawn, _forge_property_place_at_start, _forge_property_yaw,
 };
 
 short forge_property_count(
@@ -216,6 +216,9 @@ short forge_property_count(
 		return 4;
 	if (properties.character)
 		return (short)NUMBEROF(forge_character_property_rows);
+	/* (a vehicle's: its AI ROUTE after them: forge_ai_move.inc) */
+	if (properties.vehicle)
+		return _forge_property_physics + 2;
 	/* (an object's: every one but an AI character's own) */
 	return _forge_property_physics + 1;
 }
@@ -230,6 +233,8 @@ short forge_property_of_row(
 	{
 		return forge_character_property_rows[row];
 	}
+	if (row == _forge_property_physics + 1 && forge_properties_get(&properties) && properties.vehicle && !properties.spawn)
+		return _forge_property_ai_route;
 	return row;
 }
 
@@ -251,12 +256,18 @@ boolean forge_property_text(
 	{
 		boolean teleporter = properties.spawn_kind == _forge_spawn_teleporter_sender ||
 			properties.spawn_kind == _forge_spawn_teleporter_receiver;
-		boolean objective = properties.spawn_kind >= _forge_spawn_flag;
+		boolean objective = properties.spawn_kind >= _forge_spawn_flag && properties.spawn_kind <= FORGE_LAST_OBJECTIVE_KIND;
+		boolean ai_marker = properties.spawn_kind == _forge_spawn_ai_route || properties.spawn_kind == _forge_spawn_ai_area;
 
 		switch (row)
 		{
 		case _forge_property_team:
-			if (teleporter)
+			if (ai_marker)
+			{
+				snprintf(label, (size_t)label_size, "%s", "ROUTE");
+				snprintf(value, (size_t)value_size, "%d", properties.channel + 1);
+			}
+			else if (teleporter)
 			{
 				snprintf(label, (size_t)label_size, "%s", "CHANNEL");
 				snprintf(value, (size_t)value_size, "%d%s", properties.channel + 1, properties.linked ? "" : " (UNLINKED)");
@@ -273,6 +284,20 @@ boolean forge_property_text(
 			}
 			break;
 		case _forge_property_respawn:
+			if (properties.spawn_kind == _forge_spawn_ai_route)
+			{
+				snprintf(label, (size_t)label_size, "%s", "STOP");
+				snprintf(value, (size_t)value_size, "%s",
+					forge_ai_stop_names[PIN(properties.marker_option, 0, NUMBER_OF_FORGE_FILE_ROUTE_STOPS - 1)]);
+				break;
+			}
+			if (properties.spawn_kind == _forge_spawn_ai_area)
+			{
+				snprintf(label, (size_t)label_size, "%s", "SIZE");
+				snprintf(value, (size_t)value_size, "%.0f M", (double)(forge_ai_area_radii[PIN(properties.marker_option, 0,
+					FORGE_FILE_AI_AREA_SIZES - 1)] * FORGE_METRES_PER_WORLD_UNIT));
+				break;
+			}
 			snprintf(label, (size_t)label_size, "%s", "GAME TYPE");
 			snprintf(value, (size_t)value_size, "%s", teleporter || objective ? "-" : properties.game_type_name);
 			break;
@@ -300,6 +325,21 @@ boolean forge_property_text(
 	case _forge_property_ai:
 		snprintf(label, (size_t)label_size, "%s", "AI");
 		snprintf(value, (size_t)value_size, "%s", properties.ai_on ? "ON" : "OFF");
+		break;
+	case _forge_property_ai_move:
+		snprintf(label, (size_t)label_size, "%s", "BEHAVIOR");
+		snprintf(value, (size_t)value_size, "%s", forge_ai_behavior_names[PIN(properties.ai_move, 0, NUMBER_OF_FORGE_FILE_AI_BEHAVIORS - 1)]);
+		break;
+	case _forge_property_ai_route:
+		snprintf(label, (size_t)label_size, "%s", properties.vehicle ? "AI ROUTE" : "ROUTE");
+		if (properties.ai_route == NONE)
+			snprintf(value, (size_t)value_size, "%s", "NONE");
+		else
+			snprintf(value, (size_t)value_size, "%d", properties.ai_route + 1);
+		break;
+	case _forge_property_ai_vehicles:
+		snprintf(label, (size_t)label_size, "%s", "VEHICLES");
+		snprintf(value, (size_t)value_size, "%s", properties.ai_vehicles ? "ON" : "OFF");
 		break;
 	case _forge_property_respawn:
 		snprintf(label, (size_t)label_size, "%s", "RESPAWN");

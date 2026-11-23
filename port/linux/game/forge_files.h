@@ -14,7 +14,7 @@ layout of more is refused by those builds as having too many):
 
 	header  64 bytes
 	  magic        char[4]  "HFRG"
-	  version      u16      1 to 7 (below)
+	  version      u16      1 to 7, or 12 (below)
 	  header size  u16      64
 	  flags        u32      bit 0: a record is not a plain object (a spawn
 	                        point, a teleporter, a game type object); no
@@ -39,7 +39,8 @@ layout of more is refused by those builds as having too many):
 	  path index u16 (0xFFFF: none), kind u8, team i8, position f32[3]
 	  (world units), yaw pitch roll f32[3] (radians), respawn seconds u16,
 	  count u8, game types u16, variant u8, flags u8, AI team u8,
-	  reserved u8[12] (zero)
+	  AI behavior u8, AI route u8, AI options u8 (version 12, else
+	  zero), reserved u8[9] (zero)
 	meta    meta size bytes: title, author, description and date, each
 	        UTF-8 ended by a zero byte, in that order, nothing after them
 
@@ -48,8 +49,10 @@ control, light fixture, biped or AI character placed), 2 a player spawn
 point, 5 a game type object (a netgame flag: a CTF flag's spot, a hill
 point, an oddball spawn, a race checkpoint; its type in variant, its index
 in team), 7 a teleporter sender, 8 a teleporter receiver (their channel in
-team). Kinds 1, 3 and 4 (a squad, a weapon or vehicle spawn) are defined
-but placed by nothing; 6, 9 and any other kind are refused.
+team), 19 an AI route point and 20 an AI patrol area (version 12; their
+route in team, a point's stop or an area's size in variant). Kinds 1, 3
+and 4 (a squad, a weapon or vehicle spawn) are defined but placed by
+nothing; 6, 9 to 18 and any other kind are refused.
 
 Versions: each adds what a record may hold. A layout is written as the
 lowest version that holds it, so a layout without the newer things stays
@@ -64,9 +67,17 @@ that version (a file a writer would not make is refused).
 	6  game type objects: CTF flag, hill point, oddball spawn, race
 	   checkpoint
 	7  an object's physics: fixed (never moves) or phased (no collision)
-Versions 8 and later (game mode markers, boundaries, a lobby camera, a
-blank canvas) are refused with _forge_file_newer_version: this build reads
-versions 1 to 7.
+	12 AI movement: route points (a route's points in the records'
+	   order; each one's stop: none, a wait of 5 or 15 seconds, or a
+	   landing, where an AI pilot sets down and its riders get out),
+	   patrol areas (a size each), an AI character's behavior (hold,
+	   patrol or pursue), its route and whether it takes vehicles, and a
+	   vehicle's route (its AI pilot's, or its drivers')
+Versions 8 to 11 (game mode markers, boundaries, a lobby camera, a blank
+canvas: the Vita build's layouts) and 13 on are refused with
+_forge_file_newer_version: this build reads versions 1 to 7 and 12. Version
+12 skips 8 to 11 so that those numbers keep meaning what they mean in the
+Vita build's layouts.
 
 The validator (forge_file_decode), in order; a file is taken whole or not
 at all:
@@ -89,11 +100,15 @@ at all:
   in range, no flag the version or the kind does not have, the AI team and
   brain only on a character's record (version 2 on), its respawn only with
   a time (version 3 on), physics fixed or phased, never both, never a
-  character's (version 7); every float finite, positions within +-5000
-  world units, angles within +-pi, a marker's pitch and roll zero; the
-  reserved bytes zero;
+  character's (version 7); the AI behavior, route and options (version
+  12) on a character's record, a route alone on a vehicle's, the behavior
+  one of three, the route 0 (none) to 16, no unknown option; a route point
+  or patrol area (version 12) with no path, its route 0 to 15, its stop or
+  size in range, its yaw alone, nothing else; every float finite,
+  positions within +-5000 world units, angles within +-pi, a marker's
+  pitch and roll zero; the reserved bytes zero;
 - the layout: at most 32 teleporters, each sender's channel with a
-  receiver; at most 64 game type objects, a hill's points at most 12; the
+  receiver; at most 64 route points and 16 patrol areas; at most 64 game type objects, a hill's points at most 12; the
   flag bit 0 set exactly when a record is not a plain object; the version
   the lowest that holds it;
 - the meta: four texts, each valid UTF-8 (no overlong form, surrogate or
@@ -111,8 +126,12 @@ a record whose tag the map does not have is skipped, and the budget
 
 #define FORGE_FILE_EXTENSION ".hmv"
 /* the newest version written and read, and the oldest read */
-#define FORGE_FILE_VERSION 7
+#define FORGE_FILE_VERSION 12
 #define FORGE_FILE_FIRST_VERSION 1
+/* (the versions this build does not read below FORGE_FILE_VERSION: the
+Vita build's 8 to 11) */
+#define FORGE_FILE_FIRST_SKIPPED_VERSION 8
+#define FORGE_FILE_LAST_SKIPPED_VERSION 11
 #define FORGE_FILE_HEADER_SIZE 64
 #define FORGE_FILE_MAXIMUM_SIZE 65536
 #define FORGE_FILE_MAXIMUM_PATHS 256
@@ -124,7 +143,7 @@ a record whose tag the map does not have is skipped, and the budget
 #define FORGE_FILE_PACK_SIZE 32
 #define FORGE_FILE_PACK_NAME_SIZE 24
 #define FORGE_FILE_RECORD_SIZE 48
-#define FORGE_FILE_RECORD_RESERVED_SIZE 12
+#define FORGE_FILE_RECORD_RESERVED_SIZE 9
 /* the texts' room, each one's terminator included */
 #define FORGE_FILE_MAP_NAME_SIZE 32
 #define FORGE_FILE_TITLE_SIZE 32
@@ -171,6 +190,36 @@ MAXIMUM_HILL_POINTS) */
 #define FORGE_FILE_MAXIMUM_RACE_CHECKPOINTS 32
 #define FORGE_FILE_MAXIMUM_GAME_OBJECTS 64
 #define FORGE_FILE_MAXIMUM_HILL_POINTS 12
+/* (version 12) AI movement: a route's number (a record's team for a route
+point or patrol area; 1 more in a record's AI route, 0 none), the most
+route points and patrol areas in a layout, a route point's stops and a
+patrol area's sizes (variant), a character's behaviors and options */
+#define FORGE_FILE_MAXIMUM_ROUTES 16
+#define FORGE_FILE_MAXIMUM_ROUTE_POINTS 64
+#define FORGE_FILE_MAXIMUM_AI_AREAS 16
+enum
+{
+	FORGE_FILE_ROUTE_STOP_NONE = 0,
+	FORGE_FILE_ROUTE_STOP_WAIT_5,
+	FORGE_FILE_ROUTE_STOP_WAIT_15,
+	FORGE_FILE_ROUTE_STOP_LAND,
+	NUMBER_OF_FORGE_FILE_ROUTE_STOPS
+};
+/* (a patrol area's radius by its size: 3, 5, 8, 12, 20 world units) */
+#define FORGE_FILE_AI_AREA_SIZES 5
+enum
+{
+	FORGE_FILE_AI_HOLD = 0,
+	FORGE_FILE_AI_PATROL,
+	FORGE_FILE_AI_PURSUE,
+	NUMBER_OF_FORGE_FILE_AI_BEHAVIORS
+};
+enum
+{
+	/* the character boards a free vehicle near it and drives (or guns) */
+	FORGE_FILE_AI_OPTION_VEHICLES = 1 << 0,
+	FORGE_FILE_AI_OPTIONS_KNOWN = FORGE_FILE_AI_OPTION_VEHICLES,
+};
 /* a record's path index when its kind names no object */
 #define FORGE_FILE_NO_PATH 0xFFFF
 
@@ -240,7 +289,13 @@ enum
 	_forge_record_teleporter_out,
 	/* (never written: refused) */
 	_forge_record_kill_zone,
-	NUMBER_OF_FORGE_RECORD_KINDS
+	NUMBER_OF_FORGE_RECORD_KINDS,
+	/* (10 to 18: the Vita build's game mode markers, a boundary, the lobby
+	camera; refused here) */
+	/* (version 12) an AI route's point and a patrol area: team their route,
+	variant a point's stop (FORGE_FILE_ROUTE_STOP_*) or an area's size */
+	_forge_record_ai_route_point = 19,
+	_forge_record_ai_area = 20,
 };
 
 /* why a file was refused (forge_file_decode), in the order checked */
@@ -300,6 +355,12 @@ struct forge_file_record
 	unsigned char flags;
 	/* (version 2, a character's only: FORGE_AI_TEAM_*; else 0) */
 	unsigned char ai_team;
+	/* (version 12) a character's behavior (FORGE_FILE_AI_*) and options
+	(FORGE_FILE_AI_OPTION_*), a character's or a vehicle's route (1 to
+	FORGE_FILE_MAXIMUM_ROUTES; 0 none); else 0 */
+	unsigned char ai_behavior;
+	unsigned char ai_route;
+	unsigned char ai_options;
 };
 
 /* a layout, as read or to be written */
@@ -359,7 +420,7 @@ int forge_file_layout_check(
 	char const *expected_map);
 
 /* the version a layout is written as: its own when set, else the lowest
-that holds it (7 with an object's physics, 6 with a game type object, 5
+that holds it (12 with AI movement, 7 with an object's physics, 6 with a game type object, 5
 with a teleporter, 4 with a player spawn, 3 with a respawning character, 2
 when a record has an AI setting, else 1) */
 int forge_file_layout_version(
