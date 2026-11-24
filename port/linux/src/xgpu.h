@@ -295,6 +295,8 @@ as RGBA bytes with rows from the top; NULL for one it does not read (a cube,
 a volume, a palette's, larger than 1024 square) or without memory. The
 caller frees it */
 unsigned char *xgpu_texture_rgba(const DWORD *resource, unsigned long *width, unsigned long *height);
+unsigned char *xgpu_texture_rgba_palette(const DWORD *resource, const D3DCOLOR *palette, unsigned long *width,
+	unsigned long *height);
 
 /* MCC-owned immutable resources never enter the guest physical texture cache. */
 BOOL xgpu_mcc_texture_get(DWORD const *resource, D3DCOLOR const *palette,

@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 BirchWoodGod
+# SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Views for tools/modern_lighting_lab.py
+# map view x y z yaw pitch [hud]      (a debug camera)
+# map view rel dx dy dz yaw pitch     (a debug camera from the player's eye)
+# map view player [hud]               (the player's own view)
+# map @fast seconds                   (the opening cutscene at game_speed 10)
+bloodgulch player player hud
+bloodgulch warthog 96 -150 3 20 8
+bloodgulch blue_base 44 -86 3 -54 2
+bloodgulch base_closeup 55 -100 2.5 105 5
+bloodgulch overlook 60 -75 12 280 -25
+sidewinder player player hud
+sidewinder river -25.11 -27.64 -1.5 87 -8
+sidewinder base_warthog -25.11 -27.64 -1.5 177 -8
+sidewinder cliffs -20 -20 2 60 -15
+b30 @fast 25
+b30 player player hud
+b30 pelicans -55.44 32.92 5.41 135 -15
+b30 landing -61.44 38.92 2.41 180 -5
+a10 @fast 40
+a10 player player hud
+a10 bay -56.56 0.41 0.94 0 -5
+a10 cryo -56.56 0.41 0.94 90 -5
+a10 corridor -56.56 0.41 0.94 180 -5
+hangemhigh player player hud
+hangemhigh metal rel 0 0 0.3 179 -10
+hangemhigh hall rel 0 0 0.3 -91 -5
+a50 @fast 35
+a50 player player hud
+a50 ship rel 0 0 0.3 90 -5
+a50 ship_back rel 0 0 0.3 270 -5
+c10 @fast 35
+c10 player player hud
+c10 swamp rel 0 0 0.3 90 -5

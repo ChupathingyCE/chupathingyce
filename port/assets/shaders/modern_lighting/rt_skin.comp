@@ -1,0 +1,100 @@
+#version 460
+/*
+Display.ray_tracing's skinning
+(port/linux/src/posix_modern_lighting_rt.c), one thread a vertex: a model
+part's vertices, as the map keeps them, placed in the world by the object's
+node matrices, as the vertex shaders place them (the node matrices
+render_model gives the rasterizer: each node's matrix times its default
+inverse), into the positions its bottom-level structure is built from.
+
+The vertices (source/rasterizer/rasterizer_model_types.h):
+- kind 1, compressed (32 bytes): the position, three packed vectors, the
+  texture coordinate (two shorts), the two nodes (bytes, times 3) and the
+  first node's weight (a short, 32767 is 1), the second's 1 less it;
+- kind 2, uncompressed (68 bytes): the position, three vectors, the
+  texture coordinate, the two nodes (shorts) and their weights.
+With one node, every vertex is that node's (rasterizer_model_draw's rigid
+vertex shader).
+
+The matrices: 3 rows of 4 a node (world = rows * (x, y, z, 1)).
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
+*/
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+layout(local_size_x = 64) in;
+
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer Words { uint w[]; };
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer Matrices { vec4 rows[]; };
+layout(buffer_reference, std430, buffer_reference_align = 4) writeonly buffer Positions { float p[]; };
+
+layout(push_constant) uniform Skin
+{
+	uvec2 source;
+	uvec2 destination;
+	uvec2 matrices;
+	uint count;
+	uint kind;
+	uint nodes;
+	uint pad;
+} skin;
+
+vec3 place(Matrices m, uint node, vec3 p)
+{
+	vec4 v = vec4(p, 1.0);
+
+	return vec3(dot(m.rows[node * 3u + 0u], v), dot(m.rows[node * 3u + 1u], v), dot(m.rows[node * 3u + 2u], v));
+}
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+
+	if (index >= skin.count)
+		return;
+	Words source = Words(skin.source);
+	Matrices m = Matrices(skin.matrices);
+	Positions out_positions = Positions(skin.destination);
+	uint stride = skin.kind == 2u ? 17u : 8u;
+	uint base = index * stride;
+	vec3 p = vec3(uintBitsToFloat(source.w[base]), uintBitsToFloat(source.w[base + 1u]),
+		uintBitsToFloat(source.w[base + 2u]));
+	uint node0 = 0u, node1 = 0u;
+	float weight0 = 1.0;
+
+	if (skin.nodes > 1u)
+	{
+		if (skin.kind == 2u)
+		{
+			uint nodes = source.w[base + 14u];
+
+			node0 = uint(int(nodes << 16) >> 16);
+			node1 = uint(int(nodes) >> 16);
+			weight0 = uintBitsToFloat(source.w[base + 15u]);
+		}
+		else
+		{
+			uint packed = source.w[base + 7u];
+
+			node0 = (packed & 0xffu) / 3u;
+			node1 = ((packed >> 8) & 0xffu) / 3u;
+			weight0 = float(int(packed) >> 16) * (1.0 / 32767.0);
+		}
+		/* (a node past the model's: its root, as a bad index is drawn) */
+		if (node0 >= skin.nodes)
+			node0 = 0u;
+		if (node1 >= skin.nodes)
+			node1 = 0u;
+		weight0 = clamp(weight0, 0.0, 1.0);
+	}
+	vec3 world = place(m, node0, p) * weight0;
+
+	if (weight0 < 1.0)
+		world += place(m, node1, p) * (1.0 - weight0);
+	out_positions.p[index * 3u + 0u] = world.x;
+	out_positions.p[index * 3u + 1u] = world.y;
+	out_positions.p[index * 3u + 2u] = world.z;
+}

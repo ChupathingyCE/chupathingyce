@@ -1,0 +1,10 @@
+The Khronos Vulkan headers (https://github.com/KhronosGroup/Vulkan-Headers).
+
+Copyright 2015-2026 The Khronos Group Inc.
+
+SPDX-License-Identifier: Apache-2.0 OR MIT
+
+They are offered under either license; this project takes them under the
+Apache License, Version 2.0, whose full text is LICENSES/Apache-2.0.txt at
+the top of this repository (and in every download's THIRD-PARTY-NOTICES.txt).
+The MIT License's text is LICENSES/MIT.txt.
