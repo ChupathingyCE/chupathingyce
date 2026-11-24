@@ -53,7 +53,7 @@ the mouse looks:
 - X: the Forge menu (forge_menu.c): OBJECTS (the map's objects by
   category, the one chosen spawned in the monitor's hand), PROPERTIES (of
   what is held: it opens there), LAYOUTS (save, save as new, load, delete)
-  and OPTIONS (snap, speed, rotation snap, undo, redo, new round, Spartan,
+  and OPTIONS (snap, speed, rotation snap, grab range, undo, redo, new round, Spartan,
   the controls); what it asks is done here (forge_menu_link.inc);
 - B: a copy of the object held or under the crosshair, held;
 - White: the movement speed (slow, normal, fast); in rotate mode, its
@@ -196,6 +196,7 @@ void platform_log(const char *format, ...);
 int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch);
 /* port_config.c's */
 int config_boolean(char const *name);
+char const *config_string(char const *name);
 long hud_get_font_index(void);
 unsigned long system_milliseconds(void);
 /* ui_widget.c's: a menu, or a screen of code over them, takes the input */
@@ -243,6 +244,10 @@ enum
 #define FORGE_CAMERA_THRUST 4.f
 #define FORGE_CAMERA_LOOK_RATE 2.5f
 #define FORGE_PICK_RANGE 60.f
+/* (game.forge_grab_range) how far the crosshair takes an object or a
+marker: "near", "medium", or "far" (FORGE_PICK_RANGE, the default) */
+#define FORGE_GRAB_RANGE_NEAR 20.f
+#define FORGE_GRAB_RANGE_MEDIUM 35.f
 /* (forge_markers.inc) where the crosshair takes a marker: a sphere at just
 over its ring */
 #define FORGE_MARKER_PICK_RADIUS 0.45f
@@ -1708,6 +1713,21 @@ static boolean forge_object_is_players(
 		(unit_index != NONE && object_get_ultimate_parent(object_index) == unit_index);
 }
 
+/* how far the crosshair takes an object or a marker (game.forge_grab_range;
+anything but "near" or "medium" is "far", FORGE_PICK_RANGE). The
+structure still stops it nearer */
+static real forge_grab_range(
+	void)
+{
+	char const *range = config_string("game.forge_grab_range");
+
+	if (range && !strcmp(range, "near"))
+		return FORGE_GRAB_RANGE_NEAR;
+	if (range && !strcmp(range, "medium"))
+		return FORGE_GRAB_RANGE_MEDIUM;
+	return FORGE_PICK_RANGE;
+}
+
 /* how far along the camera's line the structure is (FORGE_PICK_RANGE if
 nothing is that near) */
 static real forge_structure_distance(
@@ -1744,7 +1764,8 @@ static long forge_object_under_crosshair_at(
 	real_vector3d forward;
 	real_vector3d vector;
 	struct collision_result collision;
-	real nearest = FORGE_PICK_RANGE;
+	real range = forge_grab_range();
+	real nearest = range;
 	long nearest_index = NONE;
 	long player_index = local_player_get_player_index(forge_globals.local_player_index);
 	long ignored = forge_globals.unit_index != NONE ? forge_globals.unit_index :
@@ -1754,9 +1775,9 @@ static long forge_object_under_crosshair_at(
 
 	if (!forge_camera_get(&position, &forward))
 		return NONE;
-	vector.i = forward.i * FORGE_PICK_RANGE;
-	vector.j = forward.j * FORGE_PICK_RANGE;
-	vector.k = forward.k * FORGE_PICK_RANGE;
+	vector.i = forward.i * range;
+	vector.j = forward.j * range;
+	vector.k = forward.k * range;
 	if (collision_test_vector(
 			FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit) |
 			FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_bipeds_bit) |
@@ -1773,7 +1794,7 @@ static long forge_object_under_crosshair_at(
 			ignored,
 			&collision))
 	{
-		nearest = collision.t * FORGE_PICK_RANGE;
+		nearest = collision.t * range;
 		if (collision.type == _collision_result_object && object_try_and_get(collision.object_index))
 		{
 			long hit = object_get_ultimate_parent(collision.object_index);
@@ -2543,8 +2564,8 @@ static void forge_hud_update(
 	/* (a marker held, or under the crosshair before what is behind it:
 	"Initial Spawn, Red") */
 	{
-		real object_distance = FORGE_PICK_RANGE;
-		real marker_distance = FORGE_PICK_RANGE;
+		real object_distance = forge_grab_range();
+		real marker_distance = forge_grab_range();
 		long marker = forge_globals.held_marker_id ? forge_globals.held_marker_id :
 			forge_globals.hud_label_held ? NONE : forge_marker_under_crosshair(&marker_distance);
 
@@ -4376,8 +4397,8 @@ void forge_update(
 			else
 			{
 				/* (the nearer of an object and a marker) */
-				real object_distance = FORGE_PICK_RANGE;
-				real marker_distance = FORGE_PICK_RANGE;
+				real object_distance = forge_grab_range();
+				real marker_distance = forge_grab_range();
 				long object_index = forge_object_under_crosshair_at(&object_distance);
 				long marker = forge_marker_under_crosshair(&marker_distance);
 
@@ -4397,8 +4418,8 @@ void forge_update(
 			}
 			else
 			{
-				real object_distance = FORGE_PICK_RANGE;
-				real marker_distance = FORGE_PICK_RANGE;
+				real object_distance = forge_grab_range();
+				real marker_distance = forge_grab_range();
 				long marker = NONE;
 
 				if (!object_try_and_get(forge_globals.held_object_index))

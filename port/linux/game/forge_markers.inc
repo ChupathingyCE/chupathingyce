@@ -346,7 +346,7 @@ static long forge_marker_under_crosshair(
 {
 	real_point3d position;
 	real_vector3d forward;
-	real nearest = FORGE_PICK_RANGE;
+	real nearest = forge_grab_range();
 	long nearest_id = NONE;
 	short index;
 

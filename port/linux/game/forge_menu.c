@@ -32,7 +32,7 @@ box, the prompts):
 - LAYOUTS: SAVE (under the layout's title), SAVE AS NEW, then the map's
   layouts: A loads one (pressed twice: what isn't saved is lost), Y
   deletes one (pressed twice);
-- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, UNDO, REDO, NEW ROUND, PLAY AS
+- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, GRAB RANGE, UNDO, REDO, NEW ROUND, PLAY AS
   SPARTAN, and CONTROLS, the monitor's buttons and keys.
 X or B closes it. What it asks of the session is done by forge.c before the
 next tick (forge_menu_ask); what it shows is read from forge.c each frame
@@ -65,6 +65,7 @@ monitor's camera stays.
 void platform_log(char const *format, ...);
 unsigned long system_milliseconds(void);
 char const *config_string(char const *name);
+int config_write(char const *name, char const *value);
 boolean main_menu_is_active(void);
 boolean cache_files_map_installed(char const *map_name);
 /* ui_widget.c's: the menus' sounds (its _ui_audio_feedback_*) */
@@ -146,6 +147,7 @@ enum
 	_option_snap = 0,
 	_option_speed,
 	_option_rotate_snap,
+	_option_grab_range,
 	_option_undo,
 	_option_redo,
 	_option_round,
@@ -191,7 +193,7 @@ static struct
 
 static char const *const option_labels[NUMBER_OF_OPTIONS] =
 {
-	"SNAP", "MOVE SPEED", "ROTATION SNAP", "UNDO", "REDO", "NEW ROUND", "PLAY AS SPARTAN", "CONTROLS",
+	"SNAP", "MOVE SPEED", "ROTATION SNAP", "GRAB RANGE", "UNDO", "REDO", "NEW ROUND", "PLAY AS SPARTAN", "CONTROLS",
 };
 
 
@@ -645,6 +647,24 @@ static void game_tab_go(short tab)
 		entries_read(forge_menu.view.map_index);
 }
 
+/* OPTIONS' GRAB RANGE: game.forge_grab_range's values, in the row's
+order, and the row's words for them */
+static char const *const grab_ranges[] = { "near", "medium", "far" };
+static char const *const grab_range_names[] = { "NEAR", "MEDIUM", "FAR" };
+
+static short grab_range(void)
+{
+	char const *range = config_string("game.forge_grab_range");
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(grab_ranges); index++)
+	{
+		if (range && !strcmp(range, grab_ranges[index]))
+			return index;
+	}
+	return (short)NUMBEROF(grab_ranges) - 1;
+}
+
 static void game_option_step(short row, short step)
 {
 	switch (row)
@@ -658,6 +678,13 @@ static void game_option_step(short row, short step)
 	case _option_rotate_snap:
 		forge_menu_ask(_forge_menu_ask_rotate_snap, step, 0, NULL);
 		break;
+	case _option_grab_range:
+	{
+		short count = (short)NUMBEROF(grab_ranges);
+
+		config_write("game.forge_grab_range", grab_ranges[(grab_range() + count + (step < 0 ? -1 : 1)) % count]);
+		break;
+	}
 	default:
 		return;
 	}
@@ -671,6 +698,7 @@ static void game_option_choose(short row)
 	case _option_snap:
 	case _option_speed:
 	case _option_rotate_snap:
+	case _option_grab_range:
 		game_option_step(row, 1);
 		return;
 	case _option_undo:
@@ -1341,6 +1369,9 @@ static void option_row_text(short row, char *label, int label_size, char *value,
 		break;
 	case _option_rotate_snap:
 		snprintf(value, (size_t)value_size, "%s", view->rotate_snap);
+		break;
+	case _option_grab_range:
+		snprintf(value, (size_t)value_size, "%s", grab_range_names[grab_range()]);
 		break;
 	case _option_undo:
 		snprintf(label, (size_t)label_size, "UNDO (%d)", view->undo);

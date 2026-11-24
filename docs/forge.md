@@ -61,7 +61,7 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
 
   ![LAYOUTS](screenshots/forge-layouts.jpg)
 
-- OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), PLAY AS SPARTAN and CONTROLS.
+- OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, GRAB RANGE (how far the crosshair reaches to grab, copy or delete: NEAR about 60 m, MEDIUM about 105 m, FAR about 180 m, the default; `game.forge_grab_range`), UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), PLAY AS SPARTAN and CONTROLS.
 
   ![OPTIONS](screenshots/forge-options.jpg)
 
