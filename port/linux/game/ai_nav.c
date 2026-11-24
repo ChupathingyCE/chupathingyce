@@ -1648,6 +1648,9 @@ static boolean ai_nav_paths_copy(void)
 	if (ai_nav_paths.walkable)
 		return TRUE;
 	count = structure->pathfinding_surfaces.count;
+	/* (the game's malloc, cseries.h's debug_malloc: system_malloc, the
+	Xbox heap (xbox_heap.c), so in the 64-bit builds the copies are inside
+	the Xbox window that xbox_address below needs) */
 	ai_nav_paths.walkable = (byte *)malloc((size_t)count);
 	ai_nav_paths.vehicle_walkable = (byte *)malloc((size_t)count);
 	if (!ai_nav_paths.walkable || !ai_nav_paths.vehicle_walkable)
