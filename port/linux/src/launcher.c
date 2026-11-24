@@ -4215,7 +4215,7 @@ void launcher_at_start(void)
 		if ((always || asked || asks) && !launcher_opens_by_itself())
 		{
 			platform_log("launcher: under gamescope, not opened by itself (%s): playing %s; hold Back as it "
-				"starts, or SETUP in the menus, for the setup screen",
+				"starts, or ADVANCED SETUP in the menus, for the setup screen",
 				always ? "launcher.show_at_start is always" : asked ? "the mode question" : "ask each time",
 				launcher.mode >= 0 && launcher.mode < launcher.mode_count ? launcher.modes[launcher.mode].id :
 				"vanilla");

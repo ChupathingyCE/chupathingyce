@@ -1,0 +1,67 @@
+diff --git a/src/bgfx.cpp b/src/bgfx.cpp
+--- a/src/bgfx.cpp
++++ b/src/bgfx.cpp
+@@ -45,6 +45,13 @@ char bgfx_gpu_name[256];
+ extern "C" int bgfx_vk_gpu_timer;
+ int bgfx_vk_gpu_timer;
+ 
++// Whether, with vsync, a frame that missed the display is shown at once:
++// Vulkan's FIFO_RELAXED where the surface has it (renderer_vk.cpp). Set by
++// the application before bgfx::init and before a reset that makes the
++// swapchain again (it declares the same variable).
++extern "C" int bgfx_vsync_relaxed;
++int bgfx_vsync_relaxed = 0;
++
+ namespace bgfx
+ {
+ #define BGFX_API_THREAD_MAGIC UINT32_C(0x78666762)
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -142,6 +142,9 @@ namespace bgfx { namespace vk
+ 		const char*      name;
+ 	};
+ 
++	// (the game's, tools/bgfx-patches/0007: set before a swapchain is made)
++	extern "C" int bgfx_vsync_relaxed;
++
+ 	static const PresentMode s_presentMode[] =
+ 	{
+ 		{ VK_PRESENT_MODE_FIFO_KHR,         true,  "VK_PRESENT_MODE_FIFO_KHR"         },
+@@ -10346,16 +10349,30 @@ VK_DESTROY
+ 
+ 		uint32_t idx = UINT32_MAX;
+ 
+-		for (uint32_t ii = 0; ii < BX_COUNTOF(s_presentMode) && UINT32_MAX == idx; ++ii)
++		// the modes to look for, best first (indices into s_presentMode):
++		// with vsync FIFO, or with bgfx_vsync_relaxed FIFO_RELAXED before it
++		// (a frame that missed the display shown at once, with a tear, as
++		// OpenGL's late swap tearing); without vsync IMMEDIATE, then MAILBOX,
++		// which waits for no display either, rather than FIFO's fallback
++		static const uint32_t s_withVsync[]        = { 0 };
++		static const uint32_t s_withVsyncRelaxed[] = { 1, 0 };
++		static const uint32_t s_withoutVsync[]     = { 3, 2 };
++		const uint32_t* order = _vsync
++			? (bgfx_vsync_relaxed ? s_withVsyncRelaxed : s_withVsync)
++			: s_withoutVsync
++			;
++		const uint32_t numOrder = _vsync
++			? (bgfx_vsync_relaxed ? BX_COUNTOF(s_withVsyncRelaxed) : BX_COUNTOF(s_withVsync) )
++			: BX_COUNTOF(s_withoutVsync)
++			;
++
++		for (uint32_t ii = 0; ii < numOrder && UINT32_MAX == idx; ++ii)
+ 		{
+ 			for (uint32_t jj = 0; jj < numPresentModes; ++jj)
+ 			{
+-				const PresentMode& pm = s_presentMode[ii];
+-
+-				if (pm.mode  == presentModes[jj]
+-				&&  pm.vsync == _vsync)
++				if (s_presentMode[order[ii] ].mode == presentModes[jj])
+ 				{
+-					idx = ii;
++					idx = order[ii];
+ 					break;
+ 				}
+ 			}

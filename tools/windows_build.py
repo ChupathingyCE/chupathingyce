@@ -528,8 +528,8 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     # at the first failed assertion; a release build does not, so that an
     # overrun nobody has met cannot end a game)
     # the ragdolls' Jolt Physics (linux_build.py, JOLT_DIR): the game's, not
-    # the dedicated server's
-    use_jolt = not target.server
+    # the dedicated server's, unless configure.py --without-ragdolls
+    use_jolt = not target.server and getattr(sln, "with_ragdolls", True)
     abi = " ".join(target.abi_flags + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False)
                                                            else ["-fstack-protector-strong"])
                    + game_browser_defines(sln) + (["-DHALO_JOLT"] if use_jolt else []))

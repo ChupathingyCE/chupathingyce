@@ -29,7 +29,7 @@ instance is 1.0-level and the extension stands in for it */
 	X(vkCreateAndroidSurfaceKHR) X(vkDestroySurfaceKHR) X(vkCreateDevice) \
 	X(vkGetPhysicalDeviceMemoryProperties) X(vkGetPhysicalDeviceFormatProperties) \
 	X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) \
-	X(vkGetPhysicalDeviceSurfaceFormatsKHR)
+	X(vkGetPhysicalDeviceSurfaceFormatsKHR) X(vkGetPhysicalDeviceSurfacePresentModesKHR)
 
 /* what the startup keeps: nothing in it is made twice (phase 2 adds the device) */
 struct host_vk
@@ -141,6 +141,9 @@ struct host_vk_swapchain
 	VkImage images[HOST_VK_SWAPCHAIN_IMAGES];
 	VkSemaphore render_done[HOST_VK_SWAPCHAIN_IMAGES];
 	VkImageView views[HOST_VK_SWAPCHAIN_IMAGES]; /* only with debug.vk_present_marker */
+	/* host_vk_present_mode when it was made, and the mode that gave */
+	int wanted_mode;
+	VkPresentModeKHR present_mode;
 };
 
 struct host_vk_backend
