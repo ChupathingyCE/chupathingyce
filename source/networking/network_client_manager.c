@@ -812,6 +812,16 @@ ask go at once, so that a quick join again is not taken for a repeat. */
 static unsigned long network_game_client_add_player_request_times[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 static boolean network_game_client_add_player_requested[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 
+/* port: since when this machine has been listening to its host in a game
+without a break (network_game_client_listened_milliseconds) */
+static struct
+{
+	boolean listening;
+	boolean stalled;
+	unsigned long since;
+	unsigned long last_frame;
+} network_game_client_listening;
+
 /* since when the network has been down in a game (while
 network_game_client_link_down is set): network_game_client_network_lost */
 static unsigned long network_game_client_link_down_time;
@@ -1930,6 +1940,7 @@ boolean network_game_client_game_has_started(
 					client->state = _network_game_client_state_ingame;
 					client->next_update_number = 0;
 					client->connection_silent = FALSE;
+					network_game_client_listening.listening = FALSE;
 
 					ui_widgets_close_all();
 					game_time_start();
@@ -3448,6 +3459,33 @@ static boolean network_game_client_idle_pregame(
 	return success;
 }
 
+/* port: a frame of this machine's own this long (a level or BSP loading,
+a hitch) is not listening to its host (network_game_client_listened_milliseconds) */
+#define NETWORK_GAME_CLIENT_STALL_MILLISECONDS 500
+
+/* port: (each frame in a game) how long this machine has been listening to
+its host without a break: since its first frame in the game, or its first
+after a frame of its own that took longer than
+NETWORK_GAME_CLIENT_STALL_MILLISECONDS. What the host sent during such a
+frame waits to be read, so the host's silence counts toward the network
+trouble box only from then (network_game_client_idle_ingame), as the ping
+meter counts it (latency_meter.c). Only the first such frame in a row starts
+it over, so a machine slow all the time still sees a host gone quiet */
+static unsigned long network_game_client_listened_milliseconds(
+	void)
+{
+	unsigned long now = system_milliseconds();
+	boolean stalled = network_game_client_listening.listening &&
+		now - network_game_client_listening.last_frame > NETWORK_GAME_CLIENT_STALL_MILLISECONDS;
+
+	if (!network_game_client_listening.listening || (stalled && !network_game_client_listening.stalled))
+		network_game_client_listening.since = now;
+	network_game_client_listening.stalled = stalled;
+	network_game_client_listening.listening = TRUE;
+	network_game_client_listening.last_frame = now;
+	return now - network_game_client_listening.since;
+}
+
 static boolean network_game_client_idle_ingame(
 	struct network_game_client *client)
 {
@@ -3467,7 +3505,11 @@ static boolean network_game_client_idle_ingame(
 	}
 	else if (!network_game_is_splitscreen_local())
 	{
-		boolean connection_stale = network_connection_going_stale(client->connection);
+		/* (port: and silent all the while this machine has listened, timed
+		every frame: network_game_client_listened_milliseconds) */
+		unsigned long listened = network_game_client_listened_milliseconds();
+		boolean connection_stale = network_connection_going_stale(client->connection) &&
+			listened > MILLISECONDS_PER_SECOND * 5;
 
 		/* (port: not at once, network_game_client_network_lost) */
 		if (network_game_client_network_lost())
