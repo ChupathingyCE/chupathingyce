@@ -5009,6 +5009,27 @@ static long game_engine_vehicle_home_current(
 	return object_index;
 }
 
+#ifndef HALO_CONSOLE_NO_FORGE
+/* port: Forge (port/linux/game/forge_map_objects.inc): the editor took the
+map's vehicle out of the map's own - deleted it, or made it one of the
+layout's -: its home goes, so that it is not put back on its pad */
+void game_engine_vehicle_home_forget(
+	long object_index)
+{
+	short index;
+
+	for (index = 0; index < game_engine_vehicle_home_count; index++)
+	{
+		if (game_engine_vehicle_homes[index].object_index != object_index)
+			continue;
+		csmemmove(&game_engine_vehicle_homes[index], &game_engine_vehicle_homes[index + 1],
+			sizeof(game_engine_vehicle_homes[0]) * (size_t)(game_engine_vehicle_home_count - index - 1));
+		game_engine_vehicle_home_count--;
+		return;
+	}
+}
+#endif
+
 static void game_engine_update_vehicle_respawn(
 	void)
 {
@@ -9762,7 +9783,13 @@ static void game_engine_update_item_spawn(
 				respawn_period = respawn_time * TICKS_PER_SECOND;
 			}
 
-			if (game_time_get() % respawn_period == 0)
+			if (game_time_get() % respawn_period == 0
+#ifndef HALO_CONSOLE_NO_FORGE
+				/* port: an item spawn a Forge layout takes away
+				(port/linux/game/forge_map_objects.inc) makes nothing */
+				&& !(forge_map_objects_active && forge_map_item_spawn_skipped(equipment_index))
+#endif
+				)
 			{
 				long definition_index =
 					random_item(equipment->item_collection.index);
@@ -9802,6 +9829,10 @@ static void game_engine_update_item_spawn(
 					}
 					item->item.last_owned_time +=
 						respawn_period - 30 * TICKS_PER_SECOND;
+#ifndef HALO_CONSOLE_NO_FORGE
+					if (forge_map_objects_active)
+						forge_map_item_spawn_made(equipment_index, object_index);
+#endif
 				}
 			}
 		}

@@ -4,7 +4,8 @@ FORGE_FILES_TEST.C
 Tests of Forge's layout files (port/linux/game/forge_files.c) and their
 folder (port/linux/src/forge_store.c): the writer and the lowest version
 that holds a layout, a round trip of every record kind, the validator
-refusing each kind of damaged or hostile file with its own result, a
+refusing each kind of damaged or hostile file with its own result, the
+map's own objects a layout takes away (version 11), a
 deterministic fuzz of the validator (truncations and flipped bytes, half
 of them with the checksum made right again so the checks past it are
 reached), and the store's saves, lists, loads and names. Built and run by
@@ -157,6 +158,18 @@ static struct forge_file_record *add_marker(struct forge_file_layout *layout, in
 	return record;
 }
 
+/* a placement of the map's taken away (or kept, of a category taken away
+whole) */
+static void add_canvas(struct forge_file_layout *layout, int category, int kept, int index)
+{
+	struct forge_file_canvas_entry *entry = &layout->canvas.entries[layout->canvas.entry_count++];
+
+	layout->flags |= FORGE_FILE_FLAG_CANVAS;
+	entry->category = (unsigned char)category;
+	entry->kept = (unsigned char)kept;
+	entry->index = (unsigned short)index;
+}
+
 /* Blood Gulch: a Warthog, two boulders, a rocket launcher, an overshield
 (version 1) */
 static void sample_layout(struct forge_file_layout *layout)
@@ -179,7 +192,7 @@ static void sample_layout(struct forge_file_layout *layout)
 	snprintf(layout->date, sizeof(layout->date), "2026-01-02 12:00");
 }
 
-/* every record kind and setting versions 1 to 7 hold */
+/* every record kind and setting versions 1 to 7 and 11 hold */
 static void full_layout(struct forge_file_layout *layout)
 {
 	struct forge_file_record *record;
@@ -213,6 +226,11 @@ static void full_layout(struct forge_file_layout *layout)
 	add_marker(layout, _forge_record_flag, 2, FORGE_FILE_FLAG_TYPE_HILL);
 	add_marker(layout, _forge_record_flag, 0, FORGE_FILE_FLAG_TYPE_ODDBALL);
 	add_marker(layout, _forge_record_flag, 31, FORGE_FILE_FLAG_TYPE_RACE);
+	/* (the map's own objects: two Warthogs, a boulder, an item spawn) */
+	add_canvas(layout, _forge_canvas_scenery, 0, 7);
+	add_canvas(layout, _forge_canvas_vehicles, 0, 0);
+	add_canvas(layout, _forge_canvas_vehicles, 0, 1);
+	add_canvas(layout, _forge_canvas_items, 0, FORGE_FILE_CANVAS_MAXIMUM_INDEX);
 }
 
 static int encode(struct forge_file_layout const *layout, unsigned char *bytes)
@@ -265,6 +283,17 @@ static int layouts_equal(struct forge_file_layout const *a, struct forge_file_la
 			memcmp(x->position, y->position, sizeof(x->position)) || memcmp(x->angles, y->angles, sizeof(x->angles)) ||
 			x->respawn_seconds != y->respawn_seconds || x->count != y->count || x->game_types != y->game_types ||
 			x->variant != y->variant || x->flags != y->flags || x->ai_team != y->ai_team)
+		{
+			return 0;
+		}
+	}
+	if (a->canvas.categories != b->canvas.categories || a->canvas.entry_count != b->canvas.entry_count)
+		return 0;
+	for (index = 0; index < a->canvas.entry_count; index++)
+	{
+		if (a->canvas.entries[index].category != b->canvas.entries[index].category ||
+			a->canvas.entries[index].kept != b->canvas.entries[index].kept ||
+			a->canvas.entries[index].index != b->canvas.entries[index].index)
 		{
 			return 0;
 		}
@@ -326,12 +355,23 @@ static void test_versions(void)
 	size = encode(&layout_a, work);
 	CHECK(size > 0 && work[AT_VERSION] == 7);
 	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok && layout_b.version == 7);
+	add_canvas(&layout_a, _forge_canvas_vehicles, 0, 3);
+	CHECK(forge_file_layout_version(&layout_a) == 11);
+	size = encode(&layout_a, work);
+	CHECK(size > 0 && work[AT_VERSION] == 11);
+	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok && layout_b.version == 11);
+	/* (the map's own objects alone: version 11 too) */
+	sample_layout(&layout_a);
+	add_canvas(&layout_a, _forge_canvas_weapons, 0, 2);
+	CHECK(forge_file_layout_version(&layout_a) == 11);
 
 	/* (a version that holds nothing of its own is not one a writer made) */
 	sample_layout(&layout_a);
 	layout_a.version = 4;
 	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
 	layout_a.version = 8;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
+	layout_a.version = 11;
 	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
 	layout_a.version = 0;
 	/* (the writer refuses what the reader would) */
@@ -355,7 +395,7 @@ static void test_round_trip(void)
 	static unsigned char second[FORGE_FILE_MAXIMUM_SIZE];
 
 	full_layout(&layout_a);
-	CHECK(forge_file_layout_version(&layout_a) == 7);
+	CHECK(forge_file_layout_version(&layout_a) == 11);
 	size = encode(&layout_a, work);
 	CHECK(size > FORGE_FILE_HEADER_SIZE);
 	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok);
@@ -402,8 +442,15 @@ static void test_refused(void)
 	put16(work, AT_VERSION, 8);
 	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
 	fresh();
-	put16(work, AT_VERSION, 11);
+	put16(work, AT_VERSION, 10);
 	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
+	fresh();
+	put16(work, AT_VERSION, 12);
+	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
+	/* (version 11 with nothing of its own) */
+	fresh();
+	put16(work, AT_VERSION, 11);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_version);
 	fresh();
 	put16(work, AT_VERSION, 0xFFFF);
 	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
@@ -411,7 +458,10 @@ static void test_refused(void)
 	put16(work, AT_HEADER_SIZE, 63);
 	CHECK(damaged(good_size, 1) == _forge_file_bad_header_size);
 	fresh();
-	put32(work, AT_FLAGS, 1u << 2);
+	put32(work, AT_FLAGS, 1u << 1);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_flags);
+	fresh();
+	put32(work, AT_FLAGS, 1u << 3);
 	CHECK(damaged(good_size, 1) == _forge_file_bad_flags);
 	/* (the netgame flag without a marker) */
 	fresh();
@@ -669,6 +719,115 @@ static void test_refused(void)
 	CHECK(damaged(good_size, 1) == _forge_file_bad_magic && layout_c.record_count == 0 && !layout_c.title[0]);
 }
 
+/* ---------- the map's own objects (version 11) */
+
+static void test_canvas(void)
+{
+	static unsigned char file[FORGE_FILE_MAXIMUM_SIZE];
+	int size;
+	int block;
+	int index;
+
+	/* (a round trip, and the most entries) */
+	sample_layout(&layout_a);
+	for (index = 0; index < FORGE_FILE_MAXIMUM_CANVAS_ENTRIES; index++)
+		add_canvas(&layout_a, index / 200, 0, index % 200);
+	size = encode(&layout_a, file);
+	CHECK(size > 0 && decode(file, size, "bloodgulch", &layout_b) == _forge_file_ok && layouts_equal(&layout_a, &layout_b));
+	CHECK(layout_b.canvas.entry_count == FORGE_FILE_MAXIMUM_CANVAS_ENTRIES);
+	layout_a.canvas.entry_count = FORGE_FILE_MAXIMUM_CANVAS_ENTRIES + 1;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_record);
+	/* (a category taken away whole, with one kept) */
+	sample_layout(&layout_a);
+	layout_a.canvas.categories = 1 << _forge_canvas_scenery;
+	add_canvas(&layout_a, _forge_canvas_scenery, 1, 4);
+	add_canvas(&layout_a, _forge_canvas_vehicles, 0, 0);
+	size = encode(&layout_a, file);
+	CHECK(size > 0 && decode(file, size, "bloodgulch", &layout_b) == _forge_file_ok && layouts_equal(&layout_a, &layout_b));
+	/* (a whole category alone, no entry) */
+	sample_layout(&layout_a);
+	layout_a.flags |= FORGE_FILE_FLAG_CANVAS;
+	layout_a.canvas.categories = 1 << _forge_canvas_items;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_ok);
+
+	/* (what the validator refuses) */
+	sample_layout(&layout_a);
+	layout_a.flags |= FORGE_FILE_FLAG_CANVAS;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_record);
+	sample_layout(&layout_a);
+	add_canvas(&layout_a, _forge_canvas_vehicles, 0, 2);
+	add_canvas(&layout_a, _forge_canvas_vehicles, 0, 2);
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_record);
+	sample_layout(&layout_a);
+	add_canvas(&layout_a, _forge_canvas_vehicles, 0, 2);
+	add_canvas(&layout_a, _forge_canvas_scenery, 0, 9);
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_record);
+	sample_layout(&layout_a);
+	add_canvas(&layout_a, NUMBER_OF_FORGE_CANVAS_CATEGORIES, 0, 0);
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_record);
+	sample_layout(&layout_a);
+	add_canvas(&layout_a, _forge_canvas_vehicles, 0, FORGE_FILE_CANVAS_MAXIMUM_INDEX + 1);
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_record);
+	sample_layout(&layout_a);
+	add_canvas(&layout_a, _forge_canvas_vehicles, 1, 0);
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_record);
+	sample_layout(&layout_a);
+	layout_a.canvas.categories = 1 << NUMBER_OF_FORGE_CANVAS_CATEGORIES;
+	add_canvas(&layout_a, _forge_canvas_vehicles, 0, 0);
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_record);
+	/* (entries without the flag, the flag in an older version) */
+	sample_layout(&layout_a);
+	add_canvas(&layout_a, _forge_canvas_vehicles, 0, 0);
+	layout_a.flags &= ~(unsigned int)FORGE_FILE_FLAG_CANVAS;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_record);
+	sample_layout(&layout_a);
+	add_canvas(&layout_a, _forge_canvas_vehicles, 0, 0);
+	layout_a.version = 7;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_flags);
+
+	/* (damaged files: the block's header, its count past the bytes) */
+	sample_layout(&layout_a);
+	add_canvas(&layout_a, _forge_canvas_vehicles, 0, 0);
+	add_canvas(&layout_a, _forge_canvas_vehicles, 0, 1);
+	size = encode(&layout_a, file);
+	CHECK(size > 0);
+	block = record_at(&layout_a, layout_a.record_count);
+	memcpy(work, file, (size_t)size);
+	work[block] = 2;
+	CHECK(damaged(size, 1) == _forge_file_bad_record);
+	memcpy(work, file, (size_t)size);
+	work[block + 1] = 1;
+	CHECK(damaged(size, 1) == _forge_file_bad_record);
+	memcpy(work, file, (size_t)size);
+	work[block + 6] = 1;
+	CHECK(damaged(size, 1) == _forge_file_bad_record);
+	memcpy(work, file, (size_t)size);
+	put16(work, block + 4, FORGE_FILE_MAXIMUM_CANVAS_ENTRIES + 1);
+	CHECK(damaged(size, 1) == _forge_file_bad_record);
+	memcpy(work, file, (size_t)size);
+	put16(work, block + 4, 0x7FFF);
+	CHECK(damaged(size, 1) == _forge_file_bad_record);
+	memcpy(work, file, (size_t)size);
+	put16(work, block + 4, 900);
+	CHECK(damaged(size, 1) == _forge_file_bad_payload_size);
+	/* (the entries swapped: not ascending) */
+	memcpy(work, file, (size_t)size);
+	put16(work, block + FORGE_FILE_CANVAS_HEADER_SIZE + 2, 1);
+	put16(work, block + FORGE_FILE_CANVAS_HEADER_SIZE + FORGE_FILE_CANVAS_ENTRY_SIZE + 2, 0);
+	CHECK(damaged(size, 1) == _forge_file_bad_record);
+	/* (cut short inside the block) */
+	memcpy(work, file, (size_t)size);
+	put32(work, AT_PAYLOAD, (unsigned int)(block + 3 - FORGE_FILE_HEADER_SIZE));
+	CHECK(damaged(block + 3, 1) == _forge_file_bad_payload_size);
+	/* (the flag set on a file with no block: its meta read as one) */
+	sample_layout(&layout_a);
+	size = encode(&layout_a, file);
+	memcpy(work, file, (size_t)size);
+	put32(work, AT_FLAGS, FORGE_FILE_FLAG_CANVAS);
+	put16(work, AT_VERSION, 11);
+	CHECK(damaged(size, 1) != _forge_file_ok);
+}
+
 /* ---------- the fuzz */
 
 static void test_fuzz(int iterations)
@@ -807,6 +966,7 @@ int main(int argc, char **argv)
 	test_versions();
 	test_round_trip();
 	test_refused();
+	test_canvas();
 	test_store();
 	test_fuzz(iterations);
 	printf("%d checks, %d failed\n", checks, failures);
