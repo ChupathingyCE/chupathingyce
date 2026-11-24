@@ -2180,6 +2180,17 @@ static void main_change_map_name(
 
 	if (main_globals.frame_start_milliseconds >= main_globals.map_change_load_timer)
 	{
+		/* port: a movie still playing is stopped before the map under it is
+		let go, without going back to the main menu (the map being loaded is
+		where the player goes). The menus stop the attract movie with any
+		button, but a map_name typed at the console during it changed the map
+		under the movie: the map was unloaded while the movie played
+		(scenario_unload's assert), and the next map's load found the texture
+		cache's memory still the movie's. A map that has to be copied into the
+		cache first stopped it already (game_precache_new_map); one that was
+		there, or an MCC map, did not (#1284) */
+		if (bink_playback_stop_for_texture_cache())
+			error(_error_silent, "map change: stopped the movie that was playing");
 		/* port: the map copied into the cache before anything of this game
 		is left, as the main menu's map is (main_load_ui_scenario): a map
 		whose copy fails (its file cut short or damaged) is refused and the

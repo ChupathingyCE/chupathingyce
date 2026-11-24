@@ -122,6 +122,9 @@ use_steamcmd, steamcmd does the downloads (macOS: Steam.app subscribes to
 MCC items but never downloads them; Linux without MCC from Steam) */
 void steam_bridge_open(int use_steamcmd);
 /* the tab closed: the worker told to stop (it shuts Steam down) */
+/* the bridge's session ended and begun again (a sign-in it waited on made
+since: the game's own download, linked, connects only as it opens) */
+void steam_bridge_restart(int use_steamcmd);
 void steam_bridge_close(void);
 /* STEAM_BRIDGE_*: READY when either backend is; FAILED once a connect has
 taken too long or neither connected */

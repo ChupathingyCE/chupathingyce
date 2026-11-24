@@ -582,6 +582,20 @@ enum
 	MAP_VERSION_COMPRESSED = 0x861A0000,
 };
 
+/* where Halo MCC's maps go, said when they are in another family's folder:
+maps_mcc, in a build that plays them (HALO_MCC: docs/mcc_maps.md). A player
+who copies MCC's halo1/maps into maps is told so, not that the disc's maps
+are damaged */
+#if HALO_MCC
+#define MCC_MAP_STATE "MCC map: goes in maps_mcc"
+#define MCC_FILES_PICKED "Those are Halo MCC maps. They go in maps_mcc. Chupathingy needs the Xbox maps here."
+#define MCC_FILES_STATUS "Your maps folder has Halo MCC maps. They go in maps_mcc. Chupathingy needs the Xbox maps there."
+#else
+#define MCC_MAP_STATE "MCC map, not played here"
+#define MCC_FILES_PICKED "Those are Halo MCC maps. Chupathingy needs the Xbox maps."
+#define MCC_FILES_STATUS "Your maps folder has Halo MCC maps. Chupathingy needs the Xbox maps there."
+#endif
+
 /* a map file's cache version by its header (a compressed map's as its own);
 0 when it is not a cache file */
 static long map_version(const char *path)
@@ -873,7 +887,11 @@ static void family_scan(struct family *family, int list)
 		{
 			family->unsupported++;
 			if (list)
-				map_entry_add(name, "MCC map, not yet", COLOR_GREY);
+			{
+				map_entry_add(name, MCC_MAP_STATE, COLOR_AMBER);
+				platform_log("maps: %s/%s is a Halo MCC map (header version %ld): %s", family->folder, name,
+					version, MCC_MAP_STATE);
+			}
 		}
 		else
 		{
@@ -1028,7 +1046,12 @@ static void family_state(const struct family *family, char *text, size_t size, u
 			snprintf(text, size, "Halo PC maps, not Xbox");
 			*color = COLOR_AMBER;
 		}
-		else if (family->good || family->broken || family->stray)
+		else if (family->ui_version == MAP_VERSION_MCC)
+		{
+			snprintf(text, size, "Halo MCC maps, not Xbox");
+			*color = COLOR_AMBER;
+		}
+		else if (family->good || family->broken || family->stray || family->unsupported)
 		{
 			snprintf(text, size, "No ui.map");
 			*color = COLOR_AMBER;
@@ -2735,6 +2758,7 @@ static void folder_picked(const char *picked)
 	{
 		message("NOT THE XBOX MAPS", COLOR_WHITE, version == MAP_VERSION_HALO_PC ||
 			version == MAP_VERSION_CUSTOM_EDITION ? "Those are Halo PC maps. Chupathingy needs the Xbox maps." :
+			version == MAP_VERSION_MCC ? MCC_FILES_PICKED :
 			"That ui.map isn't one we can read. Pick the folder with your Xbox maps.");
 		return;
 	}
@@ -2943,10 +2967,30 @@ static int restart_with(const char *mode)
 	return 1;
 }
 
+static void command_line(int *setup, int *play, char *mode, size_t mode_size, int *joining);
+
 int launcher_restart_to_setup(void)
 {
 	char path[PATH_SIZE];
+	char mode[64];
+	int setup, play, joining;
 
+	/* (a run nobody watches never shows the setup screen, launcher_at_start:
+	the copy started with --setup would come back to the menus, where the
+	same scripted input could press SETUP again, and so on) */
+	if (platform_run_is_unwatched())
+	{
+		platform_log("launcher: SETUP: not starting again in a run nobody watches");
+		return 0;
+	}
+	/* (nor does a copy started with --setup that could not show it start
+	another) */
+	command_line(&setup, &play, mode, sizeof(mode), &joining);
+	if (setup && !launcher.shown)
+	{
+		platform_log("launcher: SETUP: started with --setup, which didn't show: not starting again");
+		return 0;
+	}
 	if (!executable_path(path, sizeof(path)))
 	{
 		platform_log("launcher: could not start again on the setup screen");
@@ -4261,6 +4305,8 @@ void launcher_at_start(void)
 		if (launcher.families[0].ui_version == MAP_VERSION_HALO_PC ||
 			launcher.families[0].ui_version == MAP_VERSION_CUSTOM_EDITION)
 			set_status(COLOR_AMBER, "Your maps folder has Halo PC maps. Chupathingy needs the Xbox maps there.");
+		else if (launcher.families[0].ui_version == MAP_VERSION_MCC || launcher.families[0].unsupported)
+			set_status(COLOR_AMBER, MCC_FILES_STATUS);
 		else
 			set_status(COLOR_AMBER, "Add your Xbox maps to play.");
 	}

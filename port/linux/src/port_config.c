@@ -756,8 +756,11 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_PORT_RAGDOLLS
 	/* (port/linux/game/ragdolls.c; Video Setup's RAGDOLLS. Live) */
 	{ "display.ragdolls", _config_boolean, "false", "HALO_RAGDOLLS", _environment_value, _platform_desktop,
-		"true: a character killed falls limp, thrown by the blow that killed\n"
-		"it, and comes to rest where it lands (Jolt Physics). false (the\n"
+		"true: a character killed plays its death animation and falls limp\n"
+		"partway through it, as in Halo 2 and 3 (one thrown into the air by an\n"
+		"explosion, a melee blow or a vehicle's hit flies in its airborne\n"
+		"death animation and goes limp where it lands), and comes to rest\n"
+		"where it lands (Jolt Physics). false (the\n"
 		"default): its death animation, as on the Xbox. Drawing only: the\n"
 		"body, hit boxes, saved games and the network are as before. The idea\n"
 		"is from jojoxdk's Halo 1 MCC Box3D Physics Mod." },
@@ -2240,6 +2243,9 @@ static const struct config_setting config_settings[] =
 		"them on the CPU except on NVIDIA. cpu or buffer forces one." },
 	{ "debug.door_portals_log", _config_boolean, "false", "HALO_DOOR_PORTALS_LOG", _environment_set_is_true, _platform_all,
 		"Log which level portals each door covers, as it is paired with them." },
+	{ "debug.time_code", _config_boolean, "false", "HALO_TIME_CODE", _environment_set_is_true, _platform_all,
+		"Draw the cutscene scripts' time code (time_code_show): the ticks since\n"
+		"it started, in the top-left corner, as Bungie's tools showed it." },
 #ifdef HALO_SHADER_PREP
 	{ "debug.draw_every_shader", _config_boolean, "false", "HALO_DRAW_EVERY_SHADER", _environment_set_is_true,
 		_platform_all,

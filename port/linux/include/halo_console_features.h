@@ -128,6 +128,16 @@ HALO_CONSOLE_LOG_BUFFER
 	the first waits, and at once for an exception, an exit or a crash
 	(error_log_flush and error_log_update, source/cseries/errors.c;
 	console.log_flush)
+HALO_CONSOLE_WINDOW_LOW
+	a console of the 64-bit layout on 32 bits (HALO_64BIT with
+	HALO_WINDOW_TRANSLATED: source/cseries/xbox_address.h) with less
+	memory than the Xbox 360: the Xbox address its window starts at, in
+	place of 0x78000000, a whole megabyte below 0x80000000. The game's heap
+	(port/linux/src/xbox_heap.c) is the window below the contiguous memory,
+	so it is that much smaller (0x7D000000: 48 MB); a heap that runs out
+	says so and stops the game. The port sets it in its own build (its
+	compile lines, or its prefix header ahead of xbox_address.h, which
+	takes the value)
 HALO_CONSOLE_WINDOW_MAXIMUM
 	a console that puts the Xbox's memory window where it finds room
 	(HALO_WINDOW_REBASE, source/cseries/xbox_address.h) and tells the
@@ -190,6 +200,12 @@ HALO_CONSOLE_NATIVE_RENDERER
 	by the port, instead of the OpenGL layer (port/linux/src/d3d8_console.inl),
 	and "gl" as before; the setting's default is "gl", or "native" with
 	HALO_CONSOLE_NATIVE_RENDERER_FIRST on the port's compile line
+HALO_CONSOLE_STATE_IN_PLACE
+	a console whose heap has no room for a second copy of the game state
+	(the native builds' 20 MB): a checkpoint revert, a core and a saved
+	game are read straight into the game state, as the original Xbox reads
+	them, instead of beside it and copied (source/saved games/
+	game_state_xbox.c); a file refused once read starts the map over
 HALO_CONSOLE_RENDER_TIMING
 	a console that logs where a frame's time goes: the renderer tells it
 	when the game enters and leaves the device's draws, clears and present
@@ -495,6 +511,12 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
+#endif
+
+/* (xbox_address.h read first, with the window at its default: the units
+would disagree about where the heap starts) */
+#if defined(HALO_CONSOLE_WINDOW_LOW) && defined(XBOX_WINDOW_LOW) && XBOX_WINDOW_LOW != HALO_CONSOLE_WINDOW_LOW
+#error the prefix header reads halo_console_features.h after xbox_address.h: read it first (HALO_CONSOLE_WINDOW_LOW)
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
