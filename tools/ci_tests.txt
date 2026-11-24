@@ -4,6 +4,7 @@
 # test main has). Add yours on its own line, in order.
 tools/test_about_version.py
 tools/test_address_limit.py
+tools/test_ai_nav.py
 tools/test_air_turn_aim.py
 tools/test_android_asm_convert.py
 tools/test_android_mcc_memory.py
