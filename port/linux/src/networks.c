@@ -1076,37 +1076,141 @@ void networks_trust_make(struct networks_trust *trust, const char *home,
 		say_line(say, context, "%s%s", "local networks past the first 16 left out", "");
 }
 
-int networks_issuer_network(const struct networks_trust *trust, const unsigned char *issuer, int issuer_size,
-	unsigned long now, unsigned char (*roots)[NETWORKS_KEY_SIZE], int *root_count)
+/* the trusted network one of whose root keys signed the issuer certificate,
+whatever the key's date: its index (and the key's, into root), or -1 */
+static int issuer_signer(const struct networks_trust *trust, const unsigned char *issuer, int issuer_size, int *root)
 {
-	int index, root, found = -1;
+	int index, key;
 
-	for (index = 0; index < trust->count && found < 0; index++)
+	for (index = 0; index < trust->count; index++)
 	{
 		const struct networks_network *network = &trust->networks[index];
 
-		for (root = 0; root < network->root_count; root++)
+		for (key = 0; key < network->root_count; key++)
 		{
-			if (network->roots[root].until && now > network->roots[root].until)
-				continue;
-			if (identity_issuer_signed_by(issuer, issuer_size, network->roots[root].key))
+			if (identity_issuer_signed_by(issuer, issuer_size, network->roots[key].key))
 			{
-				found = index;
-				break;
+				*root = key;
+				return index;
 			}
 		}
 	}
-	if (found >= 0 && roots && root_count)
-	{
-		const struct networks_network *network = &trust->networks[found];
+	return -1;
+}
 
+/* a network found (and the root key that signed): -1 when that key is past
+its until; roots and root_count get the network's root keys in date */
+static int in_date(const struct networks_trust *trust, int found, int root, unsigned long now,
+	unsigned char (*roots)[NETWORKS_KEY_SIZE], int *root_count)
+{
+	const struct networks_network *network;
+	int key;
+
+	if (found < 0 || found >= trust->count)
+		return -1;
+	network = &trust->networks[found];
+	if (network->roots[root].until && now > network->roots[root].until)
+		return -1;
+	if (roots && root_count)
+	{
 		*root_count = 0;
-		for (root = 0; root < network->root_count; root++)
+		for (key = 0; key < network->root_count; key++)
 		{
-			if (network->roots[root].until && now > network->roots[root].until)
+			if (network->roots[key].until && now > network->roots[key].until)
 				continue;
-			memcpy(roots[(*root_count)++], network->roots[root].key, NETWORKS_KEY_SIZE);
+			memcpy(roots[(*root_count)++], network->roots[key].key, NETWORKS_KEY_SIZE);
 		}
 	}
 	return found;
+}
+
+int networks_issuer_network(const struct networks_trust *trust, const unsigned char *issuer, int issuer_size,
+	unsigned long now, unsigned char (*roots)[NETWORKS_KEY_SIZE], int *root_count)
+{
+	int root = 0, found = issuer_signer(trust, issuer, issuer_size, &root);
+
+	return in_date(trust, found, root, now, roots, root_count);
+}
+
+void networks_memory_forget(struct networks_memory *memory)
+{
+	int index;
+
+	for (index = 0; index < NETWORKS_SEEN_MOST; index++)
+		memory->seen[index].used = 0;
+	memory->next = 0;
+}
+
+static int issuer_refused(const struct networks_memory *memory, const unsigned char *key)
+{
+	int index;
+
+	for (index = 0; index < memory->refused_count; index++)
+	{
+		if (!memcmp(memory->refused[index], key, NETWORKS_KEY_SIZE))
+			return 1;
+	}
+	return 0;
+}
+
+int networks_issuer_lookup(const struct networks_trust *trust, struct networks_memory *memory,
+	const unsigned char *issuer, int issuer_size, unsigned long now, int machine,
+	unsigned char (*roots)[NETWORKS_KEY_SIZE], int *root_count)
+{
+	struct identity_issuer parsed;
+	int index, found = -1, root = 0, slot;
+
+	if (issuer_size != NETWORKS_ISSUER_SIZE || !identity_parse_issuer(issuer, issuer_size, &parsed))
+		return NETWORKS_NONE;
+	if (issuer_refused(memory, parsed.public_key))
+		return NETWORKS_TWO_NETWORKS;
+	for (index = 0; index < NETWORKS_SEEN_MOST; index++)
+	{
+		if (memory->seen[index].used && !memcmp(memory->seen[index].issuer, issuer, NETWORKS_ISSUER_SIZE))
+		{
+			found = memory->seen[index].network;
+			root = memory->seen[index].root;
+			break;
+		}
+	}
+	if (index == NETWORKS_SEEN_MOST)
+	{
+		/* (one not seen before: at most NETWORKS_LOOKS_A_MINUTE of them from
+		one machine a minute) */
+		int bucket = machine >= 0 && machine < NETWORKS_MACHINES ? machine : NETWORKS_MACHINES - 1;
+
+		if (memory->machines[bucket].minute != now / 60 + 1)
+		{
+			memory->machines[bucket].minute = now / 60 + 1;
+			memory->machines[bucket].count = 0;
+			memory->machines[bucket].said = 0;
+		}
+		if (memory->machines[bucket].count >= NETWORKS_LOOKS_A_MINUTE)
+			return NETWORKS_LIMITED;
+		memory->machines[bucket].count++;
+		found = issuer_signer(trust, issuer, issuer_size, &root);
+		/* (one issuer, one network: the same issuer key under another
+		network's root refuses it for both) */
+		for (index = 0; found >= 0 && index < NETWORKS_SEEN_MOST; index++)
+		{
+			const unsigned char *other = memory->seen[index].issuer;
+
+			if (memory->seen[index].used && memory->seen[index].network >= 0 &&
+				memory->seen[index].network != found && !memcmp(other + 16, parsed.public_key, NETWORKS_KEY_SIZE))
+			{
+				if (memory->refused_count < NETWORKS_REFUSED_MOST)
+					memcpy(memory->refused[memory->refused_count++], parsed.public_key, NETWORKS_KEY_SIZE);
+				memory->changes++;
+				return NETWORKS_TWO_NETWORKS;
+			}
+		}
+		slot = memory->next;
+		memory->next = (memory->next + 1) % NETWORKS_SEEN_MOST;
+		memcpy(memory->seen[slot].issuer, issuer, NETWORKS_ISSUER_SIZE);
+		memory->seen[slot].network = found;
+		memory->seen[slot].root = root;
+		memory->seen[slot].used = 1;
+	}
+	found = in_date(trust, found, root, now, roots, root_count);
+	return found < 0 ? NETWORKS_NONE : found;
 }

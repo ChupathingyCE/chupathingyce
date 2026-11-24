@@ -597,6 +597,72 @@ static void test_local(void)
 	CHECK(networks_issuer_network(&trust, other_issuer, 112, 1790199999UL, NULL, NULL) == 1);
 }
 
+static void test_memory(void)
+{
+	static struct networks_memory memory;
+	static const char label[] = "chupathingy identity issuer v1\n";
+	unsigned char seed[32], message[128], twin[112], other[112], roots[4][32];
+	int index, count;
+
+	memset(&memory, 0, sizeof(memory));
+	takes(VECTOR_LIST_DOCUMENT);
+	networks_trust_make(&trust, "chupathingy.org", (const unsigned char (*)[32])home_roots, 2, &list, "", "", NULL,
+		NULL);
+	/* remembered: a certificate seen is answered without a new look */
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW, 0, roots, &count) == 0 &&
+		count == 2);
+	for (index = 0; index < 10; index++)
+		CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW, 0, NULL, NULL) == 0);
+	CHECK(networks_issuer_lookup(&trust, &memory, other_issuer, 112, VECTOR_NOW, 0, NULL, NULL) == 1);
+	/* limited: 4 new ones from a machine a minute, then none until the next */
+	for (index = 0; index < 6; index++)
+	{
+		unsigned char made[112];
+
+		memcpy(made, home_issuer, sizeof(made));
+		made[100] ^= (unsigned char)(index + 1);
+		CHECK(networks_issuer_lookup(&trust, &memory, made, 112, VECTOR_NOW, 5, NULL, NULL) ==
+			(index < 4 ? NETWORKS_NONE : NETWORKS_LIMITED));
+		/* (another machine has its own count) */
+		if (index == 5)
+			CHECK(networks_issuer_lookup(&trust, &memory, made, 112, VECTOR_NOW, 6, NULL, NULL) == NETWORKS_NONE);
+	}
+	{
+		unsigned char made[112];
+
+		memcpy(made, home_issuer, sizeof(made));
+		made[100] ^= 0x77;
+		CHECK(networks_issuer_lookup(&trust, &memory, made, 112, VECTOR_NOW + 60, 5, NULL, NULL) == NETWORKS_NONE);
+	}
+	/* a machine number out of range shares the last's count */
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 111, VECTOR_NOW, 999, NULL, NULL) == NETWORKS_NONE);
+	/* one issuer, one network: home's issuer key signed by example.org's
+	root as well refuses it for both */
+	identity_sha256("open network test root example.org primary", 42, seed);
+	memcpy(message, label, sizeof(label) - 1);
+	memcpy(message + sizeof(label) - 1, home_issuer, 48);
+	memcpy(twin, home_issuer, 48);
+	identity_sign(seed, message, (int)(sizeof(label) - 1 + 48), twin + 48);
+	networks_trust_make(&trust, "chupathingy.org", (const unsigned char (*)[32])home_roots, 2, &list, "", "", NULL,
+		NULL);
+	CHECK(networks_issuer_network(&trust, twin, 112, VECTOR_NOW, NULL, NULL) == 1);
+	CHECK(networks_issuer_lookup(&trust, &memory, twin, 112, VECTOR_NOW + 120, 1, NULL, NULL) ==
+		NETWORKS_TWO_NETWORKS);
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW + 120, 0, NULL, NULL) ==
+		NETWORKS_TWO_NETWORKS);
+	CHECK(memory.changes == 1);
+	/* example.org's own issuer is untouched */
+	CHECK(networks_issuer_lookup(&trust, &memory, other_issuer, 112, VECTOR_NOW + 120, 0, NULL, NULL) == 1);
+	/* forgotten with a new trust, the refusal kept */
+	networks_memory_forget(&memory);
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW + 120, 2, NULL, NULL) ==
+		NETWORKS_TWO_NETWORKS);
+	/* a key past its until: found, but vouches for nothing */
+	memset(&memory, 0, sizeof(memory));
+	memcpy(other, other_issuer, sizeof(other));
+	CHECK(networks_issuer_lookup(&trust, &memory, other, 112, VECTOR_NOW, 3, NULL, NULL) == 1);
+}
+
 int main(void)
 {
 	load();
@@ -607,6 +673,7 @@ int main(void)
 	test_list_malformed();
 	test_epochs();
 	test_local();
+	test_memory();
 	if (failures)
 	{
 		printf("%d failed\n", failures);

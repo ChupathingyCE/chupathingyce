@@ -15,7 +15,8 @@ size and signature text are read first), the local settings
 What it must hold, or the fuzzer traps: a list read has 0 to 64 networks,
 each a valid domain with 1 to 4 root keys, no key twice, a serial in range;
 trust has its home first, at most every network, each a domain no other
-has; a name read is a handle and a domain.
+has; a name read is a handle and a domain; an issuer certificate looked up is
+answered with a trusted network or why not.
 */
 
 #include "networks.h"
@@ -118,5 +119,17 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	}
 	networks_domain_valid(text, (int)strlen(text));
 	free(text);
+	/* (an issuer certificate from a machine, looked up and remembered: never
+	a network it doesn't have) */
+	if (size >= NETWORKS_ISSUER_SIZE)
+	{
+		static struct networks_memory memory;
+		unsigned char roots[NETWORKS_ROOTS_MOST][NETWORKS_KEY_SIZE];
+		int count = -1, found = networks_issuer_lookup(&trust, &memory, data, NETWORKS_ISSUER_SIZE,
+			(unsigned long)size * 1000UL, data[0], roots, &count);
+
+		if (found >= trust.count || found < NETWORKS_TWO_NETWORKS || (found >= 0 && (count < 0 || count > 4)))
+			__builtin_trap();
+	}
 	return 0;
 }

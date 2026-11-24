@@ -65,6 +65,9 @@ static struct
 	struct networks_list list;
 	struct networks_trust trust;
 	unsigned long generation;
+	/* (the issuer certificates seen, their networks, and the looking's
+	limits) */
+	struct networks_memory memory;
 } networks;
 
 static int any_list_key(void)
@@ -98,6 +101,7 @@ static void networks_remake(void)
 	networks_trust_make(&networks.trust, networks.home, (const unsigned char (*)[NETWORKS_KEY_SIZE])networks.home_roots,
 		networks.home_root_count, networks.list.serial ? &networks.list : NULL,
 		config_string("network.networks_add"), config_string("network.networks_remove"), say, NULL);
+	networks_memory_forget(&networks.memory);
 	networks.generation++;
 	names[0] = 0;
 	for (index = 1; index < networks.trust.count && used < (int)sizeof(names) - 1; index++)
@@ -324,29 +328,41 @@ const unsigned char (*networks_home_roots(int *count))[NETWORKS_KEY_SIZE]
 	return (const unsigned char (*)[NETWORKS_KEY_SIZE])networks.home_roots;
 }
 
-int networks_check_issuer(const unsigned char *issuer, unsigned long now, char *domain,
+int networks_check_issuer(const unsigned char *issuer, int machine, unsigned long now, char *domain,
 	unsigned char (*roots)[NETWORKS_KEY_SIZE], int *root_count)
 {
 	int index;
 
 	pthread_once(&networks_once, networks_load);
 	pthread_mutex_lock(&networks_lock);
-	index = networks_issuer_network(&networks.trust, issuer, IDENTITY_ISSUER_SIZE, now, NULL, NULL);
-	*root_count = 0;
-	domain[0] = 0;
-	if (index >= 0)
+	index = networks_issuer_lookup(&networks.trust, &networks.memory, issuer, IDENTITY_ISSUER_SIZE, now, machine,
+		roots, root_count);
+	if (index == NETWORKS_LIMITED)
 	{
-		const struct networks_network *network = &networks.trust.networks[index];
-		int root;
+		int bucket = machine >= 0 && machine < NETWORKS_MACHINES ? machine : NETWORKS_MACHINES - 1;
 
-		snprintf(domain, NETWORKS_DOMAIN_SIZE, "%s", network->domain);
-		for (root = 0; root < network->root_count; root++)
+		if (!networks.memory.machines[bucket].said)
 		{
-			if (network->roots[root].until && now > network->roots[root].until)
-				continue;
-			memcpy(roots[(*root_count)++], network->roots[root].key, NETWORKS_KEY_SIZE);
+			networks.memory.machines[bucket].said = 1;
+			platform_log("networks: machine %d sent more new issuer certificates than %d a minute: the rest this "
+				"minute are not checked", machine, NETWORKS_LOOKS_A_MINUTE);
 		}
 	}
+	else if (index == NETWORKS_TWO_NETWORKS)
+	{
+		static unsigned long said;
+
+		if (said != networks.memory.changes)
+		{
+			said = networks.memory.changes;
+			platform_log("networks: an issuer key turned up under two networks' root keys: refused for both");
+		}
+	}
+	domain[0] = 0;
+	if (index >= 0)
+		snprintf(domain, NETWORKS_DOMAIN_SIZE, "%s", networks.trust.networks[index].domain);
+	else
+		*root_count = 0;
 	pthread_mutex_unlock(&networks_lock);
 	return index < 0 ? 0 : index == 0 ? 1 : 2;
 }
@@ -357,7 +373,7 @@ unsigned long networks_generation(void)
 
 	pthread_once(&networks_once, networks_load);
 	pthread_mutex_lock(&networks_lock);
-	generation = networks.generation;
+	generation = networks.generation + networks.memory.changes;
 	pthread_mutex_unlock(&networks_lock);
 	return generation;
 }

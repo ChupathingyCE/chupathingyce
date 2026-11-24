@@ -26,12 +26,16 @@ const char *networks_home(void);
 of them into *count) */
 const unsigned char (*networks_home_roots(int *count))[NETWORKS_KEY_SIZE];
 /* the trusted network whose root key (in date at now) signed an issuer
-certificate (IDENTITY_ISSUER_SIZE bytes): 1 for the home network, 2 for
-another, 0 for none; its domain (NETWORKS_DOMAIN_SIZE) and its root keys in
-date (NETWORKS_ROOTS_MOST at most, count into *root_count) */
-int networks_check_issuer(const unsigned char *issuer, unsigned long now, char *domain,
+certificate (IDENTITY_ISSUER_SIZE bytes) that came with machine's proof or
+card: 1 for the home network, 2 for another, 0 for none (or past the
+machine's new issuer certificates a minute, or an issuer key found under
+two networks: networks.h's networks_issuer_lookup); its domain
+(NETWORKS_DOMAIN_SIZE) and its root keys in date (NETWORKS_ROOTS_MOST at
+most, count into *root_count) */
+int networks_check_issuer(const unsigned char *issuer, int machine, unsigned long now, char *domain,
 	unsigned char (*roots)[NETWORKS_KEY_SIZE], int *root_count);
-/* a count that changes whenever the trusted networks do (a newer list) */
+/* a count that changes whenever the trusted networks do (a newer list, an
+issuer key refused) */
 unsigned long networks_generation(void);
 
 #endif

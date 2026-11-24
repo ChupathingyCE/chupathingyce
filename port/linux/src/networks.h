@@ -134,11 +134,66 @@ say (may be NULL) is told each one left out, and why */
 void networks_trust_make(struct networks_trust *trust, const char *home,
 	const unsigned char (*home_roots)[NETWORKS_KEY_SIZE], int home_root_count, const struct networks_list *list,
 	const char *additions, const char *removals, void (*say)(void *context, const char *line), void *context);
-/* the trusted network one of whose root keys, in date at now (until 0 or
-now <= until), signed the issuer certificate: its index in trust (0 is
+/* the trusted network one of whose root keys signed the issuer certificate,
+that key in date at now (until 0 or now <= until): its index in trust (0 is
 home), or -1 for none. roots and root_count, when not NULL, get that
 network's root keys in date */
 int networks_issuer_network(const struct networks_trust *trust, const unsigned char *issuer, int issuer_size,
 	unsigned long now, unsigned char (*roots)[NETWORKS_KEY_SIZE], int *root_count);
+
+/* ---------- what a game remembers of the issuer certificates it saw
+(delta-spec's link.md, "How a game checks a name") */
+
+enum
+{
+	NETWORKS_ISSUER_SIZE = 112,
+	/* issuer certificates remembered (their network, or none) */
+	NETWORKS_SEEN_MOST = 256,
+	/* new issuer certificates looked for from one machine a minute */
+	NETWORKS_LOOKS_A_MINUTE = 4,
+	NETWORKS_MACHINES = 64,
+	/* issuer keys refused for turning up under two networks */
+	NETWORKS_REFUSED_MOST = 64,
+	/* networks_issuer_lookup's answers past a network's index */
+	NETWORKS_NONE = -1,
+	NETWORKS_LIMITED = -2,
+	NETWORKS_TWO_NETWORKS = -3,
+};
+
+struct networks_memory
+{
+	struct
+	{
+		unsigned char issuer[NETWORKS_ISSUER_SIZE];
+		/* its network's index in trust (-1: none) and the root key's */
+		int network, root;
+		int used;
+	} seen[NETWORKS_SEEN_MOST];
+	int next;
+	unsigned char refused[NETWORKS_REFUSED_MOST][NETWORKS_KEY_SIZE];
+	int refused_count;
+	/* (each machine's looks this minute: minute is now / 60 + 1, 0 none) */
+	struct
+	{
+		unsigned long minute;
+		int count, said;
+	} machines[NETWORKS_MACHINES];
+	/* counts each issuer key refused */
+	unsigned long changes;
+};
+
+/* (trust made again: what was found for it forgotten; the refused issuer
+keys and the machines' counts are kept) */
+void networks_memory_forget(struct networks_memory *memory);
+/* networks_issuer_network for a proof or card from machine (0 to
+NETWORKS_MACHINES - 1; any other shares the last's count), remembered: an
+issuer certificate seen before is answered from memory; one not seen
+before is looked for only NETWORKS_LOOKS_A_MINUTE times a minute for a
+machine (past that NETWORKS_LIMITED); an issuer key found under two
+networks' roots is refused from then on (NETWORKS_TWO_NETWORKS). The
+network's index, or NETWORKS_NONE */
+int networks_issuer_lookup(const struct networks_trust *trust, struct networks_memory *memory,
+	const unsigned char *issuer, int issuer_size, unsigned long now, int machine,
+	unsigned char (*roots)[NETWORKS_KEY_SIZE], int *root_count);
 
 #endif

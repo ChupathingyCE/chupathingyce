@@ -490,7 +490,7 @@ static int game_identity_check(void *context, const struct delta_wire_id_proof *
 	certificate, the home network's first; then the chain checked as ever,
 	with that network's root keys alone. Today's certificates are the home
 	network's, checked against its built-in keys exactly as before) */
-	which = networks_check_issuer(proof->issuer, (unsigned long)now, network, roots, &root_count);
+	which = networks_check_issuer(proof->issuer, machine_index, (unsigned long)now, network, roots, &root_count);
 	if (!which)
 		return 0;
 	size = identity_proof_message(nonce, binding, binding_length, machine_index, proof->local_player, device.serial,
