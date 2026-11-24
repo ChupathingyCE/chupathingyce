@@ -630,7 +630,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.loading_screen_multiplayer_seconds` | `0.0` | `HALO_LOADING_SCREEN_MULTIPLAYER_SECONDS` | The same for every other game: split screen multiplayer, system link, online and network co-op, on a machine that joins and on one that hosts and plays, up to 5: while the loading screen is held, the machine hears nothing from the network, and a host drops a machine it hears nothing from for 15 seconds. Machines already finish loading at their own times. Never on the dedicated server. `0`: no wait. |
 | `display.prepare_shaders` | `true` | `HALO_PREPARE_SHADERS` | Make a map's shaders while its loading screen is up, so the game doesn't stop for a moment to make one the first time something new is drawn: a new area, a weapon, an effect. Each map has a list of what it draws: the stock maps' comes with the game (`port/assets/shaders/stock.keys`), and the game keeps every map's own list in `cache/shader_keys`, so a custom map's shaders are ready from its second load on. The loading screen waits up to 5 seconds for them, its glow showing how far they are. What's left is made in play by bgfx's compile threads, or by an OpenGL driver that compiles in parallel; other drivers make it at its first draw, as before. The OpenGL and bgfx renderers; not the consoles yet. `false`: each shader is made when it is first drawn. |
 | `display.join_screen` | `true` | `HALO_JOIN_SCREEN` | While Online Games joins a game or downloads its map, the loading screen (its sweep looped: `game/loading_screen.c`) with what is going on, the download's progress and B to cancel, back to the list (`game/browser_screen.c`). `false`: the small panel and the download dialog over the list. |
-| `display.xbox_loading_picture` | `true` | `HALO_XBOX_LOADING_PICTURE` | `true`: the loading screen shows the Xbox's own picture, `xbox_loading.tga` in your maps folder (a PAL disc's `loading.tga` works too; NTSC discs have none), and Chupathingy's own when there is none, as after a manual install without the disc's file. `false`: always Chupathingy's. The setup screen's disc import saves a PAL disc's picture as `maps/xbox_loading.tga`. A picture that is not an uncompressed 24-bit TGA of 320 by 240 is skipped. Not on the consoles, which show the disc's picture. |
+| `display.xbox_loading_picture` | `true` | `HALO_XBOX_LOADING_PICTURE` | `true`: the loading screen shows the Xbox's own picture, `xbox_loading.tga` in your maps folder (a PAL disc's `loading.tga` works too; NTSC discs have none), and Chupathingy's own when there is none, as after a manual install without the disc's file. `false`: always Chupathingy's. The setup screen's disc import saves a PAL disc's picture as `maps/xbox_loading.tga`. A picture that is not an uncompressed 24-bit TGA of 320 by 240 is skipped. On the Xbox 360 and the Wii U too; not on the original Xbox, which shows the disc's picture. |
 | `display.scoreboard_team_layout` | `"teams"` | `HALO_SCOREBOARD_TEAM_LAYOUT` | How the multiplayer scoreboard (hold BACK, or tab) lists a team game's players. `"teams"`: a column for each team, red on the left and blue on the right. `"score"`: all the players in order of score. With more players than fit, the mouse wheel and Page Up / Page Down scroll the scoreboard. |
 | `display.scoreboard_background` | `true` | `HALO_SCOREBOARD_BACKGROUND` | `true`: the multiplayer scoreboard (hold BACK, or tab) has a panel behind its text, for clearer text. |
 | `display.scoreboard_icons` | `true` | `HALO_SCOREBOARD_ICONS` | The scoreboard's icons: platform logos and the Delta mark of verified players (SCOREBOARD ICONS in Settings and the Guide). `false`: just names and scores. |
@@ -1897,8 +1897,10 @@ hooks):
 - `HALO_CONSOLE_MAP_BROWSER`: the console's own Map Browser, under ONLINE
   GAMES.
 
-Every console shows the disc's loading picture, not Chupathingy's
-(`HALO_CONSOLE_NO_LOADING_PICTURE`).
+The original Xbox shows only the disc's loading picture, not Chupathingy's
+(`HALO_CONSOLE_NO_LOADING_PICTURE`). The Xbox 360 and the Wii U show the
+disc's picture when the maps folder has it, and Chupathingy's when it
+doesn't, as the desktop builds do.
 
 ### Game source changes
 
