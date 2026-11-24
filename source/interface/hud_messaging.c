@@ -159,6 +159,9 @@ symbols in this file:
 #include "memory/data.h"
 #endif
 
+/* port: port/linux/src/port_config.c */
+int config_boolean(char const *name);
+
 /* ---------- constants */
 
 enum
@@ -1323,7 +1326,11 @@ void hud_render_timer(
 		}
 	}
 
-	if (time_code_time != NONE)
+	/* port: the time code is a tool of Bungie's: some of the campaign's
+	cutscene scripts turn it on (time_code_show), and the Xbox's game drew
+	no debug text, so the players never saw it. Drawn only with
+	debug.time_code */
+	if (time_code_time != NONE && config_boolean("debug.time_code"))
 	{
 		long stop_time = time_code_stop_time;
 
