@@ -37,6 +37,8 @@ box, the prompts):
   DEAD AI (the layout's dead AI characters), CLEAR ALL AI (every one,
   pressed twice), PLAY AS SPARTAN, and CONTROLS, the monitor's buttons and
   keys.
+- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, HELD FACING, UNDO, REDO, NEW ROUND, PLAY AS
+  SPARTAN, and CONTROLS, the monitor's buttons and keys.
 X or B closes it. What it asks of the session is done by forge.c before the
 next tick (forge_menu_ask); what it shows is read from forge.c each frame
 (forge_menu_view_get) as it is input, and drawn from that.
@@ -156,6 +158,7 @@ enum
 	_option_rotate_snap,
 	_option_delete,
 	_option_grab_range,
+	_option_held_facing,
 	_option_undo,
 	_option_redo,
 	_option_round,
@@ -205,6 +208,7 @@ static char const *const option_labels[NUMBER_OF_OPTIONS] =
 {
 	"SNAP", "MOVE SPEED", "ROTATION SNAP", "DELETE", "GRAB RANGE", "UNDO", "REDO", "NEW ROUND", "CLEAR DEAD AI", "CLEAR ALL AI", "PLAY AS SPARTAN",
 	"CONTROLS",
+	"SNAP", "MOVE SPEED", "ROTATION SNAP", "HELD FACING", "UNDO", "REDO", "NEW ROUND", "PLAY AS SPARTAN", "CONTROLS",
 };
 
 
@@ -694,6 +698,18 @@ static short grab_range(void)
 	return (short)NUMBEROF(grab_ranges) - 1;
 }
 
+/* OPTIONS' HELD FACING: game.forge_held_facing's values, in the row's
+order, and the row's words for them */
+static char const *const held_facings[] = { "keep", "view" };
+static char const *const held_facing_names[] = { "KEEP", "FOLLOW VIEW" };
+
+static short held_facing(void)
+{
+	char const *facing = config_string("game.forge_held_facing");
+
+	return (short)(facing && !strcmp(facing, held_facings[1]) ? 1 : 0);
+}
+
 static void game_option_step(short row, short step)
 {
 	switch (row)
@@ -721,6 +737,9 @@ static void game_option_step(short row, short step)
 		config_write("game.forge_grab_range", grab_ranges[(grab_range() + count + (step < 0 ? -1 : 1)) % count]);
 		break;
 	}
+	case _option_held_facing:
+		config_write("game.forge_held_facing", held_facings[held_facing() ? 0 : 1]);
+		break;
 	default:
 		return;
 	}
@@ -736,6 +755,7 @@ static void game_option_choose(short row)
 	case _option_rotate_snap:
 	case _option_delete:
 	case _option_grab_range:
+	case _option_held_facing:
 		game_option_step(row, 1);
 		return;
 	case _option_undo:
@@ -1504,6 +1524,9 @@ static void option_row_text(short row, char *label, int label_size, char *value,
 		break;
 	case _option_grab_range:
 		snprintf(value, (size_t)value_size, "%s", grab_range_names[grab_range()]);
+		break;
+	case _option_held_facing:
+		snprintf(value, (size_t)value_size, "%s", held_facing_names[held_facing()]);
 		break;
 	case _option_undo:
 		snprintf(label, (size_t)label_size, "UNDO (%d)", view->undo);

@@ -1823,6 +1823,11 @@ static const struct config_setting config_settings[] =
 		"How far Forge's crosshair reaches to grab, copy or delete: \"near\"\n"
 		"(about 60 m), \"medium\" (about 105 m) or \"far\" (about 180 m, the\n"
 		"default). GRAB RANGE in the Forge menu's OPTIONS. See docs/forge.md." },
+	{ "game.forge_held_facing", _config_string, "\"keep\"", "HALO_FORGE_HELD_FACING", _environment_value,
+		_platform_desktop,
+		"What Forge's monitor holds: \"keep\" keeps the facing it was grabbed\n"
+		"with (the default); \"view\" turns it with the camera until you turn it\n"
+		"by hand. HELD FACING in the Forge menu's OPTIONS. See docs/forge.md." },
 #endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"

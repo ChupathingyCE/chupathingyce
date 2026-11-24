@@ -59,6 +59,7 @@ the mouse looks:
   what is held, or with nothing held of the layout's object or marker the
   crosshair is on: it opens there), LAYOUTS (save, save as new, load, delete)
   and OPTIONS (snap, speed, rotation snap, undo, redo, new round, Spartan,
+  and OPTIONS (snap, speed, rotation snap, held facing, undo, redo, new round, Spartan,
   the controls); what it asks is done here (forge_menu_link.inc);
 - B: a copy of the object held or under the crosshair, held;
 - White: the movement speed (slow, normal, fast); in rotate mode, its
@@ -235,6 +236,7 @@ long config_integer(char const *name);
 char const *config_string(char const *name);
 /* ui_overlay.c's: the keyboard and mouse used last (else a controller) */
 int ui_overlay_keyboard(void);
+char const *config_string(char const *name);
 char const *config_string(char const *name);
 long hud_get_font_index(void);
 unsigned long system_milliseconds(void);
@@ -888,6 +890,15 @@ static struct
 	long properties_object_index;
 	long properties_marker_id;
 	boolean hud_properties;
+	/* (game.forge_held_facing "view") the hold the facing follows the view
+	in (the object held, or the marker's id; NONE and 0 none), whether it
+	still does (not once turned by hand), the camera's yaw it was last
+	turned to and the facing it was given then */
+	long follow_object_index;
+	long follow_marker_id;
+	boolean following;
+	real follow_yaw;
+	real_vector3d follow_forward;
 } forge_globals = { FALSE, "", FALSE, FALSE, FALSE, 0, NONE, FALSE, NONE, 0.f, { 0.f }, { 0.f }, _forge_speed_normal };
 
 /* ---------- private code */
@@ -2155,6 +2166,77 @@ static long forge_object_under_crosshair(
 
 static void forge_undo_record(short kind, long object_index, struct forge_transform const *from);
 static void forge_snapped(real_point3d *position, real_vector3d *forward, real_vector3d *up);
+
+/* game.forge_held_facing: "view" turns what is held with the camera's yaw
+until it is turned by hand; anything else ("keep", the default) keeps the
+facing it was grabbed with */
+static boolean forge_held_facing_follows(
+	void)
+{
+	char const *facing = config_string("game.forge_held_facing");
+
+	return facing && !strcmp(facing, "view");
+}
+
+/* (each frame, before what is held is placed) with game.forge_held_facing
+"view", what is held turns about up as the camera turns, so that it keeps
+facing the same way from the camera; its pitch and roll stay. Once its
+facing is changed any other way (rotate mode, the properties' angles,
+upright, a turn) it keeps its own until it is let go */
+static void forge_held_follow_view(
+	void)
+{
+	boolean object = object_try_and_get(forge_globals.held_object_index) != NULL;
+	real_point3d position;
+	real_vector3d forward;
+	real yaw;
+	real turn;
+	real_vector3d axis = *global_up3d;
+
+	if (!object && !forge_globals.held_marker_id)
+	{
+		forge_globals.follow_object_index = NONE;
+		forge_globals.follow_marker_id = 0;
+		forge_globals.following = FALSE;
+		return;
+	}
+	if (!forge_camera_get(&position, &forward))
+		return;
+	/* (straight up or down: no yaw to follow this frame) */
+	if (forward.i * forward.i + forward.j * forward.j < 0.0001f)
+		return;
+	yaw = arctangent(forward.j, forward.i);
+	/* (a new hold: followed from here, when the setting says so) */
+	if (forge_globals.follow_object_index != (object ? forge_globals.held_object_index : NONE) ||
+		forge_globals.follow_marker_id != forge_globals.held_marker_id)
+	{
+		forge_globals.follow_object_index = object ? forge_globals.held_object_index : NONE;
+		forge_globals.follow_marker_id = forge_globals.held_marker_id;
+		forge_globals.following = forge_held_facing_follows();
+		forge_globals.follow_yaw = yaw;
+		forge_globals.follow_forward = forge_globals.held_forward;
+		return;
+	}
+	if (!forge_globals.following)
+		return;
+	/* (turned by hand since the last frame: its own facing from now) */
+	if (forge_globals.held_forward.i != forge_globals.follow_forward.i ||
+		forge_globals.held_forward.j != forge_globals.follow_forward.j ||
+		forge_globals.held_forward.k != forge_globals.follow_forward.k)
+	{
+		forge_globals.following = FALSE;
+		platform_log("forge: the held facing no longer follows the view (turned by hand)");
+		return;
+	}
+	turn = yaw - forge_globals.follow_yaw;
+	if (turn != 0.f)
+	{
+		rotate_vector_about_axis(&forge_globals.held_forward, &axis, sine(turn), cosine(turn));
+		rotate_vector_about_axis(&forge_globals.held_up, &axis, sine(turn), cosine(turn));
+	}
+	forge_globals.follow_yaw = yaw;
+	forge_globals.follow_forward = forge_globals.held_forward;
+}
 
 /* the held object where the camera holds it */
 static void forge_held_object_place(
@@ -5258,6 +5340,7 @@ void forge_update(
 	}
 	forge_globals.pending_mouse_turn = 0.f;
 	forge_globals.pending_mouse_pitch = 0.f;
+	forge_held_follow_view();
 	if (object_try_and_get(forge_globals.held_object_index))
 		forge_held_object_place();
 	if (forge_globals.held_marker_id)
