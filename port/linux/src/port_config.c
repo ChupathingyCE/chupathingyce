@@ -1818,6 +1818,11 @@ static const struct config_setting config_settings[] =
 		"\"controller\" when the controller's Y is held half a second (the key\n"
 		"still at a press), \"all\" when either is held. DELETE in the Forge\n"
 		"menu's OPTIONS. See docs/forge.md." },
+	{ "game.forge_grab_range", _config_string, "\"far\"", "HALO_FORGE_GRAB_RANGE", _environment_value,
+		_platform_desktop,
+		"How far Forge's crosshair reaches to grab, copy or delete: \"near\"\n"
+		"(about 60 m), \"medium\" (about 105 m) or \"far\" (about 180 m, the\n"
+		"default). GRAB RANGE in the Forge menu's OPTIONS. See docs/forge.md." },
 #endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
