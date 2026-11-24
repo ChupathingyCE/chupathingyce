@@ -149,6 +149,12 @@ int identity_parse_issuer(const unsigned char *data, int size, struct identity_i
 and in date */
 int identity_check_issuer(const unsigned char *data, int size, const unsigned char (*roots)[IDENTITY_KEY_SIZE],
 	int root_count, unsigned long now, struct identity_issuer *issuer);
+/* whether an issuer certificate is well-formed and signed by that one root
+key (not all zero), whatever its dates: which network it belongs to
+(networks.c) */
+int identity_issuer_signed_by(const unsigned char *data, int size, const unsigned char *root);
+/* whether a public key is of small order (never one to trust) */
+int identity_key_weak(const unsigned char *public_key);
 int identity_parse_device(const unsigned char *data, int size, struct identity_device *device);
 /* signed by that (checked) issuer, issued in its time and in date */
 int identity_check_device(const unsigned char *data, int size, const struct identity_issuer *issuer,

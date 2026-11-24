@@ -34,6 +34,7 @@ without one it proves as the copy's own account.
 #include "../src/delta_profile.h"
 #include "../src/delta_peer.h"
 #include "../src/identity.h"
+#include "../src/networks.h"
 #include "halo_profile_screen.h"
 
 #include <stdio.h>
@@ -232,6 +233,13 @@ static boolean verified_name(
 	*looks_like = FALSE;
 	if (!identity->handle[0])
 		return FALSE;
+	/* (another network's player: the proof's capitals, else the handle; never
+	the site's card, which is this network's, nor a clan tag) */
+	if (identity->other_network)
+	{
+		snprintf(name, (size_t)name_size, "%s", identity->tag[0] ? identity->tag : identity->handle);
+		return TRUE;
+	}
 	for (index = 0; index < PLAYER_ID_SIZE; index++)
 	{
 		hex[2 * index] = digits[identity->account[index] >> 4];
@@ -437,9 +445,46 @@ static boolean profile_names_player_unmarked(
 	wchar_t *name,
 	long size)
 {
-	wchar_t whole[64];
+	wchar_t whole[NETWORKS_NAME_MOST + 8];
 
-	(void)identity;
+	/* (another network's player: Name:domain, the domain always whole when
+	the column has room for it and three of the name's letters, the name
+	cut first) */
+	if (identity->other_network && identity->network[0])
+	{
+		wchar_t own[24], domain[NETWORKS_DOMAIN_SIZE + 1];
+		long room = (size - 1) * 10, used, index;
+
+		wide_from_utf8(text, own, NUMBEROF(own));
+		domain[0] = ':';
+		wide_from_utf8(identity->network, domain + 1, NUMBEROF(domain) - 1);
+		used = wide_length(own);
+		for (index = 0; own[index]; index++)
+			whole[index] = own[index];
+		for (index = 0; domain[index]; index++)
+			whole[used + index] = domain[index];
+		whole[used + index] = 0;
+		if (wide_length(whole) <= size - 1 && text_width(whole) <= room)
+		{
+			fit(whole, name, size);
+			return name[0] != 0;
+		}
+		if (wide_length(domain) + 6 <= size - 1 && text_width(domain) + 3 * 13 + 3 * character_width('.') <= room)
+		{
+			wchar_t cut[24];
+
+			fit_room(own, cut, size - wide_length(domain), room - text_width(domain));
+			used = wide_length(cut);
+			for (index = 0; index < used; index++)
+				name[index] = cut[index];
+			for (index = 0; domain[index]; index++)
+				name[used + index] = domain[index];
+			name[used + index] = 0;
+			return name[0] != 0;
+		}
+		fit(whole, name, size);
+		return name[0] != 0;
+	}
 	if (clan[0])
 	{
 		wchar_t tag[24];

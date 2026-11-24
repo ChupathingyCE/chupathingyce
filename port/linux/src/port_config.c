@@ -23,6 +23,7 @@ it did before the console had the file.
 #include "platform.h"
 #include "port_config.h"
 #include "halo_port_limits.h"
+#include "halo_console_features.h" /* HALO_DELTA_PEER_IDENTITY */
 #include "posix.h"
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 #include "packaged_install.h"
@@ -1683,6 +1684,19 @@ static const struct config_setting config_settings[] =
 		"players see your games. A number pins it, like 32 for a server meant\n"
 		"for console players on older builds. A number the table does not allow\n"
 		"for hosting is ignored, and \"latest\" is used." },
+#ifdef HALO_DELTA_PEER_IDENTITY
+	{ "network.networks_add", _config_string, "\"\"", "HALO_NET_NETWORKS_ADD", _environment_value,
+		_platform_all | _platform_server,
+		"Other networks whose players' names are checked, beside the signed\n"
+		"list of networks: each a domain and 1 to 4 root keys (64 hex digits),\n"
+		"separated by spaces, and the networks separated by commas, like\n"
+		"\"example.org <key> <key>\". At most 16. Empty for none." },
+	{ "network.networks_remove", _config_string, "\"\"", "HALO_NET_NETWORKS_REMOVE", _environment_value,
+		_platform_all | _platform_server,
+		"Networks whose players' names are not checked even when the signed\n"
+		"list has them: domains separated by commas. Your own network can't be\n"
+		"removed. Empty for none." },
+#endif
 	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value,
 		_platform_all | _platform_server,
 		"For testing only: an unsigned legacy table file that sets the OpenCE\n"
