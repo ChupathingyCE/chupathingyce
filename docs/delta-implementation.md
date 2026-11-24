@@ -159,9 +159,9 @@ signed its issuer certificate, so today's read as `chupathingy.org`.
   limit).
 - A player of another network shows as `Name:domain` wherever verified
   names show (`profile_names.c`: scoreboard, lobby, chat, postgame, the
-  Guide); where a column is too narrow, as the name alone and a `:`. They get no site card, clan tag, role or ban (moderation hears
-  only of the home network's bound proofs), and no ADD FRIEND in the
-  Guide. One identity is one player by device, or by network and account
+  Guide); where a column is too narrow, as the name alone and a `:`.
+  They get no site card, clan tag, role or ban (moderation hears only of
+  the home network's bound proofs), and no ADD FRIEND in the Guide. One identity is one player by device, or by network and account
   together.
 - A fork with its own network builds with
   `-DIDENTITY_HOME_DOMAIN='"its.domain"'` and its own `identity_key.h`.
