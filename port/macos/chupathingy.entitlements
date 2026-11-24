@@ -2,9 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- voice chat's microphone, under the hardened runtime (a build signed
-	with a Developer ID: bundle.py) -->
+	<!-- The application's entitlements under the hardened runtime: a build
+	signed with a Developer ID (bundle.py with MACOS_SIGNING_IDENTITY, or
+	ChupathingyCE's release workflow, which signs and notarizes it with
+	this file). Ad hoc builds have no hardened runtime and need none. -->
+
+	<!-- voice chat's microphone (Info.plist's NSMicrophoneUsageDescription
+	is what macOS asks the player with) -->
 	<key>com.apple.security.device.audio-input</key>
+	<true/>
+
+	<!-- the MCC Workshop loads a steam_api library from the player's own
+	Steam install (paths.steam_api; steam_bridge_api.c), signed by Valve,
+	not by us: library validation refuses a library of another team
+	("different Team IDs") -->
+	<key>com.apple.security.cs.disable-library-validation</key>
 	<true/>
 </dict>
 </plist>
