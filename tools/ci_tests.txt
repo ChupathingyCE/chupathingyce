@@ -192,3 +192,4 @@ tools/test_workshop_play_history.py
 tools/test_workshop_questions.py
 tools/test_xbox_audio.py
 tools/test_xbox_heap.py
+tools/test_zoomed_field_of_view.py

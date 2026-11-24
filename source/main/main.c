@@ -383,6 +383,8 @@ symbols in this file:
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "camera/director.h"
 #include "units/units.h" /* port: the vehicle field of view */
+#include "units/unit_definitions.h" /* port: a zoomed view's width */
+#include "items/weapons.h" /* port: a zoomed view's width */
 #include "camera/observer.h"
 #include "cutscene/cinematics.h"
 #include "effects/player_effects.h"
@@ -1279,9 +1281,9 @@ unsigned long config_changes(void);
 
 /* port: display.field_of_view, the first-person view's width in degrees
 (the Xbox's 70, 50 to 120), as the scale of the tangent of the camera's half
-angle: the unit's and each zoom level's view widen or narrow together, so a
-scope magnifies as much as before. Only what is drawn changes; the observer,
-aim and the game's state keep the original angles. */
+angle. A zoomed view is drawn at the Xbox's own width
+(local_view_zoom_weight). Only what is drawn changes; the observer, aim and
+the game's state keep the original angles. */
 static real first_person_field_of_view_scale(
 	void)
 {
@@ -1352,12 +1354,47 @@ static boolean local_player_seated(
 (local_view_field_of_view_update): what set_window_camera_values widens
 the view by and the reticle is sized by, so both are the same frame's */
 static real local_view_scales[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS] = { 1.f, 1.f, 1.f, 1.f };
+/* how much of the widening each keeps this frame (local_view_zoom_weight) */
+static real local_view_zoom_weights[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS] = { 1.f, 1.f, 1.f, 1.f };
 /* how far each is into a vehicle's view, 0 on foot to 1 seated, and when */
 static real local_view_vehicle_weights[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 static unsigned long local_view_times[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 
 /* the time getting in or out eases the view between the two widths over */
 #define VEHICLE_VIEW_EASE_MILLISECONDS 500
+
+/* port: how much of display.field_of_view's widening a first-person view
+on foot keeps at the observer's field of view: all of it at the unit's own
+width, none at the weapon's first zoom level or closer, and in between while
+the zoom eases in or out. A zoomed view is drawn at the Xbox's width: the
+scope's mask, its reticle and its ticks are drawn at the Xbox's size, and
+the world inside them has to be too, or the reticle no longer covers what
+it did and its marks don't line up with the target (#1666). In a seat, or
+without a weapon that zooms, all of it, as before. */
+static real local_view_zoom_weight(
+	short local_player_index,
+	real field_of_view)
+{
+	long unit_index = player_control_get_unit_index(local_player_index);
+	struct unit_datum *unit;
+	long weapon_index;
+	real unit_field_of_view;
+	real zoomed;
+
+	if (unit_index == NONE || local_player_seated(local_player_index))
+		return 1.f;
+	unit = unit_get(unit_index);
+	weapon_index = unit_inventory_get_weapon(unit_index, unit->unit.current_weapon_index);
+	if (weapon_index == NONE)
+		return 1.f;
+	/* (a zoom level's view is the unit's angle over its magnification:
+	weapon_get_field_of_view) */
+	zoomed = 1.f / weapon_get_zoom_magnification(weapon_index, 0);
+	unit_field_of_view = unit_definition_get(unit->definition_index)->unit.camera_field_of_view;
+	if (!(zoomed < 1.f) || !(unit_field_of_view > 0.f) || !valid_real(field_of_view))
+		return 1.f;
+	return PIN((field_of_view / unit_field_of_view - zoomed) / (1.f - zoomed), 0.f, 1.f);
+}
 
 /* port: the local player's view scale, once a frame: in first person
 display.field_of_view's; in a vehicle's seat display.vehicle_field_of_view's,
@@ -1366,7 +1403,8 @@ or out, turning back from where it is if that reverses; the game's own
 in any other view (a scripted camera, death), which also ends an ease, so
 a respawn starts at the view on foot at once */
 static real local_view_field_of_view_update(
-	short local_player_index)
+	short local_player_index,
+	real field_of_view)
 {
 	short perspective;
 	unsigned long now = system_milliseconds();
@@ -1399,6 +1437,14 @@ static real local_view_field_of_view_update(
 	that the game shows in third person starts at the game's own) */
 	on_foot = perspective == _director_perspective_first_person ? first_person_field_of_view_scale() : 1.f;
 	local_view_scales[local_player_index] = on_foot + (vehicle_field_of_view_scale(perspective) - on_foot) * weight;
+	/* (zoomed: the Xbox's width; at the Xbox's 70 nothing to take back) */
+	local_view_zoom_weights[local_player_index] = 1.f;
+	if (local_view_scales[local_player_index] != 1.f && perspective == _director_perspective_first_person)
+	{
+		weight = local_view_zoom_weight(local_player_index, field_of_view);
+		local_view_zoom_weights[local_player_index] = weight;
+		local_view_scales[local_player_index] = 1.f + (local_view_scales[local_player_index] - 1.f) * weight;
+	}
 
 	return local_view_scales[local_player_index];
 }
@@ -1429,7 +1475,17 @@ real first_person_weapon_projection_scale(
 		}
 	}
 
-	return weapon_scale > 0.0f ? first_person_field_of_view_scale() / weapon_scale : 1.0f;
+	if (weapon_scale > 0.0f)
+	{
+		real view_scale = first_person_field_of_view_scale();
+
+		/* (the world's frustum it is drawn in is narrowed back as far
+		while a zoom eases out: local_view_zoom_weight) */
+		if (render.local_player_index >= 0 && render.local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+			view_scale = 1.0f + (view_scale - 1.0f) * local_view_zoom_weights[render.local_player_index];
+		return view_scale / weapon_scale;
+	}
+	return 1.0f;
 }
 
 /* port: display.crosshair_position (#508), how far down (in the window's
@@ -1606,7 +1662,7 @@ void set_window_camera_values(
 		/* port: display.field_of_view, in first person, and
 		display.vehicle_field_of_view in a vehicle's seat */
 		if (window->local_player_index != NONE)
-			field_of_view_tangent *= local_view_field_of_view_update(window->local_player_index);
+			field_of_view_tangent *= local_view_field_of_view_update(window->local_player_index, observer->field_of_view);
 		window->rasterizer_camera.position = observer->position;
 		window->rasterizer_camera.forward = observer->forward;
 		window->rasterizer_camera.up = observer->up;
