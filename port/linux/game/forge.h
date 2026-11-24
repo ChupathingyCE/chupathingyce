@@ -12,6 +12,10 @@ between them. A layout saved (forge_files.h, forge_store.h) is played as a
 local game of a game type (the lobby's PLAY, or "forge play <map> <layout>
 <type>"). Off unless
 game.forge is true: nothing of it runs until then.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef __FORGE_H
@@ -164,7 +168,7 @@ struct forge_properties
 	/* its physics: _forge_physics_* */
 	boolean has_physics;
 	short physics;
-	/* where the object or marker is, metres (x, y, z) */
+	/* where the object or marker is, meters (x, y, z) */
 	boolean has_position;
 	real position[3];
 	/* a marker's (forge_spawns.inc): its kind (_forge_spawn_*) and its game
@@ -520,5 +524,19 @@ void forge_netgame_flags_prepare(
 /* (game_engine_ctf.c) whether this game's CTF flags are a layout's */
 boolean forge_netgame_custom_flags(
 	void);
+
+/* ---------- prototypes/FORGE_MAP_OBJECTS.INC */
+
+/* (objects.c, game_engine.c) a Forge game or a layout played is up: the
+map's own objects' hooks are asked */
+extern int forge_map_objects_active;
+
+/* (game_engine.c game_engine_update_item_spawn) whether the session takes
+an item spawn of the map's away, and the item a spawn made */
+boolean forge_map_item_spawn_skipped(
+	long equipment_index);
+void forge_map_item_spawn_made(
+	long equipment_index,
+	long object_index);
 
 #endif

@@ -203,6 +203,44 @@ int main(void)
 		CHECK(strlen(authors[0].name) == 45 + 2 && (unsigned char)authors[0].name[46] == 0xA9);
 	}
 	{
+		/* names that are not valid UTF-8: each bad byte read as '?' (a lead
+		byte no character starts with, a lead without the bytes after it, an
+		overlong form, a surrogate, past U+10FFFF, a byte after a lead that
+		goes on none); \b and \f (the script's and the data's own) as spaces */
+		static const char page[] = "\\\"results\\\":[{\\\"publishedfileid\\\":\\\"5\\\",\\\"creator\\\":\\\"6\\\"},"
+			"{\\\"publishedfileid\\\":\\\"7\\\",\\\"creator\\\":\\\"8\\\"},"
+			"{\\\"publishedfileid\\\":\\\"9\\\",\\\"creator\\\":\\\"10\\\"}],"
+			"\\\"creator_player_link_details\\\":["
+			"{\\\"steamid\\\":\\\"6\\\",\\\"persona_name\\\":\\\"a\xF8" "b\xC3\xC0\xAF" "c\xED\xA0\x80\xF4\x90\x80\x80\xC3(\\\"},"
+			"{\\\"steamid\\\":\\\"8\\\",\\\"persona_name\\\":\\\"one\\btwo\\\\fthree\\\"},"
+			"{\\\"steamid\\\":\\\"10\\\",\\\"persona_name\\\":\\\"\xE2\x82\xAC \xF0\x9F\x98\x80\\\"}]";
+		/* (a, F8, b, C3 C0 AF, c, ED A0 80, F4 90 80 80, C3 "(") */
+		static const char bad[] = { 'a', '?', 'b', '?', '?', '?', 'c', '?', '?', '?', '?', '?', '?', '?', '?', '(', 0 };
+		struct workshop_browser_author authors[4];
+
+		CHECK(workshop_browser_read_browse_authors(page, (int)strlen(page), authors, 4) == 3);
+		CHECK(!strcmp(authors[0].name, bad));
+		CHECK(!strcmp(authors[1].name, "one two three"));
+		CHECK(!strcmp(authors[2].name, "\xE2\x82\xAC \xF0\x9F\x98\x80"));
+	}
+	{
+		/* an id with a creator after the list's "]" is not an item of it,
+		though a string in the list holds a "]" and an item has a nested
+		list */
+		static const char page[] = "\\\"results\\\":[{\\\"publishedfileid\\\":\\\"5\\\",\\\"creator\\\":\\\"6\\\","
+			"\\\"title\\\":\\\"a ] b \\\\\\\"]\\\\\\\" c\\\",\\\"tags\\\":[{\\\"tag\\\":\\\"x\\\"}]}],"
+			"\\\"related\\\":[{\\\"publishedfileid\\\":\\\"7\\\",\\\"creator\\\":\\\"8\\\"}]";
+		struct workshop_browser_author authors[4];
+		char ids[4][WORKSHOP_BROWSER_ID_SIZE];
+
+		CHECK(workshop_browser_read_browse_authors(page, (int)strlen(page), authors, 4) == 1);
+		CHECK(!strcmp(authors[0].id, "5"));
+		CHECK(workshop_browser_read_browse_ids(page, (int)strlen(page), ids, 4) == 1 && !strcmp(ids[0], "5"));
+		/* (a list with no "]", cut short: read to the page's end, as before) */
+		CHECK(workshop_browser_read_browse_authors(page, (int)(strstr(page, "\\\"title") - page), authors, 4) == 1 &&
+			!strcmp(authors[0].id, "5") && !strcmp(authors[0].creator, "6"));
+	}
+	{
 		static const char profile[] = "<?xml version=\"1.0\"?><profile><steamID64>7656</steamID64>"
 			"<steamID><![CDATA[Some \xC3\xA9 one]]></steamID><onlineState>offline</onlineState></profile>";
 		char name[WORKSHOP_BROWSER_AUTHOR_SIZE], small[8];

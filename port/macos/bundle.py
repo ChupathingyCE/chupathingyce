@@ -92,8 +92,10 @@ def sign(paths: List[Path], bundle: Path):
         options += ["--options", "runtime", "--timestamp"]
     for path in paths:
         subprocess.run(["codesign", *options, str(path)], check=True, capture_output=True)
-    # (the bundle's entitlements: the microphone for voice chat, which the
-    # hardened runtime denies without them)
+    # (the bundle's entitlements, which the hardened runtime needs: the
+    # microphone for voice chat: chupathingy.entitlements. Library validation
+    # stays on, so the Workshop's Steam app link is off in these builds:
+    # steam_bridge_platform_client_blocked)
     if identity != "-":
         options += ["--entitlements", str(PORT_DIR / "chupathingy.entitlements")]
     subprocess.run(["codesign", *options, str(bundle)], check=True, capture_output=True)
