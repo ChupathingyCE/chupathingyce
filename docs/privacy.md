@@ -4,7 +4,7 @@ When an online game ends, your game sends the scoreboard to stats.chupathingy.or
 
 When you host, your game also sends the match details (kills, medals, accuracy) for match pages and heatmaps.
 
-Your game never sends anyone's address or a hardware ID.
+Your game never sends stats.chupathingy.org anyone's address or a hardware ID. Other players can still find your internet address, though: see [Your internet address](#your-internet-address).
 
 You can turn each of these off on the setup screen's NETWORK tab, on the Privacy page in Settings, or under `[network]` in `config.toml`:
 
@@ -16,6 +16,12 @@ You can turn each of these off on the setup screen's NETWORK tab, on the Privacy
 | `list_hosted_games = false` | Listing your hosted games, and their reports |
 
 The full list of what the site keeps is on [stats.chupathingy.org/delta#tracked](https://stats.chupathingy.org/delta#tracked).
+
+## Your internet address
+
+In an internet game, players' computers connect straight to each other, so they have to learn each other's addresses. Anyone who has a game's invite can find out the host's internet address. Games you host are public by default, and a public game's invite is listed for everyone, so anyone can find a public host's address. When you join a public game, anyone watching that game's invite can see your addresses too: your internet address and your address on your home network.
+
+To keep your address private, set `host_public = false` under `[network]` in `config.toml`, send your invites only to people you trust, and join games hosted by people you trust.
 
 ## Games you join
 
@@ -73,6 +79,8 @@ CRASH REPORTS on the setup screen's NETWORK tab changes it. A crash report
 has the build, your system, where the game crashed and the last lines of the
 log, with addresses taken out. On Windows it can also hold a small minidump:
 the crashed threads' stacks and registers, not the game's other memory.
+A minidump is a raw copy of that memory, so it can hold whatever the game had
+there when it crashed, such as a player name or an address.
 
 ## Maps from hosts
 

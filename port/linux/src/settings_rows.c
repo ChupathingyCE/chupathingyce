@@ -145,8 +145,8 @@ static const char *const hud_buttons_choices[] = { "classic", "hd", NULL };
 static const char *const reticle_size_choices[] = { "0.5", "0.75", "1", "1.25", "1.5", "2", NULL };
 static const char *const reticle_size_names[] = { "50%", "75%", "100%", "125%", "150%", "200%", NULL };
 /* the crosshair's place (display.crosshair_position) */
-static const char *const crosshair_position_choices[] = { "retail", "centered", "lowered", NULL };
-static const char *const crosshair_position_names[] = { "XBOX", "CENTERED", "LOWERED", NULL };
+static const char *const crosshair_position_choices[] = { "retail", "lowered", NULL };
+static const char *const crosshair_position_names[] = { "XBOX", "LOWERED", NULL };
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -203,6 +203,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
 #endif
 	{ _in_audio, "SPEAKERS", "audio.channels", _kind_choices, channels_choices, NULL, 1, 0 },
+	{ _in_audio | _in_guide, "LOUDNESS", "audio.loudness", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_audio, "HEADPHONE 3D", "audio.hrtf", _kind_choices, hrtf_choices, NULL, 0, 0 },
 	{ _in_audio, "REVERB", "audio.reverb", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "DOPPLER", "audio.doppler", _kind_toggle, NULL, NULL, 0, 0 },
@@ -233,6 +234,8 @@ static const struct settings_row settings_rows[] =
 	{ _in_guide, "MISSION ORDER", "game.mcc_campaigns", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FORGE", "game.forge", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "CONFIRM BUTTON", "delta.confirm_button", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_guide, "RUMBLE", "delta.rumble", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "SHOW IN MENUS", "delta.menu_item", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "NOTIFICATIONS IN GAME", "delta.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FRIEND ONLINE ALERTS", "delta.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
