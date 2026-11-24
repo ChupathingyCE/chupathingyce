@@ -4,18 +4,22 @@ FORGE_MARKERS.INC
 Forge's markers (included by forge.c, for its statics): the layout's player
 spawn points, teleporters and game type objects (forge_spawns.inc,
 forge_netgame.inc), which are no objects, shown to the monitor as small
-see-through markers on the ground in their team's or channel's colour, and
+see-through markers on the ground in their team's or channel's color, and
 taken, carried, let go, turned and deleted like an object, their properties
 opened from them (X while holding one). The map's own player spawns are
-drawn beside them, grey and read only.
+drawn beside them, gray and read only.
 
 A marker is drawn (forge_marker_draw: the game's debug-geometry shaders, a
-colour a vertex, blended), never an object: nothing of it is sent anywhere
+color a vertex, blended), never an object: nothing of it is sent anywhere
 or saved but the layout record it stands for. Shown only while the player
 is the monitor in a Forge game: the Spartan in a Forge game, and anyone in
 a layout played, sees none, teleporters' included (a teleporter is no
 object: a layout shows where one is with the scenery placed there, as a
 map's own teleporters are shown).
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 /* ---------- constants */
@@ -44,7 +48,7 @@ enum
 {
 	/* (a marker of the layout: forge_spawns.inc) */
 	_forge_marker_player_spawn = 0,
-	/* (the map's own: grey) */
+	/* (the map's own: gray) */
 	_forge_marker_map_spawn,
 	NUMBER_OF_FORGE_MARKER_DRAW_KINDS
 };
@@ -63,13 +67,13 @@ struct forge_marker
 	short kind;
 	real_point3d position;
 	real_vector3d forward;
-	/* its colour */
+	/* its color */
 	real red;
 	real green;
 	real blue;
 	/* under the crosshair, or held: brighter */
 	boolean lit;
-	/* (a player spawn) an initial spawn: a second ring, a filled centre */
+	/* (a player spawn) an initial spawn: a second ring, a filled center */
 	boolean initial;
 	/* (a patrol area: forge_ai_move.inc) a thin ring this wide round it */
 	real area_radius;
@@ -148,8 +152,8 @@ static void forge_marker_ring(
 
 /* a marker drawn in the 3D (render.c's hook, after the objects), flat on
 the ground: a
-ring in its colour over a faint disc, a chevron on it pointing where it
-faces; an initial spawn's a second ring inside and a filled centre;
+ring in its color over a faint disc, a chevron on it pointing where it
+faces; an initial spawn's a second ring inside and a filled center;
 blended, a little over the ground under it, the walls in front hiding it */
 static void forge_marker_draw(
 	struct forge_marker const *marker)
@@ -189,7 +193,7 @@ static void forge_marker_draw(
 	forge_marker_ring(vertices, &count, &center, 0.f, FORGE_MARKER_RING_INNER, forge_marker_pixel(marker, 0.8f, alpha * 0.35f));
 	forge_marker_ring(vertices, &count, &center, FORGE_MARKER_RING_INNER, FORGE_MARKER_DISC_RADIUS,
 		forge_marker_pixel(marker, 1.f, alpha));
-	/* (an initial spawn's: a second ring and a filled centre) */
+	/* (an initial spawn's: a second ring and a filled center) */
 	if (marker->initial)
 	{
 		forge_marker_ring(vertices, &count, &center, FORGE_MARKER_DISC_RADIUS * 0.5f, FORGE_MARKER_DISC_RADIUS * 0.62f,
@@ -269,14 +273,14 @@ static boolean forge_marker_of_spawn(
 	return TRUE;
 }
 
-/* a player spawn point's colour: its team's (any: white); a teleporter's
+/* a player spawn point's color: its team's (any: white); a teleporter's
 its channel's (a sender and its receiver the same); a game type object's
 its own */
 static void forge_marker_spawn_color(
 	struct forge_spawn const *spawn,
 	struct forge_marker *marker)
 {
-	/* (an AI route's point or patrol area: its route's colour) */
+	/* (an AI route's point or patrol area: its route's color) */
 	if (spawn->kind == _forge_spawn_ai_route || spawn->kind == _forge_spawn_ai_area)
 	{
 		static real const route_colors[4][3] =
@@ -414,7 +418,7 @@ static long forge_marker_under_crosshair(
 }
 
 /* an AI route drawn: a flat band from each point to the next (the last to
-the first), in the route's colour, a little over the points' markers */
+the first), in the route's color, a little over the points' markers */
 static void forge_markers_render_routes(
 	void)
 {
@@ -499,7 +503,7 @@ static void forge_markers_render(
 		return;
 	}
 	under = forge_globals.held_marker_id ? NONE : forge_marker_under_crosshair(NULL);
-	/* (the player spawn points, in their team's colour) */
+	/* (the player spawn points, in their team's color) */
 	for (index = 0; index < forge_globals.spawn_count && index < FORGE_SPAWN_TABLE && drawn < FORGE_MARKER_MOST_DRAWN; index++)
 	{
 		struct forge_spawn const *spawn = &forge_globals.spawns[index];
@@ -509,7 +513,7 @@ static void forge_markers_render(
 		csmemset(&marker, 0, sizeof(marker));
 		marker.kind = _forge_marker_player_spawn;
 		/* (an initial spawn's, a teleporter sender's: a second ring and a
-		filled centre) */
+		filled center) */
 		marker.initial = spawn->kind == _forge_spawn_initial || spawn->kind == _forge_spawn_teleporter_sender ||
 			spawn->kind == _forge_spawn_flag || spawn->kind == _forge_spawn_oddball;
 		forge_marker_of_spawn(spawn, &marker.position, &marker.forward);
@@ -532,7 +536,7 @@ static void forge_markers_render(
 	/* (each AI route's points joined in their order, the last to the first:
 	forge_ai_move.inc) */
 	forge_markers_render_routes();
-	/* (the map's own player spawns, grey, read only: near ones) */
+	/* (the map's own player spawns, gray, read only: near ones) */
 	forge_globals.map_markers_drawn = 0;
 	if (global_scenario_index != NONE)
 	{
@@ -646,7 +650,7 @@ static void forge_marker_held_update(
 
 		forge_snapped(&position, &facing, &up);
 	}
-	/* (stood on what is under it, within a few metres) */
+	/* (stood on what is under it, within a few meters) */
 	down.i = 0.f;
 	down.j = 0.f;
 	down.k = -4.f;

@@ -9,14 +9,14 @@ race, infection) and a facing; TELEPORTERS and OBJECTIVES place their
 markers in the same table (forge_netgame.inc).
 
 A marker is no object of the map's: it is drawn (forge_markers.inc: the
-see-through marker in its team's colour, flat on the ground: a ring, a
+see-through marker in its team's color, flat on the ground: a ring, a
 chevron where the player faces, an initial spawn's a second ring and a
-filled centre), for the monitor only, never for the Spartan or in a layout
+filled center), for the monitor only, never for the Spartan or in a layout
 played; taken (RT), carried and let go like an object, its properties
 opened from it (X while holding it: TEAM, GAME TYPE, the kind, YAW),
 deleted with Y (held or under the crosshair). It counts in the objects'
 budget, at most FORGE_MAXIMUM_SPAWNS of them. The map's own spawns are
-drawn grey beside them (read only).
+drawn gray beside them (read only).
 
 Saved in the layout as version 4's player spawn record (forge_files.h);
 read back as the map loads, before anyone spawns, so the round's first
@@ -32,6 +32,10 @@ player takes the initial spawns if any fits, else the respawn points. When
 none fits, the map's own spawns are used, as before; when some fit but
 every one is blocked (an enemy on it), the player waits, as the engine has
 one wait, for FORGE_SPAWN_WAIT_TICKS at most before the map's are used.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 /* ---------- constants */
@@ -938,7 +942,7 @@ short forge_spawn_location(
 			candidate.team_index = (short)(teams && spawn->team != NONE ? spawn->team : player->team_index);
 			/* (the game type the spawn fits: the one played) */
 			candidate.game_types[0] = (short)(game_engine_running() ? game_engine_get_variant()->game_engine_index : 0);
-			/* (the engine's rating, randomised as find_best_starting_location_
+			/* (the engine's rating, randomized as find_best_starting_location_
 			index does) */
 			rating = game_engine_get_starting_location_rating(player_index, &candidate) *
 				(real)pow((double)real_seed_random_range(&spawn_seed, 0.f, 1.f), 0.5);

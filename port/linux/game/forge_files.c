@@ -7,6 +7,10 @@ before it is used, every offset checked against the bytes there, every
 float's bits looked at before it is a float, every text checked as UTF-8,
 and the layout handed back only when every check passed (a file is taken
 whole or not at all).
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "forge_files.h"
@@ -200,7 +204,7 @@ int forge_file_map_name_valid(
 		if (!((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '_'))
 			return 0;
 	}
-	return length >= 1 && length < FORGE_FILE_MAP_NAME_SIZE;
+	return length >= 1 && length < FORGE_FILE_MAP_NAME_SIZE && !forge_file_name_reserved(name);
 }
 
 int forge_file_text_valid(
@@ -267,6 +271,33 @@ int forge_file_text_valid(
 	return index < maximum;
 }
 
+int forge_file_name_reserved(
+	char const *name)
+{
+	static char const *const devices[] = { "con", "prn", "aux", "nul" };
+	char lower[5];
+	int length;
+	int index;
+
+	if (!name)
+		return 0;
+	/* (the part before the first '.', in lower case: Windows opens the
+	device whatever the extension) */
+	for (length = 0; name[length] && name[length] != '.'; length++)
+	{
+		if (length >= 4)
+			return 0;
+		lower[length] = name[length] >= 'A' && name[length] <= 'Z' ? (char)(name[length] - 'A' + 'a') : name[length];
+	}
+	lower[length] = 0;
+	for (index = 0; index < (int)(sizeof(devices) / sizeof(devices[0])); index++)
+	{
+		if (!strcmp(lower, devices[index]))
+			return 1;
+	}
+	return length == 4 && (!strncmp(lower, "com", 3) || !strncmp(lower, "lpt", 3)) && lower[3] >= '1' && lower[3] <= '9';
+}
+
 int forge_file_name_valid(
 	char const *file_name)
 {
@@ -292,7 +323,7 @@ int forge_file_name_valid(
 			return 0;
 		}
 	}
-	return 1;
+	return !forge_file_name_reserved(file_name);
 }
 
 void forge_file_name_from_title(
@@ -323,7 +354,12 @@ void forge_file_name_from_title(
 	stem[length] = 0;
 	if (!length)
 		snprintf(stem, sizeof(stem), "variant");
-	if (number > 1)
+	/* (a stem Windows keeps for a device is numbered from 1: "con_1.hmv") */
+	if (number < 2 && forge_file_name_reserved(stem))
+		number = 1;
+	else if (number < 2)
+		number = 0;
+	if (number > 0)
 		snprintf(file_name, (size_t)size, "%s_%d%s", stem, number > 9999 ? 9999 : number, FORGE_FILE_EXTENSION);
 	else
 		snprintf(file_name, (size_t)size, "%s%s", stem, FORGE_FILE_EXTENSION);

@@ -30,8 +30,8 @@ other map, has the map's own block back, as it was: its game logic is not
 changed.
 
 A teleporter is drawn as its marker (forge_markers.inc) for the monitor
-alone, in its channel's colour: the sender with a second ring and a filled
-centre, the receiver a plain ring, its chevron where a player sent there
+alone, in its channel's color: the sender with a second ring and a filled
+center, the receiver a plain ring, its chevron where a player sent there
 faces. A player (the Spartan in a Forge game, anyone in a layout played)
 sees no marker, as a map's own teleporters have none: the layout's scenery
 (the map's Teleporter, Teleporter Base) shows where one is.
@@ -55,6 +55,10 @@ when a flag is let go and on saving (forge_netgame_flags_warning), and a game
 with a layout's own flags gives such a team its spawns back
 (ctf_engine_initialize_for_new_map, forge_netgame_custom_flags). A game with
 the map's own flags keeps the rule as it is.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 /* ---------- constants */

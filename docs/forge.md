@@ -122,7 +122,7 @@ What doesn't work yet: a character boards a Banshee but doesn't take off in it. 
 
 ## Layout files
 
-Layouts are saved in `forge/<map>/<name>.hmv` in the save root. The format is small and fixed, so layouts can be shared as files:
+Layouts are saved in `forge/<map>/<name>.hmv` in the save root. The name is made from the title: lower-case letters, digits and `_`, with a number when another layout has it. Names Windows keeps for devices (`con`, `prn`, `aux`, `nul`, `com1` to `com9`, `lpt1` to `lpt9`) are never used: a layout titled `CON` is saved as `con_1.hmv`, and a file or map folder with one of those names is never opened. The format is small and fixed, so layouts can be shared as files:
 
 - a 64-byte header: `HFRG`, version, header size, flags, the map's short name, the map's checksum, the counts, the payload's size and its CRC-32;
 - the tag paths the records place (never tag indices);

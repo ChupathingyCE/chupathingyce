@@ -576,6 +576,11 @@ void objects_information_get(
 	return;
 }
 
+/* port: the structure BSP the co-op host's activating cluster was taken in
+(objects_port_set_activating_cluster), NONE for a cluster of this machine's
+own scripts */
+static short objects_port_activating_structure_bsp_index = NONE;
+
 void object_pvs_set_object(
 	long object_index)
 {
@@ -620,6 +625,7 @@ void object_pvs_set_camera_point(
 		{
 			object_globals->pvs_activation_type = _pvs_activation_cluster;
 			object_globals->pvs_activation.cluster_index = location.cluster_index;
+			objects_port_activating_structure_bsp_index = NONE;
 		}
 	}
 
@@ -637,6 +643,7 @@ void objects_port_set_activating_cluster(
 	}
 	object_globals->pvs_activation_type = _pvs_activation_cluster;
 	object_globals->pvs_activation.cluster_index = cluster_index;
+	objects_port_activating_structure_bsp_index = global_structure_bsp_index_get();
 }
 
 void object_pvs_clear(void)
@@ -655,6 +662,15 @@ short objects_get_activating_cluster_index(
 	switch (object_globals->pvs_activation_type)
 	{
 	case _pvs_activation_cluster:
+		/* port: not a co-op host's from before this machine's last BSP
+		switch: a cluster of another BSP, past the end of this one's (a halt
+		in a debug build, structure_bsp_get_cluster_pvs) or another place in
+		it. The host's next word on it brings the one in this BSP */
+		if (objects_port_activating_structure_bsp_index != NONE &&
+			objects_port_activating_structure_bsp_index != global_structure_bsp_index_get())
+		{
+			break;
+		}
 		result = object_globals->pvs_activation.cluster_index;
 		break;
 	case _pvs_activation_object:

@@ -1,8 +1,9 @@
 """The MCC maps' stock HUD sheets' textures (port/assets/hud/mcc, made by
 tools/hud_assets.py mcc-layout): each laid out as its MCC sheet, a whole
-multiple of its size, for a sheet the Xbox maps' high-res HUD has too (not
-a meter, which MCC maps draw from their own copy), with its kept cells
-inside it and left empty for the map's own texels."""
+multiple of its size, for a sheet the Xbox maps' high-res HUD has too, with
+its kept cells inside it and left empty for the map's own texels. A meter
+sheet (mcc-meters) comes whole, every bitmap of it, and keeps no cells, so
+a meter is never drawn half MCC's and half ours."""
 import json
 import struct
 from pathlib import Path
@@ -36,11 +37,23 @@ def test_sheets_match_their_textures():
     assert names == {path.name for path in (HUD / "mcc").glob("*.png")}, "a texture no sheet lists, or one missing"
 
 
-def test_only_the_xbox_maps_sheets_and_no_meters():
+def test_only_the_xbox_maps_sheets():
     xbox = {entry["tag"] for entry in json.loads((HUD / "layout.json").read_text())["assets"]}
     for entry in entries():
         assert entry["tag"] in xbox, entry["name"]
-        assert entry["tag"] not in METERS, entry["name"]
+
+
+def test_meter_sheets_whole():
+    # MCC's stock meter sheets: hud_unit_meters has four bitmaps, hud_ammo_meters two
+    sizes = {"ui\\hud\\bitmaps\\combined\\hud_unit_meters": 4, "ui\\hud\\bitmaps\\combined\\hud_ammo_meters": 2}
+    for tag, count in sizes.items():
+        sheets = sorted(entry["bitmap"] for entry in entries() if entry["tag"] == tag)
+        assert sheets == list(range(count)), f"{tag}: bitmaps {sheets}, not all {count}"
+        for entry in entries():
+            if entry["tag"] == tag:
+                assert not entry.get("keep"), f"{entry['name']}: a meter keeps none of the map's own cells"
+                assert all(cell["kind"] == "meter" for cell in entry["cells"]), entry["name"]
+                assert entry["scale"] == 1, entry["name"]
 
 
 def test_kept_cells_are_inside_and_empty():

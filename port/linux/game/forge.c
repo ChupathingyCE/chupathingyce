@@ -142,6 +142,10 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
   forge map [category]     the map's own objects the editor can take, and
                            the ones the layout takes away, in the log
   forge shot               (tests) a screenshot, as the screenshot key
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "cseries.h"
@@ -526,7 +530,7 @@ static struct
 	{ "boulder", "Boulder" },
 	{ "boulder_crouch", "Low Boulder" },
 	{ "boulder_doublewide", "Wide Boulder" },
-	{ "boulder_large_grey", "Large Grey Boulder" },
+	{ "boulder_large_grey", "Large Gray Boulder" },
 	{ "a50_rock_large", "Large Rock" },
 	{ "snowrock", "Snow Rocks" },
 	{ "snowrocksmall", "Small Snow Rocks" },
@@ -4125,7 +4129,7 @@ boolean forge_properties_get(
 	if (spawn)
 	{
 		forge_spawn_properties_get(spawn, properties);
-		/* (where it stands, metres: forge_precision.inc) */
+		/* (where it stands, meters: forge_precision.inc) */
 		{
 			real_point3d const *at = spawn->id == forge_globals.held_marker_id ? &forge_globals.held_marker_position :
 				&spawn->home.position;
@@ -5003,7 +5007,7 @@ void forge_update(
 }
 
 /* a line of the monitor's HUD in a font, at bounds (justification: 0 left,
-2 centred), in a colour */
+2 centered), in a color */
 static void forge_draw_line(
 	long font_index,
 	rectangle2d const *bounds,
