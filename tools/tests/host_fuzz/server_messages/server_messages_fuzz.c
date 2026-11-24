@@ -14,7 +14,10 @@ or after it. The input:
 	then messages, each:
 	byte:   bits 0-1 the machine that sends it, bit 2 a datagram (from its
 	        address) rather than over its connection, bit 3 the
-	        distributed kind (_message_type_data) rather than a packet
+	        distributed kind (_message_type_data) rather than a packet;
+	        for a datagram, bit 4 from a port other than the client's,
+	        bit 5 from an internet address rather than its machine's
+	        local one, bit 6 the host's network.direct_ip_host on
 	2 bytes: its length after the header (little-endian, at most 4093)
 	that many bytes: the packet as the handler reads it after the header
 	        (its version byte first, its type last)
@@ -71,6 +74,14 @@ byte network_game_server_handle_datagram(struct network_game_server *server, wor
 void initialize_network_game_packets(void);
 
 static struct network_game_server *fuzz_server;
+
+/* (the settings: all off but network.direct_ip_host, as the message says) */
+static int fuzz_direct_ip_host;
+int config_boolean(char const *name);
+int config_boolean(char const *name)
+{
+	return fuzz_direct_ip_host && !strcmp(name, "network.direct_ip_host");
+}
 
 /* ---------- what the units need of the rest of the game: what they do
 with it here */
@@ -362,8 +373,9 @@ int LLVMFuzzerTestOneInput(const byte *data, size_t size)
 
 			memset(&source, 0, sizeof(source));
 			source.address_length = 4;
-			source.address.long_words[0] = 0x0A000001 + machine;
+			source.address.long_words[0] = (control & 32 ? 0xCB007101 : 0x0A000001) + machine;
 			source.port = (word)(control & 16 ? 2303 : 2302);
+			fuzz_direct_ip_host = (control & 64) != 0;
 			network_game_server_handle_datagram(fuzz_server, message, (short)(2 + length), &source);
 		}
 		else
