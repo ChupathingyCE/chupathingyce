@@ -80,7 +80,7 @@ const char *const *settings_page_names(void);
 /* a page's lines, NULL ended: "#" and a caption that heads a block, "="
 and a line of information (=version, =platform), else a row by its key (a
 setting's config.toml key, or one of the Guide's own: "@devices", "@link",
-"@logs0", "@logs1", "@about") */
+"@logs0", "@logs1", "@setup", "@about") */
 const char *const *settings_page_lines(int page);
 /* the page that lists key, or -1 for none */
 int settings_key_page(const char *key);

@@ -563,7 +563,7 @@ static const char *const guide_lines[] =
 };
 static const char *const about_lines[] =
 {
-	"#CHUPATHINGY", "=version", "=platform", "@about",
+	"#CHUPATHINGY", "=version", "=platform", "@setup", "@about",
 	"#LOGS", "@logs0", "@logs1",
 	NULL
 };
