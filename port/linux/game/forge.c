@@ -54,12 +54,9 @@ the mouse looks:
   second instead, with game.forge_hold_to_delete: forge_delete_asked);
 - X: the Forge menu (forge_menu.c): OBJECTS (the map's objects by
   category, the one chosen spawned in the monitor's hand), PROPERTIES (of
-  what is held: it opens there), LAYOUTS (save, save as new, load, delete)
-  and OPTIONS (snap, speed, rotation snap, delete, grab range, undo, redo, new round, Spartan,
   what is held, or with nothing held of the layout's object or marker the
   crosshair is on: it opens there), LAYOUTS (save, save as new, load, delete)
-  and OPTIONS (snap, speed, rotation snap, undo, redo, new round, Spartan,
-  and OPTIONS (snap, speed, rotation snap, held facing, undo, redo, new round, Spartan,
+  and OPTIONS (snap, speed, rotation snap, delete, grab range, held facing, undo, redo, new round, Spartan,
   the controls); what it asks is done here (forge_menu_link.inc);
 - B: a copy of the object held or under the crosshair, held;
 - White: the movement speed (slow, normal, fast); in rotate mode, its
