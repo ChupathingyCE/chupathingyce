@@ -3149,8 +3149,8 @@ static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struc
 
 /* flat: a 2D texture (not a cube or 3D one), the only kind given the
 anisotropy display.anisotropic_filtering forces, on the same terms as the
-OpenGL path's configure_sampler: mipmapped and filtered. bgfx's level is
-16x (bg_reset_flags) whatever the setting's number. */
+OpenGL path's configure_sampler: mipmapped and filtered, at the setting's
+level (bg_reset_flags). */
 static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires, BOOL flat)
 {
 	DWORD *state = D3D__TextureState[stage];
@@ -4390,17 +4390,22 @@ static const char bg_crt_fragment_source[] =
 
 /* bgfx's reset flags: vertical sync as every renderer's frames are shown
 (platform_present_mode: display.vsync, display.vrr, tuning.present_mode), and
-the most anisotropy (16x) when display.anisotropic_filtering forces it
-(bg_sampler_flags; bgfx's samplers have either that or none). Adaptive's
-late frames shown at once are Vulkan's FIFO_RELAXED (bgfx_vsync_relaxed,
-tools/bgfx-patches/0007), set before the swap chain is made again; Direct3D
-11 has no such mode, and there each frame waits, which the log says once */
+anisotropy when display.anisotropic_filtering forces it (bg_sampler_flags;
+bgfx's samplers have either that or none), at the setting's level: 2, 4, 8
+or 16 as the OpenGL path's forced_anisotropy rounds it, at most the device's
+(bgfx_max_anisotropy, tools/bgfx-patches/0008, which each backend reads with
+the flags). Adaptive's late frames shown at once are Vulkan's FIFO_RELAXED
+(bgfx_vsync_relaxed, tools/bgfx-patches/0007), set before the swap chain is
+made again; Direct3D 11 has no such mode, and there each frame waits, which
+the log says once */
 extern int bgfx_vsync_relaxed;
+extern int bgfx_max_anisotropy;
 
 static unsigned long bg_reset_flags(void)
 {
 	int present = platform_present_mode();
 	unsigned long flags = present != PLATFORM_PRESENT_IMMEDIATE ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	long value = config_integer("display.anisotropic_filtering");
 
 	bgfx_vsync_relaxed = present == PLATFORM_PRESENT_ADAPTIVE;
 	/* (bg_d3d11: set before bgfx_init, whose flags these are first) */
@@ -4412,7 +4417,8 @@ static unsigned long bg_reset_flags(void)
 			platform_log("tuning: present=adaptive is not in bgfx's Direct3D 11 yet: each frame waits for the display");
 		said = TRUE;
 	}
-	if (config_integer("display.anisotropic_filtering") >= 2)
+	bgfx_max_anisotropy = value >= 16 ? 16 : value >= 8 ? 8 : value >= 4 ? 4 : value >= 2 ? 2 : 0;
+	if (bgfx_max_anisotropy)
 		flags |= BGFX_RESET_MAXANISOTROPY;
 	return flags;
 }
