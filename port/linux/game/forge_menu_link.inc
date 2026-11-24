@@ -172,7 +172,9 @@ void forge_menu_view_get(
 	csmemset(view, 0, sizeof(*view));
 	view->session = forge_globals.game_active && !forge_globals.playing;
 	view->monitor = forge_globals.active;
-	view->holding = object_try_and_get(forge_globals.held_object_index) != NULL || forge_globals.held_marker_id != 0;
+	/* (what PROPERTIES shows: what is held, or what X was pressed on) */
+	view->holding = object_try_and_get(forge_globals.held_object_index) != NULL || forge_globals.held_marker_id != 0 ||
+		forge_properties_target() != NULL || forge_properties_spawn() != NULL;
 	view->map_index = forge_menu_map();
 	view->objects = forge_objects_counted();
 	view->ai_alive = forge_ai_alive();

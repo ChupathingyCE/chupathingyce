@@ -40,7 +40,7 @@ You start as the monitor. The prompts at the bottom of the screen say what the b
 | Y | Delete, X | Delete what you hold or aim at (held for half a second instead, with a bar that fills over the crosshair, when OPTIONS > DELETE is HOLD) |
 | RB (Black) | U | Set it upright |
 | LB (White) | Q | Flying speed; in rotate mode, the rotation snap (off, 15, 45, 90 degrees) |
-| X | E | The Forge menu |
+| X | E | The Forge menu; on an object or marker of your layout, its PROPERTIES |
 | Back + right stick click | M | Switch between the monitor and playing as the Spartan |
 
 Spawn points, teleporters and game type objects show as markers on the ground only while you're the monitor. Players don't see them, as a map's own teleporters have no marker: place a Teleporter or Teleporter Base from SCENERY where you want players to see one.
@@ -56,6 +56,7 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
   ![OBJECTS](screenshots/forge-objects.jpg)
 
 - PROPERTIES: what you hold, if you placed it. It opens here when you hold something. Left and right change a value: team, respawn time, placed at start, yaw, pitch and roll, reset rotation, and physics (normal, fixed: never moves, phased: no collision, shots pass through). An AI character has its AI TEAM, AI (on or off), RESPAWN (never, or 10, 30, 60 or 120 seconds after it dies), placed at start and yaw. A spawn point has its team, game type, kind and facing; a teleporter its channel; a game type object its index (a CTF flag's team, a hill's number).
+- PROPERTIES: what you hold, if you placed it, or with nothing held what the crosshair is on when you press X (an object or marker of your layout; the map's own objects open OBJECTS). It opens here then. Left and right change a value: team, respawn time, placed at start, yaw, pitch and roll, reset rotation, and physics (normal, fixed: never moves, phased: no collision, shots pass through). A spawn point has its team, game type, kind and facing; a teleporter its channel; a game type object its index (a CTF flag's team, a hill's number).
 
   ![PROPERTIES](screenshots/forge-properties.jpg)
 

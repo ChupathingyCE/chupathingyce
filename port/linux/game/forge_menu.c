@@ -27,7 +27,8 @@ its left (its title and the budget, the tabs, one list, the chosen row's
 box, the prompts):
 - OBJECTS (OBJECT BROWSER): the categories, A on one its objects (each
   with how many the layout has); A places one in the monitor's hand;
-- PROPERTIES: what is held (an object or marker the layout placed), its
+- PROPERTIES: what is held (an object or marker the layout placed), or
+  with nothing held what the crosshair was on as X opened the menu, its
   rows as SETTINGS' (left and right change a value);
 - LAYOUTS: SAVE (under the layout's title), SAVE AS NEW, then the map's
   layouts: A loads one (pressed twice: what isn't saved is lost), Y
