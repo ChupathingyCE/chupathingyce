@@ -6516,8 +6516,10 @@ const char *config_tuning_preset_value(const char *preset, const char *name)
 	return NULL;
 }
 
-#ifndef HALO_XBOX_CONSOLE
-/* ---------- the console's setting command (source/main/console.c)
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_XBOX360_CONSOLE)
+/* ---------- the console's setting command (source/main/console.c's
+CONSOLE_SETTING_COMMAND, the same gate less the dedicated server's, whose
+file tools/test_port_config.py checks it refuses the game's settings in)
 
 "setting <key>" says a setting's value, "setting <key> <value>" sets it as
 config.toml would (the same words, and the [tuning] knobs held in range by

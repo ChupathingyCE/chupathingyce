@@ -366,11 +366,12 @@ commands and its typing (port/linux/game/console_shell.h) */
 #define CONSOLE_SHELL
 #include "console_shell.h"
 
-#if !defined(HALO_XBOX360_CONSOLE) && !defined(HALO_SERVER)
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_XBOX360_CONSOLE) && !defined(HALO_SERVER)
 /* port: setting <key> [<value>], a setting of config.toml read, set or
-listed (port/linux/src/port_config.c's config_console_command): the
-desktop's and Android's console. Not the Xbox 360's, which has no keyboard
-to type it, nor the dedicated server's, whose settings stay in its file */
+listed (port/linux/src/port_config.c's config_console_command, under the
+same gate): the desktop's and Android's console. Not the original Xbox's
+or the Xbox 360's, which have no keyboard to type it, nor the dedicated
+server's, whose settings stay in its file */
 #define CONSOLE_SETTING_COMMAND
 #endif
 
