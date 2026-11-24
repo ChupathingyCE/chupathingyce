@@ -7,6 +7,10 @@ by the menus' code (ui_widget.c), over the game; what it asks - an object
 placed, a property stepped, a save, a layout loaded - waits here and is done
 by forge_update before the next tick, as the monitor's own buttons are, so
 no object is touched while the tick runs or a frame draws.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 /* ---------- constants */

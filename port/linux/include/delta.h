@@ -579,9 +579,9 @@ machine hosts is under way (delta_legacy_hold): then at its end, so that one
 game is played by one number. */
 #define DELTA_HOSTING_MAXIMUM 8
 /* the newest number a desktop build (or a dedicated server: HALO_GAME_BROWSER)
-hosts with no table row for its wire: the last release's row's (chupa-41a's
-announce, 41), so that a new wire plays as the release before it did until a
-signed table says otherwise; a console's build without the list keeps
+hosts with no table row for its wire: chupa-41a's announce, 41 (0.8.1d to
+0.9.0's number), so that a new wire plays at it until a signed table's row
+for it says otherwise; a console's build without the list keeps
 HALO_PORT_NETWORK_VERSION */
 #define DELTA_BUILT_IN_HOSTING 41
 /* the newest version the table in use proves for hosting (its announce, or
