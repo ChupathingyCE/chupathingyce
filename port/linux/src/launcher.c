@@ -143,11 +143,15 @@ enum
 static const char *const section_names[NUMBER_OF_SECTIONS] = { "PLAY", "MAPS", "SETTINGS", "LOGS & HELP", "ABOUT",
 	"QUIT" };
 
-/* Settings' tabs: settings_rows.h's groups, then PATHS and ALL */
+/* Settings' tabs: the Guide's SETTINGS pages but ABOUT (settings_rows.h's
+SETTINGS_PAGE_*, in their order), with the setup screen's own rows too, then
+NETWORK, PATHS, UPDATES and ALL */
 enum
 {
 	_tab_display,
-	_tab_audio,
+	_tab_sound,
+	_tab_game,
+	_tab_guide,
 	_tab_network,
 	_tab_paths,
 	_tab_updates,
@@ -155,7 +159,8 @@ enum
 	NUMBER_OF_TABS
 };
 
-static const char *const tab_names[NUMBER_OF_TABS] = { "DISPLAY", "AUDIO", "NETWORK", "PATHS", "UPDATES", "ALL" };
+static const char *const tab_names[NUMBER_OF_TABS] = { "DISPLAY", "SOUND", "GAME", "GUIDE", "NETWORK", "PATHS",
+	"UPDATES", "ALL" };
 
 enum
 {
@@ -1402,21 +1407,92 @@ static void all_rows(void)
 	}
 }
 
-/* a tab's rows of settings_rows.h's group */
-static void group_rows(int group)
+/* a row of settings_rows.h's */
+static struct row *setting_row(const struct settings_row *setting)
+{
+	struct row *row = row_add(_action_setting, settings_row_label(setting));
+
+	row->setting = setting;
+	row->cycles = 1;
+	settings_row_value(setting, row->value, sizeof(row->value));
+	if (settings_row_restart(setting))
+		snprintf(row->badge, sizeof(row->badge), "NEEDS A RESTART");
+	return row;
+}
+
+/* a tab's rows of settings_rows.h's group: with on_pages 0, only those
+no page of the Guide's lists (they are on that page's tab) */
+static void group_rows(int group, int on_pages)
 {
 	const struct settings_row *setting;
 	int index;
 
 	for (index = 0; (setting = settings_row_at(group, index)) != NULL; index++)
 	{
-		struct row *row = row_add(_action_setting, settings_row_label(setting));
+		if (on_pages || settings_key_page(settings_row_key(setting)) < 0)
+			setting_row(setting);
+	}
+}
 
-		row->setting = setting;
-		row->cycles = 1;
-		settings_row_value(setting, row->value, sizeof(row->value));
-		if (settings_row_restart(setting))
-			snprintf(row->badge, sizeof(row->badge), "NEEDS A RESTART");
+/* whether a setting is one of the setup screen's own groups' (a tab of its
+own has it) */
+static int setup_group_setting(const struct settings_row *setting)
+{
+	static const int groups[] = { SETTINGS_GROUP_DISPLAY, SETTINGS_GROUP_AUDIO, SETTINGS_GROUP_NETWORK,
+		SETTINGS_GROUP_UPDATES };
+	const struct settings_row *other;
+	size_t group;
+	int index;
+
+	for (group = 0; group < sizeof(groups) / sizeof(groups[0]); group++)
+	{
+		for (index = 0; (other = settings_row_at(groups[group], index)) != NULL; index++)
+		{
+			if (other == setting)
+				return 1;
+		}
+	}
+	return 0;
+}
+
+/* a tab of a page of the Guide's SETTINGS: group's rows that no page lists
+first (the setup screen's own: the display's mode, the sound's device; -1
+for none), then the page's rows in its blocks, a gap above each, as the
+Guide has them. The rows the Guide draws itself (its devices, logs and
+About, and voice's, whose channel is the game's) aren't here; ALL has
+their settings. GAME ends with the Guide's rows no page lists, as the
+Guide's GAME does */
+static void page_rows(int page, int group)
+{
+	const struct settings_row *setting;
+	const char *const *line;
+	int index, gap;
+
+	if (group >= 0)
+		group_rows(group, 0);
+	gap = launcher.row_count > 0;
+	for (line = settings_page_lines(page); line && *line; line++)
+	{
+		if ((*line)[0] == '#')
+		{
+			gap = launcher.row_count > 0;
+			continue;
+		}
+		setting = settings_row_for_key(*line);
+		if (!setting)
+			continue;
+		setting_row(setting)->gap = gap;
+		gap = 0;
+	}
+	if (page != SETTINGS_PAGE_OTHER)
+		return;
+	gap = launcher.row_count > 0;
+	for (index = 0; (setting = settings_row_at(SETTINGS_GROUP_GUIDE, index)) != NULL; index++)
+	{
+		if (settings_key_page(settings_row_key(setting)) >= 0 || setup_group_setting(setting))
+			continue;
+		setting_row(setting)->gap = gap;
+		gap = 0;
 	}
 }
 
@@ -1449,13 +1525,19 @@ static void settings_rows_build(void)
 	switch (launcher.tab)
 	{
 	case _tab_display:
-		group_rows(SETTINGS_GROUP_DISPLAY);
+		page_rows(SETTINGS_PAGE_DISPLAY, SETTINGS_GROUP_DISPLAY);
 		break;
-	case _tab_audio:
-		group_rows(SETTINGS_GROUP_AUDIO);
+	case _tab_sound:
+		page_rows(SETTINGS_PAGE_SOUND, SETTINGS_GROUP_AUDIO);
+		break;
+	case _tab_game:
+		page_rows(SETTINGS_PAGE_GAME, -1);
+		break;
+	case _tab_guide:
+		page_rows(SETTINGS_PAGE_GUIDE, -1);
 		break;
 	case _tab_network:
-		group_rows(SETTINGS_GROUP_NETWORK);
+		group_rows(SETTINGS_GROUP_NETWORK, 0);
 		/* (network.map_downloads_from_host's: the disclaimer, the one place
 		besides the download's own question where "always" is picked) */
 		{
@@ -1505,7 +1587,7 @@ static void settings_rows_build(void)
 			snprintf(row->value, sizeof(row->value), "%s", state == UPDATER_CHECKING ? "Checking\xE2\x80\xA6" :
 				state == UPDATER_NEWER ? latest : state == UPDATER_LATEST ? "You have it" : "Couldn't check");
 		}
-		group_rows(SETTINGS_GROUP_UPDATES);
+		group_rows(SETTINGS_GROUP_UPDATES, 1);
 		/* (update.channel's: what Testing and Nightly mean, and that going
 		back never installs an older build) */
 		{

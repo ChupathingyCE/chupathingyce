@@ -535,7 +535,7 @@ static struct
 	/* the sections down the left have the d-pad (Left from a section,
 	until A or Right goes back into it) */
 	boolean sidebar;
-	/* SETTINGS' page shown (_settings_page_*) */
+	/* SETTINGS' page shown (settings_rows.h's SETTINGS_PAGE_*) */
 	short settings_page;
 	/* SETTINGS' scroll bar, as last drawn, for the mouse */
 	struct guide_scroll_bar settings_bar;
@@ -1378,73 +1378,14 @@ rows in blocks under a caption */
 
 enum
 {
-	_settings_page_display,
-	_settings_page_sound,
-	_settings_page_game,
-	_settings_page_guide,
-	_settings_page_about,
-	NUMBER_OF_SETTINGS_PAGES,
-
-	/* the page a row no page lists goes on, at its end */
-	SETTINGS_PAGE_OTHER = _settings_page_game,
 	MAXIMUM_SETTINGS_LINES = 72,
 	SETTINGS_CAPTION_HEIGHT = 18,
 	SETTINGS_PAGE_TABS_HEIGHT = 20,
 	SETTINGS_INFO_HEIGHT = 22,
 };
 
-static char const *const settings_page_names[NUMBER_OF_SETTINGS_PAGES] =
-{
-	"DISPLAY", "SOUND", "GAME", "GUIDE", "ABOUT",
-};
-
-/* each page's lines: "#" and a caption, "=" and a line of information
-(=version, =platform: read, not pressed), else a row by its key (a
-setting's config.toml key, or one of the Guide's own: "@devices", "@link",
-"@logs0", "@logs1", "@about"). A caption shows only with a line under it
-in this build; a row in no page goes at the end of SETTINGS_PAGE_OTHER */
-static char const *const settings_display_lines[] =
-{
-	"#MENUS", "display.menus", "display.theme", "delta.guide_background",
-	"#BUTTONS", "input.button_style", "input.button_look", "input.hud_buttons",
-	"#HUD", "display.reticle_scale", "display.crosshair_position", "display.ping_meter", "display.scoreboard_icons",
-	"#EFFECTS", "display.first_person_weapon", "display.camo_weapon_fix", "display.plasma_sparks", "display.ragdolls",
-	NULL
-};
-static char const *const settings_sound_lines[] =
-{
-	"audio.hit_sounds",
-	"#VOICE", "audio.voice_chat", "audio.voice_channel", "audio.voice_positional", "display.voice_speakers",
-	"#VOLUME", "audio.voice_volume", "audio.voice_volume_party", "audio.voice_volume_team",
-	"audio.voice_volume_proximity", "audio.voice_volume_everyone",
-	NULL
-};
-static char const *const settings_game_lines[] =
-{
-	"game.forge", "game.mods",
-	"#WORKSHOP", "game.workshop_steam", "paths.steam_downloads", "game.workshop_maps", "network.workshop_downloads",
-	"game.mcc_campaigns",
-	NULL
-};
-static char const *const settings_guide_lines[] =
-{
-	"#OPENING", "controls.delta", "controls.delta_button", "delta.menu_item",
-	"#CONTROLLER", "delta.confirm_button", "delta.rumble",
-	"#NOTIFICATIONS", "delta.notify_in_game", "delta.notify_online",
-	"#PRIVACY", "network.share_presence",
-	"#DEVICES", "@devices", "@link",
-	NULL
-};
-static char const *const settings_about_lines[] =
-{
-	"#CHUPATHINGY", "=version", "=platform", "@about",
-	"#LOGS", "@logs0", "@logs1",
-	NULL
-};
-static char const *const *const settings_page_lines[NUMBER_OF_SETTINGS_PAGES] =
-{
-	settings_display_lines, settings_sound_lines, settings_game_lines, settings_guide_lines, settings_about_lines,
-};
+/* (the pages and their lines are settings_rows.c's, which the setup
+screen's Settings follows too: settings_page_lines) */
 
 /* a setting's label as SETTINGS shows it: GUIDE BUTTON named as the pad
 names it (PS BUTTON, HOME BUTTON) */
@@ -1522,7 +1463,7 @@ static boolean settings_key_listed(char const *key)
 
 	for (page = 0; page < NUMBER_OF_SETTINGS_PAGES; page++)
 	{
-		for (line = settings_page_lines[page]; *line; line++)
+		for (line = settings_page_lines(page); *line; line++)
 		{
 			if (!strcmp(*line, key))
 				return TRUE;
@@ -1538,7 +1479,7 @@ static short settings_lines(short page, struct settings_line *lines)
 	char const *caption = NULL;
 	short count = 0;
 
-	for (entry = settings_page_lines[page]; *entry && count < MAXIMUM_SETTINGS_LINES - 1; entry++)
+	for (entry = settings_page_lines(page); *entry && count < MAXIMUM_SETTINGS_LINES - 1; entry++)
 	{
 		short row;
 
@@ -1588,7 +1529,7 @@ static short settings_row_page(short row)
 
 	for (page = 0; page < NUMBER_OF_SETTINGS_PAGES; page++)
 	{
-		for (line = settings_page_lines[page]; *line; line++)
+		for (line = settings_page_lines(page); *line; line++)
 		{
 			if (!strcmp(*line, key))
 				return page;
@@ -4839,7 +4780,7 @@ static void render_settings(void)
 
 	/* (its pages, LT and RT) */
 	ui_style_tabs_buttons(UI_BUTTON_LEFT_TRIGGER, UI_BUTTON_RIGHT_TRIGGER);
-	ui_style_tabs(CONTENT_LEFT, CONTENT_RIGHT, BODY_Y, SETTINGS_PAGE_TABS_HEIGHT, settings_page_names,
+	ui_style_tabs(CONTENT_LEFT, CONTENT_RIGHT, BODY_Y, SETTINGS_PAGE_TABS_HEIGHT, settings_page_names(),
 		NUMBER_OF_SETTINGS_PAGES, guide.settings_page, "PGUP", "PGDN", starts, ends);
 	for (line = 0; line < NUMBER_OF_SETTINGS_PAGES; line++)
 		target_add(starts[line], BODY_Y, ends[line], BODY_Y + SETTINGS_PAGE_TABS_HEIGHT, _target_settings_page, line);
