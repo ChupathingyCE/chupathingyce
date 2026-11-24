@@ -384,7 +384,10 @@ void _ReadWriteBarrier(void)
 /* PowerPC (the Wii U): the rounding mode is the FPSCR's RN field, the sticky
 exception flags its OX, UX, ZX, XX and VX* bits. As on AArch64, precision
 control and exception unmasking have no equivalent; the rest of the MSVC
-control word is only remembered. */
+control word is only remembered. Setting it also clears the non-IEEE bit
+(NI, 0x4), which Cafe OS sets on its threads: with it, results too small
+for a normal number flush to zero, where the x87 and SSE keep them as
+denormals, and the simulation's floats would differ from a PC's. */
 static unsigned int msvc_control_word = CW_DEFAULT;
 
 static unsigned int fpscr_read(void)
@@ -410,7 +413,7 @@ unsigned int _control87(unsigned int new_value, unsigned int mask)
 	if (mask)
 	{
 		msvc_control_word = (msvc_control_word & ~mask) | (new_value & mask);
-		fpscr = fpscr_read() & ~3u;
+		fpscr = fpscr_read() & ~(3u | 4u);
 		switch (msvc_control_word & _MCW_RC)
 		{
 		case _RC_CHOP: fpscr |= 1; break;

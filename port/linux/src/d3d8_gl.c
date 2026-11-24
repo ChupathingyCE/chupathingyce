@@ -129,6 +129,9 @@ void d3d8_surface_resize(D3DSurface *surface, D3DFORMAT format, unsigned long wi
 /* port/linux/game/stats_log.c: display.stats_log's line names the renderer the
 driver reports, once the context exists (gl_initialize below) */
 void stats_log_set_renderer(const char *vendor, const char *renderer);
+/* and its shown=, a frame that went to the window (bgfx's and the Android
+Vulkan renderer's presents; OpenGL's swap is sdl_platform.c's) */
+void stats_log_frame_shown(void);
 
 #ifdef HALO_GL_ES
 /* OpenGL ES 3 (port/android/README.md): the desktop formats, enumerants
@@ -267,11 +270,11 @@ static void anti_aliasing_read(void)
 	{
 	}
 #ifdef HALO_BGFX
-	/* the bgfx test backend has multisampling only: FXAA, SMAA and
-	supersampling become 2x MSAA, said once */
+	/* the bgfx test backend has multisampling and supersampling (the
+	screen's targets at twice the size, screen_mode_choose, which its blit
+	scales down as OpenGL's does): FXAA and SMAA become 2x MSAA, said once */
 	if (xgpu_bgfx && (anti_aliasing_values[value].mode == _anti_aliasing_fxaa ||
-		anti_aliasing_values[value].mode == _anti_aliasing_smaa ||
-		anti_aliasing_values[value].mode == _anti_aliasing_ssaa))
+		anti_aliasing_values[value].mode == _anti_aliasing_smaa))
 	{
 		static BOOL said;
 		int msaa;

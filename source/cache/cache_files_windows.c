@@ -1734,7 +1734,9 @@ static void CALLBACK cache_file_read_io_completion_routine(
 		finished_request->overlapped.hEvent);
 	/* port: a read that failed or came up short completes as failed: what
 	waits on it stops waiting, and a caller that checks (the map's tags and
-	bsps) sees it, instead of taking what is in its buffer for the map */
+	bsps) sees it, instead of taking what is in its buffer for the map. The
+	buffer's data is made visible to the game's thread first */
+	CACHE_FILE_READ_PUBLISH();
 	*(volatile boolean *)finished_request->overlapped.hEvent =
 		error_code == ERROR_SUCCESS && bytes_transferred == (unsigned long)finished_request->size ?
 			TRUE :
@@ -2049,6 +2051,7 @@ static void CALLBACK cache_file_blocking_io_completion_routine(
 		overlapped->hEvent);
 	/* port: a request that failed completes as failed (not TRUE): what
 	waits on it stops waiting and sees it (cached_map_block_on_async_request) */
+	CACHE_FILE_READ_PUBLISH();
 	*(volatile boolean *)overlapped->hEvent = error_code == ERROR_SUCCESS ? TRUE : (boolean)_cache_file_read_failed;
 
 	return;

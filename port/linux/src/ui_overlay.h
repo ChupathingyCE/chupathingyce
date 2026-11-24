@@ -354,6 +354,10 @@ void ui_style_glass(float x, float y, float width, float height, float radius, u
 	unsigned int edge);
 /* a row's capsule: glass, the selected one lit with the plasma */
 void ui_style_row(float x, float y, float width, float height, int selected);
+/* while set, a selected row (ui_style_row, ui_style_setting) is drawn as
+ui_style_row_chosen: the focus is elsewhere (the Guide's sections down the
+left have the d-pad) */
+void ui_style_selection_rest(int rest);
 /* a row's capsule for the one chosen while the focus is elsewhere (the
 item whose page is open beside the list): glass, with the selection's edge */
 void ui_style_row_chosen(float x, float y, float width, float height);
