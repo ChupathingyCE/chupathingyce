@@ -301,7 +301,7 @@
      "source_scale": 1,
      "source": [
       0,
-      -1
+      -5
      ],
      "clip": [
       0,
@@ -310,7 +310,8 @@
       108
      ],
      "kind": "meter",
-     "score": 0.796
+     "score": 0.796,
+     "xbox_low_ammo_offset": true
     },
     {
      "mcc": [
@@ -322,8 +323,8 @@
      "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
      "source_scale": 1,
      "source": [
-      446,
-      108
+      449,
+      104
      ],
      "clip": [
       448,
@@ -332,7 +333,8 @@
       180
      ],
      "kind": "meter",
-     "score": 0.747
+     "score": 0.747,
+     "xbox_low_ammo_offset": true
     },
     {
      "mcc": [
@@ -345,7 +347,7 @@
      "source_scale": 1,
      "source": [
       1,
-      179
+      178
      ],
      "clip": [
       0,
@@ -354,7 +356,8 @@
       248
      ],
      "kind": "meter",
-     "score": 0.828
+     "score": 0.828,
+     "xbox_low_ammo_offset": true
     },
     {
      "mcc": [
@@ -367,7 +370,7 @@
      "source_scale": 1,
      "source": [
       436,
-      180
+      176
      ],
      "clip": [
       436,
@@ -376,7 +379,8 @@
       248
      ],
      "kind": "meter",
-     "score": 0.877
+     "score": 0.877,
+     "xbox_low_ammo_offset": true
     },
     {
      "mcc": [
@@ -467,8 +471,8 @@
      "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
      "source_scale": 1,
      "source": [
-      454,
-      0
+      455,
+      -4
      ],
      "clip": [
       456,
@@ -477,7 +481,8 @@
       88
      ],
      "kind": "meter",
-     "score": 0.896
+     "score": 0.896,
+     "xbox_low_ammo_offset": true
     },
     {
      "mcc": [
@@ -489,8 +494,8 @@
      "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
      "source_scale": 1,
      "source": [
-      -1,
-      108
+      -3,
+      104
      ],
      "clip": [
       0,
@@ -499,7 +504,8 @@
       180
      ],
      "kind": "meter",
-     "score": 0.888
+     "score": 0.888,
+     "xbox_low_ammo_offset": true
     }
    ],
    "keep": []

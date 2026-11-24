@@ -9,7 +9,8 @@ holds), laid out as the Xbox maps' sheets:
     python tools/hud_assets.py mcc-layout --map <MCC>/halo1/maps/bloodgulch.map \
         --map <MCC>/halo1/maps/a10.map --map <MCC>/halo1/maps/d40.map \
         --bitmaps <MCC>/halo1/maps/custom_edition/bitmaps.map \
-        --bitmaps <MCC>/halo1/maps/bitmaps.map --hek ../halopc-restored
+        --bitmaps <MCC>/halo1/maps/bitmaps.map --hek ../halopc-restored \\
+        --xbox-map assets/maps/bloodgulch.map
     python tools/hud_assets.py build
     python tools/hud_assets.py thresholds  # update only discrete segment data
     python tools/hud_assets.py check --map assets/maps/bloodgulch.map --out /tmp/hud_check
@@ -59,8 +60,12 @@ mcc-meters: MCC's stock meter sheets (the health, shield and ammo meters)
     each MCC cell matched with the restored meter sprite its shape overlaps
     best, aligned by its content, at MCC's scale (4x the Xbox's, as the
     art's). Every cell of a meter sheet must match at MCC_MATCH, or none of
-    it is laid out, so a meter is never half MCC's and half ours. Replaces
-    only the meters' entries in port/assets/hud/mcc_layout.json.
+    it is laid out, so a meter is never half MCC's and half ours. With
+    --xbox-map (the Xbox map the layout command read), each weapon's ammo
+    meter is set against its flashing low-ammo picture as the Xbox maps'
+    high-res HUD has them, a HUD unit or so apart (low_ammo_starts), rather
+    than lined up as MCC's art has them. Replaces only the meters' entries
+    in port/assets/hud/mcc_layout.json.
 build: draws port/assets/hud/art and svg with layout.json into
     port/assets/hud/*.png, and with mcc_layout.json into
     port/assets/hud/mcc/*.png (committed; the builds embed them).
@@ -843,7 +848,89 @@ def layout(arguments) -> None:
     LAYOUT.write_text(json.dumps({"assets": entries}, indent=1) + "\n")
 
 
-def mcc_meter_entries(mcc_map: "MccMap", tag: str, renders: dict) -> list:
+AMMO_ALPHAS = HUD + "combined\\hud_ammo_alphas"
+AMMO_METERS = HUD + "combined\\hud_ammo_meters"
+
+
+def weapon_ammo_pairs(game_map) -> dict:
+    """Each weapon HUD's ammo meter and the flashing low-ammo picture drawn
+    with it (a static of hud_ammo_alphas): {weapon HUD tag: (meter's
+    sequence, its offset, the static's sequence, its offset)}."""
+    pairs = {}
+    for (group_tag, tag), address in game_map.tags.items():
+        if group_tag != "wphi":
+            continue
+        header = game_map.read(address, 0x78)
+        found = [[], []]
+        for which in (0, 1):
+            count, elements = struct.unpack_from("<iI", header, 0x60 + which * 12)
+            for index in range(max(count, 0)):
+                element = game_map.read(elements + index * 0xB4, 0xB4)
+                offset = struct.unpack_from("<hh", element, 0x24)
+                name_address, = struct.unpack_from("<I", element, 0x4C)
+                name = game_map.read(name_address, 256).split(b"\0")[0].decode("latin-1")
+                sequence, = struct.unpack_from("<h", element, 0x78 if which == 0 else 0x6A)
+                found[which].append((name, sequence, offset))
+        statics = [entry for entry in found[0] if entry[0] == AMMO_ALPHAS]
+        meters = [entry for entry in found[1] if entry[0] == AMMO_METERS]
+        if len(statics) == 1 and len(meters) == 1:
+            pairs[tag] = (meters[0][1], meters[0][2], statics[0][1], statics[0][2])
+    return pairs
+
+
+def cell_shift(cell: dict) -> tuple:
+    """Where a cell's art starts against its rectangle's corner, in art texels."""
+    return cell["source"][0] - cell["clip"][0], cell["source"][1] - cell["clip"][1]
+
+
+def low_ammo_starts(xbox_map: "XboxMap", mcc_map: "MccMap") -> dict:
+    """Where each MCC ammo meter cell's art starts against its rectangle's
+    corner (art texels) for the meter to sit against its weapon's flashing
+    low-ammo picture as on the Xbox maps' high-res HUD: the Xbox's own
+    sheets (and so its high-res ones) set the two a HUD unit or so apart,
+    which MCC's line up. By the meter's sequence: {sequence: (x, y)}, only
+    where every weapon using that meter agrees. Both maps' art is 4 texels
+    to a HUD unit; MCC's offsets are in half units."""
+    def cells(layout, key, game_map, tag):
+        group = game_map.bitmap_group(tag)
+        result = {}
+        for sequence, sprites in enumerate(group["sequences"]):
+            if sprites:
+                bitmap = group["bitmaps"][sprites[0][0]]
+                rectangle = pixel_rectangle(sprites[0], bitmap["width"], bitmap["height"])
+                index = sprites[0][0]
+            else:
+                rectangle, index = None, sequence
+            for entry in layout:
+                if entry["tag"] == tag and entry["bitmap"] == index:
+                    for cell in entry["cells"]:
+                        if rectangle is None and len(entry["cells"]) == 1 or cell[key] == rectangle:
+                            result[sequence] = cell_shift(cell)
+        return result
+    xbox_layout = json.loads(LAYOUT.read_text())["assets"]
+    mcc_layout = json.loads(MCC_LAYOUT.read_text())["assets"] if MCC_LAYOUT.is_file() else []
+    xbox_cells = {tag: cells(xbox_layout, "xbox", xbox_map, tag) for tag in (AMMO_ALPHAS, AMMO_METERS)}
+    mcc_static_cells = cells(mcc_layout, "mcc", mcc_map, AMMO_ALPHAS)
+    xbox_pairs, mcc_pairs = weapon_ammo_pairs(xbox_map), weapon_ammo_pairs(mcc_map)
+    shifts = {}
+    for weapon, (meter, meter_offset, static, static_offset) in mcc_pairs.items():
+        if weapon not in xbox_pairs:
+            continue
+        x_meter, x_meter_offset, x_static, x_static_offset = xbox_pairs[weapon]
+        try:
+            ds, dm = xbox_cells[AMMO_ALPHAS][x_static], xbox_cells[AMMO_METERS][x_meter]
+            mcc_ds = mcc_static_cells[static]
+        except KeyError:
+            continue
+        shift = tuple(round(mcc_ds[axis] - (ds[axis] - dm[axis]) +
+                            4 * ((x_static_offset[axis] - x_meter_offset[axis]) -
+                                 (static_offset[axis] - meter_offset[axis]) / 2))
+                      for axis in (0, 1))
+        shifts.setdefault(meter, set()).add(shift)
+    return {meter: next(iter(found)) for meter, found in shifts.items() if len(found) == 1}
+
+
+def mcc_meter_entries(mcc_map: "MccMap", tag: str, renders: dict, starts: dict = None) -> list:
     """An MCC map's stock meter sheet (all its bitmaps) laid out from the
     Xbox maps' high-res meter cells (layout.json): [] for each bitmap if any
     cell matches nothing at MCC_MATCH, so the sheet stays wholly MCC's."""
@@ -889,6 +976,16 @@ def mcc_meter_entries(mcc_map: "MccMap", tag: str, renders: dict) -> list:
             score, corner, candidate = best
             found = {"mcc": list(cell), "art": candidate["art"], "source_scale": 1, "source": corner,
                      "clip": candidate["clip"], "kind": "meter", "score": round(score, 3)}
+            # (an ammo meter set against its weapon's low-ammo picture as on
+            # the Xbox maps, rather than where MCC's own art lines them up)
+            sequences = {sequence for sequence, sprites in enumerate(group["sequences"])
+                         if sprites and sprites[0][0] == index and
+                         tuple(pixel_rectangle(sprites[0], width, height)) == tuple(cell)}
+            placed = {starts[sequence] for sequence in sequences if starts and sequence in starts}
+            if len(placed) == 1:
+                start = next(iter(placed))
+                found["source"] = [candidate["clip"][0] + start[0], candidate["clip"][1] + start[1]]
+                found["xbox_low_ammo_offset"] = True
             # (discrete segments: MCC's fill order is the Xbox's, each
             # segment's one value)
             values = set(np.unique(texels[top:bottom, left:right, 2][alpha > 0]))
@@ -918,9 +1015,10 @@ def mcc_meters(arguments) -> None:
     resources = [MccResources(Path(path)) for path in arguments.bitmaps]
     mcc_map = MccMap(Path(arguments.map[0]), resources)
     renders = {}
+    starts = low_ammo_starts(XboxMap(Path(arguments.xbox_map)), mcc_map) if arguments.xbox_map else None
     entries = [entry for entry in json.loads(MCC_LAYOUT.read_text())["assets"] if entry["tag"] not in METERS]
     for tag in sorted(METERS):
-        entries += mcc_meter_entries(mcc_map, tag, renders)
+        entries += mcc_meter_entries(mcc_map, tag, renders, starts if tag == AMMO_METERS else None)
     entries.sort(key=lambda entry: entry["name"])
     MCC_LAYOUT.write_text(json.dumps({"assets": entries}, indent=1) + "\n")
 
@@ -998,8 +1096,10 @@ def mcc_layout(arguments) -> None:
                 print(f"{name}: {width}x{height} {MCC_FORMATS[bitmap['format']]} at {scale}x, {len(matched)} cells, "
                       f"{len(keep)} kept, worst match {min(cell['score'] for cell in matched):.2f}")
     # (the meters, from the Xbox maps' high-res meters: the first map's)
+    first = MccMap(Path(arguments.map[0]), resources)
+    starts = low_ammo_starts(XboxMap(Path(arguments.xbox_map)), first) if arguments.xbox_map else None
     for tag in sorted(METERS):
-        for entry in mcc_meter_entries(MccMap(Path(arguments.map[0]), resources), tag, renders):
+        for entry in mcc_meter_entries(first, tag, renders, starts if tag == AMMO_METERS else None):
             entries[entry["name"]] = entry
     keep_used(used, svg_root, False)
     MCC_LAYOUT.write_text(json.dumps({"assets": [entries[name] for name in sorted(entries)]}, indent=1) + "\n")
@@ -1229,12 +1329,14 @@ def main() -> None:
     command = commands.add_parser("mcc-layout")
     command.add_argument("--map", required=True, action="append")
     command.add_argument("--bitmaps", required=True, action="append")
+    command.add_argument("--xbox-map")
     command.add_argument("--hek", required=True)
     command.add_argument("--svg")
     command.add_argument("--font", default=TAHOMA_BOLD)
     command = commands.add_parser("mcc-meters")
     command.add_argument("--map", required=True, action="append")
     command.add_argument("--bitmaps", required=True, action="append")
+    command.add_argument("--xbox-map")
     commands.add_parser("build")
     commands.add_parser("thresholds")
     command = commands.add_parser("check")
