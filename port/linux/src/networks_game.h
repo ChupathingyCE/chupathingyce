@@ -16,6 +16,8 @@ network.networks_add and network.networks_remove.
 #define NETWORKS_GAME_H
 
 #include "networks.h"
+/* (HALO_DELTA_PEER_IDENTITY: the builds that have this) */
+#include "halo_console_features.h"
 
 /* the list read and the settings taken, and (with list keys and a site)
 the list fetched in the background from now on; once */

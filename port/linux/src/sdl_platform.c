@@ -783,8 +783,10 @@ BOOL platform_sdl_initialize(void)
 #endif
 	/* (the legacy table: a newer one fetched meanwhile) */
 	delta_legacy_start();
+#ifdef HALO_DELTA_PEER_IDENTITY
 	/* (the networks whose players' names are checked: networks_game.h) */
 	networks_start();
+#endif
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_SERVER)
 	/* (Chupathingy maps' index, for its blacklist before the first join:
 	map_repo.h) */
