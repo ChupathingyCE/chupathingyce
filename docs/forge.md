@@ -43,6 +43,8 @@ You start as the monitor. The prompts at the bottom of the screen say what the b
 | X | E | The Forge menu |
 | Back + right stick click | M | Switch between the monitor and playing as the Spartan |
 
+Spawn points, teleporters and game type objects show as markers on the ground only while you're the monitor. Players don't see them, as a map's own teleporters have no marker: place a Teleporter or Teleporter Base from SCENERY where you want players to see one.
+
 The keyboard's keys are `controls.forge_*` in `config.toml` (see [settings.md](settings.md)). The Forge menu's OPTIONS > CONTROLS lists them as they are set.
 
 ## The Forge menu
