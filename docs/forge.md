@@ -41,7 +41,9 @@ You start as the monitor. The prompts at the bottom of the screen say what the b
 | RB (Black) | U | Set it upright |
 | LB (White) | Q | Flying speed; in rotate mode, the rotation snap (off, 15, 45, 90 degrees) |
 | X | E | The Forge menu |
-| Back + right stick click | M | Switch between the monitor and playing as the Spartan |
+| D-pad up (or Back + right stick click) | M | Switch between the monitor and playing as the Spartan, as in Halo 3 and Reach |
+
+In a Forge game the d-pad's up is only this switch, on the Forge player's controller: as the Spartan it doesn't walk you forward and doesn't open the quick chat lines. While the Forge menu or the Delta Guide is open it moves through their lists instead. Outside Forge, and for the other players in split screen, it does what it always did.
 
 Spawn points, teleporters and game type objects show as markers on the ground only while you're the monitor. Players don't see them, as a map's own teleporters have no marker: place a Teleporter or Teleporter Base from SCENERY where you want players to see one.
 

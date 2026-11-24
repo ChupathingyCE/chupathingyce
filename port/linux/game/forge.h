@@ -300,6 +300,10 @@ boolean forge_variant_playing(
 /* (hud.c) the Spartan's action prompt left undrawn for the monitor */
 boolean forge_monitor_hides_prompt(
 	short local_player_index);
+/* (input_abstraction.c, chat.c) the d-pad's up of this controller is Forge's
+(its monitor and Spartan button): a Forge session's player's controller */
+boolean forge_takes_dpad_up(
+	short gamepad_index);
 /* (player_control.c) the mouse's look left for the monitor's camera */
 boolean forge_monitor_takes_mouse(
 	short local_player_index);

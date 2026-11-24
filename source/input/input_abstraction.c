@@ -70,6 +70,11 @@ symbols in this file:
 #include "units/vehicles.h"
 #include "halo_keyboard.h" /* port */
 
+#ifndef HALO_CONSOLE_NO_FORGE
+/* port: port/linux/game/forge.c's */
+extern boolean forge_takes_dpad_up(short gamepad_index);
+#endif
+
 /* ---------- constants */
 
 enum
@@ -763,6 +768,7 @@ void input_abstraction_update(
 			real_point2d right_stick;
 			long control_index;
 			boolean invert_look;
+			byte dpad_up;
 
 			player_look_yaw_rate[controller_index] = input_abstraction_globals.player_control_preferences[controller_index].yaw_rate;
 			player_look_pitch_rate[controller_index] = input_abstraction_globals.player_control_preferences[controller_index].pitch_rate;
@@ -868,6 +874,14 @@ void input_abstraction_update(
 			{
 				invert_look = local_player_is_piloting_aircraft((short)controller_index);
 			}
+			/* port: in a Forge session its player's d-pad up is the monitor
+			and Spartan button (port/linux/game/forge.c): not a step forward
+			or a look up for its Spartan */
+			dpad_up = gamepad->buttons[_gamepad_binary_button_dpad_up];
+#ifndef HALO_CONSOLE_NO_FORGE
+			if (dpad_up && forge_takes_dpad_up((short)controller_index))
+				dpad_up = 0;
+#endif
 			switch (input_abstraction_globals.player_control_preferences[controller_index].joystick_controls)
 			{
 				case _joystick_controls_default:
@@ -883,7 +897,7 @@ void input_abstraction_update(
 					{
 						state->strafe = -left_stick.x;
 					}
-					if (gamepad->buttons[_gamepad_binary_button_dpad_up])
+					if (dpad_up)
 					{
 						state->forward_movement = 1.f;
 					}
@@ -911,7 +925,7 @@ void input_abstraction_update(
 					{
 						state->yaw = -left_stick.x;
 					}
-					if (gamepad->buttons[_gamepad_binary_button_dpad_up])
+					if (dpad_up)
 					{
 						state->pitch = invert_look ? -1.f : 1.f;
 					}
@@ -939,7 +953,7 @@ void input_abstraction_update(
 					{
 						state->yaw = -left_stick.x;
 					}
-					if (gamepad->buttons[_gamepad_binary_button_dpad_up])
+					if (dpad_up)
 					{
 						state->forward_movement = 1.f;
 					}
@@ -967,7 +981,7 @@ void input_abstraction_update(
 					{
 						state->strafe = -left_stick.x;
 					}
-					if (gamepad->buttons[_gamepad_binary_button_dpad_up])
+					if (dpad_up)
 					{
 						state->pitch = invert_look ? -1.f : 1.f;
 					}
