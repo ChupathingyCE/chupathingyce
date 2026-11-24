@@ -6043,6 +6043,12 @@ long get_flag_definition_index(
 
 	global_scenario_get();
 	game_globals = scenario_get_game_globals();
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: none on a campaign mission's globals (a Forge game on one,
+	port/linux/game/forge_ai.inc) */
+	if (game_globals->multiplayer_information.count <= 0)
+		return NONE;
+#endif
 	multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 		&game_globals->multiplayer_information,
 		0,
@@ -6059,6 +6065,11 @@ long get_ball_definition_index(
 
 	global_scenario_get();
 	game_globals = scenario_get_game_globals();
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: none on a campaign mission's globals (above) */
+	if (game_globals->multiplayer_information.count <= 0)
+		return NONE;
+#endif
 	multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 		&game_globals->multiplayer_information,
 		0,

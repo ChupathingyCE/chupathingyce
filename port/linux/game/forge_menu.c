@@ -32,8 +32,10 @@ box, the prompts):
 - LAYOUTS: SAVE (under the layout's title), SAVE AS NEW, then the map's
   layouts: A loads one (pressed twice: what isn't saved is lost), Y
   deletes one (pressed twice);
-- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, UNDO, REDO, NEW ROUND, PLAY AS
-  SPARTAN, and CONTROLS, the monitor's buttons and keys.
+- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, UNDO, REDO, NEW ROUND, CLEAR
+  DEAD AI (the layout's dead AI characters), CLEAR ALL AI (every one,
+  pressed twice), PLAY AS SPARTAN, and CONTROLS, the monitor's buttons and
+  keys.
 X or B closes it. What it asks of the session is done by forge.c before the
 next tick (forge_menu_ask); what it shows is read from forge.c each frame
 (forge_menu_view_get) as it is input, and drawn from that.
@@ -153,6 +155,8 @@ enum
 	_option_undo,
 	_option_redo,
 	_option_round,
+	_option_clear_dead_ai,
+	_option_clear_all_ai,
 	_option_spartan,
 	_option_controls,
 	NUMBER_OF_OPTIONS
@@ -195,7 +199,8 @@ static struct
 
 static char const *const option_labels[NUMBER_OF_OPTIONS] =
 {
-	"SNAP", "MOVE SPEED", "ROTATION SNAP", "UNDO", "REDO", "NEW ROUND", "PLAY AS SPARTAN", "CONTROLS",
+	"SNAP", "MOVE SPEED", "ROTATION SNAP", "UNDO", "REDO", "NEW ROUND", "CLEAR DEAD AI", "CLEAR ALL AI", "PLAY AS SPARTAN",
+	"CONTROLS",
 };
 
 
@@ -686,6 +691,22 @@ static void game_option_choose(short row)
 	case _option_round:
 		forge_menu_ask(_forge_menu_ask_round, 0, 0, NULL);
 		close_screen();
+		break;
+	case _option_clear_dead_ai:
+		forge_menu_ask(_forge_menu_ask_clear_ai, 0, 0, NULL);
+		break;
+	case _option_clear_all_ai:
+		/* (pressed twice, as a layout's DELETE) */
+		if (!armed(row, GUIDE_INPUT_A))
+		{
+			forge_menu.armed_tab = forge_menu.tab;
+			forge_menu.armed_row = row;
+			forge_menu.armed_button = GUIDE_INPUT_A;
+			sound(SOUND_CURSOR);
+			return;
+		}
+		disarm();
+		forge_menu_ask(_forge_menu_ask_clear_ai, 1, 0, NULL);
 		break;
 	case _option_spartan:
 		forge_menu_ask(_forge_menu_ask_spartan, 0, 0, NULL);
@@ -1351,6 +1372,15 @@ static void option_row_text(short row, char *label, int label_size, char *value,
 		break;
 	case _option_redo:
 		snprintf(label, (size_t)label_size, "REDO (%d)", view->redo);
+		break;
+	case _option_clear_dead_ai:
+		snprintf(label, (size_t)label_size, "CLEAR DEAD AI (%d)", view->ai_dead);
+		break;
+	case _option_clear_all_ai:
+		if (armed(row, GUIDE_INPUT_A))
+			snprintf(label, (size_t)label_size, "%s", "CONFIRM CLEAR ALL AI");
+		else
+			snprintf(label, (size_t)label_size, "CLEAR ALL AI (%d)", view->ai_alive + view->ai_dead + view->ai_waiting);
 		break;
 	}
 }

@@ -1,7 +1,8 @@
 /*
 FORGE.H
 
-Forge (forge.c): an editor in a multiplayer map. In a local game started in
+Forge (forge.c): an editor in a multiplayer map, or in a campaign mission
+(its AI characters: forge_ai.inc). In a local game started in
 Forge mode (the Multiplayer menu's FORGE, forge_menu.c, or "forge start
 <map>") the player is the monitor, flying, and
 spawns, grabs, turns and deletes the map's objects and places the layout's
@@ -36,6 +37,9 @@ enum
 	teleporters, game type objects), within the objects' budget */
 	FORGE_MAXIMUM_SPAWNS = 64,
 	FORGE_SPAWN_TABLE = FORGE_MAXIMUM_SPAWNS,
+	/* (forge_ai.inc) the AI characters of a layout alive at once, within
+	the objects' budget: past it the rest wait for room */
+	FORGE_MAXIMUM_AI = 32,
 };
 
 /* the Forge menu's OBJECTS categories (forge_menu.c), in its order */
@@ -45,6 +49,9 @@ enum
 	_forge_category_weapons,
 	_forge_category_equipment,
 	_forge_category_scenery,
+	/* (AI characters: the map's actor variants that name their unit, none
+	on a multiplayer map: forge_ai.inc) */
+	_forge_category_ai,
 	/* (teleporters: SENDER and RECEIVER, linked by their channel, no tag of
 	the map's: forge_netgame.inc) */
 	_forge_category_teleporters,
@@ -109,6 +116,9 @@ enum
 	_forge_property_roll,
 	_forge_property_reset_rotation,
 	_forge_property_physics,
+	/* (an AI character's: forge_ai.inc) its AI team and its AI on or off */
+	_forge_property_ai_team,
+	_forge_property_ai,
 	NUMBER_OF_FORGE_PROPERTIES
 };
 
@@ -144,6 +154,11 @@ struct forge_properties
 	game type object's index */
 	short channel;
 	boolean linked;
+	/* (an AI character's: forge_ai.inc) its AI team (FORGE_AI_TEAM_*) and
+	whether its AI is on; respawn_seconds is 0 when it never respawns */
+	boolean character;
+	short ai_team;
+	boolean ai_on;
 };
 
 /* what the monitor's controls ask of the flying camera this frame */
@@ -350,6 +365,9 @@ enum
 	deleted */
 	_forge_menu_ask_load,
 	_forge_menu_ask_delete,
+	/* (forge_ai.inc) the layout's dead AI characters cleared (first 0), or
+	all of them (first 1) */
+	_forge_menu_ask_clear_ai,
 	NUMBER_OF_FORGE_MENU_ASKS
 };
 
@@ -364,6 +382,11 @@ struct forge_menu_view
 	/* the session's map (NONE: none), the budget's objects */
 	short map_index;
 	short objects;
+	/* (forge_ai.inc) the layout's AI characters alive, dead, and waiting
+	for room */
+	short ai_alive;
+	short ai_dead;
+	short ai_waiting;
 	short undo, redo;
 	boolean snap;
 	short speed;
@@ -390,9 +413,12 @@ void forge_menu_ask(
 char const *forge_speed_name(
 	short speed);
 /* the PROPERTIES rows of what is held (0: nothing of the layout's), each
-one's label and value ("" for an action, RESET ROTATION) */
+one's label and value ("" for an action, RESET ROTATION), and the property
+(_forge_property_*) a row is */
 short forge_property_count(
 	void);
+short forge_property_of_row(
+	short row);
 boolean forge_property_text(
 	short row,
 	char *label,
@@ -416,6 +442,14 @@ enum
 short forge_spawn_location(
 	long player_index,
 	struct player_starting_location *location);
+
+/* ---------- prototypes/FORGE_AI.INC */
+
+/* (hs_runtime.c, encounters.c) whether this is a Forge game, or a layout
+played, on a campaign mission: the mission's scripts do not run and its
+encounters are not created (its own AI and story stay out of it) */
+boolean forge_mission_off(
+	void);
 
 /* ---------- prototypes/FORGE_NETGAME.INC */
 
