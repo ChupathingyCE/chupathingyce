@@ -14,11 +14,12 @@ layout of more is refused by those builds as having too many):
 
 	header  64 bytes
 	  magic        char[4]  "HFRG"
-	  version      u16      1 to 7, or 12 (below)
+	  version      u16      1 to 7, 11 or 12 (below)
 	  header size  u16      64
 	  flags        u32      bit 0: a record is not a plain object (a spawn
-	                        point, a teleporter, a game type object); no
-	                        other bit
+	                        point, a teleporter, a game type object); bit
+	                        2: the map's own objects block (version 11 on);
+	                        no other bit
 	  map name     char[32] the scenario's short name ("bloodgulch"),
 	                        [a-z0-9_], zeros after it
 	  map hash     u32      the map file's checksum when saved (a mismatch
@@ -41,6 +42,11 @@ layout of more is refused by those builds as having too many):
 	  count u8, game types u16, variant u8, flags u8, AI team u8,
 	  AI behavior u8, AI route u8, AI options u8 (version 12, else
 	  zero), reserved u8[9] (zero)
+	map's own objects (version 11 on, header flag bit 2)
+	        block version u8 (1), zero u8, categories taken away whole
+	        u16, entry count u16 (0 to 1024), zero u16; then the entries,
+	        4 bytes each: category u8 (0 to 9), kept u8, index u16 (0 to
+	        8191)
 	meta    meta size bytes: title, author, description and date, each
 	        UTF-8 ended by a zero byte, in that order, nothing after them
 
@@ -67,23 +73,35 @@ that version (a file a writer would not make is refused).
 	6  game type objects: CTF flag, hill point, oddball spawn, race
 	   checkpoint
 	7  an object's physics: fixed (never moves) or phased (no collision)
+	11 the map's own objects the layout takes away: a placement of the
+	   scenario's (its category - scenery, bipeds, vehicles, weapons,
+	   equipment, machines, controls, light fixtures, sound scenery, or a
+	   multiplayer map's item spawns - and its index in the scenario's
+	   block) that a game of the layout does not make. Nothing of the map
+	   is in the file and the map's file is never changed. One the editor
+	   moved is taken away and placed as one of the layout's objects
+	   where it was let go. An entry of a category taken away whole is
+	   one placement kept instead (kept 1), any other one taken away
+	   (kept 0); the entries ascend strictly (category, then index), and
+	   take something away or keep something
 	12 AI movement: route points (a route's points in the records'
 	   order; each one's stop: none, a wait of 5 or 15 seconds, or a
 	   landing, where an AI pilot sets down and its riders get out),
 	   patrol areas (a size each), an AI character's behavior (hold,
 	   patrol or pursue), its route and whether it takes vehicles, and a
 	   vehicle's route (its AI pilot's, or its drivers')
-Versions 8 to 11 (game mode markers, boundaries, a lobby camera, a blank
-canvas: the Vita build's layouts) and 13 on are refused with
-_forge_file_newer_version: this build reads versions 1 to 7 and 12. Version
-12 skips 8 to 11 so that those numbers keep meaning what they mean in the
-Vita build's layouts.
+Versions 8 to 10 (game mode markers, boundaries, a lobby camera) and 13 on
+are refused with _forge_file_newer_version: this build reads versions 1 to
+7, 11 and 12. Version 11 is the Vita build's number for the same block (its
+"blank canvas"), so those layouts' blocks are read the same; 8 to 10 keep
+meaning what they mean there. A version 12 layout may hold the map's own
+objects block too (each version reads what the ones below it add).
 
 The validator (forge_file_decode), in order; a file is taken whole or not
 at all:
 - size: at least the 64-byte header, at most 64 KB;
-- header: the magic; the version 1 to 7 (above 7: newer; 0: refused); the
-  header size 64; no unknown flag; the map name [a-z0-9_], 1 to 31
+- header: the magic; the version 1 to 7, 11 or 12 (8 to 10 and above 12:
+  newer; 0: refused); the header size 64; no unknown flag; the map name [a-z0-9_], 1 to 31
   characters, only zeros after it, and the map expected (the folder's);
 - counts: packs at most 8, paths at most 256, records at most 512, meta at
   most 2048 bytes;
@@ -111,6 +129,10 @@ at all:
   receiver; at most 64 route points and 16 patrol areas; at most 64 game type objects, a hill's points at most 12; the
   flag bit 0 set exactly when a record is not a plain object; the version
   the lowest that holds it;
+- the map's own objects (version 11 on, flag bit 2): its block's version 1
+  and zeros, its categories and entries in range, the entries ascending,
+  something taken away or kept, a kept entry's category taken away whole
+  and a taken entry's not;
 - the meta: four texts, each valid UTF-8 (no overlong form, surrogate or
   control character) within its room, the title not empty, the date
   "YYYY-MM-DD HH:MM" or empty, nothing after them.
@@ -129,9 +151,9 @@ a record whose tag the map does not have is skipped, and the budget
 #define FORGE_FILE_VERSION 12
 #define FORGE_FILE_FIRST_VERSION 1
 /* (the versions this build does not read below FORGE_FILE_VERSION: the
-Vita build's 8 to 11) */
+Vita build's game mode markers, boundaries and lobby camera) */
 #define FORGE_FILE_FIRST_SKIPPED_VERSION 8
-#define FORGE_FILE_LAST_SKIPPED_VERSION 11
+#define FORGE_FILE_LAST_SKIPPED_VERSION 10
 #define FORGE_FILE_HEADER_SIZE 64
 #define FORGE_FILE_MAXIMUM_SIZE 65536
 #define FORGE_FILE_MAXIMUM_PATHS 256
@@ -222,12 +244,39 @@ enum
 };
 /* a record's path index when its kind names no object */
 #define FORGE_FILE_NO_PATH 0xFFFF
+/* (version 11) the map's own objects: the categories of the scenario's
+placements (numbers saved in files: stable), the block's sizes and
+ranges */
+enum
+{
+	_forge_canvas_scenery = 0,
+	_forge_canvas_bipeds,
+	_forge_canvas_vehicles,
+	_forge_canvas_weapons,
+	_forge_canvas_equipment,
+	_forge_canvas_machines,
+	_forge_canvas_controls,
+	_forge_canvas_light_fixtures,
+	_forge_canvas_sound_scenery,
+	/* a multiplayer map's item spawns (the scenario's netgame equipment) */
+	_forge_canvas_items,
+	NUMBER_OF_FORGE_CANVAS_CATEGORIES
+};
+#define FORGE_FILE_CANVAS_VERSION 1
+#define FORGE_FILE_CANVAS_HEADER_SIZE 8
+#define FORGE_FILE_CANVAS_ENTRY_SIZE 4
+#define FORGE_FILE_MAXIMUM_CANVAS_ENTRIES 1024
+#define FORGE_FILE_CANVAS_MAXIMUM_INDEX 8191
+#define FORGE_FILE_CANVAS_CATEGORIES_MASK ((1 << NUMBER_OF_FORGE_CANVAS_CATEGORIES) - 1)
 
 /* the header's flags */
 enum
 {
 	FORGE_FILE_FLAG_NETGAME_SPAWNS = 1 << 0,
-	FORGE_FILE_FLAGS_KNOWN = FORGE_FILE_FLAG_NETGAME_SPAWNS,
+	/* (version 11) the map's own objects block follows the records (bit
+	1, the Vita build's game modes' settings, is not read) */
+	FORGE_FILE_FLAG_CANVAS = 1 << 2,
+	FORGE_FILE_FLAGS_KNOWN = FORGE_FILE_FLAG_NETGAME_SPAWNS | FORGE_FILE_FLAG_CANVAS,
 };
 
 /* a record's flags */
@@ -363,6 +412,23 @@ struct forge_file_record
 	unsigned char ai_options;
 };
 
+/* (version 11) the map's own objects a layout takes away: the categories
+taken away whole, and the single placements kept of those or taken away of
+the others */
+struct forge_file_canvas_entry
+{
+	unsigned char category;
+	unsigned char kept;
+	unsigned short index;
+};
+
+struct forge_file_canvas
+{
+	unsigned short categories;
+	short entry_count;
+	struct forge_file_canvas_entry entries[FORGE_FILE_MAXIMUM_CANVAS_ENTRIES];
+};
+
 /* a layout, as read or to be written */
 struct forge_file_layout
 {
@@ -382,6 +448,8 @@ struct forge_file_layout
 	char author[FORGE_FILE_AUTHOR_SIZE];
 	char description[FORGE_FILE_DESCRIPTION_SIZE];
 	char date[FORGE_FILE_DATE_SIZE];
+	/* (version 11, with FORGE_FILE_FLAG_CANVAS; else zeros) */
+	struct forge_file_canvas canvas;
 };
 
 /* ---------- prototypes/FORGE_FILES.C */
@@ -420,7 +488,7 @@ int forge_file_layout_check(
 	char const *expected_map);
 
 /* the version a layout is written as: its own when set, else the lowest
-that holds it (12 with AI movement, 7 with an object's physics, 6 with a game type object, 5
+that holds it (12 with AI movement, 11 with the map's own objects block, 7 with an object's physics, 6 with a game type object, 5
 with a teleporter, 4 with a player spawn, 3 with a respawning character, 2
 when a record has an AI setting, else 1) */
 int forge_file_layout_version(
