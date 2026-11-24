@@ -126,6 +126,7 @@ A few people look for most:
 | `update.offer_64bit` | 32-bit Windows build: whether to offer the 64-bit build on 64-bit Windows. "Keep 32-bit" turns it off. |
 | `paths.data`, `paths.saves` | Where the maps and the saves are, if not the usual place. |
 | `paths.logs`, `paths.cache` | Where the logs and the cache go, if not the usual place ([Where your files go](install.md#where-your-files-go)). |
+| `paths.steam_api` | A `steam_api` library for the MCC Workshop's Steam app link to use. Empty uses MCC's own on Windows. Signed Mac builds ignore it: the Steam app link is off there, and subscribing opens the item's page in Steam. |
 
 Settings you leave at their default follow each new version's default, so
 leaving the file alone is always safe. When a new version changes a default

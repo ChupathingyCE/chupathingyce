@@ -182,13 +182,27 @@ static void item_query(const struct steam_bridge_backend *client, const struct s
 static void session(int use_steamcmd)
 {
 	static struct watched_item turn[STEAM_BRIDGE_MAXIMUM_ITEMS];
+	static int blocked_said;
 	const struct steam_bridge_backend *client = &steam_bridge_api_backend;
-	const struct steam_bridge_backend *steamcmd = use_steamcmd ? steamcmd_functions() : NULL;
-	int client_status;
+	const struct steam_bridge_backend *steamcmd;
+	int client_status, steamcmd_status, status, connected = 0, live;
 
-client_status = client->connect();
-	int steamcmd_status = steamcmd ? steamcmd->connect() : STEAM_BRIDGE_FAILED;
-	int status, connected = 0, live;
+	/* (a signed Mac: the client backend skipped before any library is looked
+	for, the downloader in its place; subscribing opens the item's page) */
+	if (steam_bridge_platform_client_blocked())
+	{
+		if (!blocked_said)
+		{
+			blocked_said = 1;
+			platform_log("Steam bridge: the Steam app link is off in signed Mac builds; "
+				"subscribing opens the item's page");
+		}
+		client = NULL;
+		use_steamcmd = 1;
+	}
+	steamcmd = use_steamcmd ? steamcmd_functions() : NULL;
+	client_status = client ? client->connect() : STEAM_BRIDGE_FAILED;
+	steamcmd_status = steamcmd ? steamcmd->connect() : STEAM_BRIDGE_FAILED;
 
 	if (client_status == STEAM_BRIDGE_READY)
 		connected |= CLIENT_BIT;
@@ -340,13 +354,14 @@ int steam_bridge_backend(void)
 		in by the Steam app's QR; the Steam client only where it isn't built) */
 		if (steam_link_available() && !config_boolean("debug.workshop_steamcmd"))
 			bridge.backend = STEAM_BRIDGE_BACKEND_STEAMCMD;
-		else if (steam_bridge_api_library_paths(paths, 1, 0))
+		/* (a signed Mac: never the client's library, not even paths.steam_api) */
+		else if (!steam_bridge_platform_client_blocked() && steam_bridge_api_library_paths(paths, 1, 0))
 			bridge.backend = STEAM_BRIDGE_BACKEND_CLIENT;
 #ifndef _WIN32
 		else if (steam_bridge_platform_find_steamcmd(path, sizeof(path)))
 			bridge.backend = STEAM_BRIDGE_BACKEND_STEAMCMD;
 		/* (a game's steam_api library is looked for when the tab opens) */
-		else if (steam_bridge_steam_present())
+		else if (!steam_bridge_platform_client_blocked() && steam_bridge_steam_present())
 			bridge.backend = STEAM_BRIDGE_BACKEND_CLIENT;
 #endif
 	}
@@ -606,6 +621,7 @@ void *steam_bridge_platform_library_open(const char *path) { (void)path; return 
 void *steam_bridge_platform_library_symbol(void *library, const char *name) { (void)library; (void)name; return NULL; }
 void steam_bridge_platform_set_app_id(const char *app_id) { (void)app_id; }
 void steam_bridge_platform_sleep(int milliseconds) { (void)milliseconds; }
+int steam_bridge_platform_client_blocked(void) { return 0; }
 int steam_bridge_platform_find_steamcmd(char *path, int size) { (void)path; (void)size; return 0; }
 int steam_bridge_platform_steamcmd_root(const char *steamcmd, char *root, int size)
 {
