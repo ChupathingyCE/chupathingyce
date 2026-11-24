@@ -1212,18 +1212,18 @@ static void upper(char *text)
 
 /* (AI on a multiplayer map) where its characters came from, in a line:
 "Missing: Flood, Sentinels", or "From your campaign maps" */
-static void ai_sources_text(char *text, int size)
+static void ai_sources_text(short category, char *text, int size)
 {
 	short faction;
 	boolean any_missing = FALSE;
 
 	snprintf(text, (size_t)size, "%s", "Missing: ");
-	for (faction = 0; faction < forge_ai_faction_lines(); faction++)
+	for (faction = 0; faction < forge_ai_faction_lines(category); faction++)
 	{
 		char line[64];
 		boolean missing;
 
-		if (!forge_ai_faction_line(faction, line, sizeof(line), &missing) || !missing)
+		if (!forge_ai_faction_line(category, faction, line, sizeof(line), &missing) || !missing)
 			continue;
 		snprintf(text + strlen(text), (size_t)size - strlen(text), "%s%s", any_missing ? ", " : "", line);
 		any_missing = TRUE;
@@ -1241,7 +1241,8 @@ static void render_objects(void)
 	if (!forge_menu.pane)
 	{
 		side_heading("OBJECTS");
-		for (index = 0; index < NUMBER_OF_FORGE_CATEGORIES && index < shown; index++)
+		first = forge_menu.list_first = scrolled(forge_menu.list_first, chosen, NUMBER_OF_FORGE_CATEGORIES, shown);
+		for (index = first; index < NUMBER_OF_FORGE_CATEGORIES && index < first + shown; index++)
 		{
 			snprintf(tag, sizeof(tag), "%d", forge_category_item_count(index));
 			side_row(y, index == chosen, forge_category_name(index), tag, FALSE, _target_list, index);
@@ -1251,11 +1252,11 @@ static void render_objects(void)
 		snprintf(tag, sizeof(tag), "Placed: %d", forge_group_placed_count(chosen));
 		/* (AI on a multiplayer map: brought from the campaign maps, and the
 		factions none of whose campaign maps is there) */
-		if (chosen == _forge_category_ai && forge_ai_faction_lines() > 0)
+		if (forge_ai_faction_lines(chosen) > 0)
 		{
 			char sources[96];
 
-			ai_sources_text(sources, sizeof(sources));
+			ai_sources_text(chosen, sources, sizeof(sources));
 			side_box(forge_category_name(chosen), line, tag, sources);
 			return;
 		}
@@ -1271,16 +1272,15 @@ static void render_objects(void)
 
 		/* (AI on a multiplayer map: the factions with no campaign map, a row
 		each after the characters, shown with the last of them) */
-		if (chosen == _forge_category_ai)
 		{
 			short faction;
 
-			for (faction = 0; faction < forge_ai_faction_lines(); faction++)
+			for (faction = 0; faction < forge_ai_faction_lines(chosen); faction++)
 			{
 				char text[64];
 				boolean missing;
 
-				if (forge_ai_faction_line(faction, text, sizeof(text), &missing) && missing)
+				if (forge_ai_faction_line(chosen, faction, text, sizeof(text), &missing) && missing)
 					notes++;
 			}
 		}
@@ -1300,16 +1300,16 @@ static void render_objects(void)
 		}
 		/* (AI on a multiplayer map: a row for each faction none of whose
 		campaign maps is there, after the characters) */
-		if (chosen == _forge_category_ai && forge_ai_faction_lines() > 0)
+		if (forge_ai_faction_lines(chosen) > 0)
 		{
 			short faction;
 
-			for (faction = 0; faction < forge_ai_faction_lines() && index >= items && index < first + shown; faction++)
+			for (faction = 0; faction < forge_ai_faction_lines(chosen) && index >= items && index < first + shown; faction++)
 			{
 				char text[64];
 				boolean missing;
 
-				if (!forge_ai_faction_line(faction, text, sizeof(text), &missing) || !missing)
+				if (!forge_ai_faction_line(chosen, faction, text, sizeof(text), &missing) || !missing)
 					continue;
 				snprintf(line, sizeof(line), "%s", text);
 				upper(line);

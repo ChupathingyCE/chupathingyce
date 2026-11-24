@@ -74,9 +74,13 @@ typedef unsigned short word;
 #define MACHINE_DEFINITION_TAG 'mach'
 #define CONTROL_DEFINITION_TAG 'ctrl'
 #define ACTOR_VARIANT_DEFINITION_TAG 'actv'
+#define LIGHT_FIXTURE_DEFINITION_TAG 'lifi'
 enum { _weapon_trigger_projectiles_cannot_be_aimed_bit = CANNOT_BE_AIMED_BIT };
 enum { _forge_category_vehicles = 0, _forge_category_weapons, _forge_category_equipment, _forge_category_scenery,
-    _forge_category_ai };
+    _forge_category_ai, _forge_category_campaign_vehicles, _forge_category_campaign_objects };
+/* (no tag here was brought in from a campaign map: forge_ai_tags.c) */
+static char const *forge_ai_tags_source_map(long tag_index) { (void)tag_index; return 0; }
+static int forge_ai_tags_offered(long tag_index) { (void)tag_index; return 1; }
 struct tag_block { long count; void *address; };
 struct tag_reference { unsigned long group_tag; long index; };
 #define TAG_BLOCK_GET_ELEMENT(block, index, type) (&((type *)(block)->address)[index])

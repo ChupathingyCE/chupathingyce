@@ -134,6 +134,7 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
                            them, cleared (the Forge menu's CLEAR DEAD AI,
                            CLEAR ALL AI)
   forge kill #<id>         (tests) a layout's AI character killed
+  forge board #<id>        (tests) the Spartan into a layout's vehicle
   forge where | budget | objects | spawns | netflags | ai  the state in the log
   forge map [category]     the map's own objects the editor can take, and
                            the ones the layout takes away, in the log
@@ -156,6 +157,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "camera/observer.h"
 #include "devices/device_controls.h"
 #include "devices/device_definitions.h"
+#include "devices/device_light_fixtures.h"
 #include "game/game.h"
 #include "game/game_allegiance.h"
 #include "game/game_engine.h"
@@ -346,12 +348,14 @@ enum
 /* the Forge menu's categories' names (forge.h's order) */
 static char const *const forge_category_names[NUMBER_OF_FORGE_CATEGORIES] =
 {
-	"VEHICLES", "WEAPONS", "EQUIPMENT", "SCENERY", "AI", "TELEPORTERS", "OBJECTIVES", "SPAWNING",
+	"VEHICLES", "WEAPONS", "EQUIPMENT", "SCENERY", "AI", "CAMPAIGN VEHICLES", "CAMPAIGN OBJECTS", "TELEPORTERS",
+	"OBJECTIVES", "SPAWNING",
 };
 /* (the log's and the console's) */
 static char const *const forge_category_log_names[NUMBER_OF_FORGE_CATEGORIES] =
 {
-	"vehicles", "weapons", "equipment", "scenery", "ai", "teleporters", "objectives", "spawning",
+	"vehicles", "weapons", "equipment", "scenery", "ai", "campaign_vehicles", "campaign_objects", "teleporters",
+	"objectives", "spawning",
 };
 /* (forge_spawns.inc) the markers' categories' items (SPAWNING's,
 TELEPORTERS', OBJECTIVES'), its kinds' names */
@@ -441,6 +445,34 @@ static struct
 	{ "wraith", "Wraith" },
 	{ "pelican", "Pelican" },
 	{ "c_dropship", "Covenant Dropship" },
+	/* (the campaign's objects, brought in from its maps: forge_ai_tags.c) */
+	{ "c_storage", "Covenant Crate" },
+	{ "c_storage_large", "Large Covenant Crate" },
+	{ "c_field_generator", "Covenant Shield Generator" },
+	{ "c_uplink", "Covenant Uplink" },
+	{ "landing beacon", "Landing Beacon" },
+	{ "pelican_crashed", "Crashed Pelican" },
+	{ "c_dropship_crashed", "Crashed Covenant Dropship" },
+	{ "metal_small", "Metal Barricade" },
+	{ "metal_tall", "Tall Metal Barricade" },
+	{ "metal_wide", "Wide Metal Barricade" },
+	{ "door small", "Forerunner Door" },
+	{ "holo display square", "Holo Display" },
+	{ "holo display tall", "Tall Holo Display" },
+	{ "holo display wide", "Wide Holo Display" },
+	{ "holo control ring", "Holo Control Ring" },
+	{ "holo control", "Holo Control Panel" },
+	{ "light fixture ceiling1", "Forerunner Ceiling Light" },
+	{ "light fixture floor1", "Forerunner Floor Light" },
+	{ "light fixture floor2", "Forerunner Floor Light 2" },
+	{ "light fixture wall1", "Forerunner Wall Light" },
+	{ "light fixture wall3", "Forerunner Wall Light 2" },
+	{ "tree_leafy", "Leafy Tree" },
+	{ "tree_leafy_medium", "Medium Leafy Tree" },
+	{ "tree_leafy_doublewide", "Wide Leafy Tree" },
+	{ "tree_leafy_fallentrunk", "Fallen Trunk" },
+	{ "tree_leafy_stump", "Tree Stump" },
+	{ "vines_hanging", "Hanging Vines" },
 	/* weapons */
 	{ "assault rifle", "Assault Rifle" },
 	{ "pistol", "Pistol" },
@@ -851,6 +883,8 @@ static void forge_draw_line(long font_index, rectangle2d const *bounds, short ju
 /* ---- the Forge menu's asks (forge_menu_link.inc) */
 static void forge_menu_asks_run(void);
 static boolean forge_placed_dead(struct forge_placed const *placed);
+static short forge_packs_of(short pack_category);
+static void forge_campaign_seats_tune(void);
 static void forge_ai_count(void);
 static short forge_ai_alive(void);
 static short forge_ai_dead_only(void);
@@ -1031,6 +1065,21 @@ static short forge_tag_category(
 
 	if (!name || strstr(name, "cinematic"))
 		return NONE;
+	/* (a tag brought in from a campaign map: a character, or one of a
+	pack's own vehicles or objects, in the campaign's categories; what they
+	need - their weapons, effects - none: forge_ai_tags.c) */
+	if (forge_ai_tags_source_map(tag_index))
+	{
+		if (!forge_ai_tags_offered(tag_index))
+			return NONE;
+		if (group_tag == VEHICLE_DEFINITION_TAG)
+			return _forge_category_campaign_vehicles;
+		if (group_tag == FORGE_SCENERY_DEFINITION_TAG || group_tag == MACHINE_DEFINITION_TAG ||
+			group_tag == CONTROL_DEFINITION_TAG || group_tag == LIGHT_FIXTURE_DEFINITION_TAG)
+		{
+			return _forge_category_campaign_objects;
+		}
+	}
 	switch (group_tag)
 	{
 	case VEHICLE_DEFINITION_TAG:
@@ -1100,7 +1149,7 @@ static void forge_palette_build(
 	static unsigned long const groups[] =
 	{
 		VEHICLE_DEFINITION_TAG, WEAPON_DEFINITION_TAG, EQUIPMENT_DEFINITION_TAG, FORGE_SCENERY_DEFINITION_TAG,
-		MACHINE_DEFINITION_TAG, CONTROL_DEFINITION_TAG, ACTOR_VARIANT_DEFINITION_TAG,
+		MACHINE_DEFINITION_TAG, CONTROL_DEFINITION_TAG, ACTOR_VARIANT_DEFINITION_TAG, LIGHT_FIXTURE_DEFINITION_TAG,
 	};
 	short group_index;
 	short index;
@@ -3678,13 +3727,13 @@ static void forge_session_update(
 			platform_log("forge: the Forge game of %s starts", forge_globals.game_map);
 			/* (a multiplayer map: the AI characters its campaign maps gave,
 			said, and the factions none of whose campaign maps is there) */
-			if (forge_ai_faction_lines() > 0)
+			if (forge_packs_of(NONE) > 0)
 			{
 				char found[96] = "";
 				char missing[96] = "";
 				short faction;
 
-				for (faction = 0; faction < forge_ai_faction_lines(); faction++)
+				for (faction = 0; faction < forge_ai_tags_faction_count(); faction++)
 				{
 					char const *name = "";
 					char const *map = NULL;
@@ -3695,8 +3744,8 @@ static void forge_session_update(
 					snprintf(list + strlen(list), sizeof(found) - strlen(list), "%s%s", list[0] ? ", " : "", name);
 				}
 				if (missing[0])
-					forge_warning_hud(found[0] ? "AI from your campaign maps. Missing a campaign map for some." :
-						"No AI: no campaign maps in the maps folder.");
+					forge_warning_hud(found[0] ? "Campaign characters and objects: some of their campaign maps are missing." :
+						"No campaign characters or objects: no campaign maps in the maps folder.");
 				platform_log("forge: AI characters from the campaign maps: %s; none for: %s", found[0] ? found : "none",
 					missing[0] ? missing : "none");
 			}
@@ -4289,8 +4338,8 @@ boolean forge_category_item(
 	entry = &forge_globals.palette[forge_globals.palette_first[category] + item_index];
 	csmemcpy(item->name, entry->name, sizeof(item->name));
 	item->placed = forge_placed_of_tag(entry->tag_index);
-	/* (a character brought in from a campaign map: its faction and mission) */
-	if (category == _forge_category_ai && forge_ai_tags_source_map(entry->tag_index))
+	/* (brought in from a campaign map: its faction, or pack, and mission) */
+	if (forge_ai_tags_source_map(entry->tag_index))
 	{
 		short faction = forge_ai_tags_faction_of(entry->tag_index);
 		char const *name = "";
@@ -4326,26 +4375,61 @@ char const *forge_mission_title(
 	return map_index != NONE ? forge_maps[map_index].name : "";
 }
 
-short forge_ai_faction_lines(
-	void)
+/* the packs' category of one of the Forge menu's (NONE: none) */
+static short forge_pack_category(
+	short category)
+{
+	return category == _forge_category_ai ? FORGE_AI_PACK_AI :
+		category == _forge_category_campaign_vehicles ? FORGE_AI_PACK_VEHICLES :
+		category == _forge_category_campaign_objects ? FORGE_AI_PACK_OBJECTS : NONE;
+}
+
+/* (a multiplayer map's Forge game) the packs of a category, or all (NONE) */
+static short forge_packs_of(
+	short pack_category)
 {
 	short map_index = forge_globals.game_active ? forge_map_of_level(forge_globals.game_map) : NONE;
+	short faction;
+	short count = 0;
 
-	return map_index != NONE && !forge_maps[map_index].campaign ? forge_ai_tags_faction_count() : 0;
+	if (map_index == NONE || forge_maps[map_index].campaign)
+		return 0;
+	for (faction = 0; faction < forge_ai_tags_faction_count(); faction++)
+		count += pack_category == NONE || forge_ai_tags_faction_category(faction) == pack_category ? 1 : 0;
+	return count;
+}
+
+short forge_ai_faction_lines(
+	short category)
+{
+	short pack_category = forge_pack_category(category);
+
+	return pack_category != NONE ? forge_packs_of(pack_category) : 0;
 }
 
 short forge_ai_faction_line(
-	short faction,
+	short category,
+	short line_index,
 	char *line,
 	int size,
 	boolean *missing)
 {
 	char const *name = "";
 	char const *map = NULL;
+	short pack_category = forge_pack_category(category);
+	short faction;
+	short seen = 0;
 
 	line[0] = 0;
 	*missing = FALSE;
-	if (faction < 0 || faction >= forge_ai_faction_lines() || !forge_ai_tags_faction(faction, &name, &map))
+	if (line_index < 0 || line_index >= forge_ai_faction_lines(category))
+		return 0;
+	for (faction = 0; faction < forge_ai_tags_faction_count(); faction++)
+	{
+		if (forge_ai_tags_faction_category(faction) == pack_category && seen++ == line_index)
+			break;
+	}
+	if (faction >= forge_ai_tags_faction_count() || !forge_ai_tags_faction(faction, &name, &map))
 		return 0;
 	*missing = map == NULL;
 	if (map)
@@ -4353,6 +4437,49 @@ short forge_ai_faction_line(
 	else
 		snprintf(line, (size_t)size, "%s", name);
 	return 1;
+}
+
+/* (an import done) the campaign vehicles' seats a player could not take,
+given animations the player's unit has: the Wraith's driver ("wraith-driver",
+an Elite's) the Scorpion driver's. Only the copy this Forge game brought in
+from a campaign map; a label already changed is not changed again */
+static struct
+{
+	char const *path;
+	char const *label;
+	char const *player_label;
+} const forge_campaign_seats[] =
+{
+	{ "vehicles\\wraith\\wraith", "wraith-driver", "scorpion-driver" },
+};
+
+static void forge_campaign_seats_tune(
+	void)
+{
+	short entry;
+
+	for (entry = 0; entry < (short)NUMBEROF(forge_campaign_seats); entry++)
+	{
+		long tag_index = tag_loaded(VEHICLE_DEFINITION_TAG, forge_campaign_seats[entry].path);
+		struct unit_definition *definition;
+		short seat_index;
+
+		if (tag_index == NONE || !forge_ai_tags_source_map(tag_index))
+			continue;
+		definition = unit_definition_get(tag_index);
+		for (seat_index = 0; seat_index < definition->unit.seats.count; seat_index++)
+		{
+			struct unit_seat *seat = TAG_BLOCK_GET_ELEMENT(&definition->unit.seats, seat_index, struct unit_seat);
+
+			if (!_strnicmp(seat->label, forge_campaign_seats[entry].label, TAG_STRING_LENGTH))
+			{
+				csmemset(seat->label, 0, TAG_STRING_LENGTH + 1);
+				csstrncpy(seat->label, forge_campaign_seats[entry].player_label, TAG_STRING_LENGTH);
+				platform_log("forge: %s's seat %d a player's (%s)", forge_tag_leaf(tag_index), seat_index,
+					forge_campaign_seats[entry].player_label);
+			}
+		}
+	}
 }
 
 /* (the Forge menu's choice, forge_update's) an item of a category spawned in the
@@ -4563,7 +4690,10 @@ void forge_update(
 	campaign maps once its load is done: forge_ai_tags.c; the palette made
 	again with them) */
 	if (forge_globals.game_active && forge_ai_tags_update())
+	{
 		forge_globals.palette_built = FALSE;
+		forge_campaign_seats_tune();
+	}
 	forge_session_update();
 	/* (the layout's teleporters and flags the engine's, before the tick) */
 	forge_netgame_update();
@@ -5321,6 +5451,33 @@ boolean forge_command(
 	if (!strcmp(word, "netflags"))
 	{
 		forge_netgame_log();
+		return TRUE;
+	}
+	/* (the tests: the Spartan into the layout's vehicle "#<id>", its first
+	seat the Spartan can take - as walking up to it and pressing action) */
+	if (!strcmp(word, "board"))
+	{
+		long vehicle_index = rest[0] == '#' ? forge_command_target(rest) : NONE;
+		long player_index = local_player_get_player_index(forge_globals.local_player_index);
+		long unit_index = player_index != NONE ? player_get(player_index)->unit_index : NONE;
+		struct object_datum *vehicle = object_try_and_get(vehicle_index);
+		short seat_index;
+
+		if (!vehicle || unit_index == NONE || forge_globals.active || vehicle->object.type != _object_type_vehicle)
+			return FALSE;
+		for (seat_index = 0; seat_index < unit_definition_get(vehicle->definition_index)->unit.seats.count; seat_index++)
+		{
+			long occupant = NONE;
+
+			if (unit_can_enter_seat(unit_index, vehicle_index, seat_index, &occupant) && occupant == NONE &&
+				unit_enter_seat(unit_index, vehicle_index, seat_index))
+			{
+				platform_log("forge: the Spartan boards %s, seat %d (the tests)", forge_tag_leaf(vehicle->definition_index),
+					seat_index);
+				return TRUE;
+			}
+		}
+		platform_log("forge: the Spartan can take no seat of %s", forge_tag_leaf(vehicle->definition_index));
 		return TRUE;
 	}
 	/* (the tests: a layout's AI character, "#<id>", killed - its respawn
