@@ -194,6 +194,11 @@ enum
 #include "nv2a_pixel_key.h"
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
+/* whether the GLSL above applies D3DTSS_MIPMAPLODBIAS in its lookups (the
+texture_lod_bias uniform), as OpenGL ES's always does, for a renderer whose
+samplers have no LOD bias of their own: bgfx's, which sets it while it asks
+(d3d8_bgfx.inl's bg_fragment_shader). Desktop OpenGL's samplers have it. */
+extern BOOL nv2a_pixel_shader_lod_bias;
 
 /* nv2a_finite, in the vertex and pixel shaders: a component that is not a
 number made 0, by its bits (a driver's fast math may drop a float test such as
