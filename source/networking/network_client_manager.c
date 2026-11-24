@@ -3272,6 +3272,10 @@ static boolean network_game_client_idle_searching(
 						network_event("sent out a broadcast game search packet");
 						client->last_broadcast_search_time = now;
 					}
+					else
+					{
+						network_event("network_game_client_write() failed while sending a message_client_broadcast_game_search message");
+					}
 #ifdef HALO_GAME_BROWSER
 					/* port: and to a host's address (Direct IP): a host on
 					another network, which no broadcast reaches, answers it
@@ -3301,10 +3305,6 @@ static boolean network_game_client_idle_searching(
 						}
 					}
 #endif
-					else
-					{
-						network_event("network_game_client_write() failed while sending a message_client_broadcast_game_search message");
-					}
 				}
 				else
 				{
