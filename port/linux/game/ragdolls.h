@@ -57,9 +57,10 @@ short ragdolls_find_rendered(long *result, short maximum, boolean (*unmarked)(lo
 	boolean (*mark)(long object_index));
 
 /* ---------- the console (hs.c): "ragdolls stats", and with debug.ragdolls
-the tests' "ragdolls boom|shoot|punch|kill [count] [range]", "ragdolls
-cam <distance> <yaw> <pitch>" and "ragdolls nomemory [count]" (Jolt's
-allocations refused from the count-th on); TRUE: done */
+the tests' "ragdolls boom|shoot|headshot|backshot|punch|ram|kill [count]
+[range]", "ragdolls spawn [count] [distance]", "ragdolls cam <distance>
+<yaw> <pitch>" and "ragdolls nomemory [count]" (Jolt's allocations
+refused from the count-th on); TRUE: done */
 boolean ragdolls_command(char const *arguments);
 
 #endif // __RAGDOLLS_H

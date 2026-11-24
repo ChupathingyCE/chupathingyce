@@ -85,10 +85,11 @@ unsigned int physics_jolt_clock_us(void);
 /* ---------- a dead character's ragdoll (ragdolls.c makes its rig)
 
 A body a joint of the body, parents first: its origin and rotation the node's
-at the death (metres, the world), its shape the convex hull of points in its
-own frame (4 or more), else a box of half extents at box_centre turned by
-box_rotation; its mass (kg; the inertia its shape's at that mass). Its joint
-to its parent is at the body's origin:
+at the start (metres, the world), moving at velocity (metres a second) and
+turning at angular_velocity (radians a second, about the world's axes), its
+shape the convex hull of points in its own frame (4 or more), else a box of
+half extents at box_centre turned by box_rotation; its mass (kg; the inertia
+its shape's at that mass). Its joint to its parent is at the body's origin:
 - a hinge: limits[0..1], about axis (parent_axes[0..2] on the parent,
   axes[0..2] on this body), positive turning reference (parent_axes[3..5])
   toward direction (axes[3..5]);
@@ -109,7 +110,7 @@ struct physics_jolt_rig_body
 {
 	int parent;
 	int joint;
-	float position[3], rotation[4], velocity[3];
+	float position[3], rotation[4], velocity[3], angular_velocity[3];
 	float const *points;
 	int point_count;
 	float half[3], box_centre[3], box_rotation[4];
@@ -135,6 +136,12 @@ void physics_jolt_rig_destroy(int ragdoll);
 void physics_jolt_rig_get_body(int ragdoll, int body, float position[3], float rotation[4]);
 /* a body's velocity changed by velocity (metres a second), the ragdoll woken */
 void physics_jolt_rig_add_velocity(int ragdoll, int body, float const velocity[3]);
+/* a body pulled toward position and rotation (metres, the world; x y z w):
+its velocity and spin turned weight of the way (0 to 1) toward those that
+bring it there in dt seconds, the body woken (a death animation's pose the
+ragdoll follows for a moment after it takes over) */
+void physics_jolt_rig_drive(int ragdoll, int body, float const position[3], float const rotation[4], float dt,
+	float weight);
 /* whether Jolt has any of its bodies awake */
 int physics_jolt_rig_active(int ragdoll);
 void physics_jolt_rig_set_active(int ragdoll, int active);
