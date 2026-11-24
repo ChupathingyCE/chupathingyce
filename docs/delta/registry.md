@@ -166,6 +166,47 @@ Numbers seen in the wild:
 | 43 | OpenCE's 43 hosts; `chupa-43a`'s hosts of MCC maps (development builds, no release) |
 | 44 | current: announced when the signed table's row for a wire lists it for hosting (with no row, a desktop build or server hosts 41 and a console 32; the number built into the code is 32). From `chupa-44a`, the number a host plays an MCC map's game at ([peer.md](peer.md), HOST_NUMBER) |
 | version with bit 15 set (0x8000) | a GOAT H1 host closed to other builds: closed, never joinable |
+| 0xFF00 to 0xFFFF | Content Evolved's modded games ([Content Evolved (Watanoge)](https://github.com/Watanoge/halo-content-evolved)): 0xFF00 plus the mod version (0xFF70 is mod version 112). All 26 of the advertisement's reserved bytes are then Content Evolved's ([LAN advertisement](#lan-advertisement)). Bit 15 is set here too: never joinable by another build |
+
+## LAN advertisement
+
+The 26 reserved bytes of a host's game advertisement
+([peer.md](peer.md#the-advertisement)). The version word in bytes 0 and 1
+says whose layout the rest is.
+
+### Stock layout
+
+A version word below 0xFF00: a network version.
+
+| Bytes | Value | Name | Meaning | For | Status |
+| --- | --- | --- | --- | --- | --- |
+| 0, 1 |  | `version` | the network version the host announces (little-endian) | the game protocol | in use |
+| 2 | 0x01 | `distributed` | the distributed netcode (always set) | the game protocol | in use |
+| 2 | 0x02 | `in_progress` | the game is under way | the game protocol | in use |
+| 2 | 0x04 | `dedicated` | a dedicated server (version 39 and later); the old Delta layout's flag before that | the game protocol | in use |
+| 2 | 0x08 | `mcc` | the host plays the MCC network protocol's join and settings record ([peer.md](peer.md#mcc-games)) | the MCC network protocol (from GulchCE) | in use, in no Chupathingy release |
+| 3 |  | `kind` | the game's kind (version 37 and later), 0 before | the game protocol | in use |
+| 4 |  | `mcc_version` | with the flag 0x08, the MCC network protocol's version | the MCC network protocol (from GulchCE) | in use, in no Chupathingy release |
+| 5 to 16 |  |  | zero, but for the old Delta layout ([peer.md](peer.md#the-old-layout)) |  | reserved |
+| 17 to 25 |  | `delta_tag` | the Delta tag ([peer.md](peer.md#the-tag)) | Delta | in use |
+
+### Content Evolved's modded games
+
+A version word of 0xFF00 to 0xFFFF: a Content Evolved modded game
+([peer.md](peer.md#content-evolveds-modded-games)). All 26 bytes are
+Content Evolved's ([Content Evolved (Watanoge)](https://github.com/Watanoge/halo-content-evolved)).
+Another reader reads none of its own meanings from them (no MCC flag or
+version, no kind, no Delta tag) and shows the game as one it can't play.
+
+Content Evolved's layout, for information; it is theirs to change:
+
+| Bytes | Meaning |
+| --- | --- |
+| 0, 1 | 0xFF00 plus the mod version (little-endian) |
+| 2 | flags, among them 0x08 skulls, 0x10 skull drops, 0x20 the randomizer, 0x40 a Tag Injector share |
+| 3 to 14 | the randomizer's setup |
+| 15 to 22 | the skulls, a bitmask |
+| 24, 25 | the host's real network version |
 
 ## Platform key flags
 
@@ -187,27 +228,27 @@ same listing, so its flags and stamp are shared with them.
 
 The listing's flags byte. A browser ignores a flag it doesn't know.
 
-| Value | Name | Meaning | Status |
-| --- | --- | --- | --- |
-| 1 | `open` | the game takes joins now | in use |
-| 2 | `in_progress` | a game is under way | in use |
-| 4 | `teams` | a team game | in use |
-| 8 | `closed` | the host stopped: this listing ends its game (a tombstone) | in use |
-| 16 | `password` | the invite's token is sealed with a password's key | in use |
-| 32 | `dedicated_opence` | a dedicated server's game, as OpenCE's network version 39 says it ([versioning.md](versioning.md#legacy-versions)); a dedicated server that announces 39 or later sets it with 128 | in use |
-| 64 |  | reserved for Content Evolved | reserved, pending its pull request |
-| 128 | `dedicated` | a dedicated server's game, nobody playing at the host (Chupathingy's); either 32 or 128 lists a game as dedicated | in use |
+| Value | Name | Meaning | For | Status |
+| --- | --- | --- | --- | --- |
+| 1 | `open` | the game takes joins now |  | in use |
+| 2 | `in_progress` | a game is under way |  | in use |
+| 4 | `teams` | a team game |  | in use |
+| 8 | `closed` | the host stopped: this listing ends its game (a tombstone) |  | in use |
+| 16 | `password` | the invite's token is sealed with a password's key |  | in use |
+| 32 | `dedicated_opence` | a dedicated server's game, as OpenCE's network version 39 says it ([versioning.md](versioning.md#legacy-versions)); a dedicated server that announces 39 or later sets it with 128 |  | in use |
+| 64 | `modded` | a Content Evolved modded game: stamp byte 1 is its mod version ([LAN advertisement](#content-evolveds-modded-games)). Content Evolved lists it in its listing format 2, which OpenCE's and Chupathingy's builds don't read; a browser that reads it without the same mod version shows it as not playable | Content Evolved (Watanoge) | in use |
+| 128 | `dedicated` | a dedicated server's game, nobody playing at the host (Chupathingy's); either 32 or 128 lists a game as dedicated |  | in use |
 
 ### Listing stamp
 
 The 8 bytes before the listing's signature. The signature covers them, so
 a browser keeps every byte as it came, including the ones it doesn't read.
 
-| Byte | Name | Meaning | Status |
-| --- | --- | --- | --- |
-| 0 | `kind` | the game's kind, from network version 37: an OpenCE game type in the low seven bits and Hardcore in bit 7 ([versioning.md](versioning.md#legacy-versions)). A host that announces an older number, and a closed listing, send 0 | in use |
-| 1 |  | reserved for Content Evolved | reserved, pending its pull request |
-| 2 to 7 |  | none yet: a host sends 0 | reserved |
+| Byte | Name | Meaning | For | Status |
+| --- | --- | --- | --- | --- |
+| 0 | `kind` | the game's kind, from network version 37: an OpenCE game type in the low seven bits and Hardcore in bit 7 ([versioning.md](versioning.md#legacy-versions)). A host that announces an older number, and a closed listing, send 0 | OpenCE | in use |
+| 1 | `mod_version` | with flag 64, Content Evolved's mod version, the low byte of its advertisement's version word; 0 otherwise | Content Evolved (Watanoge) | in use |
+| 2 to 7 |  | none yet: a host sends 0 |  | reserved |
 
 ### How to ask for a flag or a stamp byte
 
