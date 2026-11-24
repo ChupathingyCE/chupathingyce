@@ -111,6 +111,11 @@ void network_game_server_dedicated_start_countdown(struct network_game_server *s
 void network_game_server_keep_menus_variant(struct network_game_server *server);
 boolean ui_widget_port_dispatch_event(struct widget_instance *widget, short event_type, short controller_index,
 	boolean *deleted);
+struct widget_instance *ui_widget_port_replace(struct widget_instance *widget, long tag_index);
+/* (xinput_sdl.c) the keyboard or mouse used last; player 1's controller
+(-1: the keyboard and mouse) */
+int halo_keyboard_prompts(void);
+void platform_gamepad_make_first(int port);
 struct widget_instance *ui_widget_port_top_screen(void);
 /* (interface/ui_widget.c) where B leaves to: the screen the game came from */
 void ui_widget_port_lobby_origin_set(boolean joined_from_online_games);
@@ -141,12 +146,17 @@ boolean profile_screen_active(void);
 #define MAP_SELECT_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\connected_map_select_postgame_wrapper"
 #define HOST_SETUP_SCREEN "pc\\chupathingy\\host\\setup_screen"
 /* System Link's SELECT PROFILE (ui.map's four quarters), and a quarter
-still choosing its profile */
+empty ("press A to join"), choosing its profile, and with it picked */
 #define ADD_PLAYERS_SCREEN \
 	"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\4way_profile_select\\4way_start2join_screen"
+#define ADD_PLAYERS_EMPTY \
+	"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\4way_profile_select\\qtr_screen_start2join"
 #define ADD_PLAYERS_CHOOSING \
 	"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\4way_profile_select\\qtr_screen_profile_select"
+#define ADD_PLAYERS_PICKED \
+	"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\4way_profile_select\\qtr_screen_profile_selected"
 /* the events the pregame screen takes (ui_widget_port_dispatch_event) */
+#define EVENT_A 0
 #define EVENT_B 1
 
 enum
@@ -415,6 +425,11 @@ static struct
 	boolean added_joined[LOCAL_PLAYERS];
 	long added_profile_index[LOCAL_PLAYERS];
 	struct player_profile added_profile[LOCAL_PLAYERS];
+	/* the controller driving the preview (its last press or step, not
+	another controller's START), and whether that was the keyboard or
+	mouse (controller 1's too): the player in front of it */
+	short navigator;
+	boolean navigator_keyboard;
 	/* debug.lobby_preview's sample lobby */
 	boolean debug;
 	boolean debug_done;
@@ -1577,20 +1592,27 @@ static void lobby_opened(void)
 
 ADD PLAYERS, or another controller's START, opens System Link's SELECT
 PROFILE (ui.map's four quarters) in place of the Multiplayer menu the game
-list is over: each controller presses START in its quarter, picks a
-profile with left and right and presses A. A picked quarter's A, which went
-on to System Link's game list, comes back to the preview instead
-(lobby_screen_add_players_finish), and JOIN THE GAME joins with them all:
-the pregame screen asks the host for every joined player at once. While it
-is up, its "clear multiplayer player joins" and the Multiplayer menu's
-"mp type menu initialize" leave the game being joined alone
-(ui_widget_event_handler_functions.c). Its B puts everyone back as they
-were; player 1, if they did not join there, joins as before */
+list is over. The controller that led the way there (the keyboard and mouse
+too) is player 1, whichever was connected first (platform_gamepad_make_first),
+and each player already joined is shown in their quarter with their profile
+picked (add_players_fill). The others press A or START in their quarter,
+pick a profile with left and right and press A; B in a joined quarter
+empties it, that player no longer joining, and B in an empty one goes back.
+A picked quarter's A, which went on to System Link's game list, comes back
+to the preview instead (lobby_screen_add_players_finish), and JOIN THE GAME
+joins with them all: the pregame screen asks the host for every joined
+player at once. While it is up, its "clear multiplayer player joins" and
+the Multiplayer menu's "mp type menu initialize" leave the game being
+joined alone (ui_widget_event_handler_functions.c). Going back puts
+everyone back as they were; its last A joins only the players in its
+quarters */
 
 enum
 {
 	SOUND_ERROR = 4,
 };
+
+static void add_players_fill(void);
 
 boolean lobby_screen_adding_players(void)
 {
@@ -1624,6 +1646,16 @@ static void add_players_open(short controller)
 		ui_play_audio_feedback_sound(SOUND_ERROR);
 		return;
 	}
+	add_players_fill();
+	/* (one person here: the controller that led the way is player 1's, the
+	top-left quarter's, whichever was connected first) */
+	if (lobby.added_joined[0] && !lobby.added_joined[1] && !lobby.added_joined[2] && !lobby.added_joined[3])
+	{
+		platform_gamepad_make_first(lobby.navigator_keyboard ? -1 : lobby.navigator);
+		platform_log("split screen preview: ADD PLAYERS: player 1 is %s", lobby.navigator_keyboard ?
+			"the keyboard and mouse" : lobby.navigator ? "the gamepad that led the way (it takes port 1)" :
+			"port 1's gamepad");
+	}
 	platform_log("split screen preview: ADD PLAYERS (P%d): SELECT PROFILE opened; gamepads P1 %s, P2 %s, P3 %s, P4 %s",
 		controller + 1, input_has_gamepad(0) ? "yes" : "no", input_has_gamepad(1) ? "yes" : "no",
 		input_has_gamepad(2) ? "yes" : "no", input_has_gamepad(3) ? "yes" : "no");
@@ -1650,6 +1682,106 @@ static boolean widget_tree_has(struct widget_instance const *widget, long defini
 			return TRUE;
 	}
 	return FALSE;
+}
+
+/* the controller's quarter among the widgets and their descendants, when
+it is the definition's (NULL: none) */
+static struct widget_instance *add_players_quarter(struct widget_instance *widget, long definition_index,
+	short controller)
+{
+	for (; widget; widget = widget->next)
+	{
+		struct widget_instance *found;
+
+		if (widget->definition_tag_index == definition_index && widget->local_player_index == controller)
+			return widget;
+		if ((found = add_players_quarter(widget->child, definition_index, controller)) != NULL)
+			return found;
+	}
+	return NULL;
+}
+
+/* SELECT PROFILE as it opens, its joins cleared: each controller joined
+before it (player 1, whom Online Games joined, on the controller that led
+the way here: add_players_open) shown in its quarter with its profile
+picked, as its own A twice would leave it (its list moved to its profile
+between them: the list starts on player 1's last) */
+static void add_players_fill(void)
+{
+	struct widget_instance *screen = ui_widget_port_top_screen();
+	long empty = tag_loaded(UI_WIDGET_DEFINITION_TAG, ADD_PLAYERS_EMPTY);
+	long choosing = tag_loaded(UI_WIDGET_DEFINITION_TAG, ADD_PLAYERS_CHOOSING);
+	long picked = tag_loaded(UI_WIDGET_DEFINITION_TAG, ADD_PLAYERS_PICKED);
+	short controller;
+
+	if (!screen || empty == NONE || choosing == NONE || picked == NONE)
+		return;
+	for (controller = 0; controller < LOCAL_PLAYERS; controller++)
+	{
+		struct widget_instance *quarter;
+		struct widget_instance *list;
+		boolean deleted = FALSE;
+
+		if (!lobby.added_joined[controller])
+			continue;
+		quarter = add_players_quarter(screen->child, empty, controller);
+		if (!quarter)
+		{
+			platform_log("split screen preview: SELECT PROFILE: P%d has no empty quarter to fill", controller + 1);
+			continue;
+		}
+		ui_widget_port_dispatch_event(quarter, EVENT_A, controller, &deleted);
+		quarter = add_players_quarter(screen->child, choosing, controller);
+		if (!quarter)
+		{
+			platform_log("split screen preview: SELECT PROFILE: P%d's quarter did not join", controller + 1);
+			continue;
+		}
+		/* (the spinner list, as player_profile_set_for_game_1wide finds it) */
+		for (list = quarter->child; list && list->type != 2; list = list->next)
+			;
+		if (list && list->parameters.list.list_items)
+		{
+			long const *items = (long const *)list->parameters.list.list_items;
+			short item;
+
+			for (item = 0; item < (short)list->parameters.list.number_of_items; item++)
+			{
+				if (items[item] == lobby.added_profile_index[controller])
+					list->parameters.list.selected_index = item;
+			}
+		}
+		ui_widget_port_dispatch_event(quarter, EVENT_A, controller, &deleted);
+		platform_log("split screen preview: SELECT PROFILE: P%d's quarter filled in, %s", controller + 1,
+			add_players_quarter(screen->child, picked, controller) ? "profile picked" : "still choosing a profile");
+	}
+}
+
+/* (interface/ui_widget.c) B on SELECT PROFILE over the preview, which has
+no B of its own: TRUE when the controller's quarter had joined (choosing
+or picked), which is then empty again and that player won't join; FALSE
+when it was empty, and the screen goes back as the Xbox's did */
+boolean lobby_screen_add_players_back(struct widget_instance *screen, short controller)
+{
+	long empty = tag_loaded(UI_WIDGET_DEFINITION_TAG, ADD_PLAYERS_EMPTY);
+	struct widget_instance *quarter;
+
+	if (!lobby.adding || !screen || empty == NONE || controller < 0 || controller >= LOCAL_PLAYERS)
+		return FALSE;
+	quarter = add_players_quarter(screen->child, tag_loaded(UI_WIDGET_DEFINITION_TAG, ADD_PLAYERS_PICKED), controller);
+	if (!quarter)
+		quarter = add_players_quarter(screen->child, tag_loaded(UI_WIDGET_DEFINITION_TAG, ADD_PLAYERS_CHOOSING),
+			controller);
+	if (!quarter)
+		return FALSE;
+	if (!ui_widget_port_replace(quarter, empty))
+	{
+		platform_log("split screen preview: SELECT PROFILE: P%d's B: the quarter could not be emptied", controller + 1);
+		return FALSE;
+	}
+	player_ui_local_player_left_multiplayer_game(controller);
+	platform_log("split screen preview: SELECT PROFILE: P%d's B: their quarter is empty, they won't join", controller + 1);
+	return TRUE;
 }
 
 /* (interface/ui_widget.c) a picked quarter's A on the preview's SELECT
@@ -1684,11 +1816,6 @@ static void add_players_closed(void)
 		for (controller = 0; controller < LOCAL_PLAYERS; controller++)
 			add_players_restore(controller);
 		platform_log("split screen preview: SELECT PROFILE backed out: the players are as before");
-	}
-	else if (!player_ui_local_player_wants_to_play_multiplayer(0) && lobby.added_joined[0])
-	{
-		add_players_restore(0);
-		platform_log("split screen preview: P1 didn't join on SELECT PROFILE: P1 joins as before");
 	}
 	joining_text(joining, sizeof(joining));
 	platform_log("split screen preview: back from SELECT PROFILE; joining from here: %d (%s)", joining_count(),
@@ -1846,6 +1973,8 @@ boolean lobby_screen_preview_open(struct browser_game const *game, struct networ
 	}
 	lobby.preview = TRUE;
 	lobby.preview_answer = 0;
+	lobby.navigator = 0;
+	lobby.navigator_keyboard = halo_keyboard_prompts() != 0;
 	lobby.state = _lobby_preview;
 	reset_selection();
 	lobby.opened_time = system_milliseconds();
@@ -2225,6 +2354,12 @@ static void press(short button, short controller)
 {
 	if (system_milliseconds() - lobby.opened_time < SETTLE)
 		return;
+	if (lobby.preview && controller >= 0 && controller < LOCAL_PLAYERS &&
+		!(button == _gamepad_binary_button_start && controller > 0))
+	{
+		lobby.navigator = controller;
+		lobby.navigator_keyboard = controller == 0 && halo_keyboard_prompts();
+	}
 	/* (the preview: another controller's START is the Xbox's to join,
 	SELECT PROFILE's) */
 	if (lobby.preview && controller > 0 && button == _gamepad_binary_button_start && lobby.dialog == _dialog_none)
@@ -2338,6 +2473,13 @@ void lobby_screen_process(void)
 		read_preview();
 	while (lobby_screen_active() && get_next_event(&event, NONE))
 	{
+		if (lobby.preview && event.controller_index >= 0 && event.controller_index < LOCAL_PLAYERS &&
+			!(event.type == LOBBY_EVENT_BUTTON && event.data.button.index == _gamepad_binary_button_start &&
+				event.controller_index > 0))
+		{
+			lobby.navigator = event.controller_index;
+			lobby.navigator_keyboard = event.controller_index == 0 && halo_keyboard_prompts();
+		}
 		if (event.type == LOBBY_EVENT_BUTTON)
 		{
 			short button = event.data.button.index;
