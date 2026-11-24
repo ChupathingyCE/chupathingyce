@@ -396,6 +396,15 @@ static void test_versions(void)
 		layout_b.record_count == FORGE_FILE_MAXIMUM_RECORDS);
 	put16(work, AT_RECORDS, FORGE_FILE_MAXIMUM_RECORDS + 1);
 	CHECK(decode(work, size, "bloodgulch", &layout_c) == _forge_file_too_many);
+	/* (version 13 holds the map's own objects block too) */
+	sample_layout(&layout_a);
+	add_canvas(&layout_a, _forge_canvas_scenery, 0, 3);
+	while (layout_a.record_count <= FORGE_FILE_EARLIER_MAXIMUM_RECORDS)
+		add_record(&layout_a, 1, 50.f + (float)(layout_a.record_count % 40), -120.f - (float)(layout_a.record_count / 40));
+	CHECK(forge_file_layout_version(&layout_a) == FORGE_FILE_MORE_RECORDS_VERSION);
+	size = encode(&layout_a, work);
+	CHECK(size > 0 && decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok &&
+		layout_b.version == FORGE_FILE_MORE_RECORDS_VERSION && layouts_equal(&layout_a, &layout_b));
 	/* (version 13 with 256 records or fewer is not one a writer made) */
 	sample_layout(&layout_a);
 	layout_a.version = FORGE_FILE_MORE_RECORDS_VERSION;
