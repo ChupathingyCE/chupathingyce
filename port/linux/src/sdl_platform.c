@@ -412,6 +412,21 @@ static void data_check_maps(void)
 			maps.ui_version == 609 ? "Halo PC (Custom Edition)" : "Halo PC", where);
 		break;
 	default:
+		/* (Halo MCC's maps copied in, its ui.map version 13: said so, and
+		where they go) */
+		if (maps.ui_version == 13)
+		{
+			snprintf(message, sizeof(message),
+				"The maps folder holds Halo MCC maps, not the Xbox maps.%s\n\n%s\n\n"
+				"To copy the Xbox maps from your disc image, move this maps folder aside and start Chupathingy.",
+#if HALO_MCC
+				" They go in maps_mcc.",
+#else
+				"",
+#endif
+				where);
+			break;
+		}
 		/* (a maps folder without ui.map and no Halo PC maps in it, as "make
 		the folders" leaves it: the choices offered again; the launcher's Maps
 		has them) */

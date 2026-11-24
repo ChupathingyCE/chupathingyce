@@ -2860,7 +2860,17 @@ static void ce_sounds_decode(
 		}
 		ogg = *(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) == CE_SOUND_COMPRESSION_OGG;
 		if (!ogg && !(from_map && from_sounds_map))
+		{
+#ifndef HALO_CONSOLE
+			/* (a 16-bit PCM sound read from its own file, the map or
+			sounds.map, split where its samples lie if one is longer than the
+			sound cache holds: the tag checks would cut it to the cache's
+			size, ce_sound_split) */
+			if (*(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) == CE_SOUND_COMPRESSION_NONE)
+				split_count += ce_sound_split(sound, pitch_ranges, pitch_range_count, ce_loaded_tag_name(instance));
+#endif
 			continue;
+		}
 		/* (this copy of the game's own file: two copies sharing the save
 		root each write theirs. An older one is deleted first; on Windows
 		one another copy has open cannot be, and the next name is tried.
@@ -3170,6 +3180,11 @@ static void ce_sounds_decode(
 		if (!ogg)
 		{
 			copied++;
+#ifndef HALO_CONSOLE
+			/* (and a 16-bit PCM one split there, as a decoded one is) */
+			if (*(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) == CE_SOUND_COMPRESSION_NONE)
+				split_count += ce_sound_split(sound, pitch_ranges, pitch_range_count, ce_loaded_tag_name(instance));
+#endif
 			continue;
 		}
 		permutations_decoded += (long)decoded_count;

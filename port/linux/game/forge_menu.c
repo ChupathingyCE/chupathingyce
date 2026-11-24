@@ -42,6 +42,10 @@ next tick (forge_menu_ask); what it shows is read from forge.c each frame
 
 The game goes on under it (a Forge game is local: nothing waits on it); the
 monitor's camera stays.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "cseries.h"

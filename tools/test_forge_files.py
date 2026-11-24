@@ -1,9 +1,13 @@
+# SPDX-FileCopyrightText: 2026 BirchWoodGod
+# SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Runs the C tests of Forge's layout files (port/linux/game/forge_files.c,
 the format and its validator) and their folder (port/linux/src/
 forge_store.c) with the build machine's C compiler, in a scratch folder:
 the writer and its versions, a round trip of every record kind, each kind
 of damaged or hostile file refused with its own result, a fixed-seed fuzz
-of the validator, and the store's saves, loads and names
+of the validator, the map's own objects block, and the store's saves,
+loads and names
 (port/linux/tests/forge_files_test.c). With AddressSanitizer and
 UndefinedBehaviorSanitizer when the compiler has them. The store needs the
 file helpers of port/linux/src/posix_files.c, so it runs anywhere but
@@ -66,11 +70,15 @@ def test_forge_files(tmp_path):
 @pytest.mark.skipif(sys.platform == "win32", reason="the store's tests use POSIX file helpers")
 @pytest.mark.parametrize("original, mutated", [
     # (a newer version read as if it were known)
-    ("if (version > FORGE_FILE_VERSION)\n", "if (version > 11)\n"),
+    ("if (version > FORGE_FILE_VERSION ||\n", "if (version > 12 ||\n"),
     # (the checksum not looked at)
     ("!= checksum)", "!= checksum && 0)"),
     # (an object's count let past 1)
     ("(record->kind == _forge_record_object && record->count > 1)", "0"),
+    # (a name Windows keeps for a device let through)
+    ("return !forge_file_name_reserved(file_name);", "return 1;"),
+    # (the map's own objects' entries let out of order)
+    ("entry[-1].index >= entry->index", "0"),
 ])
 def test_forge_files_negative_controls(tmp_path, original, mutated):
     """The validator with a check taken out must fail the tests: they check
@@ -89,3 +97,18 @@ def test_forge_files_negative_controls(tmp_path, original, mutated):
     assert result.returncode == 0, result.stdout + result.stderr
     run = subprocess.run([str(binary), str(scratch), "200"], capture_output=True, text=True, timeout=600)
     assert run.returncode != 0, "the changed validator passed every test"
+
+
+def test_forge_keys_polled_only_when_forge_is_on():
+    """The monitor's keys (controls.forge_*) are read from the keyboard only
+    while game.forge is on: off, nothing of Forge runs, its keys too."""
+    source = (ROOT / "port" / "linux" / "src" / "xinput_sdl.c").read_text()
+    wanted = source[source.index("static BOOL forge_keys_wanted(void)"):]
+    wanted = wanted[:wanted.index("\n}\n")]
+    assert 'config_boolean("game.forge")' in wanted
+    assert "#ifdef HALO_CONSOLE_NO_FORGE" in wanted
+    controls = source[source.index("static void keyboard_controls("):]
+    controls = controls[:controls.index("\n}\n")]
+    poll = controls[controls.index("forge_bindings[action][slot]") - 400:controls.index("forge_bindings[action][slot]")]
+    assert "if (forge_keys_wanted())" in poll
+    assert controls.count("forge_bindings[") == 1
