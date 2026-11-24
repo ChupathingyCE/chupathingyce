@@ -85,9 +85,6 @@ long cache_files_map_needs_delta(void);
 long cache_files_map_needs_delta(void) { return 0; }
 long cache_files_precache_map_loaded(void);
 long cache_files_precache_map_loaded(void) { return 0; }
-/* (on: every setting; network.direct_ip_host's internet searches fuzzed) */
-int config_boolean(char const *name);
-int config_boolean(char const *name) { (void)name; return 1; }
 long config_changes(void);
 long config_changes(void) { return 0; }
 long config_integer(void);
@@ -381,6 +378,3 @@ void *system_malloc(long size);
 void *system_malloc(long size) { return malloc((size_t)size); }
 void system_free(void *pointer);
 void system_free(void *pointer) { free(pointer); }
-/* (every address an internet one: a search answered at its address) */
-int log_address_local(const unsigned char *bytes, int length);
-int log_address_local(const unsigned char *bytes, int length) { (void)bytes; (void)length; return 0; }
