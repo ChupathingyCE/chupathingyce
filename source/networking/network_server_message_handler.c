@@ -883,6 +883,10 @@ int delta_peer_game_machine_legacy_version(int machine_index);
 int delta_peer_advertised_old_layout(void);
 int network_rules_host_hello_matters(unsigned announce, unsigned oldest);
 #include "delta.h"
+/* (whether an address is no one's on the internet: log_address_local) */
+#include "../../port/linux/src/log_address.h"
+/* (network.direct_ip_host, below) */
+int config_boolean(char const *name);
 #endif
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
 /* port/linux/src/delta_compat.c's */
@@ -2146,15 +2150,17 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 #ifdef HALO_GAME_BROWSER
 		/* port: a search from an internet address (a player joining this
 		host by its address, Direct IP: port/linux/game/direct_join.c),
-		which the broadcast never reaches, is answered there too: no more
-		often than the broadcast's answer, on a clock of its own, so a
-		stranger's searches get no more than four answers a second */
+		which the broadcast never reaches, is answered there too when the
+		host allows it (network.direct_ip_host, off by default: a player
+		then joins it without the answer, direct_join.c's DIRECT_JOIN_AFTER):
+		no more often than the broadcast's answer, on a clock of its own, so
+		a stranger's searches get no more than four answers a second */
 		static unsigned long last_remote_time = 0;
 
 		if (!direct && source_address->address_length == IPV4_ADDRESS_LENGTH &&
-			source_address->address.long_words[0] && source_address->address.long_words[0] != NONE)
+			source_address->address.long_words[0] && source_address->address.long_words[0] != NONE &&
+			config_boolean("network.direct_ip_host"))
 		{
-			extern int log_address_local(unsigned char const *bytes, int length);
 			unsigned long value = source_address->address.long_words[0];
 			unsigned char bytes[4];
 

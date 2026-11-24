@@ -857,6 +857,10 @@ static unsigned long network_game_client_advertisement_source;
 direct_join.c): first byte highest, 0 for none */
 static unsigned long network_game_client_search_target;
 static word network_game_client_search_target_port;
+/* port: the join under way is Direct IP's (network_game_client_join_address),
+which has no password to give: a password refusal says to use the invite
+(network_game_client_rejected_by_game) */
+static boolean network_game_client_joining_by_address;
 #endif
 
 /* the joined game's host's network version, as it advertised it (0xFFFF: not
@@ -2345,6 +2349,10 @@ boolean network_game_client_initiate_join_game(
 	client->join_in_progress = TRUE;
 	client->connect_process = 0;
 	client->connection_attempt_time = system_milliseconds();
+#ifdef HALO_GAME_BROWSER
+	/* (network_game_client_join_address sets it again for its own) */
+	network_game_client_joining_by_address = FALSE;
+#endif
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
 	{
 		long advertised_index = game - client->available_games;
@@ -2728,6 +2736,13 @@ void network_game_client_rejected_by_game(
 		/* (too old: this machine's, as the host says it, network_game_server_delta_refusals) */
 		rejection_code == _rejection_code_version_too_old ? JOIN_REASON_NEEDS_UPDATE :
 		rejection_code == _rejection_code_version_too_new ? JOIN_REASON_HOST_OLDER : "");
+#ifdef HALO_GAME_BROWSER
+	/* port: a game with a password refuses a join by its address from the
+	internet (network_rules_join_password_refused), and Direct IP has no
+	password to give: the invite is the way in */
+	if (rejection_code == _rejection_code_bad_password && network_game_client_joining_by_address)
+		csprintf(network_game_client_refusal_text, "%s", JOIN_REASON_PASSWORD_INVITE);
+#endif
 	/* port: an OpenCE server's own refusal, in plain words, and said at once
 	(the menu's message after it is the stock "closed") */
 	if (network_game_client_opence_refusal(rejection_code))
@@ -2739,11 +2754,28 @@ void network_game_client_rejected_by_game(
 	refused a game in progress, network_game_server_refuse_late_joiner, is in
 	it): with no game behind it, it is left for the main menu, which says
 	why, rather than sitting in a lobby that will never start */
+#ifdef HALO_GAME_BROWSER
+	/* (Direct IP's refused for the password: said in its own words) */
+	if (rejection_code == _rejection_code_bad_password && network_game_client_joining_by_address)
+	{
+		wchar_t text[NUMBEROF(network_game_client_refusal_text)];
+		short index;
+
+		for (index = 0; index < NUMBEROF(text) - 1 && network_game_client_refusal_text[index]; index++)
+			text[index] = (wchar_t)(unsigned char)network_game_client_refusal_text[index];
+		text[index] = 0;
+		display_error_text_when_main_menu_loaded(text);
+	}
+	else
+#endif
 	display_error_when_main_menu_loaded(
 		rejection_code == _rejection_code_game_is_full || rejection_code == _rejection_code_game_is_closed ||
 			network_game_client_opence_refusal(rejection_code) ?
 			_error_network_join_game_closed :
 			_error_network_failed_to_join_game);
+#ifdef HALO_GAME_BROWSER
+	network_game_client_joining_by_address = FALSE;
+#endif
 	/* port: the game being played is left for the menus at once, while its
 	settings are still there to say whether objects are loaded: the reset
 	below clears them, and network_game_client_start_frame would then leave
@@ -4013,7 +4045,10 @@ boolean network_game_client_join_address(
 		if (!game_address.address.long_words[0] || !game_address.port)
 			return FALSE;
 		network_game_generate_join_game_token(join_parameters.join_token);
-		return network_game_client_initiate_join_game(client, game, &join_parameters, &game_address);
+		if (!network_game_client_initiate_join_game(client, game, &join_parameters, &game_address))
+			return FALSE;
+		network_game_client_joining_by_address = TRUE;
+		return TRUE;
 	}
 	if (direct)
 	{
@@ -4029,7 +4064,10 @@ boolean network_game_client_join_address(
 		csmemset(&join_parameters, 0, sizeof(join_parameters));
 		network_game_generate_join_game_token(join_parameters.join_token);
 		network_event("joining the host at the address directly");
-		return network_game_client_initiate_join_game(client, &direct_game, &join_parameters, &server_address);
+		if (!network_game_client_initiate_join_game(client, &direct_game, &join_parameters, &server_address))
+			return FALSE;
+		network_game_client_joining_by_address = TRUE;
+		return TRUE;
 	}
 	return FALSE;
 }

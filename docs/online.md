@@ -69,16 +69,18 @@ friend's game whose port is open.
 The game is checked and joined as System Link joins it: the same version
 checks and the same messages when it can't be joined. It works with any host
 System Link works with: Chupathingy hosts and dedicated servers, OpenCE
-players' hosts and Xbox-style hosts. A host that only answers on its own
-network (an older build, OpenCE's, the Xbox's) is joined directly after a
-few seconds.
+players' hosts and Xbox-style hosts. Across the Internet, a host answers
+your search only when its `network.direct_ip_host` is on (DIRECT IP HOST in
+the setup screen's Network settings; off by default). A host that doesn't
+answer (that setting off, an older build, OpenCE's, the Xbox's) is joined
+directly after a few seconds.
 
 Over the Internet, the host opens **TCP and UDP 5150** (and UDP 5160 for
 Delta's extras) on its router or firewall; games found through Online Games
 and invites don't need this. IPv6
 addresses can't be joined yet: the game's own network is IPv4. A direct join
-has no password; a game with a password is joined from Online Games or its
-invite link.
+has no password; a game with a password is joined from its invite link (or
+Online Games), and DIRECT IP says so.
 
 Once entered, an address is shown as stars, and saved ones by name
 ("Saved server 1"). The log names a public address only by a tag, as it

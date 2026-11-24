@@ -18,7 +18,8 @@ here, and go on as the System Link list does:
   address (network_game_client_search_address): a host on another network,
   or behind a router that forwards the port, answers it there (an older
   host or OpenCE's answers by its broadcast only, which reaches the same
-  LAN alone);
+  LAN alone; ours answers a search from the internet only with its
+  network.direct_ip_host on, network_server_message_handler.c);
 - once the host's advertisement is heard, its game is joined as picking
   it in the list joins it (network_game_client_join_address): the same
   checks of the version and the game, the same words when it can't be
@@ -44,7 +45,10 @@ machine alone, for the screen's list.
 
 Passwords: the game's join has none (server/src/server_commands.c: a
 system link join carries no password), so neither has this; a game with a
-password is joined from Online Games or its invite, which ask for it.
+password is joined from Online Games or its invite, which ask for it. A
+host refuses a direct join to a game with a password from the internet
+(_rejection_code_bad_password), and the player is told to join from the
+invite (JOIN_REASON_PASSWORD_INVITE, network_game_client_rejected_by_game).
 */
 
 #ifdef HALO_GAME_BROWSER

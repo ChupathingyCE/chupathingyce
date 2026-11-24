@@ -1396,6 +1396,11 @@ static const struct config_setting config_settings[] =
 	{ "network.host_public", _config_boolean, "true", "HALO_NET_HOST_PUBLIC", _environment_value, _platform_all,
 		"New internet games you host start as PUBLIC. false starts them as\n"
 		"PRIVATE." },
+	{ "network.direct_ip_host", _config_boolean, "false", "HALO_NET_DIRECT_IP_HOST", _environment_value,
+		_platform_all | _platform_server,
+		"Games you host answer game searches from internet addresses, so\n"
+		"players who join by your address (DIRECT IP) find your game at once.\n"
+		"Off, they still join it, after a few seconds." },
 	{ "network.coop_public", _config_boolean, "false", "HALO_NET_COOP_PUBLIC", _environment_value, _platform_all,
 		"New online co-op games start as PUBLIC. false starts them as PRIVATE." },
 	{ "network.host_cheats", _config_boolean, "false", "HALO_NET_HOST_CHEATS", _environment_value,
