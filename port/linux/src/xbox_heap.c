@@ -214,7 +214,19 @@ static struct heap_block *carve(size_t capacity)
 			heap_next = hole + heap_hole_size;
 	}
 	if ((size_t)(heap_end - heap_next) < sizeof(*block) + capacity)
+	{
+#ifdef HALO_CONSOLE_WINDOW_LOW
+		/* (a console whose heap is smaller than the Xbox 360's: halt here,
+		saying why, rather than leave the game a NULL it takes for a
+		damaged map or a data array's assert much later) */
+		platform_log("the Xbox heap is full: %u KB asked for, %u KB of %u KB used (the window starts at 0x%08x, "
+			"HALO_CONSOLE_WINDOW_LOW)", (unsigned int)((sizeof(*block) + capacity) >> 10),
+			(unsigned int)((size_t)(heap_next - (unsigned char *)xbox_pointer(heap_base)) >> 10),
+			(unsigned int)((size_t)(heap_end - (unsigned char *)xbox_pointer(heap_base)) >> 10), XBOX_WINDOW_LOW);
+		abort();
+#endif
 		return NULL;
+	}
 #ifdef XBOX_HEAP_COMMIT_AS_USED
 	if (!heap_commit(heap_next, heap_next + sizeof(*block) + capacity))
 		return NULL;

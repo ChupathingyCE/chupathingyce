@@ -23,8 +23,10 @@ Right goes back in.
 - SETTINGS has the Guide's own settings (settings_rows.c's rows, which the
   setup screen's Settings shares) in pages, DISPLAY, SOUND, GAME, GUIDE
   and ABOUT (LT and RT), each in blocks under a caption; ABOUT's has the
-  logs' rows and ABOUT: the About screen (about.c), which the menus' ABOUT
-  rows open too (guide_about_open).
+  logs' rows, ADVANCED SETUP on the computers outside a game (the setup
+  screen, as the menus' row of it: launcher.menu_entry) and ABOUT: the
+  About screen (about.c), which the menus' ABOUT rows open too
+  (guide_about_open).
 - FRIENDS is the site's friends (browser.c polls them, social.h): the
   invites, the friends online, the offline ones (a row that shows them),
   the friend requests. A on a row opens its options: a friend's JOIN (the
@@ -118,6 +120,7 @@ DELTA counts what waits ("DELTA 2": invites and requests).
 #include "../src/guide_input.h"
 #include "../src/social.h"
 #include "../src/settings_rows.h"
+#include "../src/launcher.h"
 #include "../src/ui_overlay.h"
 #include "delta.h"
 #ifdef HALO_CAPTURE
@@ -535,7 +538,7 @@ static struct
 	/* the sections down the left have the d-pad (Left from a section,
 	until A or Right goes back into it) */
 	boolean sidebar;
-	/* SETTINGS' page shown (_settings_page_*) */
+	/* SETTINGS' page shown (settings_rows.h's SETTINGS_PAGE_*) */
 	short settings_page;
 	/* SETTINGS' scroll bar, as last drawn, for the mouse */
 	struct guide_scroll_bar settings_bar;
@@ -1292,12 +1295,27 @@ static void setting_change(short setting, short direction)
 	}
 }
 
+/* ADVANCED SETUP's row: 1 where it is, else 0. The setup screen, which
+starts Chupathingy again on it (launcher.c): the computers', as the menus'
+settings have it (launcher.menu_entry), and only outside a game, which it
+would end */
+static short setup_rows(void)
+{
+#ifdef HALO_LAUNCHER
+	extern boolean pc_menu_setup_offered(void);
+
+	return (short)(pc_menu_setup_offered() && !in_game());
+#else
+	return 0;
+#endif
+}
+
 /* SETTINGS' rows: the settings, then the devices' rows when signed in,
-then the logs' (guide_logs.c), then ABOUT */
+then the logs' (guide_logs.c), then ADVANCED SETUP, then ABOUT */
 static short settings_rows(void)
 {
 	return (short)(settings_count() + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0) +
-		guide_logs_rows() + 1);
+		guide_logs_rows() + setup_rows() + 1);
 }
 
 /* ABOUT's row, the last */
@@ -1306,10 +1324,22 @@ static short about_row(void)
 	return (short)(settings_rows() - 1);
 }
 
+/* ADVANCED SETUP's row, ABOUT's before it (when setup_rows has one) */
+static short setup_row(void)
+{
+	return (short)(about_row() - 1);
+}
+
+/* whether row is ADVANCED SETUP's */
+static boolean is_setup_row(short row)
+{
+	return setup_rows() && row == setup_row();
+}
+
 /* SEND MY LOGS' row, the first of the logs' */
 static short logs_row(void)
 {
-	return (short)(about_row() - guide_logs_rows());
+	return (short)(about_row() - setup_rows() - guide_logs_rows());
 }
 
 /* a row after the settings: its label */
@@ -1317,17 +1347,19 @@ static char const *extra_row_label(short row)
 {
 	if (row == about_row())
 		return "ABOUT";
+	if (is_setup_row(row))
+		return "ADVANCED SETUP";
 	if (row >= logs_row())
 		return guide_logs_row_label((short)(row - logs_row()));
 	return device_row_labels[row - settings_count()];
 }
 
 /* a row after the settings that opens something (a chevron, OPEN): ABOUT,
-the devices' rows; not the logs' (SEND MY LOGS asks, OPEN LOGS FOLDER
-opens the system's file manager) */
+ADVANCED SETUP, the devices' rows; not the logs' (SEND MY LOGS asks, OPEN
+LOGS FOLDER opens the system's file manager) */
 static boolean extra_row_opens(short row)
 {
-	return row == about_row() || row < logs_row();
+	return row == about_row() || is_setup_row(row) || row < logs_row();
 }
 
 /* A's word on a SETTINGS row */
@@ -1339,7 +1371,7 @@ static char const *settings_a_word(short row)
 		return settings_row_arrows(setting) ? "CHANGE" : "OPEN";
 	if (row < settings_count())
 		return "CHANGE";
-	if (row >= logs_row() && row < about_row())
+	if (row >= logs_row() && row < logs_row() + guide_logs_rows())
 		return guide_logs_row_word((short)(row - logs_row()));
 	return "OPEN";
 }
@@ -1365,6 +1397,14 @@ static void extra_row_activate(short row)
 		guide.about_from_settings = TRUE;
 		about_reset(&guide.about_view);
 	}
+#ifdef HALO_LAUNCHER
+	else if (is_setup_row(row))
+	{
+		/* (Chupathingy starts again on the setup screen, and this one quits) */
+		if (!launcher_restart_to_setup())
+			message_set("The setup screen didn't start.");
+	}
+#endif
 	else if (row >= logs_row())
 	{
 		char const *said = guide_logs_row_activate((short)(row - logs_row()));
@@ -1381,73 +1421,14 @@ rows in blocks under a caption */
 
 enum
 {
-	_settings_page_display,
-	_settings_page_sound,
-	_settings_page_game,
-	_settings_page_guide,
-	_settings_page_about,
-	NUMBER_OF_SETTINGS_PAGES,
-
-	/* the page a row no page lists goes on, at its end */
-	SETTINGS_PAGE_OTHER = _settings_page_game,
 	MAXIMUM_SETTINGS_LINES = 72,
 	SETTINGS_CAPTION_HEIGHT = 18,
 	SETTINGS_PAGE_TABS_HEIGHT = 20,
 	SETTINGS_INFO_HEIGHT = 22,
 };
 
-static char const *const settings_page_names[NUMBER_OF_SETTINGS_PAGES] =
-{
-	"DISPLAY", "SOUND", "GAME", "GUIDE", "ABOUT",
-};
-
-/* each page's lines: "#" and a caption, "=" and a line of information
-(=version, =platform: read, not pressed), else a row by its key (a
-setting's config.toml key, or one of the Guide's own: "@devices", "@link",
-"@logs0", "@logs1", "@about"). A caption shows only with a line under it
-in this build; a row in no page goes at the end of SETTINGS_PAGE_OTHER */
-static char const *const settings_display_lines[] =
-{
-	"#MENUS", "display.menus", "display.theme", "delta.guide_background",
-	"#BUTTONS", "input.button_style", "input.button_look", "input.hud_buttons",
-	"#HUD", "display.reticle_scale", "display.crosshair_position", "display.ping_meter", "display.scoreboard_icons",
-	"#EFFECTS", "display.first_person_weapon", "display.camo_weapon_fix", "display.plasma_sparks", "display.ragdolls",
-	NULL
-};
-static char const *const settings_sound_lines[] =
-{
-	"audio.hit_sounds",
-	"#VOICE", "audio.voice_chat", "audio.voice_channel", "audio.voice_positional", "display.voice_speakers",
-	"#VOLUME", "audio.voice_volume", "audio.voice_volume_party", "audio.voice_volume_team",
-	"audio.voice_volume_proximity", "audio.voice_volume_everyone",
-	NULL
-};
-static char const *const settings_game_lines[] =
-{
-	"game.forge", "game.mods",
-	"#WORKSHOP", "game.workshop_steam", "paths.steam_downloads", "game.workshop_maps", "network.workshop_downloads",
-	"game.mcc_campaigns",
-	NULL
-};
-static char const *const settings_guide_lines[] =
-{
-	"#OPENING", "controls.delta", "controls.delta_button", "delta.menu_item",
-	"#CONTROLLER", "delta.confirm_button", "delta.rumble",
-	"#NOTIFICATIONS", "delta.notify_in_game", "delta.notify_online",
-	"#PRIVACY", "network.share_presence",
-	"#DEVICES", "@devices", "@link",
-	NULL
-};
-static char const *const settings_about_lines[] =
-{
-	"#CHUPATHINGY", "=version", "=platform", "@about",
-	"#LOGS", "@logs0", "@logs1",
-	NULL
-};
-static char const *const *const settings_page_lines[NUMBER_OF_SETTINGS_PAGES] =
-{
-	settings_display_lines, settings_sound_lines, settings_game_lines, settings_guide_lines, settings_about_lines,
-};
+/* (the pages and their lines are settings_rows.c's, which the setup
+screen's Settings follows too: settings_page_lines) */
 
 /* a setting's label as SETTINGS shows it: GUIDE BUTTON named as the pad
 names it (PS BUTTON, HOME BUTTON) */
@@ -1496,6 +1477,8 @@ static char const *settings_row_name(short row, char *text, int size)
 #endif
 	if (row == about_row())
 		return "@about";
+	if (is_setup_row(row))
+		return "@setup";
 	if (row >= logs_row())
 		snprintf(text, (size_t)size, "@logs%d", row - logs_row());
 	else
@@ -1525,7 +1508,7 @@ static boolean settings_key_listed(char const *key)
 
 	for (page = 0; page < NUMBER_OF_SETTINGS_PAGES; page++)
 	{
-		for (line = settings_page_lines[page]; *line; line++)
+		for (line = settings_page_lines(page); *line; line++)
 		{
 			if (!strcmp(*line, key))
 				return TRUE;
@@ -1541,7 +1524,7 @@ static short settings_lines(short page, struct settings_line *lines)
 	char const *caption = NULL;
 	short count = 0;
 
-	for (entry = settings_page_lines[page]; *entry && count < MAXIMUM_SETTINGS_LINES - 1; entry++)
+	for (entry = settings_page_lines(page); *entry && count < MAXIMUM_SETTINGS_LINES - 1; entry++)
 	{
 		short row;
 
@@ -1591,7 +1574,7 @@ static short settings_row_page(short row)
 
 	for (page = 0; page < NUMBER_OF_SETTINGS_PAGES; page++)
 	{
-		for (line = settings_page_lines[page]; *line; line++)
+		for (line = settings_page_lines(page); *line; line++)
 		{
 			if (!strcmp(*line, key))
 				return page;
@@ -4842,7 +4825,7 @@ static void render_settings(void)
 
 	/* (its pages, LT and RT) */
 	ui_style_tabs_buttons(UI_BUTTON_LEFT_TRIGGER, UI_BUTTON_RIGHT_TRIGGER);
-	ui_style_tabs(CONTENT_LEFT, CONTENT_RIGHT, BODY_Y, SETTINGS_PAGE_TABS_HEIGHT, settings_page_names,
+	ui_style_tabs(CONTENT_LEFT, CONTENT_RIGHT, BODY_Y, SETTINGS_PAGE_TABS_HEIGHT, settings_page_names(),
 		NUMBER_OF_SETTINGS_PAGES, guide.settings_page, "PGUP", "PGDN", starts, ends);
 	for (line = 0; line < NUMBER_OF_SETTINGS_PAGES; line++)
 		target_add(starts[line], BODY_Y, ends[line], BODY_Y + SETTINGS_PAGE_TABS_HEIGHT, _target_settings_page, line);

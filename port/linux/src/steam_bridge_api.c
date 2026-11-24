@@ -262,6 +262,9 @@ static int api_connect(void)
 {
 	int started;
 
+	/* (a signed Mac: no library is looked for or loaded) */
+	if (steam_bridge_platform_client_blocked())
+		return STEAM_BRIDGE_FAILED;
 	if (!api.library)
 	{
 		char (*paths)[STEAM_BRIDGE_PATH_SIZE] = malloc(sizeof(*paths) * STEAM_BRIDGE_MAXIMUM_LIBRARIES);

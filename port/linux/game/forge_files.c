@@ -7,6 +7,10 @@ before it is used, every offset checked against the bytes there, every
 float's bits looked at before it is a float, every text checked as UTF-8,
 and the layout handed back only when every check passed (a file is taken
 whole or not at all).
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "forge_files.h"
@@ -44,7 +48,7 @@ static unsigned int const forge_file_groups[] =
 static char const *const forge_file_result_names[NUMBER_OF_FORGE_FILE_RESULTS] =
 {
 	"ok", "shorter than its header", "larger than 64 KB", "not a Forge layout (magic)", "a bad version",
-	"made by a newer build (this build reads layout versions 1 to 7)", "another header size", "unknown flags", "a bad map name", "of another map", "a count past its limit",
+	"made by a newer build (this build reads layout versions 1 to 7 and 11)", "another header size", "unknown flags", "a bad map name", "of another map", "a count past its limit",
 	"its size is not its counts'", "its checksum is wrong", "a bad pack", "a bad tag path", "a group Forge does not place",
 	"a tag path twice", "a bad record", "bad title, author, description or date", "no room to write it",
 };
@@ -200,7 +204,7 @@ int forge_file_map_name_valid(
 		if (!((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '_'))
 			return 0;
 	}
-	return length >= 1 && length < FORGE_FILE_MAP_NAME_SIZE;
+	return length >= 1 && length < FORGE_FILE_MAP_NAME_SIZE && !forge_file_name_reserved(name);
 }
 
 int forge_file_text_valid(
@@ -267,6 +271,33 @@ int forge_file_text_valid(
 	return index < maximum;
 }
 
+int forge_file_name_reserved(
+	char const *name)
+{
+	static char const *const devices[] = { "con", "prn", "aux", "nul" };
+	char lower[5];
+	int length;
+	int index;
+
+	if (!name)
+		return 0;
+	/* (the part before the first '.', in lower case: Windows opens the
+	device whatever the extension) */
+	for (length = 0; name[length] && name[length] != '.'; length++)
+	{
+		if (length >= 4)
+			return 0;
+		lower[length] = name[length] >= 'A' && name[length] <= 'Z' ? (char)(name[length] - 'A' + 'a') : name[length];
+	}
+	lower[length] = 0;
+	for (index = 0; index < (int)(sizeof(devices) / sizeof(devices[0])); index++)
+	{
+		if (!strcmp(lower, devices[index]))
+			return 1;
+	}
+	return length == 4 && (!strncmp(lower, "com", 3) || !strncmp(lower, "lpt", 3)) && lower[3] >= '1' && lower[3] <= '9';
+}
+
 int forge_file_name_valid(
 	char const *file_name)
 {
@@ -292,7 +323,7 @@ int forge_file_name_valid(
 			return 0;
 		}
 	}
-	return 1;
+	return !forge_file_name_reserved(file_name);
 }
 
 void forge_file_name_from_title(
@@ -323,7 +354,12 @@ void forge_file_name_from_title(
 	stem[length] = 0;
 	if (!length)
 		snprintf(stem, sizeof(stem), "variant");
-	if (number > 1)
+	/* (a stem Windows keeps for a device is numbered from 1: "con_1.hmv") */
+	if (number < 2 && forge_file_name_reserved(stem))
+		number = 1;
+	else if (number < 2)
+		number = 0;
+	if (number > 0)
 		snprintf(file_name, (size_t)size, "%s_%d%s", stem, number > 9999 ? 9999 : number, FORGE_FILE_EXTENSION);
 	else
 		snprintf(file_name, (size_t)size, "%s%s", stem, FORGE_FILE_EXTENSION);
@@ -614,6 +650,8 @@ int forge_file_layout_version(
 
 	if (layout->version)
 		return layout->version;
+	if (layout->flags & FORGE_FILE_FLAG_CANVAS)
+		version = 11;
 	/* (the highest any record needs) */
 	for (index = 0; index < layout->record_count && index < FORGE_FILE_MAXIMUM_RECORDS; index++)
 	{
@@ -657,8 +695,11 @@ int forge_file_layout_check(
 
 	if (!layout || !forge_file_meta_terminated(layout))
 		return _forge_file_bad_meta;
-	if (layout->version && (layout->version < FORGE_FILE_FIRST_VERSION || layout->version > FORGE_FILE_VERSION))
+	if (layout->version && (layout->version < FORGE_FILE_FIRST_VERSION || layout->version > FORGE_FILE_VERSION ||
+		(layout->version >= FORGE_FILE_FIRST_SKIPPED_VERSION && layout->version <= FORGE_FILE_LAST_SKIPPED_VERSION)))
+	{
 		return _forge_file_bad_version;
+	}
 	if (layout->flags & ~FORGE_FILE_FLAGS_KNOWN)
 		return _forge_file_bad_flags;
 	if (!forge_file_map_name_valid(layout->map_name))
@@ -695,6 +736,39 @@ int forge_file_layout_check(
 		}
 	}
 	version = forge_file_layout_version(layout);
+	/* (the map's own objects: version 11's alone, taking something away
+	or keeping something, its entries in range and ascending; none, zeros) */
+	if (layout->flags & FORGE_FILE_FLAG_CANVAS)
+	{
+		struct forge_file_canvas const *canvas = &layout->canvas;
+
+		if (version < 11)
+			return _forge_file_bad_flags;
+		if ((canvas->categories & ~FORGE_FILE_CANVAS_CATEGORIES_MASK) || canvas->entry_count < 0 ||
+			canvas->entry_count > FORGE_FILE_MAXIMUM_CANVAS_ENTRIES || (!canvas->categories && !canvas->entry_count))
+		{
+			return _forge_file_bad_record;
+		}
+		for (index = 0; index < canvas->entry_count; index++)
+		{
+			struct forge_file_canvas_entry const *entry = &canvas->entries[index];
+
+			if (entry->category >= NUMBER_OF_FORGE_CANVAS_CATEGORIES || entry->index > FORGE_FILE_CANVAS_MAXIMUM_INDEX ||
+				entry->kept != ((canvas->categories >> entry->category) & 1))
+			{
+				return _forge_file_bad_record;
+			}
+			if (index > 0 && (entry[-1].category > entry->category ||
+				(entry[-1].category == entry->category && entry[-1].index >= entry->index)))
+			{
+				return _forge_file_bad_record;
+			}
+		}
+	}
+	else if (layout->canvas.categories || layout->canvas.entry_count)
+	{
+		return _forge_file_bad_record;
+	}
 	for (index = 0; index < layout->record_count; index++)
 	{
 		struct forge_file_record const *record = &layout->records[index];
@@ -735,10 +809,11 @@ int forge_file_layout_check(
 	}
 	/* (each version is written only for what it adds - version 3 for a
 	respawning character, 4 for a player spawn, 5 for a teleporter, 6 for a
-	game type object, 7 for an object's physics: a file of one without it
-	is not one a writer made) */
+	game type object, 7 for an object's physics, 11 for the map's own
+	objects: a file of one without it is not one a writer made) */
 	if ((version == 3 && !respawning) || (version == 4 && !player_spawns) || (version == 5 && !teleporters) ||
-		(version == 6 && !game_objects) || (version == 7 && !physics))
+		(version == 6 && !game_objects) || (version == 7 && !physics) ||
+		(version == 11 && !(layout->flags & FORGE_FILE_FLAG_CANVAS)))
 	{
 		return _forge_file_bad_version;
 	}
@@ -811,7 +886,8 @@ static int forge_file_decode_checked(
 	header_size = read_u16(&reader);
 	if (version < FORGE_FILE_FIRST_VERSION)
 		return forge_file_refused(_forge_file_bad_version, why, why_size, NULL);
-	if (version > FORGE_FILE_VERSION)
+	if (version > FORGE_FILE_VERSION ||
+		(version >= FORGE_FILE_FIRST_SKIPPED_VERSION && version <= FORGE_FILE_LAST_SKIPPED_VERSION))
 	{
 		snprintf(detail, sizeof(detail), "version %u", version);
 		return forge_file_refused(_forge_file_newer_version, why, why_size, detail);
@@ -952,6 +1028,35 @@ static int forge_file_decode_checked(
 			snprintf(detail, sizeof(detail), "record %d", index);
 			return forge_file_refused(_forge_file_bad_record, why, why_size, detail);
 		}
+	}
+	/* (version 11) the map's own objects: its header, then its entries
+	(their ranges and order checked with the layout) */
+	if (layout->flags & FORGE_FILE_FLAG_CANVAS)
+	{
+		unsigned int block_version, zero, zero2, count;
+
+		if (size - reader.offset < FORGE_FILE_CANVAS_HEADER_SIZE)
+			return forge_file_refused(_forge_file_bad_payload_size, why, why_size, "the map's objects");
+		block_version = read_u8(&reader);
+		zero = read_u8(&reader);
+		layout->canvas.categories = (unsigned short)read_u16(&reader);
+		count = read_u16(&reader);
+		zero2 = read_u16(&reader);
+		if (block_version != FORGE_FILE_CANVAS_VERSION || zero || zero2 || count > FORGE_FILE_MAXIMUM_CANVAS_ENTRIES)
+			return forge_file_refused(_forge_file_bad_record, why, why_size, "the map's objects");
+		if (size - reader.offset < (int)count * FORGE_FILE_CANVAS_ENTRY_SIZE)
+			return forge_file_refused(_forge_file_bad_payload_size, why, why_size, "the map's objects");
+		layout->canvas.entry_count = (short)count;
+		for (index = 0; index < (int)count; index++)
+		{
+			struct forge_file_canvas_entry *entry = &layout->canvas.entries[index];
+
+			entry->category = (unsigned char)read_u8(&reader);
+			entry->kept = (unsigned char)read_u8(&reader);
+			entry->index = (unsigned short)read_u16(&reader);
+		}
+		if (reader.failed)
+			return forge_file_refused(_forge_file_bad_payload_size, why, why_size, "the map's objects");
 	}
 	/* the meta: four texts, each ended by a zero, filling it exactly */
 	if ((unsigned int)(size - reader.offset) != meta_size || meta_size < 4)
@@ -1094,6 +1199,21 @@ int forge_file_encode(
 		write_bytes(&writer, record->ai_team, 1);
 		for (axis = 0; axis < FORGE_FILE_RECORD_RESERVED_SIZE; axis++)
 			write_bytes(&writer, 0, 1);
+	}
+	/* (version 11) the map's own objects */
+	if (layout->flags & FORGE_FILE_FLAG_CANVAS)
+	{
+		write_bytes(&writer, FORGE_FILE_CANVAS_VERSION, 1);
+		write_bytes(&writer, 0, 1);
+		write_bytes(&writer, layout->canvas.categories, 2);
+		write_bytes(&writer, (unsigned int)layout->canvas.entry_count, 2);
+		write_bytes(&writer, 0, 2);
+		for (index = 0; index < layout->canvas.entry_count; index++)
+		{
+			write_bytes(&writer, layout->canvas.entries[index].category, 1);
+			write_bytes(&writer, layout->canvas.entries[index].kept, 1);
+			write_bytes(&writer, layout->canvas.entries[index].index, 2);
+		}
 	}
 	write_text(&writer, layout->title, (int)strlen(layout->title) + 1);
 	write_text(&writer, layout->author, (int)strlen(layout->author) + 1);
