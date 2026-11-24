@@ -369,9 +369,12 @@ HALO_CONSOLE_NO_HALOMD_MAPS
 	(source/cache/cache_files.c)
 HALO_CONSOLE_NO_LOADING_PICTURE
 	the disc's loading.tga on the loading screen, as the Xbox showed it,
-	instead of Chupathingy's picture (port/linux/game/loading_picture.c,
-	display.xbox_loading_picture): every console, whose packaging has no
-	step for the picture
+	and no Chupathingy's picture to fall back on (port/linux/game/
+	loading_picture.c, display.xbox_loading_picture): the original Xbox,
+	whose disc always has the picture and whose memory is short, and the
+	Switch. The Xbox 360 and the Wii U have Chupathingy's (about 230 KB):
+	the disc's picture when the maps folder has it, else Chupathingy's,
+	as the desktop builds do
 HALO_CONSOLE_NO_TITLE_CHOICE
 	only the classic titles (port/assets/titles, Chupathingy Titles), not
 	the second set display.title_font = "cyborg" draws (port/assets/
@@ -688,8 +691,10 @@ leave it out with the rest of HALO_CONSOLE_NO_DELTA_IDENTITY */
 #define HALO_DELTA_PEER_IDENTITY 1
 #endif
 
-#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
-	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
+/* (the Xbox 360 and the Wii U, whose maps folders often lack loading.tga,
+have Chupathingy's picture to fall back on) */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_XBOX_CONSOLE)) && \
+	!defined(HALO_WIIU_CONSOLE) && !defined(HALO_XBOX360_CONSOLE) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 #define HALO_CONSOLE_NO_LOADING_PICTURE 1
 #endif
 

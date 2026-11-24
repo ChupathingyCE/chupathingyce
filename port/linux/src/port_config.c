@@ -659,11 +659,14 @@ static const struct config_setting config_settings[] =
 		"In the game lobby of a game you host: \"button\" (the default) holds\n"
 		"the countdown until you choose START GAME; \"auto\" lets it run by\n"
 		"itself once enough players are in, as the Xbox's lobby does." },
-#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+/* (the join screen is the game list's: browser_screen.c) */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 	{ "display.join_screen", _config_boolean, "true", "HALO_JOIN_SCREEN", _environment_value, _platform_all,
 		"Show the loading screen while a game is joined or its map downloads,\n"
 		"with what is going on and B to cancel. false: a small panel over the\n"
 		"game list." },
+#endif
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
 	{ "display.xbox_loading_picture", _config_boolean, "true", "HALO_XBOX_LOADING_PICTURE", _environment_value,
 		_platform_all,
 		"true: the loading screen shows the Xbox's own picture, xbox_loading.tga\n"
