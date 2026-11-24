@@ -586,7 +586,12 @@ void forge_volumes_tick(
 		{
 			struct forge_spawn const *spawn = &forge_globals.spawns[index];
 
-			if (!forge_spawn_is_volume(spawn) || !forge_volume_contains(spawn, &object->object.bounding_sphere_center))
+			/* (the one held acts only once it is put down: a volume just
+			taken from the OBJECT BROWSER has its home where it appeared, under
+			the monitor, and killed whoever stood there while it was carried
+			off) */
+			if (!forge_spawn_is_volume(spawn) || spawn->id == forge_globals.held_marker_id ||
+				!forge_volume_contains(spawn, &object->object.bounding_sphere_center))
 				continue;
 			if (spawn->kind == _forge_spawn_volume_gravity)
 			{
