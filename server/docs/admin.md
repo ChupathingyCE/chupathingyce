@@ -129,6 +129,11 @@ the game's own), and no build asks for one, so a password would be a
 protocol change. It is left out until the game has a way to carry one that
 every build understands.
 
+A player's own game with a password (Server Setup's PASSWORD) asks for it
+in its internet play invite, and refuses joins that reach its port from the
+internet any other way ([settings.md](settings.md#the-network)). A server,
+with no password, is not affected.
+
 ## The console
 
 When the server runs in a terminal, type commands into it; their output

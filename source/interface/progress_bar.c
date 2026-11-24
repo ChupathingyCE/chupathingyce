@@ -1507,6 +1507,12 @@ void tgaLoadHeader(
 	fread(&image->height, 2, 1, file);
 	fread(&image->pixel_depth, 1, 1, file);
 	fread(&ignored_byte, 1, 1, file);
+#ifdef HALO_BIG_ENDIAN
+	/* port: a TGA's sizes are little-endian (320 read as 16385 here left
+	every picture unread on the Xbox 360 and the Wii U) */
+	image->width= (short)((((unsigned short)image->width & 0xff)<<8) | ((unsigned short)image->width>>8));
+	image->height= (short)((((unsigned short)image->height & 0xff)<<8) | ((unsigned short)image->height>>8));
+#endif
 
 	return;
 }

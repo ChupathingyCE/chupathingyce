@@ -42,6 +42,8 @@ Browser builds can't join our games, and we can't join theirs.
 
 What the game sends to stats.chupathingy.org, and how to turn it off, is in [docs/privacy.md](privacy.md).
 
+Anyone who has a game's invite can find out the host's internet address, and a public game's invite is listed for everyone (games you host are public by default). Players who join a public game can have their addresses seen by anyone watching that invite. To keep yours private, set `host_public = false` and send invites only to people you trust ([privacy.md](privacy.md#your-internet-address)).
+
 Everything here plays with OpenCE players on a matching network version: they
 can join your games and you can join theirs. Games an OpenCE player hosts are
 recorded from the reports of the Chupathingy players in them; a game only

@@ -879,6 +879,8 @@ boolean network_distributed_banned(unsigned long address, char const *hardware_i
 #ifdef HALO_GAME_BROWSER
 /* (port/linux/game/host_rules.c's: whether the host takes no new machines now) */
 boolean host_rules_joins_locked(void);
+/* (port/linux/src/p2p.c's: whether the game hosted has a password) */
+int p2p_hosting_has_password(void);
 #endif
 /* (its budget for a client machine's lobby messages, full again) */
 void network_distributed_lobby_budget_reset(long machine_index);
@@ -2640,6 +2642,21 @@ boolean network_game_server_accept_client_machine_into_game(
 		{
 			network_event("refusing a machine @ %s: joins are locked (sv_lock)", transport_address_to_string(&address));
 			network_game_server_refusal_code = _rejection_code_game_is_closed;
+			return FALSE;
+		}
+		/* (and, in a game with a password, none that came from the
+		internet straight to the game's port, as a system link join does: the
+		password is asked for by the invite, which an internet play peer
+		came through, and a join request carries none. A LAN's machines, and
+		a game without a password, as ever: network_rules.h) */
+		if (!network_game_server_client_machine_is_local(server, machine) &&
+			address.address.long_words[0] != IPV4_LOOPBACK_ADDRESS &&
+			network_rules_join_password_refused((uint32_t)address.address.long_words[0],
+				p2p_hosting_has_password()))
+		{
+			network_event("refusing a machine @ %s: the game has a password, and the machine did not come "
+				"through its invite", transport_address_to_string(&address));
+			network_game_server_refusal_code = _rejection_code_bad_password;
 			return FALSE;
 		}
 #endif

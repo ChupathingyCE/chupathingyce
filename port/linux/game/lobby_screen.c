@@ -2701,6 +2701,22 @@ void lobby_screen_render(void)
 	draw_facts();
 	draw_menu();
 	draw_bar();
+#ifdef HALO_PORT_CHAT
+	/* the chat's lines under the menu, over the lobby, as they show over a
+	game's HUD (the game's own are under the overlay: chat.c) */
+	{
+		struct lobby_layout const *layout = &lobby.layout;
+		float top = layout->menu.y;
+
+		if (lobby.menu_count > 0)
+		{
+			struct lobby_rect last = lobby_layout_menu_row(layout, lobby.menu_count - 1);
+
+			top = last.y + last.height;
+		}
+		chat_draw_overlay(layout->menu.x, top + 8, layout->menu.x + layout->menu.width, LOBBY_LAYOUT_BAR_TOP - 6);
+	}
+#endif
 	if (lobby.dialog != _dialog_none)
 		draw_dialog();
 }
