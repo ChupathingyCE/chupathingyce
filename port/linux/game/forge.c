@@ -56,8 +56,8 @@ the mouse looks:
   category, the one chosen spawned in the monitor's hand), PROPERTIES (of
   what is held, or with nothing held of the layout's object or marker the
   crosshair is on: it opens there), LAYOUTS (save, save as new, load, delete)
-  and OPTIONS (snap, speed, rotation snap, delete, grab range, held facing, undo, redo, new round, Spartan,
-  the controls); what it asks is done here (forge_menu_link.inc);
+  and OPTIONS (snap, speed, rotation snap, delete, grab range, held facing,
+  undo, redo, new round, Spartan, the controls); what it asks is done here (forge_menu_link.inc);
 - B: a copy of the object held or under the crosshair, held;
 - White: the movement speed (slow, normal, fast); in rotate mode, its
   snapping;
@@ -233,8 +233,6 @@ long config_integer(char const *name);
 char const *config_string(char const *name);
 /* ui_overlay.c's: the keyboard and mouse used last (else a controller) */
 int ui_overlay_keyboard(void);
-char const *config_string(char const *name);
-char const *config_string(char const *name);
 long hud_get_font_index(void);
 unsigned long system_milliseconds(void);
 /* ui_widget.c's: a menu, or a screen of code over them, takes the input */

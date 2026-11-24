@@ -55,8 +55,7 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
 
   ![OBJECTS](screenshots/forge-objects.jpg)
 
-- PROPERTIES: what you hold, if you placed it. It opens here when you hold something. Left and right change a value: team, respawn time, placed at start, yaw, pitch and roll, reset rotation, and physics (normal, fixed: never moves, phased: no collision, shots pass through). An AI character has its AI TEAM, AI (on or off), RESPAWN (never, or 10, 30, 60 or 120 seconds after it dies), placed at start and yaw. A spawn point has its team, game type, kind and facing; a teleporter its channel; a game type object its index (a CTF flag's team, a hill's number).
-- PROPERTIES: what you hold, if you placed it, or with nothing held what the crosshair is on when you press X (an object or marker of your layout; the map's own objects open OBJECTS). It opens here then. Left and right change a value: team, respawn time, placed at start, yaw, pitch and roll, reset rotation, and physics (normal, fixed: never moves, phased: no collision, shots pass through). A spawn point has its team, game type, kind and facing; a teleporter its channel; a game type object its index (a CTF flag's team, a hill's number).
+- PROPERTIES: what you hold, if you placed it, or with nothing held what the crosshair is on when you press X (an object or marker of your layout; the map's own objects open OBJECTS). It opens here then. Left and right change a value: team, respawn time, placed at start, yaw, pitch and roll, reset rotation, and physics (normal, fixed: never moves, phased: no collision, shots pass through). An AI character has its AI TEAM, AI (on or off), RESPAWN (never, or 10, 30, 60 or 120 seconds after it dies), placed at start and yaw. A spawn point has its team, game type, kind and facing; a teleporter its channel; a game type object its index (a CTF flag's team, a hill's number).
 
   ![PROPERTIES](screenshots/forge-properties.jpg)
 

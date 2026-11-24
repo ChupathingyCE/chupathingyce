@@ -33,10 +33,10 @@ box, the prompts):
 - LAYOUTS: SAVE (under the layout's title), SAVE AS NEW, then the map's
   layouts: A loads one (pressed twice: what isn't saved is lost), Y
   deletes one (pressed twice);
-- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, DELETE, GRAB RANGE, HELD FACING, UNDO, REDO, NEW ROUND, CLEAR
-  DEAD AI (the layout's dead AI characters), CLEAR ALL AI (every one,
-  pressed twice), PLAY AS SPARTAN, and CONTROLS, the monitor's buttons and
-  keys.
+- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, DELETE, GRAB RANGE, HELD
+  FACING, UNDO, REDO, NEW ROUND, CLEAR DEAD AI (the layout's dead AI
+  characters), CLEAR ALL AI (every one, pressed twice), PLAY AS SPARTAN, and
+  CONTROLS, the monitor's buttons and keys.
 X or B closes it. What it asks of the session is done by forge.c before the
 next tick (forge_menu_ask); what it shows is read from forge.c each frame
 (forge_menu_view_get) as it is input, and drawn from that.
