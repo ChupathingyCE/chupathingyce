@@ -423,9 +423,11 @@ The campaign is wired: Campaign, on player 1's profile (the one last used),
 continues its saved game, starts a level it has reached at a difficulty (New
 Game), or loads or deletes any profile's saved game (Load Game). The
 multiplayer screens are wired too: the Server Browser, the map and game type
-lists, Server Setup and its START GAME. A few of the PC version's functions
-still do nothing here, such as the Direct IP screen's own fields and the
-Server Browser's filter settings (`port/assets/menus/UNWIRED.md`). The
+lists, Server Setup and its START GAME. Direct IP joins a game by its address
+(`port/linux/game/direct_join.c`; the Chupathingy menus open it with X on
+System Link). A few of the PC version's functions still do nothing here,
+such as the Server Browser's filter settings
+(`port/assets/menus/UNWIRED.md`). The
 screens open, close and move between each other as the PC version's.
 
 `display.menus` chooses one of two menu sets:
@@ -806,6 +808,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.announce` | `"latest"` | `HALO_NET_ANNOUNCE` | The OpenCE network version that the games you host announce. `"latest"` follows the newest one the signed legacy table proves for hosting, between games and with no restart. A number pins it, such as `32`. Refer to `docs/delta/versioning.md`, "Auto-announce". |
 | `network.legacy_table` | `""` | `HALO_LEGACY_TABLE` | For testing, and for admins: a legacy table file, not signed, next to `config.toml` unless a full path. Its row for the wire of the build sets the OpenCE network versions that the game announces and joins, in place of the signed tables. The log shows a warning at start. Refer to `docs/delta-implementation.md` (Local override). Empty: none. |
 | `network.list_hosted_games` | `true` | `HALO_NET_LIST_GAMES` | `true`: the system link games this machine hosts are listed on `network.browser_url` (stats.chupathingy.org), where anyone can find and join them. Only public games without a password are listed. `false`: they are kept to invites and the local network, and no carnage report of them is sent. |
+| `network.direct_ip_host` | `false` | `HALO_NET_DIRECT_IP_HOST` | `true`: the games this machine hosts answer a game search from an internet address too (no more than four answers a second), so a player joining by the address (DIRECT IP, `connect`) finds the game at once. `false`: only the local network's and internet play's searches are answered; a Direct IP player still joins, after about 5 seconds. |
 | `network.report_hosted_games` | `true` | `HALO_NET_REPORT_HOSTED` | The stats of the games this machine hosts: a listed game's carnage report, its Delta Stats (`network.report_events`) and the host's own players' claims of their lines. `false`: none of them are sent, and the game stays listed (`network.list_hosted_games`). On the Privacy screen (Gearbox menus). |
 | `network.report_joined_games` | `true` | `HALO_NET_REPORT_GAMES` | When an internet game this machine joined ends, the game sends `network.browser_url` its scores as this machine saw them, with this copy's player ID, and confirms this machine's players' lines in the host's report of the game (`POST /v1/claim`), which puts the game on their profiles. `false`: neither, for games this machine joins. Games it hosts are still reported and confirmed (unless `network.report_hosted_games` is off). On the Privacy screen (Gearbox menus). |
 | `network.report_events` | `true` | `HALO_NET_REPORT_EVENTS` | Delta Stats: the games this machine hosts are recorded (kills with weapons and positions, accuracy, medals, objectives, vehicles, pickups) and sent to `network.browser_url` when each ends. Players are their names, never a hardware ID or an address; an OpenCE player is only their name, team and that game's score, place, kills and deaths. `false`: no events are recorded or sent. On the Privacy screen (Gearbox menus). The carnage report of a hosted game is separate: it is sent while the game is listed (`network.list_hosted_games`), unless `network.report_hosted_games` is off, which stops both. Refer to `docs/delta/stats.md`. |

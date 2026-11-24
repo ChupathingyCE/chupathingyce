@@ -2161,6 +2161,22 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			return TRUE;
 		}
 
+		/* port: a search from the client port of an internet address (a
+		player joining this host by its address, Direct IP:
+		port/linux/game/direct_join.c), which the broadcast never reaches, is
+		answered at its address by the same rule, on the same budget: only
+		when the host allows it (network.direct_ip_host; off, the player
+		still joins, after direct_join.c's DIRECT_JOIN_AFTER). Left
+		unanswered, it takes the broadcast's answer as ever */
+		if (!direct && source_address->port && source_address->address_length == IPV4_ADDRESS_LENGTH &&
+			source_address->address.long_words[0] && source_address->address.long_words[0] != NONE &&
+			!network_rules_address_joins_as_lan((uint32_t)source_address->address.long_words[0]) &&
+			network_rules_search_answered((uint32_t)source_address->address.long_words[0],
+				config_boolean("network.direct_ip_host"), (uint32_t)now, &search_budget))
+		{
+			direct = TRUE;
+		}
+
 		/* (the time taken only by a search answered) */
 		if (game && !direct && last_advertised_time && now - last_advertised_time < GAME_ADVERTISEMENT_INTERVAL)
 			return TRUE;

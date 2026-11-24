@@ -86,4 +86,13 @@ these consoles (LB and RB, L and R): those stay blank there. -->
 	</widget>
 	<widget name="chupathingy/prompts/save" type="text" controller="1" width="140" height="22" text="=SAVE" font="ui\large_ui" color="#FF2896FF">
 	</widget>
+	<widget name="chupathingy/prompts/direct_ip" type="text" controller="1" width="140" height="22" text="=DIRECT IP" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<!-- (System Link's X, the Chupathingy menus': DIRECT IP, a game joined
+	by its address. menu_tags.c's system_link_direct_ip_patch puts it in the
+	Xbox's screen's button bar, left of CREATE GAME) -->
+	<widget name="chupathingy/system_link/direct_ip" controller="1" width="160" height="22">
+		<child widget="chupathingy/prompts/x"/>
+		<child widget="chupathingy/prompts/direct_ip" x="22"/>
+	</widget>
 </menus>
