@@ -189,7 +189,7 @@ boolean hs_compile_and_evaluate(const char *expression)
 boolean console_setting_line(const char *line)
 {
 	(void)line;
-	return FALSE;
+	return 0;
 }
 
 /* ---------- private code */
