@@ -728,6 +728,9 @@ boolean lobby_screen_active(void);
 void lobby_screen_update(boolean menu_open);
 void lobby_screen_process(void);
 void lobby_screen_render(void);
+/* (the preview's ADD PLAYERS: System Link's SELECT PROFILE over it) */
+boolean lobby_screen_adding_players(void);
+boolean lobby_screen_add_players_finish(struct widget_instance *screen, short controller);
 void lobby_screen_pointer(struct halo_ui_pointer const *pointer);
 /* the menus' pointer, while it is up (its own taps and clicks) */
 void browser_screen_pointer(struct halo_ui_pointer const *pointer);
@@ -4698,6 +4701,27 @@ static void event_handler_dispatch(
 		/* port: not from a widget its function deleted (it went back:
 		menu_functions.c's profile_save_changes), which the Xbox's opened
 		from regardless */
+#ifdef HALO_GAME_BROWSER
+		/* port: SELECT PROFILE over a game's preview (lobby_screen.c's ADD
+		PLAYERS): its last A goes back to the preview, not on to System
+		Link's game list */
+		if (TEST_FLAG(handler->flags, _event_handler_open_widget_bit) &&
+			!widget_deleted && lobby_screen_adding_players() &&
+			handler->widget_tag.index != NONE &&
+			handler->widget_tag.index == tag_loaded(UI_WIDGET_DEFINITION_TAG,
+				"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\server_list_screen"))
+		{
+			if (lobby_screen_add_players_finish(widget_instance_get_topmost_parent(widget),
+				event ? event->controller_index : NONE))
+			{
+				ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+				widget_instance_go_back_to_previous(widget);
+				widget_deleted = TRUE;
+			}
+			*calling_widget_deleted = widget_deleted;
+			return;
+		}
+#endif
 		/* MCC New Game can synchronously close every widget. Finish the event
 		with its deletion result before any navigation can reuse that tree. */
 		{

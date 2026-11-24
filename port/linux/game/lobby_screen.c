@@ -35,7 +35,9 @@ The preview: a game under way is shown here before it is joined, from
 what the game list and the host's advertisement say (the roster, the map,
 the game type, the players): JOIN THE GAME joins it, B goes back to the
 list (lobby_screen_preview_*: browser_screen.c's join waits for the
-answer).
+answer). ADD PLAYERS, or another controller's START, opens the Xbox's
+SELECT PROFILE over it for split screen players, who join with JOIN THE
+GAME together.
 
 The retail pregame mechanics stay: B leaves through the Xbox screen's own
 handler (netgame_unjoin_player), the team swap is the Xbox's, the countdown
@@ -70,6 +72,7 @@ state with sample players over the main menu, for screenshots and tests.
 #include "game/game_engine.h"
 #include "game/players.h"
 #include "interface/player_ui.h"
+#include "saved games/player_profile.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "networking/network_client_manager.h"
@@ -137,6 +140,12 @@ boolean profile_screen_active(void);
 #define PREGAME_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"
 #define MAP_SELECT_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\connected_map_select_postgame_wrapper"
 #define HOST_SETUP_SCREEN "pc\\chupathingy\\host\\setup_screen"
+/* System Link's SELECT PROFILE (ui.map's four quarters), and a quarter
+still choosing its profile */
+#define ADD_PLAYERS_SCREEN \
+	"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\4way_profile_select\\4way_start2join_screen"
+#define ADD_PLAYERS_CHOOSING \
+	"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\4way_profile_select\\qtr_screen_profile_select"
 /* the events the pregame screen takes (ui_widget_port_dispatch_event) */
 #define EVENT_B 1
 
@@ -170,6 +179,7 @@ enum
 	_menu_details,
 	_menu_invite,
 	_menu_join,
+	_menu_add_players,
 };
 
 enum
@@ -398,6 +408,13 @@ static struct
 	int preview_answer;
 	struct browser_game preview_game;
 	boolean preview_listed;
+	/* the preview's SELECT PROFILE is up (the preview waits under it),
+	its last A was pressed, and each controller's join as it opened */
+	boolean adding;
+	boolean adding_done;
+	boolean added_joined[LOCAL_PLAYERS];
+	long added_profile_index[LOCAL_PLAYERS];
+	struct player_profile added_profile[LOCAL_PLAYERS];
 	/* debug.lobby_preview's sample lobby */
 	boolean debug;
 	boolean debug_done;
@@ -516,6 +533,37 @@ static char const *fitted(char const *text, float width, float size, char *out, 
 static boolean lobby_enabled(void)
 {
 	return pc_menus_chupathingy() && config_boolean("display.lobby");
+}
+
+/* the controllers joining multiplayer from here (player 1's too) */
+static short joining_count(void)
+{
+	short controller, count = 0;
+
+	for (controller = 0; controller < LOCAL_PLAYERS; controller++)
+		count += player_ui_local_player_wants_to_play_multiplayer(controller) ? 1 : 0;
+	return count;
+}
+
+/* "P1 name, P2 name": the players joining from here, on their profiles */
+static void joining_text(char *text, int size)
+{
+	short controller;
+	int used = 0;
+
+	text[0] = 0;
+	for (controller = 0; controller < LOCAL_PLAYERS && used < size - 1; controller++)
+	{
+		struct player_profile profile;
+		char name[48];
+
+		if (!player_ui_local_player_wants_to_play_multiplayer(controller))
+			continue;
+		player_ui_get_active_player_profile(controller, &profile);
+		utf8_from_wide(name, sizeof(name), profile.player_name, (int)NUMBEROF(profile.player_name));
+		used += snprintf(text + used, (size_t)(size - used), "%sP%d %s", used ? ", " : "", controller + 1,
+			name[0] ? name : "(no name)");
+	}
 }
 
 /* the host's countdown waits for START GAME (network.lobby_start "button",
@@ -1137,6 +1185,9 @@ static void read_menu(struct network_game_server *server)
 		break;
 	case _lobby_preview:
 		menu_add(_menu_join, "JOIN THE GAME", lobby.preview_game.open ? "" : "Full", lobby.preview_game.open);
+		if (joining_count() > 1)
+			snprintf(note, sizeof(note), "%d players", joining_count());
+		menu_add(_menu_add_players, "ADD PLAYERS", note, lobby.preview_game.open);
 		menu_add(_menu_details, "GAME DETAILS", "", TRUE);
 		break;
 	default:
@@ -1175,8 +1226,18 @@ static void read_status(struct network_game_server *server)
 		copy_text(lobby.status, sizeof(lobby.status), "Waiting for the next game");
 		break;
 	case _lobby_preview:
-		copy_text(lobby.status, sizeof(lobby.status), lobby.preview_game.open ? "Game in progress: join now, or wait for the next one" :
-			"Game in progress and full");
+		if (joining_count() > 1)
+		{
+			char joining[120];
+
+			joining_text(joining, sizeof(joining));
+			snprintf(lobby.status, sizeof(lobby.status), "Joining together: %s", joining);
+		}
+		else
+		{
+			copy_text(lobby.status, sizeof(lobby.status), lobby.preview_game.open ?
+				"Game in progress: join now, or wait for the next one" : "Game in progress and full");
+		}
 		break;
 	default:
 		lobby.status[0] = 0;
@@ -1203,6 +1264,18 @@ static void read_game(void)
 	/* (back from a game: the game type the host chose, not none) */
 	if (hosting)
 		network_game_server_keep_menus_variant(server);
+	{
+		static short logged_players = NONE;
+		short players = machine_player_count(game);
+
+		if (players != logged_players)
+		{
+			platform_log("split screen lobby: the host has %d player(s) of this machine (P1 %s, P2 %s, P3 %s, P4 %s)",
+				players, local_player_of(game, 0) != NONE ? "in" : "out", local_player_of(game, 1) != NONE ? "in" : "out",
+				local_player_of(game, 2) != NONE ? "in" : "out", local_player_of(game, 3) != NONE ? "in" : "out");
+			logged_players = players;
+		}
+	}
 	social_read();
 	lobby.teams = game->variant.universal_variant.teams != 0;
 	lobby.maximum_players = (short)game->maximum_players;
@@ -1455,7 +1528,7 @@ boolean lobby_screen_preview_active(void)
 
 boolean lobby_screen_active(void)
 {
-	return lobby.covering || lobby.preview || lobby.debug;
+	return (lobby.covering || lobby.preview || lobby.debug) && !lobby.adding;
 }
 
 /* whether the widget up is the Xbox's pregame screen */
@@ -1500,6 +1573,133 @@ static void lobby_opened(void)
 	}
 }
 
+/* ---------- ADD PLAYERS: the preview's split screen players
+
+ADD PLAYERS, or another controller's START, opens System Link's SELECT
+PROFILE (ui.map's four quarters) in place of the Multiplayer menu the game
+list is over: each controller presses START in its quarter, picks a
+profile with left and right and presses A. A picked quarter's A, which went
+on to System Link's game list, comes back to the preview instead
+(lobby_screen_add_players_finish), and JOIN THE GAME joins with them all:
+the pregame screen asks the host for every joined player at once. While it
+is up, its "clear multiplayer player joins" and the Multiplayer menu's
+"mp type menu initialize" leave the game being joined alone
+(ui_widget_event_handler_functions.c). Its B puts everyone back as they
+were; player 1, if they did not join there, joins as before */
+
+enum
+{
+	SOUND_ERROR = 4,
+};
+
+boolean lobby_screen_adding_players(void)
+{
+	return lobby.adding;
+}
+
+static void add_players_open(short controller)
+{
+	short index;
+
+	if (lobby.adding || lobby.debug)
+		return;
+	if (!lobby.preview_game.open)
+	{
+		platform_log("split screen preview: ADD PLAYERS (P%d) refused: the game can't be joined now", controller + 1);
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return;
+	}
+	for (index = 0; index < LOCAL_PLAYERS; index++)
+	{
+		lobby.added_joined[index] = player_ui_local_player_wants_to_play_multiplayer(index);
+		lobby.added_profile_index[index] = player_ui_get_active_player_profile_index(index);
+		player_ui_get_active_player_profile(index, &lobby.added_profile[index]);
+	}
+	lobby.adding = TRUE;
+	lobby.adding_done = FALSE;
+	if (!ui_widget_port_open_screen(ADD_PLAYERS_SCREEN))
+	{
+		lobby.adding = FALSE;
+		platform_log("split screen preview: ADD PLAYERS (P%d): SELECT PROFILE did not open", controller + 1);
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return;
+	}
+	platform_log("split screen preview: ADD PLAYERS (P%d): SELECT PROFILE opened; gamepads P1 %s, P2 %s, P3 %s, P4 %s",
+		controller + 1, input_has_gamepad(0) ? "yes" : "no", input_has_gamepad(1) ? "yes" : "no",
+		input_has_gamepad(2) ? "yes" : "no", input_has_gamepad(3) ? "yes" : "no");
+}
+
+/* the controller's join as SELECT PROFILE found it */
+static void add_players_restore(short controller)
+{
+	if (lobby.added_joined[controller])
+	{
+		player_ui_set_active_player_profile(controller, lobby.added_profile_index[controller],
+			&lobby.added_profile[controller]);
+		player_ui_local_player_joined_multiplayer_game(controller);
+	}
+	else
+		player_ui_local_player_left_multiplayer_game(controller);
+}
+
+static boolean widget_tree_has(struct widget_instance const *widget, long definition_index)
+{
+	for (; widget; widget = widget->next)
+	{
+		if (widget->definition_tag_index == definition_index || widget_tree_has(widget->child, definition_index))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* (interface/ui_widget.c) a picked quarter's A on the preview's SELECT
+PROFILE: TRUE to go back to the preview with the players who picked their
+profiles, FALSE while a quarter is still picking */
+boolean lobby_screen_add_players_finish(struct widget_instance *screen, short controller)
+{
+	long choosing = tag_loaded(UI_WIDGET_DEFINITION_TAG, ADD_PLAYERS_CHOOSING);
+
+	if (screen && choosing != NONE && widget_tree_has(screen->child, choosing))
+	{
+		platform_log("split screen preview: SELECT PROFILE: P%d's A waits, a player is still picking a profile",
+			controller + 1);
+		display_error_text_deferred(L"Waiting for every player\r\nto select a profile.", controller);
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return FALSE;
+	}
+	lobby.adding_done = TRUE;
+	platform_log("split screen preview: SELECT PROFILE done (P%d's A)", controller + 1);
+	return TRUE;
+}
+
+/* SELECT PROFILE gone (lobby_screen_update): back to the preview */
+static void add_players_closed(void)
+{
+	char joining[160];
+	short controller;
+
+	lobby.adding = FALSE;
+	if (!lobby.adding_done)
+	{
+		for (controller = 0; controller < LOCAL_PLAYERS; controller++)
+			add_players_restore(controller);
+		platform_log("split screen preview: SELECT PROFILE backed out: the players are as before");
+	}
+	else if (!player_ui_local_player_wants_to_play_multiplayer(0) && lobby.added_joined[0])
+	{
+		add_players_restore(0);
+		platform_log("split screen preview: P1 didn't join on SELECT PROFILE: P1 joins as before");
+	}
+	joining_text(joining, sizeof(joining));
+	platform_log("split screen preview: back from SELECT PROFILE; joining from here: %d (%s)", joining_count(),
+		joining);
+	reset_selection();
+	lobby.opened_time = system_milliseconds();
+	read_menu(NULL);
+	read_status(NULL);
+	event_manager_flush();
+}
+
 void lobby_screen_joined_from_list(void)
 {
 	lobby.from_list = lobby_enabled();
@@ -1535,6 +1735,28 @@ void lobby_screen_update(boolean menu_open)
 	}
 	if (!server)
 		delta_peer_game_set_lobby_state(NULL);
+
+	/* the preview's SELECT PROFILE closed (its last A or its B) */
+	if (lobby.adding)
+	{
+		struct widget_instance *top = ui_widget_port_top_screen();
+		long screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, ADD_PLAYERS_SCREEN);
+		static char said[160];
+		char joining[160];
+
+		/* (who has joined on it so far, said as it changes) */
+		joining_text(joining, sizeof(joining));
+		if (strcmp(joining, said))
+		{
+			platform_log("split screen preview: SELECT PROFILE: joining %d (%s)", joining_count(), joining);
+			copy_text(said, sizeof(said), joining);
+		}
+		if (!top || screen == NONE || top->definition_tag_index != screen)
+		{
+			said[0] = 0;
+			add_players_closed();
+		}
+	}
 
 	covering = menu_open && lobby_enabled() && !browser_screen_active() && pregame_screen_up() && current_game() != NULL;
 	if (covering && !lobby.covering)
@@ -1629,6 +1851,10 @@ boolean lobby_screen_preview_open(struct browser_game const *game, struct networ
 	lobby.opened_time = system_milliseconds();
 	social_read();
 	read_preview();
+	platform_log("split screen preview: opened (%d of %d in the game, open %d); gamepads P2 %s, P3 %s, P4 %s; "
+		"joining from here: %d", lobby.preview_game.players, lobby.preview_game.maximum_players,
+		(int)lobby.preview_game.open, input_has_gamepad(1) ? "yes" : "no", input_has_gamepad(2) ? "yes" : "no",
+		input_has_gamepad(3) ? "yes" : "no", joining_count());
 	event_manager_flush();
 	return TRUE;
 }
@@ -1658,6 +1884,17 @@ static void leave(short controller)
 	}
 	if (lobby.preview)
 	{
+		short guest;
+
+		/* (backed out: its split screen players don't join the next game) */
+		for (guest = 1; guest < LOCAL_PLAYERS; guest++)
+		{
+			if (player_ui_local_player_wants_to_play_multiplayer(guest))
+			{
+				player_ui_local_player_left_multiplayer_game(guest);
+				platform_log("split screen preview: backed out; P%d no longer joins", guest + 1);
+			}
+		}
 		lobby.preview_answer = -1;
 		return;
 	}
@@ -1801,7 +2038,17 @@ static void menu_act(short controller)
 		break;
 	case _menu_join:
 		if (lobby.preview)
+		{
+			char joining[160];
+
+			joining_text(joining, sizeof(joining));
+			platform_log("split screen preview: JOIN THE GAME with %d player(s): %s", joining_count(), joining);
 			lobby.preview_answer = 1;
+		}
+		break;
+	case _menu_add_players:
+		if (lobby.preview)
+			add_players_open(controller);
 		break;
 	default:
 		break;
@@ -1978,6 +2225,14 @@ static void press(short button, short controller)
 {
 	if (system_milliseconds() - lobby.opened_time < SETTLE)
 		return;
+	/* (the preview: another controller's START is the Xbox's to join,
+	SELECT PROFILE's) */
+	if (lobby.preview && controller > 0 && button == _gamepad_binary_button_start && lobby.dialog == _dialog_none)
+	{
+		platform_log("split screen preview: P%d pressed START", controller + 1);
+		add_players_open(controller);
+		return;
+	}
 	if (controller > 0 && !lobby.debug && !lobby.preview)
 	{
 		struct network_game const *game = network_game_get_game();
