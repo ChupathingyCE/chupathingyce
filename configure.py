@@ -155,6 +155,14 @@ parser.add_argument(
     help="leave the movies' FFmpeg out (the Bink decoder behind the SDK's entry points: LGPL, "
          "static, built for each target): the stubs build and the game skips the movies",
 )
+parser.add_argument(
+    "--without-ragdolls",
+    dest="with_ragdolls",
+    action="store_false",
+    help="the desktop builds without ragdolls (display.ragdolls; port/linux/game/ragdolls.c) and the Jolt "
+    "Physics they need (port/third_party/jolt, C++17): for a toolchain that cannot build Jolt. The setting and "
+    "its menu rows are left out too",
+)
 # (the default since every desktop build plays the movies; kept for the
 # scripts that still ask for it)
 parser.add_argument("--with-ffmpeg", dest="with_ffmpeg", action="store_true", help=argparse.SUPPRESS)
@@ -190,6 +198,7 @@ sln = SimpleNamespace(
     android_vulkan_validation=args.android_vulkan_validation,
     android_guest_cc=args.android_guest_cc,
     with_ffmpeg=args.with_ffmpeg,
+    with_ragdolls=args.with_ragdolls,
     console_no_debug_asserts=args.console_no_debug_asserts,
     console_debug_tools=args.console_debug_tools,
     console_checkpoint_trace=args.console_checkpoint_trace,

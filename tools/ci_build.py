@@ -110,6 +110,8 @@ def main() -> int:
     parser.add_argument("config", choices=["debug", "release"])
     parser.add_argument("--alpine", action="store_true",
                         help="a server: build it in Alpine Linux's Docker container (musl, static)")
+    parser.add_argument("--without-ragdolls", action="store_true",
+                        help="without ragdolls and their Jolt Physics (configure.py --without-ragdolls)")
     args = parser.parse_args()
     server = args.platform.startswith("server-")
     if args.alpine:
@@ -129,6 +131,8 @@ def main() -> int:
     launcher = os.environ.get("CI_COMPILER_LAUNCHER")
     if launcher:
         configure += ["--compiler-launcher", launcher]
+    if args.without_ragdolls:
+        configure.append("--without-ragdolls")
     # a release is VERSION's, and nothing else is one
     if release_build() and version() != base_version():
         print(f"error: a release build of {version()}, but VERSION is {base_version()}", file=sys.stderr)

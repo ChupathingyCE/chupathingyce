@@ -1347,6 +1347,10 @@ static void *widget_build(long widget_index)
 	if (count)
 	{
 		struct ui_widget_child_reference *children = allocate(count * sizeof(*children));
+		/* (in a column list, the row after one left out takes its place, so
+		that no gap is left: ADVANCED SETUP's, ABOUT moving up into it; NONE
+		while there is no place to take) */
+		long left_out_top = NONE;
 
 		definition->child_widgets.count = count;
 		definition->child_widgets.address = XBOX_ADDRESS(children);
@@ -1357,7 +1361,13 @@ static void *widget_build(long widget_index)
 			char const *name, *child_leaf;
 
 			if (child_left_out(entry))
+			{
+				long left = entry->nested != HALO_MENU_NONE ? entry->nested : widget_named(entry->widget);
+
+				if (definition->type == _widget_type_column_list && left != NONE)
+					left_out_top = menus->widgets[left].top + entry->y;
 				continue;
+			}
 			tag_index = entry->nested != HALO_MENU_NONE ? build.widget_tags[entry->nested] :
 				tag_named(UI_WIDGET_DEFINITION_TAG, entry->widget, entry->file, entry->line);
 			name = entry->nested != HALO_MENU_NONE ? menus->widgets[entry->nested].name : entry->widget;
@@ -1367,6 +1377,14 @@ static void *widget_build(long widget_index)
 			strncpy(children[count].name, child_leaf, sizeof(children[count].name) - 1);
 			children[count].horizontal_offset = (short)entry->x;
 			children[count].vertical_offset = (short)entry->y;
+			if (left_out_top != NONE)
+			{
+				long kept = entry->nested != HALO_MENU_NONE ? entry->nested : widget_named(name);
+
+				if (kept != NONE)
+					children[count].vertical_offset = (short)(left_out_top - menus->widgets[kept].top);
+				left_out_top = NONE;
+			}
 			if (entry->controller)
 			{
 				if (strlen(entry->controller) != 1 || entry->controller[0] < '1' || entry->controller[0] > '4')

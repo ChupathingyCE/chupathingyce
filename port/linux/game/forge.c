@@ -182,6 +182,15 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef HALO_CONSOLE_NO_FORGE
+/* (the consoles leave Forge's hooks out: director.c has no monitor camera
+there and the console's input no Forge keys. The Wii U's linker drops the
+calls unused, the 360's links every one, so they are nothing here) */
+#define director_forge_camera(local_player_index, fly, position, forward) \
+	((void)(local_player_index), (void)(fly), (void)(position), (void)(forward))
+#define halo_forge_keys() 0UL
+#endif
+
 void platform_log(const char *format, ...);
 /* xinput_sdl.c's: the mouse's look since the last call */
 int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch);
@@ -1752,8 +1761,13 @@ static long forge_object_under_crosshair_at(
 			FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit) |
 			FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_bipeds_bit) |
 			FLAG(_collision_test_objects_vehicles_bit) | FLAG(_collision_test_objects_scenery_bit) |
-			FLAG(_collision_test_objects_machines_bit) | FLAG(_collision_test_objects_controls_bit) |
-			FLAG(_collision_test_forge_phased_objects_bit),
+			FLAG(_collision_test_objects_machines_bit) | FLAG(_collision_test_objects_controls_bit)
+#ifndef HALO_CONSOLE_NO_FORGE
+			/* (PHASED objects too: not on the consoles, which leave Forge's
+			hooks in collisions.c out) */
+			| FLAG(_collision_test_forge_phased_objects_bit)
+#endif
+			,
 			&position,
 			&vector,
 			ignored,
