@@ -398,8 +398,8 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "map_share.h" /* port: the map bot's fetch (port/linux/game/map_share_client.c) */
 #include "net_monitor.h" /* port: the server monitor (port/linux/game/net_monitor.c) */
-#include "coop_progress.h" /* port: port/linux/game/coop_progress.c */
 #endif
+#include "coop_progress.h" /* port: port/linux/game/coop_progress.c */
 
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port: port/linux/game/profile_names.c's */

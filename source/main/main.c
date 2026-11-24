@@ -2937,8 +2937,13 @@ static void main_won_map_private(
 		/* port: the level from the network game's map, on its difficulty, in
 		every local player's profile (coop_progress.c). The solo map name
 		player_profile_save_level_completed reads is never set by a network
-		game: it recorded nothing, or a level played alone before */
+		game: it recorded nothing, or a level played alone before. The
+		original Xbox's build has no coop_progress.c: as before there */
+#ifdef HALO_XBOX_CONSOLE
+		player_profile_save_level_completed(0);
+#else
 		coop_progress_host_won(level, game ? game->difficulty : NONE);
+#endif
 		network_game_server_port_cooperative_won(level != NONE ?
 			main_get_solo_level_name((level + 1) % NUMBER_OF_SINGLE_PLAYER_LEVELS) : NULL);
 		return;
