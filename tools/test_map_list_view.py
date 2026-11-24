@@ -39,7 +39,7 @@ static long ui_map_list_count_value, ui_map_list_found_multiplayer, ui_map_list_
 static long ui_map_list_multiplayer_count, ui_map_list_campaign_end;
 #define ROW(row) (&ui_map_list[ui_map_list_view[row]])
 static struct { short source, sort; char search[48]; unsigned long serial;
-	boolean present[NUMBER_OF_UI_MAP_LIST_SOURCES]; } view;
+	boolean present[NUMBER_OF_UI_MAP_LIST_SOURCES]; boolean coop_only; } view;
 static boolean hosting, view_mcc_offered;
 boolean ui_map_list_mcc_offered(void) { return !hosting; }
 static void view_entry_name(struct ui_map_entry const *entry, char *name, long size)
@@ -135,6 +135,14 @@ int main(void)
 	first_item = "";
 	set(_ui_map_list_source_all, _ui_map_list_sort_default, "");
 	show("first_reset");
+	/* (a co-op game's Select Map, ONLINE CO-OP's: the levels alone, #1736;
+	then any other's, the maps again) */
+	view.coop_only = TRUE;
+	set(_ui_map_list_source_all, _ui_map_list_sort_default, "");
+	show("coop");
+	view.coop_only = FALSE;
+	set(_ui_map_list_source_all, _ui_map_list_sort_default, "");
+	show("coop_after");
 	return 0;
 }
 """
@@ -202,6 +210,12 @@ def test_an_item_without_multiplayer_maps_keeps_the_list(output):
 def test_the_item_let_go_leaves_the_list_as_it_was(output):
     assert rows(output, "first_reset") == ["bloodgulch", "timberland", "mcc_maps\\7\\beta", "mcc_maps\\7\\alpha",
                                            "mcc_maps\\8\\other", "|", "a10", "mcc_maps\\7\\gamma"]
+
+
+def test_coop_game_lists_the_levels_alone(output):
+    """#1736: ONLINE CO-OP's Select Map listed the multiplayer maps before the campaign's levels"""
+    assert rows(output, "coop") == ["|", "a10", "mcc_maps\\7\\gamma"]
+    assert rows(output, "coop_after") == rows(output, "first_reset")
 
 
 def test_desktop_list_has_room_for_the_mcc_catalog():

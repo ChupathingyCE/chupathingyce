@@ -3134,7 +3134,16 @@ static boolean multiplayer_level_list_initialize(
 	Edition maps */
 	short level_count;
 	char **level_names;
+#ifdef HALO_GAME_BROWSER
+	/* (from ONLINE CO-OP: a co-op game's, menu_functions.c) */
+	boolean coop = pc_menus_coop_first_take() && pc_menus_host_cooperative_shown();
+#endif
 
+#ifdef HALO_GAME_BROWSER
+	/* (a co-op game's list has the campaign's levels alone, #1736; any
+	other the maps and, when hosting, the levels after them) */
+	ui_map_list_coop_only(coop);
+#endif
 #ifndef HALO_XBOX_CONSOLE
 	/* (all the maps, in the list's order: the Xbox menus' search starts
 	empty, ui_widget.c) */
@@ -3186,9 +3195,9 @@ static boolean multiplayer_level_list_initialize(
 		widget->parameters.list.selected_index = 0;
 #endif
 #ifdef HALO_GAME_BROWSER
-	/* port: from the co-op screen's ONLINE: on the campaign's first level,
-	after the multiplayer maps (menu_functions.c's coop_online) */
-	if (pc_menus_coop_first_take() && pc_menus_host_cooperative_shown())
+	/* port: from the co-op screen's ONLINE: on the campaign's first level
+	(menu_functions.c's coop_online), the list the levels alone */
+	if (coop)
 	{
 		char const *first_level = main_get_solo_level_name(0);
 		short row;
