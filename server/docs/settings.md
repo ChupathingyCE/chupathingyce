@@ -286,6 +286,15 @@ problem (the log then says so at the first one). `0`, `false`, `no` and
 written with it on hold everyone's address: delete them once the problem is
 found.
 
+Joins and passwords: a game with a password takes a machine from the local
+network (the private ranges, link-local, loopback, and 100.64.0.0/10, which
+internet play's players and networks such as Tailscale's use) as before. A
+machine that reaches the game's port from any other address is refused with
+the password message, whichever kind of join it sent, since only internet
+play's invite asks for the password. A game without a password, which is
+every dedicated server's (there is no `sv_password`, [admin.md](admin.md#why-there-is-no-sv_password)),
+takes every join as before.
+
 The settings for hosts in `config.toml`, `network.host_cheats`
 (`HALO_NET_HOST_CHEATS`, `false`) and `network.host_console_objects`
 (`HALO_NET_HOST_CONSOLE_OBJECTS`, `32`), are about a player's own console
