@@ -52,7 +52,8 @@ the mouse looks:
 - Y: delete the object held, or the one under the crosshair;
 - X: the Forge menu (forge_menu.c): OBJECTS (the map's objects by
   category, the one chosen spawned in the monitor's hand), PROPERTIES (of
-  what is held: it opens there), LAYOUTS (save, save as new, load, delete)
+  what is held, or with nothing held of the layout's object or marker the
+  crosshair is on: it opens there), LAYOUTS (save, save as new, load, delete)
   and OPTIONS (snap, speed, rotation snap, undo, redo, new round, Spartan,
   the controls); what it asks is done here (forge_menu_link.inc);
 - B: a copy of the object held or under the crosshair, held;
@@ -737,6 +738,13 @@ static struct
 	boolean nudge_flicked[3];
 	/* (the Forge menu's status line: when menu_status was written) */
 	unsigned long menu_status_time;
+	/* (the Forge menu's PROPERTIES) with nothing held, the layout's object
+	(its object index, NONE) or marker (its id, 0) the crosshair was on as
+	X opened the menu: the properties are its while the menu is open; and
+	whether the crosshair is on one now (the prompt's PROPERTIES) */
+	long properties_object_index;
+	long properties_marker_id;
+	boolean hud_properties;
 } forge_globals = { FALSE, "", FALSE, FALSE, FALSE, 0, NONE, FALSE, NONE, 0.f, { 0.f }, { 0.f }, _forge_speed_normal };
 
 /* ---------- private code */
@@ -759,6 +767,7 @@ static void forge_spawn_properties_get(struct forge_spawn const *spawn, struct f
 static void forge_spawn_choose(short kind);
 static void forge_spawn_delete(long id);
 static void forge_spawn_log(char const *what, struct forge_spawn const *spawn);
+static boolean forge_properties_hovered(long *object_index, long *marker_id);
 static struct forge_spawn *forge_spawn_add(long id, short kind, signed char team, unsigned short game_types,
 	short channel, struct forge_transform const *home);
 static void forge_netgame_changed(void);
@@ -2560,6 +2569,15 @@ static void forge_hud_update(
 			forge_globals.hud_label_held = forge_globals.held_marker_id != 0;
 		}
 	}
+	/* (the layout's object or marker under the crosshair, nothing held: X
+	opens its properties) */
+	{
+		long object_index_hovered;
+		long marker_hovered;
+
+		forge_globals.hud_properties = forge_globals.hud_label[0] && !forge_globals.hud_label_held &&
+			forge_properties_hovered(&object_index_hovered, &marker_hovered);
+	}
 	/* (holding one: rotate mode's snapping; rotating, its angles too) */
 	forge_globals.hud_rotate[0] = 0;
 	if (forge_globals.hud_label_held)
@@ -2916,19 +2934,112 @@ and their reset. A marker's: forge_spawns.inc */
 
 static short const forge_respawn_choices[] = { 0, 10, 20, 30, 45, 60, 90, 120, 180 };
 
-/* the placed entry of the object held, NULL for none or one of the map's */
+/* the placed entry of the object held, else of the one the crosshair was
+on as the menu opened (forge_properties_pick); NULL for none or one of the
+map's */
 static struct forge_placed *forge_properties_target(
 	void)
 {
-	return object_try_and_get(forge_globals.held_object_index) ? forge_placed_of_object(forge_globals.held_object_index) :
-		NULL;
+	if (object_try_and_get(forge_globals.held_object_index))
+		return forge_placed_of_object(forge_globals.held_object_index);
+	if (forge_globals.held_marker_id)
+		return NULL;
+	if (forge_globals.properties_object_index != NONE && object_try_and_get(forge_globals.properties_object_index))
+		return forge_placed_of_object(forge_globals.properties_object_index);
+	return NULL;
 }
 
-/* the marker the properties are of (the one held), NULL */
+/* the marker the properties are of (the one held, else the one picked),
+NULL */
 static struct forge_spawn *forge_properties_spawn(
 	void)
 {
-	return forge_globals.held_marker_id ? forge_spawn_of_id(forge_globals.held_marker_id) : NULL;
+	if (forge_globals.held_marker_id)
+		return forge_spawn_of_id(forge_globals.held_marker_id);
+	if (object_try_and_get(forge_globals.held_object_index) || !forge_globals.properties_marker_id)
+		return NULL;
+	return forge_spawn_of_id(forge_globals.properties_marker_id);
+}
+
+/* the layout's object or marker under the crosshair, nothing held (the
+nearer of the two, as a grab takes): TRUE and which (object_index NONE or
+marker_id 0 for the other); FALSE for none, or one of the map's own */
+static boolean forge_properties_hovered(
+	long *object_index,
+	long *marker_id)
+{
+	real object_distance = FORGE_PICK_RANGE;
+	real marker_distance = FORGE_PICK_RANGE;
+	long object;
+	long marker;
+
+	*object_index = NONE;
+	*marker_id = 0;
+	if (object_try_and_get(forge_globals.held_object_index) || forge_globals.held_marker_id)
+		return FALSE;
+	object = forge_object_under_crosshair_at(&object_distance);
+	marker = forge_marker_under_crosshair(&marker_distance);
+	if (marker != NONE && marker_distance <= object_distance + FORGE_MARKER_PICK_RADIUS && forge_spawn_of_id(marker))
+	{
+		*marker_id = marker;
+		return TRUE;
+	}
+	if (object != NONE && forge_placed_of_object(object))
+	{
+		*object_index = object;
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/* (X, nothing held) the properties made the ones of what the crosshair is
+on: TRUE when it is the layout's */
+static boolean forge_properties_pick(
+	void)
+{
+	boolean picked = forge_properties_hovered(&forge_globals.properties_object_index,
+		&forge_globals.properties_marker_id);
+
+	if (forge_globals.properties_object_index != NONE)
+	{
+		char name[FORGE_NAME_SIZE];
+
+		forge_object_name(forge_globals.properties_object_index, name, sizeof(name));
+		platform_log("forge: properties of %s (aimed at)", name);
+	}
+	else if (forge_globals.properties_marker_id)
+	{
+		forge_spawn_log("properties of (aimed at)", forge_spawn_of_id(forge_globals.properties_marker_id));
+	}
+	return picked;
+}
+
+static void forge_properties_unpick(
+	void)
+{
+	forge_globals.properties_object_index = NONE;
+	forge_globals.properties_marker_id = 0;
+}
+
+/* the facing the properties show and step: the held object's as it is
+held, else the object's own */
+static void forge_properties_facing(
+	struct forge_placed const *placed,
+	real_vector3d *forward,
+	real_vector3d *up)
+{
+	struct object_datum *object = object_try_and_get(placed->object_index);
+
+	if (placed->object_index == forge_globals.held_object_index || !object)
+	{
+		*forward = forge_globals.held_forward;
+		*up = forge_globals.held_up;
+	}
+	else
+	{
+		*forward = object->object.forward;
+		*up = object->object.up;
+	}
 }
 
 static void forge_property_apply(
@@ -2942,7 +3053,7 @@ static void forge_property_apply(
 	/* (a marker's: forge_spawns.inc) */
 	if (spawn)
 	{
-		forge_spawn_property_apply(spawn, property, step, TRUE);
+		forge_spawn_property_apply(spawn, property, step, spawn->id == forge_globals.held_marker_id);
 		return;
 	}
 	if (!placed)
@@ -2978,7 +3089,8 @@ static void forge_property_apply(
 			forge_rotate_snaps[forge_globals.rotate_snap] : FORGE_ANGLE_STEP);
 		real_vector3d forward, up;
 
-		forge_angles_from_facing(&forge_globals.held_forward, &forge_globals.held_up, angles);
+		forge_properties_facing(placed, &forward, &up);
+		forge_angles_from_facing(&forward, &up, angles);
 		if (property == _forge_property_reset_rotation)
 		{
 			angles[0] = angles[1] = angles[2] = 0.f;
@@ -3004,7 +3116,7 @@ static void forge_property_apply(
 			angles[axis] = DEGREES_TO_RADIANS(degrees);
 		}
 		forge_facing_from_angles(angles, &forward, &up);
-		forge_set_facing(forge_globals.held_object_index, &forward, &up);
+		forge_set_facing(placed->object_index, &forward, &up);
 		break;
 	}
 	case _forge_property_physics:
@@ -3022,12 +3134,13 @@ static void forge_property_apply(
 	{
 		float angles[3];
 		char rotation[96];
+		real_vector3d forward, up;
 
-		forge_angles_from_facing(&forge_globals.held_forward, &forge_globals.held_up, angles);
+		forge_properties_facing(placed, &forward, &up);
+		forge_angles_from_facing(&forward, &up, angles);
 		snprintf(rotation, sizeof(rotation), "yaw %.1f, pitch %.1f, roll %.1f, facing %.3f %.3f %.3f up %.3f %.3f %.3f",
 			RADIANS_TO_DEGREES(angles[0]), RADIANS_TO_DEGREES(angles[1]), RADIANS_TO_DEGREES(angles[2]),
-			forge_globals.held_forward.i, forge_globals.held_forward.j, forge_globals.held_forward.k, forge_globals.held_up.i,
-			forge_globals.held_up.j, forge_globals.held_up.k);
+			forward.i, forward.j, forward.k, up.i, up.j, up.k);
 		platform_log("forge: properties: team %d, respawn %d s, %splaced at start, physics %s, %s", placed->team,
 			placed->respawn_seconds, (placed->flags & FORGE_RECORD_PLACE_AT_START) ? "" : "not ",
 			forge_physics_log_names[forge_physics_mode(placed)], rotation);
@@ -3785,8 +3898,10 @@ boolean forge_properties_get(
 	properties->place_at_start = (placed->flags & FORGE_RECORD_PLACE_AT_START) != 0;
 	{
 		float angles[3];
+		real_vector3d forward, up;
 
-		forge_angles_from_facing(&forge_globals.held_forward, &forge_globals.held_up, angles);
+		forge_properties_facing(placed, &forward, &up);
+		forge_angles_from_facing(&forward, &up, angles);
 		properties->yaw = (short)forge_round(RADIANS_TO_DEGREES(angles[0]));
 		properties->pitch = (short)forge_round(RADIANS_TO_DEGREES(angles[1]));
 		properties->roll = (short)forge_round(RADIANS_TO_DEGREES(angles[2]));
@@ -4322,8 +4437,17 @@ void forge_update(
 	forge_menu_asks_run();
 	if (!forge_globals.active)
 		return;
+	/* (X with nothing held: the properties of the layout's object or marker
+	the crosshair is on, the menu opened on them; none, the menu as ever) */
+	if (!forge_menu_game_open())
+		forge_properties_unpick();
 	if (!forge_menu_game_open() && pressed[_forge_button_menu])
+	{
+		forge_properties_pick();
 		forge_menu_game_open_now();
+		if (!forge_menu_game_open())
+			forge_properties_unpick();
+	}
 	if (forge_menu_game_open())
 	{
 		forge_globals.rotating = FALSE;
@@ -4547,7 +4671,7 @@ static void forge_draw_prompts(
 			FORGE_PROMPT(UI_BUTTON_B, HALO_FORGE_KEY_COPY, "COPY");
 			FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, "DELETE");
 		}
-		FORGE_PROMPT(UI_BUTTON_X, HALO_FORGE_KEY_MENU, "FORGE MENU");
+		FORGE_PROMPT(UI_BUTTON_X, HALO_FORGE_KEY_MENU, forge_globals.hud_properties ? "PROPERTIES" : "FORGE MENU");
 		FORGE_PROMPT(UI_BUTTON_LEFT_SHOULDER, HALO_FORGE_KEY_SPEED, speed);
 		FORGE_PROMPT(UI_BUTTON_BACK, HALO_FORGE_KEY_MONITOR, "+ RS: SPARTAN");
 	}
@@ -4981,8 +5105,13 @@ boolean forge_command(
 	if (!strcmp(word, "menu"))
 	{
 		/* (the Forge menu opened or closed, as X and B do) */
-		if (!strcmp(rest, "open"))
+		if (!strcmp(rest, "open") && !forge_menu_game_open())
+		{
+			forge_properties_pick();
 			forge_menu_game_open_now();
+			if (!forge_menu_game_open())
+				forge_properties_unpick();
+		}
 		else if (!strcmp(rest, "close"))
 			forge_menu_game_close();
 		else

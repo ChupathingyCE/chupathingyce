@@ -40,7 +40,7 @@ You start as the monitor. The prompts at the bottom of the screen say what the b
 | Y | Delete, X | Delete what you hold or aim at |
 | RB (Black) | U | Set it upright |
 | LB (White) | Q | Flying speed; in rotate mode, the rotation snap (off, 15, 45, 90 degrees) |
-| X | E | The Forge menu |
+| X | E | The Forge menu; on an object or marker of your layout, its PROPERTIES |
 | Back + right stick click | M | Switch between the monitor and playing as the Spartan |
 
 The keyboard's keys are `controls.forge_*` in `config.toml` (see [settings.md](settings.md)). The Forge menu's OPTIONS > CONTROLS lists them as they are set.
@@ -53,7 +53,7 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
 
   ![OBJECTS](screenshots/forge-objects.jpg)
 
-- PROPERTIES: what you hold, if you placed it. It opens here when you hold something. Left and right change a value: team, respawn time, placed at start, yaw, pitch and roll, reset rotation, and physics (normal, fixed: never moves, phased: no collision, shots pass through). A spawn point has its team, game type, kind and facing; a teleporter its channel; a game type object its index (a CTF flag's team, a hill's number).
+- PROPERTIES: what you hold, if you placed it, or with nothing held what the crosshair is on when you press X (an object or marker of your layout; the map's own objects open OBJECTS). It opens here then. Left and right change a value: team, respawn time, placed at start, yaw, pitch and roll, reset rotation, and physics (normal, fixed: never moves, phased: no collision, shots pass through). A spawn point has its team, game type, kind and facing; a teleporter its channel; a game type object its index (a CTF flag's team, a hill's number).
 
   ![PROPERTIES](screenshots/forge-properties.jpg)
 
