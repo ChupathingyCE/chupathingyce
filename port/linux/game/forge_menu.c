@@ -222,7 +222,7 @@ static struct
 	{ "SPEED / ROTATION SNAP", "LB", HALO_FORGE_KEY_SPEED, NULL },
 	{ "NUDGE MODE", "LT + RIGHT STICK CLICK", HALO_FORGE_KEY_NUDGE, NULL },
 	{ "FORGE MENU", "X", HALO_FORGE_KEY_MENU, NULL },
-	{ "MONITOR / SPARTAN", "BACK + RIGHT STICK CLICK", HALO_FORGE_KEY_MONITOR, NULL },
+	{ "MONITOR / SPARTAN", "D-PAD UP (OR BACK + RS)", HALO_FORGE_KEY_MONITOR, NULL },
 };
 
 /* ---------- globals */
@@ -1812,10 +1812,12 @@ void forge_menu_draw_prompts(
 		if (keyboard && prompts[index].key != NONE && halo_forge_key_shown(prompts[index].key, shown, sizeof(shown)))
 		{
 			key_cap(shown, caps[index], sizeof(caps[index]));
-			/* (a key of its own for the controller's combination, "+ RS:
-			MONITOR" or the stick's "RS: NUDGE": its word alone) */
+			/* (a key of its own for the controller's button or combination,
+			"D-PAD UP: MONITOR" or the stick's "RS: NUDGE": its word alone) */
 			if (!strncmp(words[index], "+ RS: ", 6))
 				words[index] += 6;
+			else if (!strncmp(words[index], "D-PAD UP: ", 10))
+				words[index] += 10;
 			else if (!strncmp(words[index], "RS: ", 4))
 				words[index] += 4;
 		}

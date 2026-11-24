@@ -28,8 +28,15 @@ ends it. The lobby (or "forge start <map> <layout>") starts it with a saved
 layout placed; its PLAY (or "forge play <map> <layout> [game type]") plays
 one as a game of that type.
 
-The monitor and the Spartan, flipped by Back and the right stick's click
-together (controls.forge_monitor on the keyboard, or "forge" alone): as the
+The monitor and the Spartan, flipped by the d-pad's up, as Halo 3's and
+Reach's Forge do, or Back and the right stick's click together
+(controls.forge_monitor on the keyboard, or "forge" alone). In a Forge
+session the d-pad's up is Forge's alone, on its player's controller: the
+Spartan does not step forward by it (input_abstraction.c) and the quick chat
+lines do not open on it (chat.c); outside Forge, and on the other split
+screen players' controllers, it is as ever. While the Forge menu or the
+Delta Guide is open it is theirs (their lists), and a press held from one of
+them closing does not flip (forge_dpad_toggle). As the
 monitor the player's unit stays where it stood, hidden and unhurt, its
 controls not read, and the director flies the flying camera from where the
 player's eyes were, by the monitor's controls (forge_camera_input). Flipped
@@ -187,6 +194,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/ui_overlay.h"
 #include "forge_menu.h"
 #include "halo_keyboard.h"
+#ifdef HALO_GUIDE
+#include "guide.h"
+#endif
 
 #include <math.h>
 #include <stdarg.h>
@@ -498,8 +508,8 @@ struct forge_pad
 	/* the mouse's look this frame, radians */
 	real look_yaw;
 	real look_pitch;
-	/* the monitor and the Spartan's combo held (Back + the right stick's
-	click, or controls.forge_monitor) */
+	/* the monitor and the Spartan's button held (the d-pad's up, Back + the
+	right stick's click, or controls.forge_monitor) */
 	boolean toggle;
 	/* the keyboard's: controls.forge_fast held (thrust, as the left trigger
 	is with nothing held), and controls.forge_nearer and _farther's wheel
@@ -651,6 +661,9 @@ static struct
 	/* the buttons down last frame */
 	boolean was_down[NUMBER_OF_GAMEPAD_BUTTONS];
 	boolean toggle_was_down;
+	/* the d-pad's up held since the Forge menu or the Guide had it (its press
+	theirs: no flip until it is let go) */
+	boolean dpad_up_theirs;
 	boolean nearer_was_down;
 	boolean farther_was_down;
 	/* (forge press, forge stick) the buttons and sticks the tests hold */
@@ -1590,6 +1603,28 @@ static short forge_placed_of_tag(
 	return count;
 }
 
+/* the d-pad's up as the monitor and the Spartan's button (forge_pad_get): not
+while the Forge menu or the Delta Guide is open, whose lists it moves through,
+nor while a press begun there is still held */
+static boolean forge_dpad_toggle(
+	boolean down)
+{
+	boolean theirs = forge_menu_game_open()
+#ifdef HALO_GUIDE
+		|| guide_active()
+#endif
+		;
+
+	if (!down)
+	{
+		forge_globals.dpad_up_theirs = FALSE;
+		return FALSE;
+	}
+	if (theirs)
+		forge_globals.dpad_up_theirs = TRUE;
+	return !forge_globals.dpad_up_theirs;
+}
+
 /* ---- the controller */
 
 static void forge_pad_get(
@@ -1627,9 +1662,10 @@ static void forge_pad_get(
 			}
 		}
 	}
-	/* (Back and the right stick's click together: the monitor and the
-	Spartan flipped) */
+	/* (the d-pad's up, Halo 3's and Reach's, or Back and the right stick's
+	click together: the monitor and the Spartan flipped) */
 	pad->toggle = pad->down[_gamepad_binary_button_back] && pad->down[_gamepad_binary_button_right_thumb];
+	pad->toggle |= forge_dpad_toggle(pad->down[_gamepad_binary_button_dpad_up]);
 	/* (the keyboard and mouse, the first controller's: Forge's own keys,
 	controls.forge_*, as the buttons they stand for, and the movement keys
 	as the left stick) */
@@ -3990,6 +4026,17 @@ boolean forge_monitor_takes_mouse(
 	return forge_globals.active && local_player_index == forge_globals.local_player_index;
 }
 
+boolean forge_takes_dpad_up(
+	short gamepad_index)
+{
+	long player_index;
+
+	if (!forge_game_active())
+		return FALSE;
+	player_index = local_player_get_player_index(forge_globals.local_player_index);
+	return player_index != NONE && player_get(player_index)->local_player_index == gamepad_index;
+}
+
 char const *forge_category_name(
 	short category)
 {
@@ -4552,7 +4599,7 @@ static void forge_draw_prompts(
 	do { prompts[count].button = (button_); prompts[count].key = (key_); prompts[count++].word = (word_); } while (0)
 	if (!forge_globals.active)
 	{
-		FORGE_PROMPT(UI_BUTTON_BACK, HALO_FORGE_KEY_MONITOR, "+ RS: MONITOR");
+		FORGE_PROMPT(NONE, HALO_FORGE_KEY_MONITOR, "D-PAD UP: MONITOR");
 	}
 	else if (forge_globals.rotating)
 	{
@@ -4583,7 +4630,7 @@ static void forge_draw_prompts(
 		}
 		FORGE_PROMPT(UI_BUTTON_X, HALO_FORGE_KEY_MENU, "FORGE MENU");
 		FORGE_PROMPT(UI_BUTTON_LEFT_SHOULDER, HALO_FORGE_KEY_SPEED, speed);
-		FORGE_PROMPT(UI_BUTTON_BACK, HALO_FORGE_KEY_MONITOR, "+ RS: SPARTAN");
+		FORGE_PROMPT(NONE, HALO_FORGE_KEY_MONITOR, "D-PAD UP: SPARTAN");
 	}
 #undef FORGE_PROMPT
 	forge_menu_draw_prompts(prompts, count);

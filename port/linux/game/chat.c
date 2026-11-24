@@ -1771,6 +1771,16 @@ static void quick_buttons(void)
 	if (!input_has_gamepad(controller) || !(pad = input_get_gamepad_state(controller)))
 		return;
 	up = pad->buttons[_gamepad_binary_button_dpad_up] == 1;
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* (a Forge session's player's d-pad up is its monitor and Spartan
+	button: forge.c) */
+	{
+		extern boolean forge_takes_dpad_up(short gamepad_index);
+
+		if (forge_takes_dpad_up(controller))
+			up = FALSE;
+	}
+#endif
 	down = pad->buttons[_gamepad_binary_button_dpad_down] == 1;
 	if (chat.quick_shown && system_milliseconds() - chat.quick_time > QUICK_TIME)
 		chat.quick_shown = FALSE;
