@@ -2679,6 +2679,13 @@ void workshop_browser_link_follow(void)
 	{
 		steam_bridge_open(bridge_uses_steamcmd());
 	}
+	/* (open since before the link, waiting on that sign-in: begun again, so
+	that the GET asked for once linked goes, not "Failed") */
+	else if (steam_bridge_sign_in_needed())
+	{
+		platform_log("Workshop: Steam linked; the bridge connects again");
+		steam_bridge_restart(bridge_uses_steamcmd());
+	}
 }
 
 int workshop_browser_open_in_steam(int index)
