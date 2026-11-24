@@ -635,6 +635,9 @@ int forge_file_layout_version(
 		if (needs > version)
 			version = needs;
 	}
+	/* (version 13: more records than the versions before it hold) */
+	if (layout->record_count > FORGE_FILE_EARLIER_MAXIMUM_RECORDS && version < FORGE_FILE_MORE_RECORDS_VERSION)
+		version = FORGE_FILE_MORE_RECORDS_VERSION;
 	return version;
 }
 
@@ -657,8 +660,11 @@ int forge_file_layout_check(
 
 	if (!layout || !forge_file_meta_terminated(layout))
 		return _forge_file_bad_meta;
-	if (layout->version && (layout->version < FORGE_FILE_FIRST_VERSION || layout->version > FORGE_FILE_VERSION))
+	if (layout->version && (layout->version < FORGE_FILE_FIRST_VERSION || layout->version > FORGE_FILE_VERSION ||
+		(layout->version >= FORGE_FILE_FIRST_SKIPPED_VERSION && layout->version <= FORGE_FILE_LAST_SKIPPED_VERSION)))
+	{
 		return _forge_file_bad_version;
+	}
 	if (layout->flags & ~FORGE_FILE_FLAGS_KNOWN)
 		return _forge_file_bad_flags;
 	if (!forge_file_map_name_valid(layout->map_name))
@@ -667,7 +673,9 @@ int forge_file_layout_check(
 		return _forge_file_wrong_map;
 	if (layout->pack_count < 0 || layout->pack_count > FORGE_FILE_MAXIMUM_PACKS || layout->path_count < 0 ||
 		layout->path_count > FORGE_FILE_MAXIMUM_PATHS || layout->record_count < 0 ||
-		layout->record_count > FORGE_FILE_MAXIMUM_RECORDS)
+		layout->record_count > FORGE_FILE_MAXIMUM_RECORDS ||
+		(layout->version && layout->version < FORGE_FILE_MORE_RECORDS_VERSION &&
+		layout->record_count > FORGE_FILE_EARLIER_MAXIMUM_RECORDS))
 	{
 		return _forge_file_too_many;
 	}
@@ -735,10 +743,11 @@ int forge_file_layout_check(
 	}
 	/* (each version is written only for what it adds - version 3 for a
 	respawning character, 4 for a player spawn, 5 for a teleporter, 6 for a
-	game type object, 7 for an object's physics: a file of one without it
-	is not one a writer made) */
+	game type object, 7 for an object's physics, 13 for more than 256
+	records: a file of one without it is not one a writer made) */
 	if ((version == 3 && !respawning) || (version == 4 && !player_spawns) || (version == 5 && !teleporters) ||
-		(version == 6 && !game_objects) || (version == 7 && !physics))
+		(version == 6 && !game_objects) || (version == 7 && !physics) ||
+		(version == FORGE_FILE_MORE_RECORDS_VERSION && layout->record_count <= FORGE_FILE_EARLIER_MAXIMUM_RECORDS))
 	{
 		return _forge_file_bad_version;
 	}
@@ -811,7 +820,8 @@ static int forge_file_decode_checked(
 	header_size = read_u16(&reader);
 	if (version < FORGE_FILE_FIRST_VERSION)
 		return forge_file_refused(_forge_file_bad_version, why, why_size, NULL);
-	if (version > FORGE_FILE_VERSION)
+	if (version > FORGE_FILE_VERSION ||
+		(version >= FORGE_FILE_FIRST_SKIPPED_VERSION && version <= FORGE_FILE_LAST_SKIPPED_VERSION))
 	{
 		snprintf(detail, sizeof(detail), "version %u", version);
 		return forge_file_refused(_forge_file_newer_version, why, why_size, detail);
@@ -849,7 +859,8 @@ static int forge_file_decode_checked(
 	if (reader.failed || reader.offset != FORGE_FILE_HEADER_SIZE)
 		return forge_file_refused(_forge_file_too_small, why, why_size, NULL);
 	if (pack_count > FORGE_FILE_MAXIMUM_PACKS || path_count > FORGE_FILE_MAXIMUM_PATHS ||
-		record_count > FORGE_FILE_MAXIMUM_RECORDS || meta_size > FORGE_FILE_MAXIMUM_META)
+		record_count > FORGE_FILE_MAXIMUM_RECORDS || meta_size > FORGE_FILE_MAXIMUM_META ||
+		(version < FORGE_FILE_MORE_RECORDS_VERSION && record_count > FORGE_FILE_EARLIER_MAXIMUM_RECORDS))
 	{
 		return forge_file_refused(_forge_file_too_many, why, why_size, NULL);
 	}

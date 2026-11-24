@@ -9,12 +9,11 @@ tools/test_forge_files.py) builds it on its own.
 
 A layout is <stem>.hmv in the Forge folder's folder of its map
 (forge_store.h: <save root>/forge/<map>/). Binary, little-endian, at most
-64 KB (256 records at most before the desktop builds' budget grew: a
-layout of more is refused by those builds as having too many):
+64 KB (more than 256 records only from version 13 on, below):
 
 	header  64 bytes
 	  magic        char[4]  "HFRG"
-	  version      u16      1 to 7 (below)
+	  version      u16      1 to 7, or 13 (below)
 	  header size  u16      64
 	  flags        u32      bit 0: a record is not a plain object (a spawn
 	                        point, a teleporter, a game type object); no
@@ -25,7 +24,7 @@ layout of more is refused by those builds as having too many):
 	                        is only logged)
 	  pack count   u16      0 to 8
 	  path count   u16      0 to 256
-	  record count u16      0 to 512
+	  record count u16      0 to 256 (version 13: 0 to 512)
 	  meta size    u16      4 to 2048
 	  payload size u32      the bytes after the header, exactly
 	  checksum     u32      CRC-32 (IEEE) of those bytes
@@ -64,17 +63,26 @@ that version (a file a writer would not make is refused).
 	6  game type objects: CTF flag, hill point, oddball spawn, race
 	   checkpoint
 	7  an object's physics: fixed (never moves) or phased (no collision)
-Versions 8 and later (game mode markers, boundaries, a lobby camera, a
-blank canvas) are refused with _forge_file_newer_version: this build reads
-versions 1 to 7.
+	13 more than 256 records, up to 512 (the desktop builds' Forge budget,
+	   forge.h FORGE_MAXIMUM_OBJECTS): a build from before reads a layout
+	   this big as one from a newer build, not as a damaged one
+Versions 8 to 12 (8 to 10 game mode markers, boundaries and a lobby
+camera: the Vita build's layouts; 11 the map's own objects taken away; 12
+AI movement) and 14 on are refused with _forge_file_newer_version: this
+build reads versions 1 to 7 and 13. Version 13 skips 8 to 12 so that those
+numbers keep meaning what they mean elsewhere. Each version reads what the
+ones below it add: once 11 and 12 are read too, a version 13 file may hold
+their parts as well.
 
 The validator (forge_file_decode), in order; a file is taken whole or not
 at all:
 - size: at least the 64-byte header, at most 64 KB;
-- header: the magic; the version 1 to 7 (above 7: newer; 0: refused); the
+- header: the magic; the version 1 to 7 or 13 (8 to 12 and above 13:
+  newer; 0: refused); the
   header size 64; no unknown flag; the map name [a-z0-9_], 1 to 31
   characters, only zeros after it, and the map expected (the folder's);
-- counts: packs at most 8, paths at most 256, records at most 512, meta at
+- counts: packs at most 8, paths at most 256, records at most 256 (version
+  13: 512), meta at
   most 2048 bytes;
 - the payload size exactly the bytes after the header, and its CRC-32;
 - each pack: its name [a-z0-9_ -], 1 to 24 characters, zeros after it;
@@ -111,13 +119,20 @@ a record whose tag the map does not have is skipped, and the budget
 
 #define FORGE_FILE_EXTENSION ".hmv"
 /* the newest version written and read, and the oldest read */
-#define FORGE_FILE_VERSION 7
+#define FORGE_FILE_VERSION 13
 #define FORGE_FILE_FIRST_VERSION 1
+/* (the versions this build does not read below FORGE_FILE_VERSION: the
+Vita build's 8 to 10, the map's own objects' 11, AI movement's 12) */
+#define FORGE_FILE_FIRST_SKIPPED_VERSION 8
+#define FORGE_FILE_LAST_SKIPPED_VERSION 12
+/* the first version with more than FORGE_FILE_EARLIER_MAXIMUM_RECORDS */
+#define FORGE_FILE_MORE_RECORDS_VERSION 13
+#define FORGE_FILE_EARLIER_MAXIMUM_RECORDS 256
 #define FORGE_FILE_HEADER_SIZE 64
 #define FORGE_FILE_MAXIMUM_SIZE 65536
 #define FORGE_FILE_MAXIMUM_PATHS 256
 #define FORGE_FILE_MAXIMUM_PACKS 8
-/* (forge.h FORGE_MAXIMUM_OBJECTS: a desktop build's) */
+/* (forge.h FORGE_MAXIMUM_OBJECTS: a desktop build's; version 13 on) */
 #define FORGE_FILE_MAXIMUM_RECORDS 512
 #define FORGE_FILE_MAXIMUM_META 2048
 #define FORGE_FILE_PATH_MAXIMUM_LENGTH 127
