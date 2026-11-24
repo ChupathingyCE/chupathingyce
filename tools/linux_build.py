@@ -128,10 +128,12 @@ KCP_DIR = Path("port/third_party/kcp")
 # dedicated server's
 LUA_DIR = Path("port/third_party/lua")
 LUA_DEFINES = ["-DHALO_LUA"]
-# (with -I, not -idirafter: a system Lua's lua.h, which may be another
-# version, as Lua 5.5's in /usr/include, would come first otherwise; none of
-# its headers' names is one of the game's)
-LUA_INCLUDE = f"-I{LUA_DIR}"
+# (after everything else, so that "../../" from it finds none of the game's
+# headers (#1702's review: mcc_vorbis.c on macOS). A system Lua's lua.h,
+# which may be another version, as Lua 5.5's in /usr/include, would come
+# first that way: the game's units include the bundled headers by their
+# path, port/linux/game/lua_internal.h, lua_scripting.c)
+LUA_INCLUDE = f"-idirafter {LUA_DIR}"
 
 
 def lua_sources() -> List[Path]:
