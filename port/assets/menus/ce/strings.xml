@@ -267,12 +267,12 @@
 		<string text=" "/>
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/direct_ip/cap_direct_ip_options">
-		<string text="Enter the address of  the server you want to\nconnect to, and optionally a colon and port\nnumber. Example: 206.0.8.4:2304."/>
-		<string text="Enter a password for the server you want\nto connect to."/>
+		<string text="Enter the host's address or name."/>
+		<string text="Pick a server you joined before."/>
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/direct_ip/direct_ip_options">
 		<string text="SERVER ADDRESS"/>
-		<string text="PASSWORD"/>
+		<string text="RECENT"/>
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/join_game/filters/cap_filter_options">
 		<string text="Do not show empty servers."/>

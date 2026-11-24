@@ -52,6 +52,7 @@ tools/test_delta_peer.py
 tools/test_delta_ref.py
 tools/test_delta_registry.py
 tools/test_determinism.py
+tools/test_direct_address.py
 tools/test_discord_activity.py
 tools/test_discord_register.py
 tools/test_duct_tape_logo.py

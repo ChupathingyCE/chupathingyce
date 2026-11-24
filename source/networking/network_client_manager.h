@@ -102,6 +102,26 @@ boolean network_game_client_browser_join(
 	struct network_game_client *client,
 	void const *game);
 #endif
+#ifdef HALO_GAME_BROWSER
+/* port: Direct IP (port/linux/game/direct_join.c): the game of the host at
+address (first byte highest), joined as the system link list joins it once
+its advertisement is heard, else, with direct, the host at that address and
+port without it; TRUE once the join is under way */
+boolean network_game_client_join_address(
+	unsigned long address,
+	word port,
+	boolean direct);
+/* ... whether that host's advertisement was heard */
+boolean network_game_client_address_advertised(
+	unsigned long address);
+/* ... the system link search also sent there (address 0: nowhere) */
+void network_game_client_search_address(
+	unsigned long address,
+	word port);
+/* ... where the advertisement about to be taken came from */
+void network_game_client_note_advertisement_source(
+	struct transport_address const *source_address);
+#endif
 boolean network_game_client_initiate_join_game(
 	struct network_game_client *client,
 	struct network_advertised_game *game,
