@@ -158,6 +158,7 @@ and what each hook asks of the port, or on its compile lines:
 | `HALO_CONSOLE_BRINGUP_LOG` | with the developer tools, a console's bring-up logs (frame stages, the main loop's pulse, init.txt's `later` commands) |
 | `HALO_BIG_ENDIAN` | a big-endian console: the maps' headers and tags byte-swapped as they load (`port/console/game`, `tools/tag_swap_generate.py`) |
 | `HALO_WINDOW_TRANSLATED` | with `HALO_64BIT`, a 32-bit console's Xbox addresses in a window placed wherever it has room (`source/cseries/xbox_address.h`) |
+| `HALO_CONSOLE_WINDOW_LOW` | with `HALO_WINDOW_TRANSLATED`, where a console with less memory starts that window (set in the port's own build; 0x7D000000 gives a 48 MB game heap), its heap's room logged at start and a full heap stopping the game with a message |
 
 ### Link Profile on a console
 

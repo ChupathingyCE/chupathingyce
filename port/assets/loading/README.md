@@ -5,8 +5,8 @@
 by default, so the loading screen shows the Xbox's own picture when the
 maps folder has one (`xbox_loading.tga`, or a PAL disc's `loading.tga`),
 and this one otherwise. With the setting off, it always shows this one.
-The consoles leave it out and show the disc's picture
-(`HALO_CONSOLE_NO_LOADING_PICTURE`). It imitates the Xbox's picture with
+The Xbox 360 and the Wii U do the same. The original Xbox leaves it out
+and shows the disc's picture (`HALO_CONSOLE_NO_LOADING_PICTURE`). It imitates the Xbox's picture with
 the helmet and tusks of Chupathingy's icon.
 
 It is made by `tools/make_loading_picture.py` from `port/art/icon.svg` and
