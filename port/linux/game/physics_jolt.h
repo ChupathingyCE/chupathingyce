@@ -16,6 +16,10 @@ nothing here is a double, a 64-bit integer, a structure returned or a wide
 character, and every structure is ints, floats and pointers alone; nor a
 long, which the 64-bit builds' game units read as 32 bits
 (tools/lp64_rewrite.py) and this file's as 64.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef __PHYSICS_JOLT_H
@@ -44,6 +48,13 @@ unsigned int physics_jolt_generation(void);
 /* the level mesh kept for the next world made from the same triangles (after
 a checkpoint revert) let go: a map left */
 void physics_jolt_forget_meshes(void);
+/* whether an allocation the C heap refused was made from the world's
+reserve since it was made: the world must go (physics_jolt_destroy); until
+then nothing more is added to it or stepped */
+int physics_jolt_out_of_memory(void);
+/* (the tests) the count-th allocation from now, and every one after it
+until the world goes, refused as the C heap refuses one; 0: none */
+void physics_jolt_refuse_allocations_after(unsigned int count);
 
 /* the level: a static triangle mesh (vertices x y z, the triangles' vertex
 indices counter-clockwise seen from the front); the body's number, -1 none */
