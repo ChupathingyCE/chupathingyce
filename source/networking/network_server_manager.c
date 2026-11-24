@@ -6865,9 +6865,13 @@ boolean network_game_server_map_share_game(
 	*in_progress = server->state == _network_game_server_state_ingame;
 	return TRUE;
 }
+#endif
 
+#if defined(HALO_GAME_BROWSER) || (defined(HALO_MCC) && HALO_MCC)
 /* a client machine that joined the game (not the host's own): the address
-its connection comes from (IPv4, first byte highest) */
+its connection comes from (IPv4, first byte highest). Map sharing's, and
+MCC's admission's (network_distributed.c), which a build without the game
+browser has too */
 boolean network_game_server_map_share_machine(
 	long machine_index,
 	unsigned long *address)

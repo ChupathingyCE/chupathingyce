@@ -1206,7 +1206,13 @@ static unsigned char *shrink(const unsigned char *pixels, int width, int height,
 static unsigned char *picture_decode(unsigned char *data, int size, int *width, int *height,
 	struct preview_failure *failure)
 {
+	/* (the pictures' decoder, posix_ui_font.c, is the game browser's: none
+	without it, as workshop_browser_cached_picture) */
+#ifdef HALO_GAME_BROWSER
 	unsigned char *pixels = data ? posix_ui_image_decode(data, size, width, height) : NULL;
+#else
+	unsigned char *pixels = NULL;
+#endif
 
 	if (data && !pixels)
 		failure_say(failure, 0, 0, 0, "it couldn't be decoded (%d bytes)", size);
@@ -1288,7 +1294,9 @@ static void *preview_thread(void *context)
 		small = shrink(pixels, width, height, &small_width, &small_height);
 		if (!small)
 			failure_say(&failure, 1, 0, 0, "out of memory (%dx%d)", width, height);
+#ifdef HALO_GAME_BROWSER
 		posix_ui_image_free(pixels);
+#endif
 	}
 	pthread_mutex_lock(&workshop.lock);
 	snprintf(preview.id, sizeof(preview.id), "%s", job->id);
