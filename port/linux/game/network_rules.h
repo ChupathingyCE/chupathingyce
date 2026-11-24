@@ -735,4 +735,35 @@ for the password (_rejection_code_bad_password): the game has one
 game's port, not through the invite. A game without a password: never */
 int network_rules_join_password_refused(uint32_t address, int has_password);
 
+/* ---------- a game search from the internet */
+
+/* a host's answers to the game searches of internet addresses: four at
+once, then four a second, for all of them together */
+#define NETWORK_RULES_SEARCH_BURST 4
+#define NETWORK_RULES_SEARCH_PER_SECOND 4
+
+/* the host's one budget for them (zero: full) */
+struct network_rules_search_budget
+{
+	/* the answers it may still send, in thousandths */
+	uint32_t tokens;
+	/* (milliseconds) when tokens was last brought up to date */
+	uint32_t time;
+	/* whether it was started (time and tokens set) */
+	uint8_t started;
+};
+
+/* whether a host answers, at the searcher's own address, a game search
+from address (IPv4, host byte order) that came from a port other than the
+game's client port (a second copy of the game on one computer, which the
+broadcast answer does not reach), at now (milliseconds, any clock that
+wraps at 2^32). A local network's search, or internet play's peer's
+(network_rules_address_joins_as_lan), is answered as ever. An internet
+address's only when the host allows it (direct_ip_host:
+network.direct_ip_host, off by default), never a multicast or broadcast
+address's, and within budget, which it takes from: 0 if the search goes
+unanswered */
+int network_rules_search_answered(uint32_t address, int direct_ip_host, uint32_t now,
+	struct network_rules_search_budget *budget);
+
 #endif /* __NETWORK_RULES_H */

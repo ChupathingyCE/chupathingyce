@@ -101,6 +101,7 @@ A few people look for most:
 | `network.browser_url` | The game list Online Games shows (stats.chupathingy.org). |
 | `network.copy_to_clipboard` | `false` (the default) leaves the clipboard alone; `true` puts the invite link of a game you host on it. The log shows only the start of the link (a dedicated server's log shows all of it). |
 | `network.host_public` | Whether games you host are listed for everyone (true, the default) or only joinable by invite (false). Anyone with a game's invite can find the host's internet address, and a listed game's invite is public: see [privacy.md](privacy.md#your-internet-address). |
+| `network.direct_ip_host` | `false` (the default): games you host answer game searches from your local network and internet play only. `true`: they also answer searches from internet addresses, no more than four answers a second. |
 | `network.keep_parties_together` | In team games you host, put a party's players on one team when the teams stay even. On by default. |
 | `delta.follow_leader` | When your party's leader goes to a game: `"ask"` (the default) gives you a few seconds to stay and then follows, but in a game you stay unless you press join; `"always"` follows when the seconds run out, in a game too; `"never"` doesn't offer it. Also FOLLOW LEADER in the Delta Guide's PARTY. |
 | `network.allow_player_names`, `network.allow_follow_camera` | In games you host, let players turn on names above heads and the follow camera. Both off by default, as on the Xbox. |
