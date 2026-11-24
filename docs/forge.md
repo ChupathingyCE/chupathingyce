@@ -61,7 +61,7 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
 
   ![LAYOUTS](screenshots/forge-layouts.jpg)
 
-- OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), PLAY AS SPARTAN and CONTROLS.
+- OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, HELD FACING (KEEP: what you hold keeps the facing you grabbed it with, the default; FOLLOW VIEW: it turns with the camera, so it keeps facing the same way from you, until you turn it by hand; `game.forge_held_facing`), UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), PLAY AS SPARTAN and CONTROLS.
 
   ![OPTIONS](screenshots/forge-options.jpg)
 
