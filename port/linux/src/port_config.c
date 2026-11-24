@@ -1783,6 +1783,12 @@ static const struct config_setting config_settings[] =
 		"Forge, the layout editor of the multiplayer maps: FORGE in the\n"
 		"Multiplayer menu, and the console's forge commands. Local games only.\n"
 		"FORGE in the Delta Guide's SETTINGS. See docs/forge.md." },
+	{ "game.forge_hold_to_delete", _config_string, "\"off\"", "HALO_FORGE_HOLD_TO_DELETE", _environment_value,
+		_platform_desktop,
+		"How Forge's monitor deletes: \"off\" at a press of Y or the delete key,\n"
+		"\"controller\" when the controller's Y is held half a second (the key\n"
+		"still at a press), \"all\" when either is held. DELETE in the Forge\n"
+		"menu's OPTIONS. See docs/forge.md." },
 #endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"

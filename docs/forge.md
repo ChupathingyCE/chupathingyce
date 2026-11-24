@@ -37,7 +37,7 @@ You start as the monitor. The prompts at the bottom of the screen say what the b
 | — | Wheel | Push away / pull in what you hold |
 | Right stick click (rotate mode) | N | Nudge mode: small steps instead |
 | B | F | Copy what you hold or aim at |
-| Y | Delete, X | Delete what you hold or aim at |
+| Y | Delete, X | Delete what you hold or aim at (held for half a second instead, with a bar that fills over the crosshair, when OPTIONS > DELETE is HOLD) |
 | RB (Black) | U | Set it upright |
 | LB (White) | Q | Flying speed; in rotate mode, the rotation snap (off, 15, 45, 90 degrees) |
 | X | E | The Forge menu |
@@ -61,7 +61,7 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
 
   ![LAYOUTS](screenshots/forge-layouts.jpg)
 
-- OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), PLAY AS SPARTAN and CONTROLS.
+- OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, DELETE (PRESS deletes at a press, the default; HOLD: CONTROLLER deletes when Y is held half a second, the keyboard's key still at a press; HOLD: ALL holds both; `game.forge_hold_to_delete`), UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), PLAY AS SPARTAN and CONTROLS.
 
   ![OPTIONS](screenshots/forge-options.jpg)
 
