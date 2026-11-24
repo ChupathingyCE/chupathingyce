@@ -44,7 +44,7 @@ static unsigned int const forge_file_groups[] =
 static char const *const forge_file_result_names[NUMBER_OF_FORGE_FILE_RESULTS] =
 {
 	"ok", "shorter than its header", "larger than 64 KB", "not a Forge layout (magic)", "a bad version",
-	"made by a newer build (this build reads layout versions 1 to 7)", "another header size", "unknown flags", "a bad map name", "of another map", "a count past its limit",
+	"made by a newer build (this build reads layout versions 1 to 7 and 15)", "another header size", "unknown flags", "a bad map name", "of another map", "a count past its limit",
 	"its size is not its counts'", "its checksum is wrong", "a bad pack", "a bad tag path", "a group Forge does not place",
 	"a tag path twice", "a bad record", "bad title, author, description or date", "no room to write it",
 };
@@ -155,6 +155,13 @@ int forge_file_group_allowed(
 			return 1;
 	}
 	return 0;
+}
+
+int forge_file_path_group_allowed(
+	unsigned int group_tag)
+{
+	return forge_file_group_allowed(group_tag) || group_tag == FORGE_FILE_EFFECT_GROUP ||
+		group_tag == FORGE_FILE_DECAL_GROUP;
 }
 
 int forge_file_path_valid(
@@ -480,6 +487,49 @@ static int forge_file_kind_teleporter(
 	return kind == _forge_record_teleporter_in || kind == _forge_record_teleporter_out;
 }
 
+/* whether a record's own bytes are all zero */
+static int forge_file_params_zero(
+	struct forge_file_record const *record)
+{
+	int index;
+
+	for (index = 0; index < FORGE_FILE_RECORD_PARAMS_SIZE; index++)
+	{
+		if (record->params[index])
+			return 0;
+	}
+	return 1;
+}
+
+/* (version 15) an effect's or a decal's record: its path one of its group,
+its yaw alone, nothing else of an object's; its own bytes its repeat (an
+effect's, 0 to 60) or size (a decal's, 1 to 40), then zeros */
+static int forge_file_effect_check(
+	struct forge_file_layout const *layout,
+	int version,
+	struct forge_file_record const *record)
+{
+	int decal = record->kind == _forge_record_decal;
+	int value = record->params[0];
+	int index;
+
+	if (version < 15 || record->path_index >= layout->path_count ||
+		layout->paths[record->path_index].group_tag != (decal ? FORGE_FILE_DECAL_GROUP : FORGE_FILE_EFFECT_GROUP) ||
+		record->team || record->respawn_seconds || record->count || record->game_types || record->variant ||
+		record->flags || record->ai_team)
+	{
+		return 0;
+	}
+	if (decal ? value < 1 || value > FORGE_FILE_MAXIMUM_DECAL_SIZE : value > FORGE_FILE_MAXIMUM_EFFECT_REPEAT)
+		return 0;
+	for (index = 1; index < FORGE_FILE_RECORD_PARAMS_SIZE; index++)
+	{
+		if (record->params[index])
+			return 0;
+	}
+	return forge_file_record_floats_check(record) && record->angles[1] == 0.f && record->angles[2] == 0.f;
+}
+
 static int forge_file_record_check(
 	struct forge_file_layout const *layout,
 	int version,
@@ -488,7 +538,13 @@ static int forge_file_record_check(
 	int character;
 	int spawn;
 
+	/* (version 15's effects and decals: their own checks) */
+	if (record->kind == _forge_record_effect || record->kind == _forge_record_decal)
+		return forge_file_effect_check(layout, version, record);
 	if (record->kind >= NUMBER_OF_FORGE_RECORD_KINDS)
+		return 0;
+	/* (no other kind has bytes of its own) */
+	if (!forge_file_params_zero(record))
 		return 0;
 	/* (the kinds no build has written: a hill, a kill zone - refused in any
 	version, as unknown kinds are) */
@@ -620,7 +676,9 @@ int forge_file_layout_version(
 		struct forge_file_record const *record = &layout->records[index];
 		int needs = FORGE_FILE_FIRST_VERSION;
 
-		if (record->flags & FORGE_RECORD_PHYSICS_MASK)
+		if (record->kind == _forge_record_effect || record->kind == _forge_record_decal)
+			needs = 15;
+		else if (record->flags & FORGE_RECORD_PHYSICS_MASK)
 			needs = 7;
 		else if (record->kind == _forge_record_flag)
 			needs = 6;
@@ -650,6 +708,8 @@ int forge_file_layout_check(
 	int teleporters = 0;
 	int game_objects = 0;
 	int physics = 0;
+	int effects = 0;
+	int decals = 0;
 	unsigned char hill_points[FORGE_FILE_MAXIMUM_HILLS];
 	unsigned int sender_channels = 0;
 	unsigned int receiver_channels = 0;
@@ -657,8 +717,11 @@ int forge_file_layout_check(
 
 	if (!layout || !forge_file_meta_terminated(layout))
 		return _forge_file_bad_meta;
-	if (layout->version && (layout->version < FORGE_FILE_FIRST_VERSION || layout->version > FORGE_FILE_VERSION))
+	if (layout->version && (layout->version < FORGE_FILE_FIRST_VERSION || layout->version > FORGE_FILE_VERSION ||
+		(layout->version >= FORGE_FILE_FIRST_SKIPPED_VERSION && layout->version <= FORGE_FILE_LAST_SKIPPED_VERSION)))
+	{
 		return _forge_file_bad_version;
+	}
 	if (layout->flags & ~FORGE_FILE_FLAGS_KNOWN)
 		return _forge_file_bad_flags;
 	if (!forge_file_map_name_valid(layout->map_name))
@@ -686,7 +749,7 @@ int forge_file_layout_check(
 
 		if (!end || !forge_file_path_valid(path->path, (int)(end - path->path)))
 			return _forge_file_bad_path;
-		if (!forge_file_group_allowed(path->group_tag))
+		if (!forge_file_path_group_allowed(path->group_tag))
 			return _forge_file_bad_group;
 		for (other = 0; other < index; other++)
 		{
@@ -695,6 +758,15 @@ int forge_file_layout_check(
 		}
 	}
 	version = forge_file_layout_version(layout);
+	/* (an effect's or a decal's path: version 15's alone) */
+	for (index = 0; index < layout->path_count; index++)
+	{
+		if ((layout->paths[index].group_tag == FORGE_FILE_EFFECT_GROUP ||
+			layout->paths[index].group_tag == FORGE_FILE_DECAL_GROUP) && version < 15)
+		{
+			return _forge_file_bad_group;
+		}
+	}
 	for (index = 0; index < layout->record_count; index++)
 	{
 		struct forge_file_record const *record = &layout->records[index];
@@ -709,6 +781,10 @@ int forge_file_layout_check(
 			physics = 1;
 		if (layout->records[index].kind == _forge_record_player_spawn)
 			player_spawns = 1;
+		if (layout->records[index].kind == _forge_record_effect)
+			effects++;
+		if (layout->records[index].kind == _forge_record_decal)
+			decals++;
 		/* (version 6's game type objects: a hill's points counted, its
 		number checked in range with the record) */
 		if (layout->records[index].kind == _forge_record_flag)
@@ -735,13 +811,15 @@ int forge_file_layout_check(
 	}
 	/* (each version is written only for what it adds - version 3 for a
 	respawning character, 4 for a player spawn, 5 for a teleporter, 6 for a
-	game type object, 7 for an object's physics: a file of one without it
-	is not one a writer made) */
+	game type object, 7 for an object's physics, 15 for an effect or a
+	decal: a file of one without it is not one a writer made) */
 	if ((version == 3 && !respawning) || (version == 4 && !player_spawns) || (version == 5 && !teleporters) ||
-		(version == 6 && !game_objects) || (version == 7 && !physics))
+		(version == 6 && !game_objects) || (version == 7 && !physics) || (version == 15 && !effects && !decals))
 	{
 		return _forge_file_bad_version;
 	}
+	if (effects > FORGE_FILE_MAXIMUM_EFFECTS || decals > FORGE_FILE_MAXIMUM_DECALS)
+		return _forge_file_too_many;
 	if (game_objects > FORGE_FILE_MAXIMUM_GAME_OBJECTS)
 		return _forge_file_too_many;
 	/* (the teleporters within their most, each sender's channel with a
@@ -811,7 +889,8 @@ static int forge_file_decode_checked(
 	header_size = read_u16(&reader);
 	if (version < FORGE_FILE_FIRST_VERSION)
 		return forge_file_refused(_forge_file_bad_version, why, why_size, NULL);
-	if (version > FORGE_FILE_VERSION)
+	if (version > FORGE_FILE_VERSION ||
+		(version >= FORGE_FILE_FIRST_SKIPPED_VERSION && version <= FORGE_FILE_LAST_SKIPPED_VERSION))
 	{
 		snprintf(detail, sizeof(detail), "version %u", version);
 		return forge_file_refused(_forge_file_newer_version, why, why_size, detail);
@@ -901,7 +980,7 @@ static int forge_file_decode_checked(
 		reader.offset += length;
 		if (!forge_file_path_valid(path->path, length))
 			return forge_file_refused(_forge_file_bad_path, why, why_size, NULL);
-		if (!forge_file_group_allowed(path->group_tag))
+		if (!forge_file_path_group_allowed(path->group_tag))
 			return forge_file_refused(_forge_file_bad_group, why, why_size, NULL);
 	}
 	/* the records */
@@ -944,6 +1023,9 @@ static int forge_file_decode_checked(
 			if (read_u8(&reader))
 				finite = 0;
 		}
+		/* (the kind's own bytes: checked with the record) */
+		for (reserved = 0; reserved < FORGE_FILE_RECORD_PARAMS_SIZE; reserved++)
+			record->params[reserved] = (unsigned char)read_u8(&reader);
 
 		if (reader.failed)
 			return forge_file_refused(_forge_file_bad_payload_size, why, why_size, "the records");
@@ -1094,6 +1176,8 @@ int forge_file_encode(
 		write_bytes(&writer, record->ai_team, 1);
 		for (axis = 0; axis < FORGE_FILE_RECORD_RESERVED_SIZE; axis++)
 			write_bytes(&writer, 0, 1);
+		for (axis = 0; axis < FORGE_FILE_RECORD_PARAMS_SIZE; axis++)
+			write_bytes(&writer, record->params[axis], 1);
 	}
 	write_text(&writer, layout->title, (int)strlen(layout->title) + 1);
 	write_text(&writer, layout->author, (int)strlen(layout->author) + 1);

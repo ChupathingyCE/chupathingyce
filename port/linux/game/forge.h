@@ -50,6 +50,9 @@ enum
 	/* (the player spawn points: RESPAWN POINT and INITIAL SPAWN, no tag of
 	the map's: forge_spawns.inc) */
 	_forge_category_spawning,
+	/* (the map's effects and decals, placed as markers: forge_effects.inc) */
+	_forge_category_effects,
+	_forge_category_decals,
 	NUMBER_OF_FORGE_CATEGORIES
 };
 
@@ -81,6 +84,9 @@ enum
 	_forge_spawn_hill,
 	_forge_spawn_oddball,
 	_forge_spawn_race,
+	/* (an effect or a decal of the map's: forge_effects.inc) */
+	_forge_spawn_effect,
+	_forge_spawn_decal,
 	NUMBER_OF_FORGE_MARKER_KINDS
 };
 /* each category of markers: how many kinds */
@@ -140,6 +146,10 @@ struct forge_properties
 	game type object's index */
 	short channel;
 	boolean linked;
+	/* (an effect's or a decal's: forge_effects.inc) its repeat (seconds, 0
+	LOOP) or size (tenths) */
+	boolean effect;
+	short effect_value;
 };
 
 /* what the monitor's controls ask of the flying camera this frame */
@@ -412,6 +422,13 @@ enum
 short forge_spawn_location(
 	long player_index,
 	struct player_starting_location *location);
+
+/* ---------- prototypes/FORGE_EFFECTS.INC */
+
+/* (game.c's game_tick) the layout's effects started when due and its decals
+laid: a Forge game's or a layout played's, a tick at a time */
+void forge_effects_tick(
+	void);
 
 /* ---------- prototypes/FORGE_NETGAME.INC */
 

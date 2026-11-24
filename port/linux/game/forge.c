@@ -108,6 +108,8 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
                            camera and held
   forge marker respawn|initial|sender|receiver|flag|hill|oddball|race
                            a marker placed and held
+  forge effect|decal <name>  the first of the map's effects or decals with
+                           name in its name or path placed and held
   forge grab [#id] | drop  the object or marker under the crosshair (or
                            the layout's of that id) grabbed, the held one
                            let go
@@ -135,6 +137,10 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
 #include "camera/observer.h"
 #include "devices/device_controls.h"
 #include "devices/device_definitions.h"
+#include "effects/decal_definitions.h"
+#include "effects/decals.h"
+#include "effects/effect_definitions.h"
+#include "effects/effects.h"
 #include "game/game.h"
 #include "game/game_allegiance.h"
 #include "game/game_engine.h"
@@ -322,29 +328,29 @@ enum
 /* the Forge menu's categories' names (forge.h's order) */
 static char const *const forge_category_names[NUMBER_OF_FORGE_CATEGORIES] =
 {
-	"VEHICLES", "WEAPONS", "EQUIPMENT", "SCENERY", "TELEPORTERS", "OBJECTIVES", "SPAWNING",
+	"VEHICLES", "WEAPONS", "EQUIPMENT", "SCENERY", "TELEPORTERS", "OBJECTIVES", "SPAWNING", "EFFECTS", "DECALS",
 };
 /* (the log's and the console's) */
 static char const *const forge_category_log_names[NUMBER_OF_FORGE_CATEGORIES] =
 {
-	"vehicles", "weapons", "equipment", "scenery", "teleporters", "objectives", "spawning",
+	"vehicles", "weapons", "equipment", "scenery", "teleporters", "objectives", "spawning", "effects", "decals",
 };
 /* (forge_spawns.inc) the markers' categories' items (SPAWNING's,
 TELEPORTERS', OBJECTIVES'), its kinds' names */
 static char const *const forge_spawn_kind_names[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
 	"Respawn Point", "Initial Spawn", "Teleporter Sender", "Teleporter Receiver",
-	"CTF Flag", "Hill Point", "Oddball Spawn", "Race Checkpoint",
+	"CTF Flag", "Hill Point", "Oddball Spawn", "Race Checkpoint", "Effect", "Decal",
 };
 static char const *const forge_spawn_kind_log_names[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
 	"respawn point", "initial spawn", "teleporter sender", "teleporter receiver",
-	"ctf flag", "hill point", "oddball spawn", "race checkpoint",
+	"ctf flag", "hill point", "oddball spawn", "race checkpoint", "effect", "decal",
 };
 /* (the console's "forge marker <word>") */
 static char const *const forge_spawn_kind_words[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
-	"respawn", "initial", "sender", "receiver", "flag", "hill", "oddball", "race",
+	"respawn", "initial", "sender", "receiver", "flag", "hill", "oddball", "race", "effect", "decal",
 };
 /* a markers' category's first kind and its kinds (NONE: not one) */
 static short forge_marker_category_first(
@@ -588,6 +594,18 @@ struct forge_spawn
 	short channel;
 	/* where, facing along the ground */
 	struct forge_transform home;
+	/* (an effect's or a decal's: forge_effects.inc) its tag, its repeat
+	(seconds; 0 again as soon as it ends) or size (tenths); what it shows
+	now: its effect, when it started, the decal datums it laid, whether it
+	was started this round (the round's count) */
+	long effect_tag_index;
+	unsigned char effect_value;
+	long effect_index;
+	long effect_start_tick;
+	long decal_pieces[4];
+	short decal_piece_count;
+	boolean effect_started;
+	long effect_round;
 };
 
 /* (the players a round's spawns are kept for: absolute indices) */
@@ -759,6 +777,26 @@ static void forge_spawn_properties_get(struct forge_spawn const *spawn, struct f
 static void forge_spawn_choose(short kind);
 static void forge_spawn_delete(long id);
 static void forge_spawn_log(char const *what, struct forge_spawn const *spawn);
+/* ---- the effects and decals (forge_effects.inc) */
+static boolean forge_spawn_is_effect(struct forge_spawn const *spawn);
+static short forge_effects_count(short kind);
+static void forge_effect_palette_reset(void);
+static short forge_effect_category_count(short category);
+static boolean forge_effect_category_item(short category, short item_index, struct forge_item *item);
+static void forge_effect_choose(short category, short item_index);
+static boolean forge_effect_choose_named(short category, char const *name);
+static void forge_effect_name(struct forge_spawn const *spawn, char *name, int size);
+static void forge_effect_log(char const *what, struct forge_spawn const *spawn);
+static void forge_effect_release(struct forge_spawn *spawn);
+static void forge_effect_set(struct forge_spawn *spawn, long tag_index, unsigned char value);
+static boolean forge_effect_from_record(struct forge_file_layout const *layout, struct forge_file_record const *record);
+static boolean forge_effect_to_record(struct forge_spawn const *spawn, struct forge_file_layout *layout,
+	struct forge_file_record *record);
+static short forge_effect_property_count(void);
+static void forge_effect_property_apply(struct forge_spawn *spawn, short property, short step, boolean held);
+static void forge_effect_property_text(struct forge_properties const *properties, short row, char *label,
+	int label_size, char *value, int value_size);
+static void forge_spawn_yaw_step(struct forge_spawn *spawn, short property, short step, boolean held);
 static struct forge_spawn *forge_spawn_add(long id, short kind, signed char team, unsigned short game_types,
 	short channel, struct forge_transform const *home);
 static void forge_netgame_changed(void);
@@ -3353,6 +3391,12 @@ static void forge_variant_apply(
 		}
 		if (record->kind == _forge_record_flag && forge_file_layout_version(layout) >= 6)
 			continue;
+		/* (an effect, a decal: as the map loaded, forge_spawns_from_layout) */
+		if ((record->kind == _forge_record_effect || record->kind == _forge_record_decal) &&
+			forge_file_layout_version(layout) >= 15)
+		{
+			continue;
+		}
 		if (record->kind != _forge_record_object)
 		{
 			other_kinds++;
@@ -3874,6 +3918,7 @@ void forge_map_loaded(
 	forge_globals.undo_cursor = 0;
 	forge_globals.menu_status[0] = 0;
 	forge_globals.palette_built = FALSE;
+	forge_effect_palette_reset();
 	forge_globals.spawned_count = 0;
 	forge_globals.deleted_count = 0;
 	forge_globals.notice[0] = 0;
@@ -3967,6 +4012,9 @@ short forge_category_item_count(
 {
 	if (category < 0 || category >= NUMBER_OF_FORGE_CATEGORIES)
 		return 0;
+	/* (EFFECTS, DECALS: the map's, in a Forge game) */
+	if (category == _forge_category_effects || category == _forge_category_decals)
+		return forge_globals.game_active && !forge_globals.playing ? forge_effect_category_count(category) : 0;
 	/* (SPAWNING, TELEPORTERS, OBJECTIVES: their markers' kinds, in a Forge
 	game) */
 	if (forge_marker_category_first(category) != NONE)
@@ -3985,6 +4033,8 @@ boolean forge_category_item(
 	if (item_index < 0 || item_index >= forge_category_item_count(category))
 		return FALSE;
 	csmemset(item, 0, sizeof(*item));
+	if (category == _forge_category_effects || category == _forge_category_decals)
+		return forge_effect_category_item(category, item_index, item);
 	if (forge_marker_category_first(category) != NONE)
 	{
 		short kind = (short)(forge_marker_category_first(category) + item_index);
@@ -4011,7 +4061,9 @@ static void forge_category_choose(
 		forge_marker_drop();
 	if (object_try_and_get(forge_globals.held_object_index))
 		forge_drop();
-	if (forge_marker_category_first(category) != NONE)
+	if (category == _forge_category_effects || category == _forge_category_decals)
+		forge_effect_choose(category, item_index);
+	else if (forge_marker_category_first(category) != NONE)
 		forge_spawn_choose((short)(forge_marker_category_first(category) + item_index));
 	else
 		forge_spawn(forge_globals.palette[forge_globals.palette_first[category] + item_index].tag_index);
@@ -5042,13 +5094,23 @@ boolean forge_command(
 			forge_drop();
 		return forge_spawn(forge_globals.palette[entry].tag_index) != NONE;
 	}
+	if (!strcmp(word, "effect") || !strcmp(word, "decal"))
+	{
+		/* (one of the map's effects or decals by name, placed and held) */
+		if (forge_globals.held_marker_id)
+			forge_marker_drop();
+		if (object_try_and_get(forge_globals.held_object_index))
+			forge_drop();
+		return forge_effect_choose_named(!strcmp(word, "decal") ? _forge_category_decals : _forge_category_effects, rest);
+	}
 	if (!strcmp(word, "marker"))
 	{
 		short kind;
 
 		for (kind = 0; kind < NUMBER_OF_FORGE_MARKER_KINDS && strcmp(rest, forge_spawn_kind_words[kind]); kind++)
 			;
-		if (kind >= NUMBER_OF_FORGE_MARKER_KINDS)
+		/* (an effect or a decal takes a tag: forge effect|decal <name>) */
+		if (kind >= NUMBER_OF_FORGE_MARKER_KINDS || kind == _forge_spawn_effect || kind == _forge_spawn_decal)
 			return FALSE;
 		if (forge_globals.held_marker_id)
 			forge_marker_drop();
@@ -5217,4 +5279,5 @@ with this file's) */
 #include "forge_netgame.inc"
 #include "forge_physics.inc"
 #include "forge_precision.inc"
+#include "forge_effects.inc"
 #include "forge_menu_link.inc"

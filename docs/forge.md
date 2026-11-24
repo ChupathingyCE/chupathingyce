@@ -49,7 +49,7 @@ The keyboard's keys are `controls.forge_*` in `config.toml` (see [settings.md](s
 
 X (E) opens the Forge menu: a narrow panel at the right of the screen, so the map stays in view. Its title and the budget are at the top, then the tabs, the list, a box about the row chosen, and the prompts at its foot. It works like the Delta Guide: LB and RB (Q and E) change the tab, the d-pad (arrows or WASD) moves, A (Enter) chooses, B (Esc) goes back, and the mouse can click rows and prompts. X closes it.
 
-- OBJECT BROWSER: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, TELEPORTERS, OBJECTIVES, SPAWNING) with how many objects each has. A opens a category, and A on an object places it in your hands. The count at the top right is the budget: 256 objects and markers.
+- OBJECT BROWSER: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, TELEPORTERS, OBJECTIVES, SPAWNING, EFFECTS, DECALS) with how many objects each has. A opens a category, and A on an object places it in your hands. The count at the top right is the budget: 256 objects and markers.
 
   ![OBJECTS](screenshots/forge-objects.jpg)
 
@@ -64,6 +64,15 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
 - OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), PLAY AS SPARTAN and CONTROLS.
 
   ![OPTIONS](screenshots/forge-options.jpg)
+
+## Effects and decals
+
+EFFECTS lists the loaded map's effects (smoke, sparks, explosions, a Banshee's glow...) and DECALS its decals (scorch marks, blood, Forerunner symbols...). A choice is placed like a marker: carried, let go, turned, deleted, its PROPERTIES opened from it.
+
+- An effect plays where it stands. REPEAT is LOOP (it starts again as soon as it ends) or a number of seconds between starts (1 to 60). Placed effects never hurt anyone: an explosion's effect shows and sounds, and deals no damage.
+- A decal is laid on the ground under it. SIZE scales it (30 to 400 percent).
+
+Everyone sees them, in a Forge game and in a layout played; the monitor also sees a small marker where each stands. A layout holds up to 16 effects and 32 decals, within the markers' budget, so what they cost stays small. One effect plays at a time per marker. A layout made on one map names its effects and decals by path; a layout's effect that another copy of the map lacks is skipped.
 
 A layout's spawn points replace the map's own for the players they fit (the game type, the team). A game type object replaces the map's own of that type (a CTF flag: that team's). Any type the layout has none of keeps the map's.
 
@@ -83,10 +92,10 @@ Layouts are saved in `forge/<map>/<name>.hmv` in the save root. The format is sm
 - 48-byte records: kind, path index, team, position, yaw, pitch and roll, respawn time, game types, flags;
 - the title, author, description and date, as UTF-8.
 
-All little-endian. Versions 1 to 7 are read. Each version adds what a record may hold (AI settings, spawn points, teleporters, game type objects, physics), and a layout is written as the lowest version that holds it. `port/linux/game/forge_files.h` describes every byte.
+All little-endian. Versions 1 to 7 and 15 are read. Each version adds what a record may hold (AI settings, spawn points, teleporters, game type objects, physics, effects and decals), and a layout is written as the lowest version that holds it. `port/linux/game/forge_files.h` describes every byte.
 
 Every file goes through the validator before anything is read from it, whether you made it or it came from somewhere else. It checks the size, the header, the version, the map, the counts against the limits, the payload size and CRC-32, every path (characters, length, groups Forge places), every record (kind, path index, every field in range, finite floats inside the world, no unknown flags) and the texts (terminated UTF-8). A file that fails any check is refused whole and the log says why. When a layout is placed, a record whose tag the map doesn't have is skipped, and the budget and the map's bounds are checked again. `tools/test_forge_files.py` tests the validator against malformed files, and fuzzes it.
 
 ## Console commands
 
-Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags` to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`.
+Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race`, `forge effect <name>`, `forge decal <name>`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags` to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`.

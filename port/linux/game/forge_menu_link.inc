@@ -196,8 +196,9 @@ short forge_property_count(
 
 	if (!forge_properties_get(&properties))
 		return 0;
-	/* (a marker's: team, game type, kind, yaw) */
-	return properties.spawn ? 4 : NUMBER_OF_FORGE_PROPERTIES;
+	/* (a marker's: team, game type, kind, yaw; an effect's or a decal's
+	two) */
+	return properties.effect ? forge_effect_property_count() : properties.spawn ? 4 : NUMBER_OF_FORGE_PROPERTIES;
 }
 
 boolean forge_property_text(
@@ -218,7 +219,14 @@ boolean forge_property_text(
 	{
 		boolean teleporter = properties.spawn_kind == _forge_spawn_teleporter_sender ||
 			properties.spawn_kind == _forge_spawn_teleporter_receiver;
-		boolean objective = properties.spawn_kind >= _forge_spawn_flag;
+		boolean objective = properties.spawn_kind >= _forge_spawn_flag && properties.spawn_kind <= _forge_spawn_race;
+
+		/* (an effect's or a decal's rows: forge_effects.inc) */
+		if (properties.effect)
+		{
+			forge_effect_property_text(&properties, row, label, label_size, value, value_size);
+			return TRUE;
+		}
 
 		switch (row)
 		{
