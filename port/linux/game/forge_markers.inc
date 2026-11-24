@@ -12,8 +12,10 @@ drawn beside them, grey and read only.
 A marker is drawn (forge_marker_draw: the game's debug-geometry shaders, a
 colour a vertex, blended), never an object: nothing of it is sent anywhere
 or saved but the layout record it stands for. Shown only while the player
-is the monitor in a Forge game; a layout played shows its teleporters'
-markers alone (a teleporter is no object: its marker is what shows it).
+is the monitor in a Forge game: the Spartan in a Forge game, and anyone in
+a layout played, sees none, teleporters' included (a teleporter is no
+object: a layout shows where one is with the scenery placed there, as a
+map's own teleporters are shown).
 */
 
 /* ---------- constants */
@@ -411,43 +413,6 @@ static long forge_marker_under_crosshair(
 	return nearest_id;
 }
 
-/* the layout's teleporters drawn for a player who is not the monitor (the
-Spartan in a Forge game, anyone in a layout played: forge_netgame.inc):
-a teleporter is no object, its marker is what shows it */
-static short forge_markers_render_teleporters(
-	void)
-{
-	short index;
-	short drawn = 0;
-
-	for (index = 0; index < forge_globals.spawn_count && index < FORGE_SPAWN_TABLE && drawn < FORGE_MARKER_MOST_DRAWN; index++)
-	{
-		struct forge_spawn const *spawn = &forge_globals.spawns[index];
-		struct forge_marker marker;
-		real_vector3d to_marker;
-
-		if (!forge_spawn_is_teleporter(spawn))
-			continue;
-		csmemset(&marker, 0, sizeof(marker));
-		marker.kind = _forge_marker_player_spawn;
-		marker.initial = spawn->kind == _forge_spawn_teleporter_sender;
-		marker.position = spawn->home.position;
-		marker.forward = spawn->home.forward;
-		to_marker.i = marker.position.x - render.camera.position.x;
-		to_marker.j = marker.position.y - render.camera.position.y;
-		to_marker.k = marker.position.z - render.camera.position.z;
-		if (dot_product3d(&to_marker, &render.camera.forward) < -FORGE_MARKER_HEIGHT ||
-			!render_frustum_sphere_visible(&render.frustum, &marker.position, FORGE_MARKER_HEIGHT))
-		{
-			continue;
-		}
-		forge_marker_spawn_color(spawn, &marker);
-		forge_marker_draw(&marker);
-		drawn++;
-	}
-	return drawn;
-}
-
 /* an AI route drawn: a flat band from each point to the next (the last to
 the first), in the route's colour, a little over the points' markers */
 static void forge_markers_render_routes(
@@ -529,7 +494,7 @@ static void forge_markers_render(
 
 	if (!forge_markers_shown())
 	{
-		forge_globals.markers_drawn = forge_globals.game_active ? forge_markers_render_teleporters() : 0;
+		forge_globals.markers_drawn = 0;
 		forge_globals.map_markers_drawn = 0;
 		return;
 	}
