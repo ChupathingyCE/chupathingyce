@@ -1301,6 +1301,21 @@ short cache_file_read(
 			(boolean)_cache_file_read_failed;
 		return 0;
 	}
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: Forge's AI characters' pixels and samples, kept from the
+	campaign map they came from (port/linux/game/forge_ai_tags.c), served at
+	once as an MCC map's are */
+	{
+		extern boolean forge_ai_tags_read(long tag_index, long offset, long size, void *buffer, boolean *read);
+		boolean read;
+
+		if (forge_ai_tags_read(tag_index, offset, size, buffer, &read))
+		{
+			*completion_flag_reference = read ? TRUE : (boolean)_cache_file_read_failed;
+			return 0;
+		}
+	}
+#endif
 	request_index = cache_request_next_free_index();
 	request = cache_request_get(request_index);
 	match_assert(
