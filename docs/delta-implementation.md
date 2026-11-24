@@ -17,7 +17,7 @@ links to it rather than repeating it.
 | Map identity | `port/linux/src/delta_maps.c`, `port/linux/include/halo_map_families.h` |
 | Chat, moderation, voice, profiles | `delta_chat*.c`, `delta_moderation.h`, `voice*.c`, `delta_profile.c` in `port/linux/src` and `port/linux/game` |
 | Delta List, Stats and Link (HTTP) | `port/linux/src/browser.c`, `event_log.c`, `event_upload.c`, `identity.c` |
-| Delta Control | `server/src`, `server/platform` |
+| Delta Control | `port/linux/host`, `server/platform` |
 
 Every parser has unit tests and a seeded random-input test
 (`port/linux/tests/delta_test.c`, `delta_compat_test.c`, run by
@@ -38,7 +38,7 @@ sit in the spec pages; they are about this implementation only.
 - **[peer.md Chat](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#chat).** The game's side is `port/linux/game/chat.c` (keys, the log, routing, the bridge), `port/linux/src/delta_chat.c` (the filter and the host's rules) and `port/linux/src/delta_chat_bridge.c` (OpenCE's entries, the text's conversion, the bridge's checks), both tested in `delta_test.c`, and the dedicated server's `sv_say`, `sv_chat`, `sv_mute` and `sv_unmute`.
 - **[peer.md Team changes](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#team-changes).** The game's side is `port/linux/game/team_change.c`, its pause menu row in all the menu sets, and the dedicated server's settings and `sv_team`.
 - **[peer.md Host rules](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#host-rules).** The game's side is `port/linux/game/host_rules.c` and `port/linux/game/late_join.c`.
-- **[peer.md Reports](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#reports).** The game's side is `port/linux/game/report_player.c` (the Delta Guide's PLAYERS HERE and the scoreboard's REPORT), the dedicated server's `server/src/server_reports.c` (`sv_reports`, the control panel's Reports).
+- **[peer.md Reports](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#reports).** The game's side is `port/linux/game/report_player.c` (the Delta Guide's PLAYERS HERE and the scoreboard's REPORT), the dedicated server's `port/linux/host/server_reports.c` (`sv_reports`, the control panel's Reports).
 - **[peer.md Server badges](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#server-badges).** The game's side is `port/linux/src/server_badge.c` and `port/linux/src/delta_peer_game.c`; the dedicated server's certificate is `server_badge.cert` in its data folder.
 - **[peer.md Voice](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#voice).** The game's side is `port/linux/game/voice_game.c` (the channels, the host's rules and its view of the game), `port/linux/src/voice.c` (the microphone, Opus and the voices' playback, through the game's mixer, `dsound_sdl.c`) and `port/linux/src/voice_jitter.c`; Delta Peer's checks and routing are in `delta_peer.c`, all tested in `delta_test.c` and `voice_test.c`. A dedicated server relays without any audio or Opus of its own. The consoles leave voice out for now: a console is never sent any.
 - **[peer.md Party teams](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#party-teams).** The host's side is `port/linux/game/party_teams.c` (which change: the plan in `port/linux/src/party_teams_plan.c`, tested by `tools/test_party_teams.py`); the members' tag comes from `port/linux/game/guide.c`.

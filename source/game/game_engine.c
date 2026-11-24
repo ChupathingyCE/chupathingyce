@@ -1018,7 +1018,7 @@ long game_engine_get_team_score(
 
 #ifdef HALO_GAME_BROWSER
 /* every player's score added up: the dedicated server's sign that a game is
-being played (server/src/dedicated.c) */
+being played (port/linux/host/dedicated.c) */
 long game_engine_total_score(
 	void)
 {
@@ -3434,7 +3434,7 @@ static void game_show_score_one_player(
 {
 #ifdef HALO_SERVER
 	/* port: a Custom Edition player's client is told the message, as Custom
-	Edition's own server tells it (server/src/server_ce.c); the sounds the
+	Edition's own server tells it (port/linux/host/server_ce.c); the sounds the
 	message plays as it is shown here (a double kill's) are its client's
 	to play, not everyone's */
 	void server_ce_multiplayer_message(long player_index, long message, long message_data);
@@ -4341,7 +4341,7 @@ boolean game_engine_showing_postgame(
 
 /* port: where the game is past its end (0 playing, 1 the delay before the
 scores, 2 and 3 the scores coming up and shown), for the server's Custom
-Edition players (server/src/server_ce.c) */
+Edition players (port/linux/host/server_ce.c) */
 long game_engine_postgame_mode(
 	void)
 {

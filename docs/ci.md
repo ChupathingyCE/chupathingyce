@@ -18,7 +18,7 @@ It also builds each platform whose own files the pull request changes, using the
 | `port/android/`, `tools/android*` | `android64` |
 | `port/macos/`, `port/ios/`, `tools/macos_build.py` | `macos` |
 | `port/unix/`, `tools/unix64_build.py` | `freebsd64` |
-| `server/`, `tools/server_build.py` | `server` (x64 only) |
+| `server/`, `port/linux/host/`, `tools/server_build.py` | `server` (x64 only) |
 | `tools/linux64_build.py`, `tools/linux_sysroot.py`, `tools/bgfx-patches/`, the bgfx renderer files | `linux64` |
 
 Changes to documentation alone (`*.md`, `docs/`) don't build.
@@ -29,7 +29,7 @@ Every platform (Linux 32/64, FreeBSD, Windows 32/64, macOS, Android, the dedicat
 
 - the pull request has the **`ci: full`** label. Adding the label runs the pull request's latest Build again (`.github/workflows/full-build-label.yml`), and later pushes keep building in full while the label is there.
 - the pull request comes from a `batch/*` branch (several pull requests landed together).
-- the pull request changes the build's plumbing: `configure.py`, `VERSION`, or `tools/ci_build.py`, `version.py`, `download.py`, `ffmpeg_build.py`, `bgfx_build.py` or `third_party_notices.py`.
+- the pull request changes the build's plumbing: `configure.py`, `VERSION`, or `tools/ci_build.py`, `version.py`, `download.py`, `ffmpeg_build.py`, `bgfx_build.py`, `third_party_notices.py` or `host_sources.py`.
 - anything is pushed to `main` or a release branch.
 - a run is started by hand or by the release workflows (nightlies, test builds and releases). Only these runs make debug builds and upload symbols.
 

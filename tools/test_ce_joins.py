@@ -1,5 +1,5 @@
 """Tests the dedicated server's answer to Halo Custom Edition 1.0.10's join
-wire (server/platform/ce_transport.c) through server/tests/gamespy_harness.c
+wire (port/linux/host/ce_transport.c) through port/linux/host/tests/gamespy_harness.c
 on the loopback address: a stand-in client written here from the same
 description (the transport's handshake, its key agreement, the cipher and
 the message framing) connects, is told the server's map, asks to join and
@@ -285,7 +285,7 @@ def test_weapon_switch_from_capture(harness):  # noqa: F811
 def test_weapons_follow_the_client():
     """A Custom Edition player's weapon, zoom and grenade choices reach the
     game, and a weapon put away is still its holder's (not dropped)"""
-    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    source = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
     action = _function(source, "static void client_action")
     assert "server_ce_choices(client, player_index, &update, action);" in action
     choices = _function(source, "static void server_ce_choices")
@@ -304,7 +304,7 @@ def test_weapons_follow_the_client():
     assert "grenade_counts[update->grenade] > 0" in choices
     # the biped messages carry the plasma count first (a 1.0.10 client's
     # HUD: frags only showed as plasmas before)
-    messages = (ROOT / "server/platform/ce_messages.c").read_text(encoding="utf-8")
+    messages = (ROOT / "port/linux/host/ce_messages.c").read_text(encoding="utf-8")
     assert messages.count("grenades[1], 3);\n\tput_bits(payload, (unsigned int)") == 2
     items = _function(source, "static void update_items")
     assert items.count("weapon_holder(") >= 3
@@ -617,15 +617,15 @@ def _function(source, name):
 
 
 def test_server_side_off_without_the_setting():
-    """the game side (server/src/server_ce.c) does nothing unless ce_joins
+    """the game side (port/linux/host/server_ce.c) does nothing unless ce_joins
     (and the GameSpy listing whose port takes the joins) is on: no events
     read, no player's input taken, no player found to kick, tell or time.
     No development switch is left"""
-    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    source = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
     update = _function(source, "void server_ce_update")
     assert "ce.enabled = server_gamespy_enabled() && server_gamespy_joins();" in update
     assert update.index("if (!ce.enabled)\n\t{") < update.index("ce_transport_next_event(")
-    for path in ("server/src/server_ce.c", "server/platform/gamespy_listing.c", "server/platform/ce_transport.c"):
+    for path in ("port/linux/host/server_ce.c", "port/linux/host/gamespy_listing.c", "port/linux/host/ce_transport.c"):
         assert "HALO_DEDICATED_CE_ACCEPT" not in (ROOT / path).read_text(encoding="utf-8")
     assert "if (!ce.enabled)\n\t\treturn;" in _function(source, "void server_ce_take_actions")
     assert "if (!ce.enabled)\n\t\treturn NULL;" in _function(source, "static struct ce_client *client_for_player")
@@ -634,7 +634,7 @@ def test_server_side_off_without_the_setting():
 def test_joins_held_to_host_limits():
     """a Custom Edition join is checked against the join lock, the bans and
     the limit on the machines of one address before it takes a seat"""
-    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    source = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
     join = _function(source, "static boolean join")
     # (and none new while joins are locked: sv_lock keeps Custom Edition
     # players out as it does Chupathingy machines; a client back for the
@@ -669,7 +669,7 @@ def test_lone_player_starts_a_team_game():
     # (the countdown asks it)
     assert "boolean teams_full = !server_needs_more_teams(server);" in _function(source, "boolean server_ok_to_countdown")
     # (and the lobby's join is answered once that game plays)
-    ce = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    ce = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
     assert "dedicated_server_start_soon();" in _function(ce, "static boolean join")
 
 
@@ -696,8 +696,8 @@ def test_between_games_messages_match_capture():
     Edition 1.0.10's server sent them in our capture: game over (25), the
     scores' keep-alive (13) and the reconnect (33: zero, then 1000 big-endian:
     the client closes its connection and connects again a second later)"""
-    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
-    header = (ROOT / "server/platform/ce_messages.h").read_text(encoding="utf-8")
+    source = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
+    header = (ROOT / "port/linux/host/ce_messages.h").read_text(encoding="utf-8")
     between = _function(source, "static boolean between_games")
     assert "game_over[] = { 1, 0, 0, 0, 0, CE_MESSAGE_GAME_OVER };" in between
     assert "keep_alive[] = { 1, 0, 0, CE_MESSAGE_POSTGAME_KEEP_ALIVE };" in between
@@ -721,7 +721,7 @@ def test_between_games_messages_match_capture():
 def test_only_custom_edition_maps():
     """Custom Edition players join and stay only while a Custom Edition map
     plays (the same .map file on both sides)"""
-    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    source = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
     assert '!strcmp(at + 1, "ce")' in _function(source, "static boolean map_playable")
     assert "map_playable(status.map)" in _function(source, "static boolean join")
     assert "map_playable(status->map)" in _function(source, "static boolean between_games")
@@ -732,7 +732,7 @@ def test_team_slayer():
     over Custom Edition's Slayer, each player's team in the roster (sent
     again as players come, go or change teams), and a second client told
     its own machine number, so it finds its player in that roster"""
-    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    source = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
     variant = _function(source, "static void settings_from_variant")
     assert "settings->universal[0] = universal->teams ? 1 : 0;" in variant
     assert "settings->universal[15] = (unsigned int)universal->score_to_win;" in variant
@@ -742,10 +742,10 @@ def test_team_slayer():
     assert "settings->random_seed = ce.random_seed;" in roster
     assert "send_roster(client);" in _function(source, "static void update_client")
     assert "client->announced_team[absolute] != player->team_index" in source
-    transport = (ROOT / "server/platform/ce_transport.c").read_text(encoding="utf-8")
+    transport = (ROOT / "port/linux/host/ce_transport.c").read_text(encoding="utf-8")
     assert "out[13] = (unsigned char)machine;" in transport
     assert "ce_message_new_client_challenge(challenge_text, peer_number(peer)," in transport
-    messages = (ROOT / "server/platform/ce_messages.c").read_text(encoding="utf-8")
+    messages = (ROOT / "port/linux/host/ce_messages.c").read_text(encoding="utf-8")
     assert "put_bits(payload, (unsigned int)team, 32);" in messages
 
 
@@ -773,7 +773,7 @@ def test_ctf_reaches_custom_edition():
     """Capture the Flag is shown as it is: the game type and its own settings,
     the flags' teams, its state as it changes, the HUD's messages and the
     game's sounds, and a carrier's drop"""
-    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    source = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
     assert "engine == game_engine_slayer || engine == game_engine_ctf" in _function(source, "static boolean engine_told")
     assert "csmemcpy(settings->engine_variant, &variant->game_engine_variant," in _function(
         source, "static void settings_from_variant")
@@ -812,7 +812,7 @@ def test_roster_players_get_their_numbers():
     """a roster takes the first 15 other players in the game's order,
     whatever their index: each one's numbers reach its client, and a player
     the client's updates can't carry is not listed"""
-    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    source = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
     assert "struct ce_player_statistics statistics_sent[TRACKED_PLAYERS];" in source
     scores = _function(source, "static void send_scores")
     assert "absolute >= TRACKED_PLAYERS || client->announced[absolute] != iterator.datum_index" in scores
@@ -836,7 +836,7 @@ def test_game_types_match_captures(harness):  # noqa: F811
         assert bits[11:19] == "10" + "".join(str((kind >> i) & 1) for i in range(6))
         assert int(bits[:11][::-1], 2) == (11 + 8 + length + 7) // 8
         assert set(bits[19:19 + length]) == {"0"}
-    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    source = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
     told = _function(source, "static boolean engine_told")
     for engine in ("game_engine_oddball", "game_engine_king", "game_engine_race"):
         assert engine in told
@@ -877,7 +877,7 @@ def test_custom_edition_clients_are_machines():
     split-screen seat of the server's machine (4 at most, the controller
     index every client checks): 16 of them fit a game. Nothing new on the
     wire: the other machines see one more machine and player"""
-    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    source = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
     assert "CE_CLIENTS = CE_MAXIMUM_PEERS," in source
     assert "local_player_get_player_index" not in source
     assert "network_game_client_add_named_player" not in source
@@ -935,7 +935,7 @@ def test_custom_edition_clients_are_machines():
 def test_welcome_line():
     """the default welcome line fits Custom Edition's chat, and comes once,
     a minute into a player's first game"""
-    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    source = (ROOT / "port/linux/host/server_ce.c").read_text(encoding="utf-8")
     body = _function(source, "void server_ce_set_welcome")
     text = "".join(part for part in __import__("re").findall(r'"((?:[^"\\]|\\.)*)"', body.split("snprintf")[0]))
     assert text == "Playing on Chupathingy: free, runs Halo PC and Xbox maps. chupathingy.org"

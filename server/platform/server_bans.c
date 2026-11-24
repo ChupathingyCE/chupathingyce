@@ -10,13 +10,13 @@ kept here, under one lock, and in shared_bans.cache by the link
 (sv_unban on a shared entry) are shared_unbans.txt's refs.
 */
 
-#include "../src/server_bans.h"
+#include "../../port/linux/host/server_bans.h"
 #include "control_protocol.h"
 
 #include "monocypher.h"
 
 /* (the files, on Linux and Windows) */
-#include "server_host.h"
+#include "../../port/linux/host/server_host.h"
 
 #include <pthread.h>
 #include <stdint.h>

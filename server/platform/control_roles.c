@@ -6,7 +6,7 @@ Delta Control's roles as bytes (control_roles.h).
 
 #include "control_roles.h"
 
-#include "../src/command_line.h"
+#include "../../port/linux/host/command_line.h"
 
 #include <stdio.h>
 #include <string.h>

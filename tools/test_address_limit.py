@@ -18,10 +18,10 @@ SERVER_MANAGER_C = ROOT / "source/networking/network_server_manager.c"
 CLIENT_MANAGER_C = ROOT / "source/networking/network_client_manager.c"
 DISTRIBUTED_C = ROOT / "port/linux/game/network_distributed.c"
 PORT_CONFIG_C = ROOT / "port/linux/src/port_config.c"
-SERVER_CONFIG_C = ROOT / "server/src/server_config.c"
-SERVER_CONFIG_H = ROOT / "server/src/server_config.h"
-DEDICATED_C = ROOT / "server/src/dedicated.c"
-SERVER_ADMIN_C = ROOT / "server/src/server_admin.c"
+SERVER_CONFIG_C = ROOT / "port/linux/host/server_config.c"
+SERVER_CONFIG_H = ROOT / "port/linux/host/server_config.h"
+DEDICATED_C = ROOT / "port/linux/host/dedicated.c"
+SERVER_ADMIN_C = ROOT / "port/linux/host/server_admin.c"
 
 
 def compiler():

@@ -1630,7 +1630,7 @@ typedef char verify_ctf_network_state_size[
 
 #ifdef HALO_SERVER
 /* port: Capture the Flag's scores and flag swap timer, as Custom Edition's
-clients are told them (server/src/server_ce.c) */
+clients are told them (port/linux/host/server_ce.c) */
 void game_engine_ctf_get_state(
 	long scores[2],
 	long *flag_swap_timer)

@@ -400,7 +400,7 @@ struct delta_peer_lobby_host
 	int (*ready)(void *context, int machine_index, int player, int ready);
 };
 
-/* a host's reports (the dedicated server's: server/src/server_reports.c); a
+/* a host's reports (the dedicated server's: port/linux/host/server_reports.c); a
 host with none does not offer reports */
 struct delta_peer_report_host
 {
@@ -474,7 +474,7 @@ struct delta_peer_objects_client
 };
 
 /* a host's server badge (the dedicated server's: its certificate and its
-link key, server/src/server_link.h); a host with none does not offer
+link key, port/linux/host/server_link.h); a host with none does not offer
 server_badge */
 struct delta_peer_badge_host
 {
@@ -1476,7 +1476,7 @@ proved it on joining. 1 and its fields in badge; 0 not known yet; -1 none
 struct server_badge;
 int delta_peer_game_server_badge(struct server_badge *badge);
 
-/* reports (port/linux/game/report_player.c, server/src/server_reports.c):
+/* reports (port/linux/game/report_player.c, port/linux/host/server_reports.c):
 the host's report host (NULL: none); the client's report of a machine's
 player (the absolute index of their player datum), with clip when the
 reporter would attach one, and the results heard (a clip goes with the

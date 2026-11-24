@@ -1017,7 +1017,7 @@ static void client_badge(void)
 
 #ifdef HALO_SERVER
 /* (Delta Control's link: plain types) */
-#include "../../../server/src/server_link.h"
+#include "../host/server_link.h"
 
 /* a joining game's BADGE_ASK: the certificate and the link key's signature
 of its nonce, this server's invite and the game's session
@@ -1955,7 +1955,7 @@ int delta_peer_game_server_badge(struct server_badge *badge)
 	return 1;
 }
 
-/* ---------- reports (port/linux/game/report_player.c, server/src/server_reports.c) */
+/* ---------- reports (port/linux/game/report_player.c, port/linux/host/server_reports.c) */
 
 void delta_peer_game_set_lobby_host(const struct delta_peer_lobby_host *host)
 {

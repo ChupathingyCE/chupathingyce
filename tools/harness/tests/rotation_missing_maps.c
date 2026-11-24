@@ -64,7 +64,7 @@ static void platform_log(const char *format, ...)
 /* the test host's state (port/linux/game/network_test.c) */
 static struct { char map_name[64]; short map_entry; short variant_index; } network_test;
 
-/* a dedicated server's (server/src/dedicated.c) */
+/* a dedicated server's (port/linux/host/dedicated.c) */
 #define DEDICATED_ENTRIES 4
 static struct
 {

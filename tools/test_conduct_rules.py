@@ -15,9 +15,9 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 GAME = ROOT / "port" / "linux" / "game"
 RULES_C = GAME / "conduct_rules.c"
-CONDUCT_C = ROOT / "server" / "src" / "server_conduct.c"
-CONFIG_C = ROOT / "server" / "src" / "server_config.c"
-DEDICATED_C = ROOT / "server" / "src" / "dedicated.c"
+CONDUCT_C = ROOT / "port" / "linux" / "host" / "server_conduct.c"
+CONFIG_C = ROOT / "port" / "linux" / "host" / "server_config.c"
+DEDICATED_C = ROOT / "port" / "linux" / "host" / "dedicated.c"
 DISTRIBUTED_C = GAME / "network_distributed.c"
 SETTINGS_MD = ROOT / "server" / "docs" / "settings.md"
 
@@ -121,7 +121,7 @@ def test_audited_and_no_address():
 
 def test_no_wire_change():
     """the limits use the host's messages and notices as they are"""
-    for path in (RULES_C, CONDUCT_C, GAME / "conduct_rules.h", ROOT / "server" / "src" / "server_conduct.h"):
+    for path in (RULES_C, CONDUCT_C, GAME / "conduct_rules.h", ROOT / "port" / "linux" / "host" / "server_conduct.h"):
         source = path.read_text(encoding="utf-8")
         assert "_distributed_message_" not in source
         assert "distributed_send" not in source

@@ -1701,7 +1701,7 @@ boolean network_game_client_add_player(
 		client && (local_player_index>=0) && (local_player_index<MAXIMUM_NUMBER_OF_LOCAL_PLAYERS));
 
 #ifdef HALO_GAME_BROWSER
-	/* the dedicated server plays no one on its own machine (server/src/dedicated.c):
+	/* the dedicated server plays no one on its own machine (port/linux/host/dedicated.c):
 	its pregame screen's players stay out */
 	{ boolean dedicated_server_active(void);
 	  if (dedicated_server_active())
@@ -2088,7 +2088,7 @@ boolean network_game_client_remove_player(
 
 #ifdef HALO_GAME_BROWSER
 			/* the dedicated server never had a player of its own
-			(server/src/dedicated.c): a player leaving is not its cue to go */
+			(port/linux/host/dedicated.c): a player leaving is not its cue to go */
 			{ boolean dedicated_server_active(void);
 			  if (dedicated_server_active())
 				network_player_index = 0; }
@@ -2747,7 +2747,7 @@ void network_game_client_rejected_by_game(
 
 /* a map name from the host ends within its field and names a map in the maps
 folder: it goes into the map's path (cache_files_windows.c). Public: the
-dedicated server checks its playlist's maps by it (server/src/dedicated.c) */
+dedicated server checks its playlist's maps by it (port/linux/host/dedicated.c) */
 boolean network_game_client_map_name_is_valid(
 	char const *map_name,
 	long size)

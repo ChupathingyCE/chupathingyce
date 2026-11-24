@@ -2,7 +2,7 @@
 SERVER_CE.C
 
 Halo Custom Edition 1.0.10 players in the dedicated server's game
-(server/platform/ce_transport.h, ce_messages.h), while the server plays a
+(port/linux/host/ce_transport.h, ce_messages.h), while the server plays a
 map a Custom Edition client has too: a Custom Edition map, the same .map
 file on both sides, so the tags' handles match without any table.
 
@@ -51,9 +51,9 @@ gamespy_listing, whose port takes the joins): off by default.
 
 #ifdef HALO_SERVER
 
-#include "../platform/ce_transport.h"
-#include "../platform/ce_messages.h"
-#include "../platform/gamespy_listing.h"
+#include "ce_transport.h"
+#include "ce_messages.h"
+#include "gamespy_listing.h"
 
 /* (game_engine_ctf.c's and the other game types', the server's) */
 void game_engine_ctf_get_state(long scores[2], long *flag_swap_timer);

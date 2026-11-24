@@ -61,16 +61,16 @@ change.
 #ifdef HALO_SERVER
 /* (the server program's control unit, built with the host's ABI: plain
 types only) */
-#include "../platform/server_control.h"
+#include "server_control.h"
 #endif
 #include "server_admin.h"
 #include "server_conduct.h"
 #include "server_config.h"
 #include "server_moderation.h"
-#include "../../port/linux/src/server_names.h"
+#include "../src/server_names.h"
 #include "host_evidence.h"
 /* (the Steam link and Workshop downloads: plain types) */
-#include "../../port/linux/src/steam_client_bridge.h"
+#include "../src/steam_client_bridge.h"
 #ifdef HALO_SERVER
 #include "server_bans.h"
 #include "server_reports.h"

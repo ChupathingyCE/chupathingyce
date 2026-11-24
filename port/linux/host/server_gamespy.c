@@ -2,7 +2,7 @@
 SERVER_GAMESPY.C
 
 The game's side of the GameSpy-style status queries and master heartbeats
-(server/platform/gamespy_listing.c; server/docs/settings.md, "GameSpy
+(port/linux/host/gamespy_listing.c; server/docs/settings.md, "GameSpy
 status queries"): off unless gamespy_listing is on. Each second the
 server's state goes to the listing's thread: its name, its map as Halo
 Custom Edition names it (an Xbox map as xbox_<map>, a Custom Edition or
@@ -10,7 +10,7 @@ Halo PC map by its own name: the naming the Custom Edition community uses,
 as ugoboom passed on), its game type, its seats and its players.
 
 With ce_joins on as well, the same port answers Halo Custom Edition
-1.0.10's join wire (server/platform/ce_transport.c), and Custom Edition
+1.0.10's join wire (port/linux/host/ce_transport.c), and Custom Edition
 players join the game (server_ce.c) while it plays a Custom Edition map.
 
 The version reported (gamever) is this server's own unless
@@ -42,7 +42,7 @@ server's own.
 
 /* (the server program's listing unit, built with the host's ABI: plain
 types only) */
-#include "../platform/gamespy_listing.h"
+#include "gamespy_listing.h"
 
 /* (network_server_manager_internal.h's) */
 word network_game_server_get_state(struct network_game_server *server, short *state_data);

@@ -457,7 +457,7 @@ boolean network_game_has_free_player_slot(
 #endif
 #ifdef HALO_SERVER
 	/* port: a dedicated server with Custom Edition players takes 16 players,
-	the most a Custom Edition client's game holds (server/src/server_ce.c);
+	the most a Custom Edition client's game holds (port/linux/host/server_ce.c);
 	without them, its own limit */
 	{
 		boolean server_ce_players_present(void);

@@ -38,9 +38,9 @@ runs until it is killed.
 #include <string.h>
 #include <time.h>
 
-#include "../platform/server_control.h"
+#include "../../port/linux/host/server_control.h"
 
-#include "../src/server_roles.h"
+#include "../../port/linux/host/server_roles.h"
 
 /* ---------- the platform layer's, stood in for */
 

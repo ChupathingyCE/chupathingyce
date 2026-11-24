@@ -420,7 +420,7 @@ void update_server_next_update(
 #ifdef HALO_SERVER
 		/* port: a dedicated server's Custom Edition players' actions, each
 		from its client, taken as a client machine's player's are
-		(update_server_handle_distributed_input: server/src/server_ce.c) */
+		(update_server_handle_distributed_input: port/linux/host/server_ce.c) */
 		{
 			void server_ce_take_actions(long update_number);
 

@@ -573,7 +573,7 @@ enum
 	/* started in the game in progress (network_game_server_start_late_joiner) */
 	_network_client_machine_started_late_bit,
 	/* port: a machine of the host's own making, with no connection: a
-	dedicated server's Custom Edition client's (server/src/server_ce.c),
+	dedicated server's Custom Edition client's (port/linux/host/server_ce.c),
 	whose one player's input the host takes from that client. Always loaded
 	and precached; never timed out, sent to, or dropped for its silence.
 	The host's alone: no machine is told of it but as a machine */
@@ -923,7 +923,7 @@ static byte network_game_server_kick_pending[MAXIMUM_NETWORK_MACHINE_COUNT];
 static boolean network_game_server_client_machine_is_virtual(
 	struct network_game_server_client_machine const *machine);
 /* (how each is refused: the dedicated server's commands give their own
-reasons, server/src/server_commands.c) */
+reasons, port/linux/host/server_commands.c) */
 static short network_game_server_kick_rejection_codes[MAXIMUM_NETWORK_MACHINE_COUNT];
 /* port: each client machine's hardware id as it told it joining, hex only
 (p2p_hardware_id_sanitize), by slot */
@@ -1346,7 +1346,7 @@ static boolean network_game_server_machine_may_add_player_ingame(
 	if (!VALID_INDEX(machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) ||
 		network_game_server_client_machine_is_local(server, &server->client_machines[machine_index]) ||
 		/* (port: a virtual machine's one player: its client was held to
-		the address limit as it joined, server/src/server_ce.c) */
+		the address limit as it joined, port/linux/host/server_ce.c) */
 		network_game_server_client_machine_is_virtual(&server->client_machines[machine_index]))
 	{
 		return TRUE;
@@ -1486,7 +1486,7 @@ char const *config_string(char const *name);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
 int delta_legacy_host_game_at(int version); /* (port/linux/src/delta.c) */
 int delta_legacy_mcc_version(void);
-boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
+boolean dedicated_server_active(void); /* (port/linux/host/dedicated.c) */
 long dedicated_playlist_count(void);
 char const *dedicated_playlist_map(long entry);
 static int network_game_server_mcc_asked = -1;
@@ -4034,7 +4034,7 @@ boolean server_needs_more_teams(
 		game with one team, as Custom Edition's own server plays its game
 		whoever is in it: a Custom Edition client can't wait in a lobby (it
 		gives up on its join in about 15 seconds), so the first one into an
-		empty team game was turned away (server/src/server_ce.c) */
+		empty team game was turned away (port/linux/host/server_ce.c) */
 		boolean server_ce_players_present(void);
 
 		if (server_ce_players_present())
@@ -4109,7 +4109,7 @@ boolean server_has_a_player_on_each_machine(
 
 #ifdef HALO_GAME_BROWSER
 			{
-				/* (a dedicated server's own machine has none: server/src/dedicated.c) */
+				/* (a dedicated server's own machine has none: port/linux/host/dedicated.c) */
 				boolean dedicated_server_active(void);
 
 				if (!has_a_player && dedicated_server_active())
@@ -4144,7 +4144,7 @@ boolean server_has_enough_machines(
 	{
 		/* port: a dedicated server's Custom Edition players are machines of
 		its own making (virtual machines, below): with one there no other
-		machine is needed (server/src/server_ce.c) */
+		machine is needed (port/linux/host/server_ce.c) */
 		boolean server_ce_players_present(void);
 
 		if (server_ce_players_present())
@@ -4506,7 +4506,7 @@ boolean network_game_server_change_map_name(
 		if (client_machine->machine_index >= 0 &&
 			client_machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT &&
 			/* (port: a virtual machine has every map: its client was let
-			in only on a map it has, server/src/server_ce.c) */
+			in only on a map it has, port/linux/host/server_ce.c) */
 			!network_game_server_client_machine_is_virtual(client_machine))
 		{
 			SET_FLAG(
@@ -4735,7 +4735,7 @@ static boolean network_game_server_client_machine_timed_out(
 	if (server->state != _network_game_server_state_ingame ||
 		network_game_server_client_machine_is_local(server, machine) ||
 		/* (port: a virtual machine is never heard from; its client's own
-		connection times out, server/platform/ce_transport.c) */
+		connection times out, port/linux/host/ce_transport.c) */
 		network_game_server_client_machine_is_virtual(machine))
 	{
 		return FALSE;
@@ -5021,7 +5021,7 @@ void network_game_server_update_countdown(
 						on virtual machines, which have no connection to count
 						(server_has_enough_machines): with them there, the
 						lobby counts down without another machine, or a game
-						with only them never starts (server/src/server_ce.c) */
+						with only them never starts (port/linux/host/server_ce.c) */
 						boolean server_ce_players_present(void);
 
 						if (server_ce_players_present())
@@ -5690,7 +5690,7 @@ static boolean network_game_server_handle_client_machines(
 			continue;
 
 		/* port: a virtual machine has no connection to read or lose; one
-		the host kicks or bans goes as its client does (server/src/server_ce.c
+		the host kicks or bans goes as its client does (port/linux/host/server_ce.c
 		drops that client and removes the machine) */
 		if (network_game_server_client_machine_is_virtual(client_machine))
 		{
@@ -6446,7 +6446,7 @@ boolean network_game_server_reset_to_pregame(
 }
 
 #ifdef HALO_GAME_BROWSER
-/* the dedicated server's countdown (server/src/dedicated.c): the pregame
+/* the dedicated server's countdown (port/linux/host/dedicated.c): the pregame
 screen's players start it (a game start request, network_server_message_handler.c),
 and the dedicated server has none of its own; started as a joining player's
 would, once it may run */
@@ -6634,7 +6634,7 @@ static void network_game_server_delta_refusals(
 			/* (port: nor a virtual machine, a Custom Edition client's: it
 			never says HELLO, and its slot's record of the number it joined
 			at may be a machine's before it; its client is let in by
-			server/src/server_ce.c's own rules, as when it was a seat of
+			port/linux/host/server_ce.c's own rules, as when it was a seat of
 			this machine) */
 			network_game_server_client_machine_is_virtual(machine) ||
 			machine->machine_index < 0 || machine->machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
@@ -6892,7 +6892,7 @@ long network_game_server_machine_count(
 /* ---------- virtual machines (port)
 
 A dedicated server's Custom Edition client is a machine of the game of its
-own (server/src/server_ce.c): one player, at controller 0, on a machine
+own (port/linux/host/server_ce.c): one player, at controller 0, on a machine
 slot with no connection. Every other machine is told of it as of any other
 machine and player (the settings record, the in-game add and quit
 messages): nothing new on the wire. The host runs its player from its

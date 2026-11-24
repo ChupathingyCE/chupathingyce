@@ -25,7 +25,7 @@ already open keep the one they began with until they are freed.
 
 /* (the sockets and files, on Linux and Windows; macOS has SO_NOSIGPIPE
 instead of MSG_NOSIGNAL, set on each socket) */
-#include "server_host.h"
+#include "../../port/linux/host/server_host.h"
 
 #include <stdio.h>
 #include <stdlib.h>

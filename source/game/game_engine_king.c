@@ -192,7 +192,7 @@ static struct king_globals king_globals = { 0 };
 #ifdef HALO_SERVER
 /* port: King of the Hill's scores (by team, a free-for-all's player its
 own) and its hill, as Custom Edition's clients are told them
-(server/src/server_ce.c) */
+(port/linux/host/server_ce.c) */
 long const *game_engine_king_get_state(
 	long *hill_id)
 {

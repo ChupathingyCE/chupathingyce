@@ -6,7 +6,7 @@
 #   server/deploy/deploy.sh [--image NAME] [--no-restart] user@host path/to/chupathingyce-server
 # The host's data folder, /opt/halo-dedicated/data, needs the maps (maps/,
 # the multiplayer maps and ui.map); the playlists and blocked_names.txt are
-# copied from server/ (blocked_names.txt into each further server's data
+# copied from server/ and port/linux/host/ (blocked_names.txt into each further server's data
 # folder too).
 #
 # --image NAME builds the image under another name (halo-dedicated-ce, say:
@@ -59,7 +59,7 @@ for notice in LICENSE.txt THIRD-PARTY-NOTICES.txt; do
 done
 scp "$here/Dockerfile" "$host:$context/"
 scp "$here"/../playlists/*.txt "$host:/opt/halo-dedicated/data/playlists/"
-scp "$here/../blocked_names.txt" "$host:/opt/halo-dedicated/data/"
+scp "$here/../../port/linux/host/blocked_names.txt" "$host:/opt/halo-dedicated/data/"
 ssh "$host" 'for folder in /opt/halo-dedicated/instances/*/; do if [ -d "$folder" ]; then cp /opt/halo-dedicated/data/blocked_names.txt "$folder"; fi; done'
 # (TARGETARCH given: Docker's legacy builder, without buildx, sets none;
 # and --pull, or it takes whichever architecture's Alpine it has already)

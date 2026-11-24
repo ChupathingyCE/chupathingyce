@@ -13,7 +13,7 @@ test -f "$here/instances/$name.env"
 scp "$here"/../playlists/*.txt "$host:/opt/halo-dedicated/data/playlists/"
 ssh "$host" "sudo mkdir -p /opt/halo-dedicated/instances/$name && sudo chown -R \"\$(id -un)\" /opt/halo-dedicated/instances"
 scp "$here/instances/$name.env" "$host:/opt/halo-dedicated/instances/"
-scp "$here/../blocked_names.txt" "$host:/opt/halo-dedicated/instances/$name/"
+scp "$here/../../port/linux/host/blocked_names.txt" "$host:/opt/halo-dedicated/instances/$name/"
 # (through a folder of this run's own on the host, made by mktemp: no name
 # in a shared /tmp another user could take first; installed as root's)
 remote_folder=$(ssh "$host" 'mktemp -d')

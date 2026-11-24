@@ -10,7 +10,7 @@ retail binaries' behavior; see ce_transport.c for the wire.
 It answers a Custom Edition client's connection (the transport's
 handshake, its key agreement and enciphering, its reliable messages), names
 the server's map to it and reads its join request, which the game takes or
-refuses (server/src/server_ce.c).
+refuses (port/linux/host/server_ce.c).
 
 Built with the host's ABI (server_control.h's rule): only int and char
 cross here.

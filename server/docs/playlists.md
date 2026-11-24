@@ -241,4 +241,4 @@ a file put there shows up in the game's gametype lists the next time the
 main menu loads. So a game type made in the game can be copied into a
 server's `admin/gametypes/` and played there, and one from a server can be
 hosted from the game; both read and play it with the same code
-(`server/src/server_config.c`, `server/src/server_gametype_variant.c`).
+(`port/linux/host/server_config.c`, `port/linux/host/server_gametype_variant.c`).

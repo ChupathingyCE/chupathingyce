@@ -2229,7 +2229,7 @@ static void effect_generate_particles(
 }
 
 /* whether an effect that need not be deterministic is seen where it plays:
-by the local players' view; port: a dedicated server (server/src/dedicated.c)
+by the local players' view; port: a dedicated server (port/linux/host/dedicated.c)
 has no local player, so that view is empty and such effects would never run
 their parts there, their damage included (Custom Edition maps such as
 ugoboom's Coldsnap set up their game types by effect damage); it judges them

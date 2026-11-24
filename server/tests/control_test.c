@@ -1,22 +1,22 @@
 /*
 CONTROL_TEST.C
 
-Tests of the dedicated server's command lines (server/src/command_line.c)
+Tests of the dedicated server's command lines (port/linux/host/command_line.c)
 and its control API's requests, credentials, limits and log
 (server/platform/control_protocol.c), and its web admin page's sessions,
 checks, headers and files (server/platform/control_web.c, with the page's
 files as tools/embed_webui.py embeds them), Delta Control's roles, accounts
 and link (control_roles.c, control_accounts.c, control_link_protocol.c),
 and the server's playlists, game types and settings as text
-(server/src/server_config.c): well-formed input, malformed,
+(port/linux/host/server_config.c): well-formed input, malformed,
 oversized and cut-short input, and a few thousand random requests (built
 with AddressSanitizer and UndefinedBehaviorSanitizer where the compiler has
 them). Built and run by tools/test_server_control.py; exits nonzero on a
 failure.
 */
 
-#include "../src/command_line.h"
-#include "../src/server_config.h"
+#include "../../port/linux/host/command_line.h"
+#include "../../port/linux/host/server_config.h"
 #include "../../port/linux/src/server_names.h"
 #include "../platform/control_protocol.h"
 #include "../platform/control_web.h"
@@ -1685,7 +1685,7 @@ static void test_gametype_files(int rounds)
 
 /* ---------- Delta Control's link (control_link_protocol.c) */
 
-/* ---------- blocked names (server/blocked_names.txt) */
+/* ---------- blocked names (port/linux/host/blocked_names.txt) */
 
 /* a name written in ROT13 (as the list is, so this file prints no slurs)
 decoded; anything but ASCII letters as it is */
@@ -1717,8 +1717,8 @@ static void test_names(void)
 	size_t length = 0;
 	static const unsigned int empty[] = { 0 };
 
-	/* (the repository's list, beside this folder) */
-	snprintf(path, sizeof(path), "%.*s/../blocked_names.txt", slash ? (int)(slash - __FILE__) : 1,
+	/* (the repository's list, port/linux/host's) */
+	snprintf(path, sizeof(path), "%.*s/../../port/linux/host/blocked_names.txt", slash ? (int)(slash - __FILE__) : 1,
 		slash ? __FILE__ : ".");
 	file = fopen(path, "rb");
 	CHECK(file != NULL);

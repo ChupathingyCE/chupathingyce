@@ -61,7 +61,7 @@ runs on. A static musl program has none of that.
 
 The server is the game: the same sources, the same network code and
 version (`configure.py --game-browser`'s, with the dedicated server's
-director, `server/src`). The 32-bit server is `ninja linux`'s units, the
+director, `port/linux/host`). The 32-bit server is `ninja linux`'s units, the
 x64 and arm64 ones `ninja linux64`'s (64-bit, `tools/lp64_build.py`). What
 it leaves out is what a player sits in front of:
 

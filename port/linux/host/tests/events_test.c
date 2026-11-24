@@ -15,7 +15,7 @@ tools/test_event_log.py, which checks what this prints:
                                 ("\f" between them)
 */
 
-#include "../../port/linux/src/event_log.h"
+#include "../../src/event_log.h"
 
 #include <stdio.h>
 #include <stdlib.h>

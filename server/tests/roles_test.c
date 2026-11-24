@@ -8,7 +8,7 @@ by tools/test_server_roles.py, with the server's role units, in a folder
 of its own (platform_data_root). Exits nonzero on a failure.
 */
 
-#include "../src/server_roles.h"
+#include "../../port/linux/host/server_roles.h"
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Stand-in Halo Custom Edition 1.0.10 clients for a dedicated server with
-ce_joins on (server/src/server_ce.c), on the loopback address only: COUNT
+ce_joins on (port/linux/host/server_ce.c), on the loopback address only: COUNT
 of them join the server's GameSpy/Custom Edition port, load, send updates
 and acknowledge everything for SECONDS, built on the wire of
 tools/test_ce_joins.py (the transport's handshake, its key agreement, the

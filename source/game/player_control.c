@@ -1034,7 +1034,7 @@ void player_control_unzoom(
 		}
 #ifdef HALO_SERVER
 		/* port: a Custom Edition player's choices are kept for it as a local
-		player's are here (server/src/server_ce.c) */
+		player's are here (port/linux/host/server_ce.c) */
 		else
 		{
 			void server_ce_unzoom(long player_index);

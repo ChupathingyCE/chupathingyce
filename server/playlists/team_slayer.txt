@@ -1,4 +1,4 @@
-# Team Slayer on every map (server/src/dedicated.c). While a single player
+# Team Slayer on every map (port/linux/host/dedicated.c). While a single player
 # waits, the server plays the next entry without teams instead (here there
 # is none, so it waits for a second player).
 # One entry a line: the map, then the game type, played in order.

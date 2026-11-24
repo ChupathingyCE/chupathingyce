@@ -46,6 +46,7 @@ from .linux_build import (JOLT_CXX_FLAGS, JOLT_DEFINES, JOLT_DIR, jolt_sources, 
 from .bgfx_build import BgfxTarget, bgfx_build, bgfx_available, bgfx_include_flags
 from .lp64_build import lp64_excluded
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
+from .host_sources import director_sources
 from .ninja_syntax import Writer
 from .server_build import (OUTPUT_NAME as SERVER_OUTPUT_NAME, SERVER_EXCLUDED, SERVER_NATIVE_SOURCES,
                            SERVER_PLATFORM_SOURCES, SERVER_WINDOWS_SOURCES, webui_build)
@@ -313,7 +314,8 @@ def windows_configure_inputs() -> List[Path]:
     return [Path(__file__), Path("tools/bgfx_build.py"), PORT_CONFIG, PORT_DIR / "src", LINUX_DIR / "src",
             LINUX_DIR / "game", *hud_configure_inputs(),
             # (the server's: ninja server-windows64)
-            Path("tools/server_build.py"), Path("tools/embed_webui.py"), Path("server/platform"), Path("server/webui")]
+            Path("tools/server_build.py"), Path("tools/embed_webui.py"), Path("port/linux/host"), Path("server/platform"),
+            Path("server/webui")]
 
 
 def _quote(path: Any) -> str:
@@ -555,7 +557,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         build_dir=build / "bgfx", archive_command="llvm-ar rcs $out $in",
     )) if use_bgfx else []
     bgfx_cflags = " ".join(bgfx_include_flags()) if use_bgfx else ""
-    # (the server links no SDL: server/platform/sdl_headless.c has the few
+    # (the server links no SDL: port/linux/host/sdl_headless.c has the few
     # functions it calls)
     libs = " ".join(
         ([] if target.server else [_quote(sdl_lib / "SDL3.lib")])
@@ -616,9 +618,9 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
                 add_object(source, game_cflags)
         for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
             add_object(source, game_cflags)
-        # the dedicated server's director, with the game browser (server/)
+        # the dedicated server's director, with the game browser (port/linux/host)
         if getattr(sln, "game_browser", False):
-            for source in sorted(Path("server/src").glob("*.c")):
+            for source in director_sources():
                 add_object(source, game_cflags)
 
         linux_platform = Path(linux_config["platform_sources"])

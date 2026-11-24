@@ -1,5 +1,5 @@
 # Slayer, every player for themselves, on the roomier maps, for big games
-# (server/src/dedicated.c): no team games, so any number of players, one
+# (port/linux/host/dedicated.c): no team games, so any number of players, one
 # included, can start a game.
 # One entry a line: the map, then the game type, played in order.
 

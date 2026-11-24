@@ -2770,7 +2770,7 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 		}
 		viewport_update_constants();
 
-		/* (the dedicated server and a probe draw nothing: server/src) */
+		/* (the dedicated server and a probe draw nothing: port/linux/host) */
 		if (!config_boolean("debug.null_renderer") &&
 #ifdef HALO_GAME_BROWSER
 			!browser_headless() &&

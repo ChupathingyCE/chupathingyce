@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
+from .host_sources import director_sources
 from .ninja_syntax import Writer
 from .version import VERSION_SOURCES, identity_defines, release_build, version
 
@@ -721,9 +722,9 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         add_object(source, game_cflags)
     for source in units.game_unit_sources:
         add_object(source, game_cflags)
-    # the dedicated server's director, with the game browser (server/)
+    # the dedicated server's director, with the game browser (port/linux/host)
     if units.game_browser:
-        for source in sorted(Path("server/src").glob("*.c")):
+        for source in director_sources():
             add_object(source, game_cflags)
 
     platform_dir = Path(config["platform_sources"])

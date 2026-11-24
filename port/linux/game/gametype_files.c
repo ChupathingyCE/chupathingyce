@@ -5,8 +5,8 @@ The player's game type files and the game's saved gametypes, kept as one
 (gametype_files.h). A file is the dedicated server's (server/docs/
 playlists.md, Game type files): its base, a built-in game type, and the
 settings it changes, read and written by the server's own code
-(server/src/server_config.c) and played as the server plays it
-(server/src/server_gametype_variant.c). So a game type made in the game's
+(port/linux/host/server_config.c) and played as the server plays it
+(port/linux/host/server_gametype_variant.c). So a game type made in the game's
 editors plays the same on a dedicated server whose admin/gametypes it is
 copied to, and one from a server plays the same hosted here.
 
@@ -26,8 +26,8 @@ what a file holds.
 #include "saved games/saved_game_files.h"
 #include "text/unicode.h"
 
-#include "../../../server/src/server_config.h"
-#include "../../../server/src/server_gametype_variant.h"
+#include "../host/server_config.h"
+#include "../host/server_gametype_variant.h"
 #include "../src/gametype_folder.h"
 #include "../src/port_folders.h"
 #include "gametype_files.h"

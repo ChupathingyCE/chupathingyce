@@ -5,8 +5,8 @@ The player's game type files: <save root>/gametypes/<name>.toml, in the
 dedicated server's format (server/docs/playlists.md, Game type files), so
 that one can be copied to a server's admin/gametypes and back. The files'
 text only: the game reads and writes them with the server's parser
-(server/src/server_config.c) and plays them as the server does
-(server/src/server_gametype_variant.c, port/linux/game/gametype_files.c).
+(port/linux/host/server_config.c) and plays them as the server does
+(port/linux/host/server_gametype_variant.c, port/linux/game/gametype_files.c).
 
 Each function takes the folder, so the tests (port/linux/tests/
 gametype_folder_test.c) run them on a scratch folder; the game passes

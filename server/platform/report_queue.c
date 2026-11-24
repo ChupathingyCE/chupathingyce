@@ -9,11 +9,11 @@ report about an OpenCE player stays here: it never goes to the site. Never
 an address.
 */
 
-#include "../src/server_reports.h"
+#include "../../port/linux/host/server_reports.h"
 #include "control_protocol.h"
 
 /* (the files and random bytes, on Linux and Windows) */
-#include "server_host.h"
+#include "../../port/linux/host/server_host.h"
 
 #include <pthread.h>
 #include <stdint.h>

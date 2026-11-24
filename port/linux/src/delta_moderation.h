@@ -3,7 +3,7 @@ DELTA_MODERATION.H
 
 Delta Peer's moderation, as the game sees it (docs/delta/peer.md, Moderation;
 delta_peer_game.c): plain types only, so the dedicated server's units
-(server/src) and the game's screens both call it.
+(port/linux/host) and the game's screens both call it.
 
 The host's side is the dedicated server's: it gives its moderation
 (struct delta_peer_moderation_host, delta_peer.h) and Delta Peer offers

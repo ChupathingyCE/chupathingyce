@@ -1336,7 +1336,7 @@ map, a Custom Edition, HaloMD or Halo PC map whose file is on Chupathingy
 maps' blacklist (port/linux/src/map_repo_game.c, map_repo_host_refused):
 TRUE with what the host is told in message. The menus ask as a hosted game's
 map is chosen (not split screen's), the dedicated server for every map it
-would play (server/src/server_commands.c, server_map_playable). A map played
+would play (port/linux/host/server_commands.c, server_map_playable). A map played
 alone or in split screen isn't asked about: the player's copy is theirs */
 boolean cache_files_map_host_refused(
 	char const *map_name,

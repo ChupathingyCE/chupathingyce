@@ -21,8 +21,8 @@ not right.
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../src/server_bans.h"
-#include "../src/server_reports.h"
+#include "../../port/linux/host/server_bans.h"
+#include "../../port/linux/host/server_reports.h"
 
 enum
 {

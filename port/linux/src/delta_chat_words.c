@@ -1,7 +1,7 @@
 /*
 DELTA_CHAT_WORDS.C
 
-The blocked names list (server/blocked_names.txt) built into the game, for the
+The blocked names list (port/linux/host/blocked_names.txt) built into the game, for the
 chat filter of every copy (delta_chat.h): its entries alone, in ROT13 as there.
 tools/test_delta_peer.py checks the two are the same: change the list there,
 then this.

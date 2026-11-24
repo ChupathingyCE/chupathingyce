@@ -62,7 +62,7 @@ screen shows the player */
 char const *network_game_client_refusal(void);
 #ifdef HALO_GAME_BROWSER
 /* the advertisement of the game an invite's host advertises (the game
-list's probe, server/src/probe.c) */
+list's probe, port/linux/host/probe.c) */
 struct network_invite_advertisement
 {
 	/* (NETWORK_GAME_NAME_LENGTH's 16) */
@@ -140,7 +140,7 @@ boolean network_game_client_add_player(
 	struct network_game_client *client,
 	short local_player_index);
 /* port: a player of this machine's that no profile of its own names (the
-dedicated server's Custom Edition players: server/src/server_ce.c), asked
+dedicated server's Custom Edition players: port/linux/host/server_ce.c), asked
 for as network_game_client_add_player asks */
 boolean network_game_client_add_named_player(
 	struct network_game_client *client,

@@ -4744,8 +4744,8 @@ void main_loop(
 			process_ui_widgets();
 #ifdef HALO_GAME_BROWSER
 			{
-				/* the dedicated server's director (server/src/dedicated.c); the
-				game list's probe (server/src/probe.c); the game list's confirmed
+				/* the dedicated server's director (port/linux/host/dedicated.c); the
+				game list's probe (port/linux/host/probe.c); the game list's confirmed
 				players (port/linux/game/game_list_claims.c) and statistics
 				recorder (port/linux/game/game_stats.c); the game on Discord
 				(port/linux/game/discord_game.c) */

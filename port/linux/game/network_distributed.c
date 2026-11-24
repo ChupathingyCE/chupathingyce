@@ -3172,7 +3172,7 @@ static boolean distributed_coop_declined[MAXIMUM_TRACKED_PLAYERS];
 
 /* (the host) each client player's input as it last changed, and when
 (system_milliseconds), for a dedicated server's AFK limit
-(server/src/server_conduct.c): the same input again and again is none */
+(port/linux/host/server_conduct.c): the same input again and again is none */
 static struct
 {
 	boolean valid;
@@ -5352,7 +5352,7 @@ boolean network_distributed_ban_account(
 }
 
 /* (the host: network_server_manager.c, its ban command; the dedicated
-server's sv_ban, server/src/server_commands.c) a machine banned: its line
+server's sv_ban, port/linux/host/server_commands.c) a machine banned: its line
 in BANS_FILE, for ever (until 0) or until then (seconds since 1970), and
 every machine told, "<names> <reason>" (the Discord user of the machine at
 the index, if it is one in the game; its address, host byte order) */

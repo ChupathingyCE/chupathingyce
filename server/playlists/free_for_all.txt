@@ -1,4 +1,4 @@
-# Slayer only, every multiplayer map (server/src/dedicated.c): no team games,
+# Slayer only, every multiplayer map (port/linux/host/dedicated.c): no team games,
 # so any number of players, one included, can start a game.
 # One entry a line: the map, then the game type, played in order.
 

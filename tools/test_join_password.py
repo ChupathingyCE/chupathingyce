@@ -129,5 +129,5 @@ def test_password_is_the_hosted_games():
 def test_dedicated_server_sets_no_password():
     """a dedicated server has no join password, so it takes every join as
     before"""
-    for path in (ROOT / "server").rglob("*.c"):
+    for path in [*(ROOT / "server").rglob("*.c"), *(ROOT / "port" / "linux" / "host").rglob("*.c")]:
         assert "p2p_set_hosting_password" not in path.read_text(encoding="utf-8", errors="replace"), path
