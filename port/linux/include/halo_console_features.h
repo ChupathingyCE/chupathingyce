@@ -351,11 +351,14 @@ HALO_CONSOLE_MARKER_LOOKUPS
 	forgotten as a map's tags go (scenario_tags_unload), so the answers
 	are the search's own. From Lord BirchWood's work
 HALO_CONSOLE_COLLISION_CACHES
-	the collision tests' caches (#1559): the sound obstruction rays stop at
-	the first thing they meet and keep a repeated ray's structure test
-	(collision_test_vector_obstructed, source/physics/collisions.c), with
-	the same answers. The desktop builds test every ray in full until they
-	opt in. From Lord BirchWood's Vita port
+	the collision tests' caches (#1559), with the same answers: a
+	location's weather and water read from a table by cluster, made once a
+	bsp (scenario_get_current, source/scenario/wind.c, #1620); the sound
+	obstruction rays stop at the first thing they meet and keep a repeated
+	ray's structure test (collision_test_vector_obstructed,
+	source/physics/collisions.c, #1624; its memo 21 KB of statics). The
+	desktop builds read the tags and test every ray in full until they opt
+	in. From Lord BirchWood's Vita port
 HALO_CONSOLE_XBOX_MAP_SIZES
 	a console that plays the Xbox's own maps only (no Custom Edition or
 	Halo PC maps): tables the desktop builds size for those maps are sized
