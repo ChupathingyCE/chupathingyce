@@ -106,8 +106,8 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
   forge spawn <name>       the first palette tag with name in its readable
                            name or its tag's, spawned in front of the
                            camera and held
-  forge marker respawn|initial|sender|receiver|flag|hill|oddball|race
-                           a marker placed and held
+  forge marker respawn|initial|sender|receiver|flag|hill|oddball|race|kill|damage|gravity
+                           a marker (or a volume) placed and held
   forge grab [#id] | drop  the object or marker under the crosshair (or
                            the layout's of that id) grabbed, the held one
                            let go
@@ -152,6 +152,7 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
 #include "objects/objects.h"
 #include "objects/object_types.h"
 #include "physics/collisions.h"
+#include "physics/physics.h"
 #include "rasterizer/rasterizer.h"
 #include "rasterizer/rasterizer_geometry.h"
 #include "rasterizer/xbox/rasterizer_xbox_draw_primitives.h"
@@ -165,6 +166,7 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
 #include "text/draw_string.h"
 #include "text/font_group.h"
 #include "units/unit_control_data.h"
+#include "units/bipeds.h"
 #include "units/units.h"
 #include "units/vehicle_definitions.h"
 #include "units/unit_definitions.h"
@@ -322,29 +324,29 @@ enum
 /* the Forge menu's categories' names (forge.h's order) */
 static char const *const forge_category_names[NUMBER_OF_FORGE_CATEGORIES] =
 {
-	"VEHICLES", "WEAPONS", "EQUIPMENT", "SCENERY", "TELEPORTERS", "OBJECTIVES", "SPAWNING",
+	"VEHICLES", "WEAPONS", "EQUIPMENT", "SCENERY", "TELEPORTERS", "OBJECTIVES", "SPAWNING", "VOLUMES",
 };
 /* (the log's and the console's) */
 static char const *const forge_category_log_names[NUMBER_OF_FORGE_CATEGORIES] =
 {
-	"vehicles", "weapons", "equipment", "scenery", "teleporters", "objectives", "spawning",
+	"vehicles", "weapons", "equipment", "scenery", "teleporters", "objectives", "spawning", "volumes",
 };
 /* (forge_spawns.inc) the markers' categories' items (SPAWNING's,
 TELEPORTERS', OBJECTIVES'), its kinds' names */
 static char const *const forge_spawn_kind_names[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
 	"Respawn Point", "Initial Spawn", "Teleporter Sender", "Teleporter Receiver",
-	"CTF Flag", "Hill Point", "Oddball Spawn", "Race Checkpoint",
+	"CTF Flag", "Hill Point", "Oddball Spawn", "Race Checkpoint", "Kill Volume", "Damage Volume", "Gravity Volume",
 };
 static char const *const forge_spawn_kind_log_names[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
 	"respawn point", "initial spawn", "teleporter sender", "teleporter receiver",
-	"ctf flag", "hill point", "oddball spawn", "race checkpoint",
+	"ctf flag", "hill point", "oddball spawn", "race checkpoint", "kill volume", "damage volume", "gravity volume",
 };
 /* (the console's "forge marker <word>") */
 static char const *const forge_spawn_kind_words[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
-	"respawn", "initial", "sender", "receiver", "flag", "hill", "oddball", "race",
+	"respawn", "initial", "sender", "receiver", "flag", "hill", "oddball", "race", "kill", "damage", "gravity",
 };
 /* a markers' category's first kind and its kinds (NONE: not one) */
 static short forge_marker_category_first(
@@ -352,7 +354,8 @@ static short forge_marker_category_first(
 {
 	return category == _forge_category_spawning ? _forge_spawn_respawn :
 		category == _forge_category_teleporters ? _forge_spawn_teleporter_sender :
-		category == _forge_category_objectives ? _forge_spawn_flag : NONE;
+		category == _forge_category_objectives ? _forge_spawn_flag :
+		category == _forge_category_volumes ? _forge_spawn_volume_kill : NONE;
 }
 
 static short forge_marker_category_count(
@@ -360,7 +363,8 @@ static short forge_marker_category_count(
 {
 	return category == _forge_category_spawning ? NUMBER_OF_FORGE_SPAWN_KINDS :
 		category == _forge_category_teleporters ? FORGE_TELEPORTER_KINDS :
-		category == _forge_category_objectives ? FORGE_OBJECTIVE_KINDS : 0;
+		category == _forge_category_objectives ? FORGE_OBJECTIVE_KINDS :
+		category == _forge_category_volumes ? FORGE_VOLUME_KINDS : 0;
 }
 
 /* the maps Forge edits: the Xbox's multiplayer maps (their short names
@@ -586,8 +590,15 @@ struct forge_spawn
 	/* (a teleporter's: forge_netgame.inc) its channel, 0 to
 	FORGE_TELEPORTER_CHANNELS - 1; a game type object's index */
 	short channel;
-	/* where, facing along the ground */
+	/* where, facing along the ground (a volume: its floor's middle) */
 	struct forge_transform home;
+	/* (a volume's: forge_volumes.inc) its shape, size (quarter world units:
+	half width, half length, height; a sphere's radius), amount and target
+	(FORGE_FILE_VOLUME_*) */
+	unsigned char volume_shape;
+	unsigned char volume_size[3];
+	unsigned char volume_amount;
+	unsigned char volume_target;
 };
 
 /* (the players a round's spawns are kept for: absolute indices) */
@@ -759,6 +770,21 @@ static void forge_spawn_properties_get(struct forge_spawn const *spawn, struct f
 static void forge_spawn_choose(short kind);
 static void forge_spawn_delete(long id);
 static void forge_spawn_log(char const *what, struct forge_spawn const *spawn);
+/* ---- the volumes (forge_volumes.inc) */
+static boolean forge_spawn_is_volume(struct forge_spawn const *spawn);
+static short forge_volumes_count(void);
+static void forge_volume_defaults(struct forge_spawn *spawn);
+static void forge_volume_from_record(struct forge_spawn *spawn, struct forge_file_record const *record);
+static void forge_volume_to_record(struct forge_spawn const *spawn, struct forge_file_record *record);
+static boolean forge_volume_property_apply(struct forge_spawn *spawn, short property, short step);
+static void forge_volume_properties_get(struct forge_spawn const *spawn, struct forge_properties *properties);
+static void forge_volume_property_text(struct forge_properties const *properties, short row, char *label,
+	int label_size, char *value, int value_size);
+static void forge_volume_log(char const *what, struct forge_spawn const *spawn);
+struct forge_marker;
+static real forge_volume_bounding_radius(struct forge_spawn const *spawn);
+static void forge_volume_color(struct forge_spawn const *spawn, struct forge_marker *marker);
+static void forge_volume_draw(struct forge_spawn const *spawn, struct forge_marker const *marker);
 static struct forge_spawn *forge_spawn_add(long id, short kind, signed char team, unsigned short game_types,
 	short channel, struct forge_transform const *home);
 static void forge_netgame_changed(void);
@@ -3353,6 +3379,9 @@ static void forge_variant_apply(
 		}
 		if (record->kind == _forge_record_flag && forge_file_layout_version(layout) >= 6)
 			continue;
+		/* (a volume: as the map loaded, forge_spawns_from_layout) */
+		if (record->kind == _forge_record_volume && forge_file_layout_version(layout) >= 13)
+			continue;
 		if (record->kind != _forge_record_object)
 		{
 			other_kinds++;
@@ -5217,4 +5246,5 @@ with this file's) */
 #include "forge_netgame.inc"
 #include "forge_physics.inc"
 #include "forge_precision.inc"
+#include "forge_volumes.inc"
 #include "forge_menu_link.inc"

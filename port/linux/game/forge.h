@@ -50,6 +50,9 @@ enum
 	/* (the player spawn points: RESPAWN POINT and INITIAL SPAWN, no tag of
 	the map's: forge_spawns.inc) */
 	_forge_category_spawning,
+	/* (volumes: KILL VOLUME, DAMAGE VOLUME, GRAVITY VOLUME, zones that act
+	on whoever is in them: forge_volumes.inc) */
+	_forge_category_volumes,
 	NUMBER_OF_FORGE_CATEGORIES
 };
 
@@ -81,11 +84,17 @@ enum
 	_forge_spawn_hill,
 	_forge_spawn_oddball,
 	_forge_spawn_race,
+	/* (a volume: its kind its type - forge_files.h FORGE_FILE_VOLUME_*'s
+	order -, forge_volumes.inc) */
+	_forge_spawn_volume_kill,
+	_forge_spawn_volume_damage,
+	_forge_spawn_volume_gravity,
 	NUMBER_OF_FORGE_MARKER_KINDS
 };
 /* each category of markers: how many kinds */
 #define FORGE_TELEPORTER_KINDS 2
 #define FORGE_OBJECTIVE_KINDS 4
+#define FORGE_VOLUME_KINDS 3
 /* (forge_netgame.inc) a teleporter's channels (forge_files.h's) */
 #define FORGE_TELEPORTER_CHANNELS 16
 
@@ -140,6 +149,13 @@ struct forge_properties
 	game type object's index */
 	short channel;
 	boolean linked;
+	/* (a volume's: forge_volumes.inc) its shape, size (forge_files.h's
+	quarter world units), amount and TARGET's choice */
+	boolean volume;
+	unsigned char volume_shape;
+	unsigned char volume_size[3];
+	unsigned char volume_amount;
+	short volume_target_index;
 };
 
 /* what the monitor's controls ask of the flying camera this frame */
@@ -412,6 +428,13 @@ enum
 short forge_spawn_location(
 	long player_index,
 	struct player_starting_location *location);
+
+/* ---------- prototypes/FORGE_VOLUMES.INC */
+
+/* (game.c's game_tick) the layout's volumes act on what is in them: a
+Forge game's or a layout played's, a tick at a time */
+void forge_volumes_tick(
+	void);
 
 /* ---------- prototypes/FORGE_NETGAME.INC */
 

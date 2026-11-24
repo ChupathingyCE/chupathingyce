@@ -49,7 +49,7 @@ The keyboard's keys are `controls.forge_*` in `config.toml` (see [settings.md](s
 
 X (E) opens the Forge menu: a narrow panel at the right of the screen, so the map stays in view. Its title and the budget are at the top, then the tabs, the list, a box about the row chosen, and the prompts at its foot. It works like the Delta Guide: LB and RB (Q and E) change the tab, the d-pad (arrows or WASD) moves, A (Enter) chooses, B (Esc) goes back, and the mouse can click rows and prompts. X closes it.
 
-- OBJECT BROWSER: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, TELEPORTERS, OBJECTIVES, SPAWNING) with how many objects each has. A opens a category, and A on an object places it in your hands. The count at the top right is the budget: 256 objects and markers.
+- OBJECT BROWSER: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, TELEPORTERS, OBJECTIVES, SPAWNING, VOLUMES) with how many objects each has. A opens a category, and A on an object places it in your hands. The count at the top right is the budget: 256 objects and markers.
 
   ![OBJECTS](screenshots/forge-objects.jpg)
 
@@ -64,6 +64,18 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
 - OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), PLAY AS SPARTAN and CONTROLS.
 
   ![OPTIONS](screenshots/forge-options.jpg)
+
+## Volumes
+
+VOLUMES places zones that act on whoever is in them:
+
+- KILL VOLUME: kills a unit at once, the way the game kills a unit that falls out of the world.
+- DAMAGE VOLUME: takes a share of full health a second (5, 10, 25, 50 or 100 percent), shields first, then health.
+- GRAVITY VOLUME: scales gravity (0, 25, 50, 75, 150 or 200 percent) for what is in the air inside it: a jump, a falling vehicle, a dropped weapon.
+
+A volume is a box (width, length and height, from its floor up) or a sphere (its radius, resting on its floor), turned by its yaw. TARGET picks what it acts on: everyone (every unit, AI too), players, red players or blue players. Its PROPERTIES rows are TARGET, TYPE, the amount, YAW, SHAPE, WIDTH (a sphere's RADIUS), LENGTH and HEIGHT. A layout holds up to 32 volumes, within the markers' budget.
+
+Only the monitor sees volumes: each is drawn as a wireframe in its type's colour (kill red, damage orange, gravity blue) with its marker on the floor, where the crosshair grabs it. The Spartan and anyone playing the layout see nothing. They act the same in a Forge game (as the Spartan) and in a layout played, a game tick at a time, from the layout alone. The monitor's own hidden body is left alone.
 
 A layout's spawn points replace the map's own for the players they fit (the game type, the team). A game type object replaces the map's own of that type (a CTF flag: that team's). Any type the layout has none of keeps the map's.
 
@@ -83,10 +95,10 @@ Layouts are saved in `forge/<map>/<name>.hmv` in the save root. The format is sm
 - 48-byte records: kind, path index, team, position, yaw, pitch and roll, respawn time, game types, flags;
 - the title, author, description and date, as UTF-8.
 
-All little-endian. Versions 1 to 7 are read. Each version adds what a record may hold (AI settings, spawn points, teleporters, game type objects, physics), and a layout is written as the lowest version that holds it. `port/linux/game/forge_files.h` describes every byte.
+All little-endian. Versions 1 to 7 and 13 are read. Each version adds what a record may hold (AI settings, spawn points, teleporters, game type objects, physics, volumes), and a layout is written as the lowest version that holds it. `port/linux/game/forge_files.h` describes every byte.
 
 Every file goes through the validator before anything is read from it, whether you made it or it came from somewhere else. It checks the size, the header, the version, the map, the counts against the limits, the payload size and CRC-32, every path (characters, length, groups Forge places), every record (kind, path index, every field in range, finite floats inside the world, no unknown flags) and the texts (terminated UTF-8). A file that fails any check is refused whole and the log says why. When a layout is placed, a record whose tag the map doesn't have is skipped, and the budget and the map's bounds are checked again. `tools/test_forge_files.py` tests the validator against malformed files, and fuzzes it.
 
 ## Console commands
 
-Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags` to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`.
+Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race|kill|damage|gravity`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags` to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`.

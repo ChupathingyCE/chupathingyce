@@ -13,7 +13,7 @@ A layout is <stem>.hmv in the Forge folder's folder of its map
 
 	header  64 bytes
 	  magic        char[4]  "HFRG"
-	  version      u16      1 to 7 (below)
+	  version      u16      1 to 7, or 13 (below)
 	  header size  u16      64
 	  flags        u32      bit 0: a record is not a plain object (a spawn
 	                        point, a teleporter, a game type object); no
@@ -38,7 +38,8 @@ A layout is <stem>.hmv in the Forge folder's folder of its map
 	  path index u16 (0xFFFF: none), kind u8, team i8, position f32[3]
 	  (world units), yaw pitch roll f32[3] (radians), respawn seconds u16,
 	  count u8, game types u16, variant u8, flags u8, AI team u8,
-	  reserved u8[12] (zero)
+	  reserved u8[3] (zero), the kind's own bytes u8[9] (version 13 on:
+	  below; zero for every other kind)
 	meta    meta size bytes: title, author, description and date, each
 	        UTF-8 ended by a zero byte, in that order, nothing after them
 
@@ -47,8 +48,21 @@ control, light fixture, biped or AI character placed), 2 a player spawn
 point, 5 a game type object (a netgame flag: a CTF flag's spot, a hill
 point, an oddball spawn, a race checkpoint; its type in variant, its index
 in team), 7 a teleporter sender, 8 a teleporter receiver (their channel in
-team). Kinds 1, 3 and 4 (a squad, a weapon or vehicle spawn) are defined
-but placed by nothing; 6, 9 and any other kind are refused.
+team), 21 a volume (version 13: below). Kinds 1, 3 and 4 (a squad, a
+weapon or vehicle spawn) are defined but placed by nothing; 6, 9, 10 to 20
+and any other kind are refused.
+
+A volume (version 13, kind 21): a zone of the layout that does something
+to whoever is in it, the Forge menu's VOLUMES. No path; its place the
+middle of its floor (its base), its yaw alone; team the players it acts on
+(-1 everyone, 0 red, 1 blue); variant its type (FORGE_FILE_VOLUME_*: kill,
+damage, gravity); nothing else of an object's. Its own bytes: shape u8
+(FORGE_FILE_VOLUME_BOX, _SPHERE), size u8[3] (quarter world units, 1 to
+255: a box's half width, half length and height; a sphere's radius, then
+two zeros), amount u8 (a kill volume's 0; a damage volume's percent of full
+health a second, 1 to 100; a gravity volume's percent of gravity, 0 to
+200), target u8 (0 every unit, 1 players only; a team's always 1), then
+three zeros.
 
 Versions: each adds what a record may hold. A layout is written as the
 lowest version that holds it, so a layout without the newer things stays
@@ -63,9 +77,11 @@ that version (a file a writer would not make is refused).
 	6  game type objects: CTF flag, hill point, oddball spawn, race
 	   checkpoint
 	7  an object's physics: fixed (never moves) or phased (no collision)
-Versions 8 and later (game mode markers, boundaries, a lobby camera, a
-blank canvas) are refused with _forge_file_newer_version: this build reads
-versions 1 to 7.
+	13 volumes: kill, damage and gravity zones (above)
+Versions 8 to 12 (the Vita build's game mode markers, boundaries, lobby
+camera and blank canvas, 8 to 11; the AI chain's 12) and 14 on are refused
+with _forge_file_newer_version: this build reads versions 1 to 7 and 13.
+Volumes take 13 so that those numbers keep meaning what they mean there.
 
 The validator (forge_file_decode), in order; a file is taken whole or not
 at all:
@@ -88,11 +104,14 @@ at all:
   in range, no flag the version or the kind does not have, the AI team and
   brain only on a character's record (version 2 on), its respawn only with
   a time (version 3 on), physics fixed or phased, never both, never a
-  character's (version 7); every float finite, positions within +-5000
+  character's (version 7); a volume's type, shape, size, amount and target
+  in range, its yaw alone, nothing else (version 13); the kind's own bytes
+  zero for any other kind; every float finite, positions within +-5000
   world units, angles within +-pi, a marker's pitch and roll zero; the
   reserved bytes zero;
 - the layout: at most 32 teleporters, each sender's channel with a
-  receiver; at most 64 game type objects, a hill's points at most 12; the
+  receiver; at most 64 game type objects, a hill's points at most 12; at
+  most 32 volumes; the
   flag bit 0 set exactly when a record is not a plain object; the version
   the lowest that holds it;
 - the meta: four texts, each valid UTF-8 (no overlong form, surrogate or
@@ -110,8 +129,13 @@ a record whose tag the map does not have is skipped, and the budget
 
 #define FORGE_FILE_EXTENSION ".hmv"
 /* the newest version written and read, and the oldest read */
-#define FORGE_FILE_VERSION 7
+#define FORGE_FILE_VERSION 13
 #define FORGE_FILE_FIRST_VERSION 1
+/* (the versions this build does not read below FORGE_FILE_VERSION: other
+builds' and other features' numbers - the Vita build's 8 to 11, the AI
+chain's 12, and the ones between) */
+#define FORGE_FILE_FIRST_SKIPPED_VERSION 8
+#define FORGE_FILE_LAST_SKIPPED_VERSION 12
 #define FORGE_FILE_HEADER_SIZE 64
 #define FORGE_FILE_MAXIMUM_SIZE 65536
 #define FORGE_FILE_MAXIMUM_PATHS 256
@@ -123,7 +147,11 @@ a record whose tag the map does not have is skipped, and the budget
 #define FORGE_FILE_PACK_SIZE 32
 #define FORGE_FILE_PACK_NAME_SIZE 24
 #define FORGE_FILE_RECORD_SIZE 48
-#define FORGE_FILE_RECORD_RESERVED_SIZE 12
+#define FORGE_FILE_RECORD_RESERVED_SIZE 3
+/* (version 13 on) a record's own bytes, after the reserved ones: a kind's
+that has them (a volume's, a layout's sky and fog, an effect's), zeros for
+any other */
+#define FORGE_FILE_RECORD_PARAMS_SIZE 9
 /* the texts' room, each one's terminator included */
 #define FORGE_FILE_MAP_NAME_SIZE 32
 #define FORGE_FILE_TITLE_SIZE 32
@@ -170,6 +198,41 @@ MAXIMUM_HILL_POINTS) */
 #define FORGE_FILE_MAXIMUM_RACE_CHECKPOINTS 32
 #define FORGE_FILE_MAXIMUM_GAME_OBJECTS 64
 #define FORGE_FILE_MAXIMUM_HILL_POINTS 12
+/* (version 13) volumes: the most in a layout, their types (a record's
+variant), shapes and targets (its own bytes), and their ranges */
+#define FORGE_FILE_MAXIMUM_VOLUMES 32
+enum
+{
+	FORGE_FILE_VOLUME_KILL = 0,
+	FORGE_FILE_VOLUME_DAMAGE,
+	FORGE_FILE_VOLUME_GRAVITY,
+	NUMBER_OF_FORGE_FILE_VOLUME_TYPES
+};
+enum
+{
+	FORGE_FILE_VOLUME_BOX = 0,
+	FORGE_FILE_VOLUME_SPHERE,
+	NUMBER_OF_FORGE_FILE_VOLUME_SHAPES
+};
+enum
+{
+	FORGE_FILE_VOLUME_EVERY_UNIT = 0,
+	FORGE_FILE_VOLUME_PLAYERS,
+	NUMBER_OF_FORGE_FILE_VOLUME_TARGETS
+};
+/* (its own bytes' places) */
+enum
+{
+	FORGE_FILE_VOLUME_PARAM_SHAPE = 0,
+	FORGE_FILE_VOLUME_PARAM_SIZE,
+	FORGE_FILE_VOLUME_PARAM_AMOUNT = FORGE_FILE_VOLUME_PARAM_SIZE + 3,
+	FORGE_FILE_VOLUME_PARAM_TARGET,
+};
+/* a size byte's world units (a quarter each) */
+#define FORGE_FILE_VOLUME_SIZE_UNIT 0.25f
+#define FORGE_FILE_MAXIMUM_VOLUME_DAMAGE 100
+#define FORGE_FILE_MAXIMUM_VOLUME_GRAVITY 200
+
 /* a record's path index when its kind names no object */
 #define FORGE_FILE_NO_PATH 0xFFFF
 
@@ -239,7 +302,13 @@ enum
 	_forge_record_teleporter_out,
 	/* (never written: refused) */
 	_forge_record_kill_zone,
-	NUMBER_OF_FORGE_RECORD_KINDS
+	NUMBER_OF_FORGE_RECORD_KINDS,
+	/* (10 to 18: the Vita build's game mode markers, a boundary, the lobby
+	camera; 19 and 20 the AI chain's route points and patrol areas; all
+	refused here) */
+	/* (version 13) a volume: variant its type, team the players it acts
+	on, its own bytes its shape, size, amount and target */
+	_forge_record_volume = 21,
 };
 
 /* why a file was refused (forge_file_decode), in the order checked */
@@ -299,6 +368,9 @@ struct forge_file_record
 	unsigned char flags;
 	/* (version 2, a character's only: FORGE_AI_TEAM_*; else 0) */
 	unsigned char ai_team;
+	/* (version 13 on) the kind's own bytes (forge_files.h's per kind); zeros
+	for a kind that has none */
+	unsigned char params[FORGE_FILE_RECORD_PARAMS_SIZE];
 };
 
 /* a layout, as read or to be written */
@@ -358,7 +430,7 @@ int forge_file_layout_check(
 	char const *expected_map);
 
 /* the version a layout is written as: its own when set, else the lowest
-that holds it (7 with an object's physics, 6 with a game type object, 5
+that holds it (13 with a volume, 7 with an object's physics, 6 with a game type object, 5
 with a teleporter, 4 with a player spawn, 3 with a respawning character, 2
 when a record has an AI setting, else 1) */
 int forge_file_layout_version(
