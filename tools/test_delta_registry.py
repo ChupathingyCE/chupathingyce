@@ -112,7 +112,8 @@ def test_internet_listing_matches_p2p_lobby():
     lobby = (ROOT / "port" / "linux" / "src" / "p2p_lobby.c").read_text()
     flags = {int(value) for value in re.findall(r"\b_listing_\w+ = (\d+),", lobby)}
     listing = REGISTRY["internet_listing"]
-    in_use = {flag["value"] for flag in listing["flags"] if flag["status"] == "in use"}
+    # (a flag "for" another project, such as Content Evolved's 64, isn't in our code)
+    in_use = {flag["value"] for flag in listing["flags"] if flag["status"] == "in use" and "for" not in flag}
     assert in_use == flags
     for flag in listing["flags"]:
         assert flag["value"] in (1, 2, 4, 8, 16, 32, 64, 128) and flag["status"], flag
@@ -122,7 +123,31 @@ def test_internet_listing_matches_p2p_lobby():
     assert stamp["size"] == int(re.search(r"\bSTAMP_SIZE = (\d+),", lobby).group(1))
     assert [entry["byte"] for entry in stamp["bytes"]] == list(range(stamp["size"]))
     assert stamp["bytes"][0]["name"] == "kind"
-    assert all(entry["name"] is None for entry in stamp["bytes"][1:])
+    assert all(entry["name"] is None for entry in stamp["bytes"][1:] if entry.get("for") is None)
+    for entry in stamp["bytes"]:
+        assert (entry["name"] is None) == (entry["status"] != "in use"), entry
+
+
+def test_advertisement_matches_the_code():
+    advertisement = REGISTRY["advertisement"]
+    assert advertisement["reserved_size"] == int(re.search(r"#define DELTA_ADVERTISED_RESERVED_SIZE (0x\w+)", DELTA_H).group(1), 16)
+    stock = advertisement["stock"]
+    assert stock["flags_byte"] == int(re.search(r"#define HALO_PORT_ADVERTISED_FLAGS_OFFSET (\d+)", LIMITS_H).group(1))
+    ours = values(LIMITS_H, r"#define HALO_PORT_ADVERTISED_(DISTRIBUTED|IN_PROGRESS|DEDICATED)_FLAG (0x\w+)")
+    mcc = (ROOT / "port" / "linux" / "game" / "mcc_protocol.h").read_text()
+    ours["mcc"] = int(re.search(r"#define MCC_PROTOCOL_ADVERTISED_FLAG (0x\w+)", mcc).group(1), 16)
+    assert {flag["name"]: flag["value"] for flag in stock["flags"]} == ours
+    where = {entry["name"]: entry["bytes"] for entry in stock["bytes"] if entry["name"]}
+    assert where["version"][0] == int(re.search(r"#define HALO_PORT_ADVERTISED_VERSION_OFFSET (\d+)", LIMITS_H).group(1))
+    assert where["kind"] == [int(re.search(r"#define HALO_PORT_ADVERTISED_KIND_OFFSET (\d+)", LIMITS_H).group(1))]
+    assert where["mcc_version"] == [int(re.search(r"#define MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET (\d+)", mcc).group(1))]
+    assert where["delta_tag"] == [advertisement["reserved_size"] - int(re.search(r"#define DELTA_ADVERTISED_TAG_SIZE (\d+)", DELTA_H).group(1)),
+        advertisement["reserved_size"] - 1]
+    assert advertisement["modded"]["versions"] == [0xFF00, 0xFFFF]
+    assert REGISTRY["network_versions"]["modded_range"]["from"] == 0xFF00
+    for flag in stock["flags"]:
+        assert f"| {stock['flags_byte']} | 0x{flag['value']:02X} | `{flag['name']}` |" in REGISTRY_MD, flag
+    assert "| 0xFF00 to 0xFFFF |" in REGISTRY_MD
 
 
 # The rest of the registry, section by section, against the code: every
@@ -137,8 +162,8 @@ def values(text, pattern):
 
 def test_every_section_is_checked():
     checked = {"registry", "description", "platforms", "capabilities", "wires", "platform_floors",
-        "network_versions", "ports", "xbox_title_id", "delta_major", "platform_policy", "platform_key_flags",
-        "internet_listing", "messages", "map_families", "host_rules_flags", "game_modes", "permissions",
+        "network_versions", "ports", "xbox_title_id", "delta_major", "platform_policy", "advertisement",
+        "platform_key_flags", "internet_listing", "messages", "map_families", "host_rules_flags", "game_modes", "permissions",
         "device_certificate_flags", "device_capabilities", "report_reasons", "moderation_actions", "labels"}
     assert set(REGISTRY) == checked
 

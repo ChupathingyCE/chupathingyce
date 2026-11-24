@@ -414,15 +414,23 @@ Delta tag of wire `chupa-44b` ([The advertisement](#the-advertisement)):
 ## The advertisement
 
 A host's game advertisement (the legacy protocol's, on a LAN and through
-the internet tunnel) has 26 (0x1A) reserved bytes. The game protocol fills
-them from the front, Delta from the back:
+the internet tunnel) has 26 (0x1A) reserved bytes. Their first two say
+whose layout the rest is:
+
+- **A network version** (below 0xFF00): the stock layout. The game protocol
+  fills the bytes from the front, Delta from the back, as below.
+- **0xFF00 to 0xFFFF**: a Content Evolved modded game. All 26 bytes are
+  Content Evolved's ([below](#content-evolveds-modded-games)).
+
+The stock layout:
 
 | Bytes | Meaning |
 | --- | --- |
 | 0, 1 | the network version the host announces (little-endian) |
-| 2 | flags: 0x01 the distributed netcode (always set), 0x02 the game is under way, 0x04 a dedicated server (version 39 and later) |
+| 2 | flags: 0x01 the distributed netcode (always set), 0x02 the game is under way, 0x04 a dedicated server (version 39 and later), 0x08 the MCC network protocol ([below](#mcc-games)) |
 | 3 | the game's kind (version 37 and later: a game type in the low seven bits, 0 none, 1 SWAT, 2 Infection, 3 Gun Game; Hardcore in bit 7); 0 before 37 |
-| 4 to 16 | zero, but for the old layout below |
+| 4 | with the flag 0x08, the MCC network protocol's version; otherwise zero, but for the old layout below |
+| 5 to 16 | zero, but for the old layout below |
 | 17 to 25 | the Delta tag, when the host speaks Delta |
 
 ### The tag
@@ -501,6 +509,43 @@ announces 32. **The transition has no end date.** Hosts write the old layout
 where it fits for as long as released builds need it, and new builds read
 it. Stopping either is a deliberate decision
 ([versioning.md](versioning.md#principles), "Never drop an old protocol").
+
+### MCC games
+
+The flag 0x08 and byte 4 belong to the MCC network protocol that came from
+GulchCE: the flag says the host plays an MCC map's game with that
+protocol's join and settings record, and byte 4 is the protocol's version
+(65 in Chupathingy's copy). Chupathingy carries that code but builds it
+into none of its releases: its MCC games go over Delta Peer (`mcc_maps`,
+HOST_NUMBER), so its hosts never set the flag or the byte, and its clients
+don't read them. A reader that doesn't play that protocol ignores both.
+
+### Content Evolved's modded games
+
+A version word of 0xFF00 to 0xFFFF, 0xFF00 plus a mod version (0xFF70 is
+mod version 112), is a Content Evolved modded game: a randomized campaign,
+skulls, or a Tag Injector profile. Builds without Content Evolved's mod
+can't play it. All 26 reserved bytes then belong to Content Evolved
+([registry.md](registry.md#network-versions)):
+
+- **Another reader reads none of its own meanings from them**: no MCC flag
+  or version, no game kind, no Delta tag, no old layout. It shows the game
+  as one it can't play.
+- **A reader that doesn't know the range** sees a network version it
+  doesn't play, which comes to the same thing. Bit 15 is set, as in a GOAT
+  H1 host's closed number ([registry.md](registry.md#network-versions)):
+  never joinable by another build either way.
+
+Content Evolved's layout, for information. It is Content Evolved's to
+change, and its own documentation is the reference:
+
+| Bytes | Meaning |
+| --- | --- |
+| 0, 1 | 0xFF00 plus the mod version (little-endian) |
+| 2 | flags, among them 0x08 skulls, 0x10 skull drops, 0x20 the randomizer, 0x40 a Tag Injector share |
+| 3 to 14 | the randomizer's setup |
+| 15 to 22 | the skulls, a bitmask |
+| 24, 25 | the host's real network version |
 
 ## The join mark
 
