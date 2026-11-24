@@ -28,11 +28,16 @@ A campaign or multiplayer map gets them too, for its in-game pause menu's
 SETTINGS (pause_patch): there the map's tags they name that it has not
 (ui.map's pictures, sounds and screens) are none, a missing picture drawn
 blank, and on a multiplayer map no screen pauses the game (a network game's
-clock runs on).
+clock runs on). On the desktop builds a frame of one of ui.map's pictures is
+made from ui.map's copy in the cache instead, as the main menu's build found
+it (ui_frame_make), so that the settings' pictures show in a game as they do
+from the main menu.
 */
 
 #include "cseries.h"
+#include "cseries_windows.h"
 #include "bitmaps/bitmap_group.h"
+#include "bitmaps/bitmaps.h"
 #include "tag_files/tag_groups.h"
 #include "cache/cache_files.h"
 #include "text/text_group.h"
@@ -72,6 +77,11 @@ int config_boolean(char const *name);
 /* cache_files.c's (port) */
 void *cache_files_tag_instances(long *count);
 void cache_files_set_tag_instances(void *instances, long count);
+/* (the desktop builds: ui.map's pictures made in a game map from its copy
+in the cache, ui_frame_make) */
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+#define UI_FRAMES_FROM_CACHE
+#endif
 
 /* the game's (port) */
 char *tag_get_name(long tag_index);
@@ -106,8 +116,9 @@ and RESTART: pause_patch) */
 #define CUSTOM_CHANGE_SETTINGS_BUTTON "ui\\shell\\multiplayer_game\\pause_game\\change_settings_button"
 /* the tags pause_patch adds: six buttons and their texts, and the middle
 and bottom parts of the stock box's pieces, a widget and a bitmap each (the
-campaign's has six pieces) */
-#define PAUSE_PATCH_TAGS (12 + 4 * 6)
+campaign's has six pieces); on a joined co-op machine, two players' screen's
+own copy of the box and its pieces (pause_box_unshare) and their parts too */
+#define PAUSE_PATCH_TAGS (12 + 4 * 6 + 1 + 6 + 4 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -123,7 +134,11 @@ enum
 {
 	_bitmap_type_2d = 0,
 	_bitmap_format_a8r8g8b8 = 11,
+	_bitmap_format_dxt1 = 14,
+	_bitmap_format_dxt5 = 16,
 	_bitmap_has_power_of_two_dimensions_bit = 0,
+	_bitmap_compressed_bit = 1,
+	_bitmap_allocated_bit = 6,
 };
 
 enum
@@ -506,6 +521,39 @@ static struct
 	/* a campaign map's (its pause screen's): the game stays paused */
 	boolean campaign_map;
 } build;
+
+#ifdef UI_FRAMES_FROM_CACHE
+/* ui.map's frames that the menu files name, as the main menu's build found
+them (each picture's fields), and the ui.map they are of (its checksum): in
+a game map, which has not got them, each is made from ui.map's copy in the
+cache (ui_frame_make). Kept from one map to the next, found again at each
+main menu */
+#define MAXIMUM_UI_FRAMES 64
+#define UI_FRAME_NAME_SIZE 192
+/* (the most of a frame's pixels read: a 1024 square's 32 bits) */
+#define MAXIMUM_UI_FRAME_BYTES (4 * 1024 * 1024)
+/* ui.map's copy in the cache: the main menu's cache file, which no game map
+is copied into (cache_files_windows.c's cache_files_initialize and
+cached_map_file_get_path), and where its header says its length, name and
+checksum (the Xbox's cache file header) */
+#define UI_MAP_CACHE_FILE "z:\\cache002.map"
+#define UI_MAP_HEADER_SIZE 0x800
+#define UI_MAP_HEADER_LENGTH_OFFSET 0x08
+#define UI_MAP_HEADER_NAME_OFFSET 0x20
+#define UI_MAP_HEADER_NAME_SIZE 0x20
+#define UI_MAP_HEADER_CHECKSUM_OFFSET 0x64
+static struct
+{
+	unsigned long checksum;
+	long count;
+	struct ui_frame
+	{
+		char map[UI_FRAME_NAME_SIZE];
+		long index;
+		struct bitmap_data bitmap;
+	} frames[MAXIMUM_UI_FRAMES];
+} ui_frames;
+#endif
 
 /* ---------- private code */
 
@@ -898,6 +946,147 @@ static long spinner_split(struct halo_menu_widget const *widget, boolean values,
 	return count;
 }
 
+/* a frame of ui.map's scaled to a size of the file's: the texture stays
+ui.map's, drawn smaller or larger (ui_widget.c, pc_menu_frame_placement) */
+static void frame_placement_add(struct bitmap_data const *bitmap, struct halo_menu_frame const *data)
+{
+	if (data->width > 0 && data->height > 0 && data->width <= 2048 && data->height <= 2048)
+	{
+		struct menu_frame_placement *placements = realloc(menu_tags.placements,
+			(menu_tags.placement_count + 1) * sizeof(*menu_tags.placements));
+
+		if (placements)
+		{
+			menu_tags.placements = placements;
+			placements[menu_tags.placement_count].bitmap = bitmap;
+			placements[menu_tags.placement_count].x = (short)PIN(data->x, -2048, 2048);
+			placements[menu_tags.placement_count].y = (short)PIN(data->y, -2048, 2048);
+			placements[menu_tags.placement_count].width = (short)data->width;
+			placements[menu_tags.placement_count].height = (short)data->height;
+			placements[menu_tags.placement_count].texel_y = 0;
+			menu_tags.placement_count++;
+		}
+	}
+}
+
+#ifdef UI_FRAMES_FROM_CACHE
+/* size bytes at offset of ui.map's copy in the cache, if it is still the
+ui.map of that checksum, and they are all in it */
+static boolean ui_map_read(unsigned long checksum, long offset, long size, void *buffer)
+{
+	byte header[UI_MAP_HEADER_SIZE];
+	HANDLE file = CreateFileA(UI_MAP_CACHE_FILE, GENERIC_READ, FILE_SHARE_READ, NULL,
+		OPEN_EXISTING, 0, NULL);
+	unsigned long bytes_read = 0, header_checksum;
+	long length;
+	boolean result = FALSE;
+
+	if (file == INVALID_HANDLE_VALUE)
+		return FALSE;
+	if (ReadFile(file, header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header))
+	{
+		memcpy(&length, header + UI_MAP_HEADER_LENGTH_OFFSET, sizeof(length));
+		memcpy(&header_checksum, header + UI_MAP_HEADER_CHECKSUM_OFFSET, sizeof(header_checksum));
+		header[UI_MAP_HEADER_NAME_OFFSET + UI_MAP_HEADER_NAME_SIZE - 1] = 0;
+		if (!strcmp((char const *)header + UI_MAP_HEADER_NAME_OFFSET, "ui") && header_checksum == checksum &&
+			offset >= UI_MAP_HEADER_SIZE && size > 0 && length > 0 && offset <= length - size &&
+			SetFilePointer(file, offset, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER &&
+			ReadFile(file, buffer, (unsigned long)size, &bytes_read, NULL) && bytes_read == (unsigned long)size)
+		{
+			result = TRUE;
+		}
+	}
+	CloseHandle(file);
+	return result;
+}
+
+/* the main menu's build: a frame of ui.map's, as it found it, noted for the
+game maps' builds (ui_frame_make) */
+static void ui_frame_note(struct halo_menu_frame const *data, struct bitmap_data const *bitmap)
+{
+	long index;
+
+	if (strlen(data->map) >= UI_FRAME_NAME_SIZE)
+		return;
+	for (index = 0; index < ui_frames.count; index++)
+	{
+		if (ui_frames.frames[index].index == data->index && !strcmp(ui_frames.frames[index].map, data->map))
+			return;
+	}
+	if (ui_frames.count >= MAXIMUM_UI_FRAMES)
+		return;
+	strcpy(ui_frames.frames[ui_frames.count].map, data->map);
+	ui_frames.frames[ui_frames.count].index = data->index;
+	memcpy(&ui_frames.frames[ui_frames.count].bitmap, bitmap, sizeof(*bitmap));
+	ui_frames.count++;
+}
+
+/* a game map's build: a frame of ui.map's, which the map has not got, made
+a texture of its own from ui.map's copy in the cache, as the main menu's
+build found it. Only a 2D picture of DXT blocks (ui.map's pictures are),
+which are stored as they are drawn; its fields are the cache's (ui.map's
+own data), so they are checked. FALSE if it can't be: drawn blank */
+static boolean ui_frame_make(struct bitmap_data *bitmap, struct halo_menu_frame const *data, long tag_index)
+{
+	struct ui_frame const *frame = NULL;
+	long index, size;
+	void *pixels;
+
+	for (index = 0; index < ui_frames.count && !frame; index++)
+	{
+		if (ui_frames.frames[index].index == data->index && !strcmp(ui_frames.frames[index].map, data->map))
+			frame = &ui_frames.frames[index];
+	}
+	if (!frame)
+		return FALSE;
+	memcpy(bitmap, &frame->bitmap, sizeof(*bitmap));
+	if (bitmap->type != _bitmap_type_2d || bitmap->depth != 1 ||
+		!TEST_FLAG(bitmap->flags, _bitmap_compressed_bit) ||
+		bitmap->format < _bitmap_format_dxt1 || bitmap->format > _bitmap_format_dxt5 ||
+		bitmap->width < 4 || bitmap->height < 4 || bitmap->width > 2048 || bitmap->height > 2048 ||
+		(bitmap->width & (bitmap->width - 1)) || (bitmap->height & (bitmap->height - 1)) ||
+		bitmap->mipmap_count < 0 || bitmap->mipmap_count > 11)
+	{
+		return FALSE;
+	}
+	/* (its pixels its own, not the texture cache's) */
+	bitmap->flags = (short)(FLAG(_bitmap_has_power_of_two_dimensions_bit) | FLAG(_bitmap_compressed_bit) |
+		FLAG(_bitmap_allocated_bit));
+	bitmap->tag_index = tag_index;
+	bitmap->cache_block_index = NONE;
+	bitmap->base_address = XBOX_NULL;
+	bitmap->hardware_format = XBOX_NULL;
+	size = bitmap_get_pixel_data_size(bitmap);
+	if (size <= 0 || size > MAXIMUM_UI_FRAME_BYTES || size > frame->bitmap.pixels_size ||
+		frame->bitmap.pixels_offset < 0)
+	{
+		return FALSE;
+	}
+	pixels = allocate(size);
+	if (!pixels || !ui_map_read(ui_frames.checksum, frame->bitmap.pixels_offset, size, pixels))
+		return FALSE;
+	bitmap->base_address = XBOX_ADDRESS(pixels);
+	if (!rasterizer_bitmap_new(bitmap))
+	{
+		bitmap->hardware_format = XBOX_NULL;
+		return FALSE;
+	}
+	rasterizer_bitmap_changed(bitmap);
+	{
+		struct bitmap_data **bitmaps = realloc(menu_tags.bitmaps, (menu_tags.bitmap_count + 1) * sizeof(*menu_tags.bitmaps));
+
+		if (!bitmaps)
+		{
+			rasterizer_bitmap_delete(bitmap);
+			return FALSE;
+		}
+		menu_tags.bitmaps = bitmaps;
+		menu_tags.bitmaps[menu_tags.bitmap_count++] = bitmap;
+	}
+	return TRUE;
+}
+#endif
+
 static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 {
 	struct bitmap_group *group = allocate(sizeof(struct bitmap_group));
@@ -926,10 +1115,20 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 		long width = data->width, height = data->height;
 
 		/* (a frame of the map's: a copy of its bitmap, which the texture cache
-		loads from the map as its own; in a game map that has not got it,
-		nothing) */
+		loads from the map as its own; in a game map that has not got it, one
+		made from ui.map's copy in the cache, or nothing) */
 		if (data->map && build.game_map && tag_loaded(BITMAP_GROUP_TAG, data->map) == NONE)
 		{
+#ifdef UI_FRAMES_FROM_CACHE
+			if (ui_frame_make(bitmap, data, tag_index))
+			{
+				frame_placement_add(bitmap, data);
+				continue;
+			}
+			if (build.failed)
+				return group;
+			memset(bitmap, 0, sizeof(*bitmap));
+#endif
 			png = BLANK_PNG;
 			width = height = PLACEHOLDER_SIZE;
 		}
@@ -947,27 +1146,13 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 				return group;
 			}
 			memcpy(bitmap, XBOX_POINTER(struct bitmap_data, group_source->bitmaps.address) + data->index, sizeof(*bitmap));
+#ifdef UI_FRAMES_FROM_CACHE
+			if (!build.game_map)
+				ui_frame_note(data, bitmap);
+#endif
 			bitmap->cache_block_index = NONE;
 			bitmap->base_address = XBOX_NULL;
-			/* (scaled to a size of the file's: the texture stays the map's,
-			drawn smaller or larger, ui_widget.c) */
-			if (data->width > 0 && data->height > 0 && data->width <= 2048 && data->height <= 2048)
-			{
-				struct menu_frame_placement *placements = realloc(menu_tags.placements,
-					(menu_tags.placement_count + 1) * sizeof(*menu_tags.placements));
-
-				if (placements)
-				{
-					menu_tags.placements = placements;
-					placements[menu_tags.placement_count].bitmap = bitmap;
-					placements[menu_tags.placement_count].x = (short)PIN(data->x, -2048, 2048);
-					placements[menu_tags.placement_count].y = (short)PIN(data->y, -2048, 2048);
-					placements[menu_tags.placement_count].width = (short)data->width;
-					placements[menu_tags.placement_count].height = (short)data->height;
-					placements[menu_tags.placement_count].texel_y = 0;
-					menu_tags.placement_count++;
-				}
-			}
+			frame_placement_add(bitmap, data);
 			continue;
 		}
 
@@ -2110,7 +2295,8 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 	struct ui_widget_child_reference *grown = allocate(3 * count * sizeof(struct ui_widget_child_reference));
 	short split = PAUSE_BOX_SPLIT, key = PAUSE_BOX_KEY;
 
-	if (!grown || count > 6)
+	/* (a shorter box keeps some of its plain middle) */
+	if (!grown || count > 6 || key - split + grow <= 0)
 		return;
 	/* (every piece tall enough first: all of them drawn taller, or none) */
 	for (piece = 0; piece < count; piece++)
@@ -2156,6 +2342,72 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 	box->child_widgets.address = XBOX_ADDRESS(grown);
 	box->child_widgets.count = 3 * count;
 	box->bounds.y1 = (short)(box->bounds.y1 + grow);
+}
+
+/* the screen's stock box (pause_box_stock), its child index; NONE if it has none */
+static long pause_screen_box_child(long screen_tag)
+{
+	struct ui_widget_definition const *definition = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+	struct ui_widget_child_reference const *children = xbox_pointer(definition->child_widgets.address);
+	long child;
+
+	for (child = definition->child_widgets.count - 1; child >= 0; child--)
+	{
+		if (children[child].widget_tag.index != NONE &&
+			tag_get(UI_WIDGET_DEFINITION_TAG, children[child].widget_tag.index) &&
+			pause_box_stock(tag_get(UI_WIDGET_DEFINITION_TAG, children[child].widget_tag.index)))
+		{
+			return child;
+		}
+	}
+	return NONE;
+}
+
+/* the screen's own copy of a stock box it shares with another screen (the
+campaign's one and two player pause screens share theirs), its pieces
+copied too: pause_box_grow cuts the pieces it draws taller, so each screen's
+list can make its own box taller or shorter. FALSE if it isn't copied */
+static boolean pause_box_unshare(struct cache_file_tag_instance *instances, long screen_tag, long shared_tag)
+{
+	struct ui_widget_definition *definition = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+	struct ui_widget_child_reference *children = xbox_pointer(definition->child_widgets.address);
+	long box_child = pause_screen_box_child(screen_tag);
+	struct ui_widget_definition *box;
+	struct ui_widget_child_reference *pieces;
+	long piece, box_tag;
+
+	if (box_child == NONE || children[box_child].widget_tag.index != shared_tag)
+		return FALSE;
+	box = allocate(sizeof(*box));
+	if (!box)
+		return FALSE;
+	memcpy(box, tag_get(UI_WIDGET_DEFINITION_TAG, shared_tag), sizeof(*box));
+	pieces = allocate(box->child_widgets.count * (long)sizeof(*pieces));
+	if (!pieces)
+		return FALSE;
+	memcpy(pieces, xbox_pointer(box->child_widgets.address), box->child_widgets.count * sizeof(*pieces));
+	for (piece = 0; piece < box->child_widgets.count; piece++)
+	{
+		struct ui_widget_definition *copy;
+		long piece_tag;
+
+		if (pieces[piece].widget_tag.index == NONE)
+			continue;
+		copy = allocate(sizeof(*copy));
+		if (!copy)
+			return FALSE;
+		memcpy(copy, tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index), sizeof(*copy));
+		piece_tag = next_tag();
+		/* (by the piece's own name, which pause_box_stock knows it by) */
+		instance_set(instances, UI_WIDGET_DEFINITION_TAG, piece_tag, tag_get_name(pieces[piece].widget_tag.index), "",
+			copy);
+		reference_set(&pieces[piece].widget_tag, UI_WIDGET_DEFINITION_TAG, piece_tag);
+	}
+	box->child_widgets.address = XBOX_ADDRESS(pieces);
+	box_tag = next_tag();
+	instance_set(instances, UI_WIDGET_DEFINITION_TAG, box_tag, "pause/box", "", box);
+	reference_set(&children[box_child].widget_tag, UI_WIDGET_DEFINITION_TAG, box_tag);
+	return TRUE;
 }
 
 /* a screen's pause list, found by its RESUME GAME, else the button before
@@ -2242,7 +2494,9 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 		else
 			children[child].vertical_offset -= *grow / 2;
 	}
-	if (box_child != NONE && !*box_grown && *grow > 0)
+	/* (or shorter: a joined co-op machine's list loses REVERT and RESTART,
+	and its key would otherwise sit above an empty band of the box) */
+	if (box_child != NONE && !*box_grown && *grow != 0)
 	{
 		/* (trimmed first: the box's taller parts are copies of its pieces) */
 		pause_box_trim(tag_get(UI_WIDGET_DEFINITION_TAG, children[box_child].widget_tag.index));
@@ -2273,6 +2527,15 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 		game_connection() != GAME_CONNECTION_NETWORK_SERVER;
 	if (solo_screen != NONE)
 	{
+		/* (two players' screen on a joined machine loses rows of its own:
+		its own box, before either screen's is made taller or shorter) */
+		if (pause_coop_joined && split_screen != NONE && pause_screen_box_child(solo_screen) != NONE)
+		{
+			struct ui_widget_definition const *solo = tag_get(UI_WIDGET_DEFINITION_TAG, solo_screen);
+
+			pause_box_unshare(instances, split_screen, XBOX_POINTER(struct ui_widget_child_reference const,
+				solo->child_widgets.address)[pause_screen_box_child(solo_screen)].widget_tag.index);
+		}
 		if (settings || pause_controls_offered() || pause_guide_offered() || pause_coop_joined)
 			pause_screen_patch(instances, solo_screen, NONE, FALSE, settings, FALSE, &patched_list, &grow, &box_grown);
 		/* (and two players' on a joined machine: only those rows out) */
@@ -3040,6 +3303,14 @@ void menu_tags_loaded(
 	memset(&build, 0, sizeof(build));
 	build.menus = menus;
 	build.game_map = game_map;
+#ifdef UI_FRAMES_FROM_CACHE
+	/* (ui.map's frames found again, of this ui.map) */
+	if (!game_map)
+	{
+		ui_frames.count = 0;
+		ui_frames.checksum = cache_files_get_checksum();
+	}
+#endif
 	build.campaign_map = game_map && tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) != NONE;
 	widget_count = menus->widget_count;
 	build.widget_tags = malloc((widget_count + 1) * sizeof(long));

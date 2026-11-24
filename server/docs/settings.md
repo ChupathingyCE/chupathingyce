@@ -180,9 +180,10 @@ player's name goes in the log; the CD key hash is not logged).
 
 The player joins while a game is being played on a map they have too: a
 Custom Edition map (`bloodgulch@ce`, the same .map file on both sides). They
-play as one of the server's own players, moved by their client's input.
-On any other map, or with no seat left, the join is refused with Custom
-Edition's own message, not a timeout. This is new: test it on your server
+play as a player on a machine of their own in the game, moved by their
+client's input. On any other map, or in a game that already has 16
+players, the join is refused with Custom Edition's own message, not a
+timeout. This is new: test it on your server
 before you rely on it.
 
 What works:
@@ -192,11 +193,16 @@ What works:
 - The other players, their weapons and their shots, as the server's game
   has them.
 - Shield and health on their HUD, deaths and the respawn countdown.
-- The scoreboard: kills, assists, betrayals, deaths, suicides and Slayer's
-  scores, each team's in Team Slayer.
-- Slayer and Team Slayer, with the game type's own settings (score,
-  respawn, radar and the rest). In Team Slayer they are on their team, their
-  teammates are friends, and a team change (`sv_team`) follows them.
+- The scoreboard: kills, assists, betrayals, deaths, suicides and each game
+  type's scores, each team's in a team game.
+- Slayer, Capture the Flag, Oddball, King of the Hill and Race, free for
+  all or in teams, with the game type's own settings (score, respawn, radar
+  and the rest), and its HUD messages and announcer sounds (a flag taken
+  or returned, the minutes left). In a team game they are on their team,
+  their teammates are friends, and a team change (`sv_team`) follows them.
+- Up to 16 players in a game, theirs and ours together (16 is the most a
+  Custom Edition client's game holds). Each of them is a machine of its own
+  in the game, so the other players see them as any other player.
 - Weapon and grenade switching and zoom.
 - Weapons and equipment on the ground, picking them up and dropping them.
 - Vehicles: getting in and out of seats, and driving.
@@ -204,7 +210,7 @@ What works:
 - The end of a game and the next one: the scores come up on their screen,
   and when the next game starts they join it again by themselves (their
   client reconnects, as it does on Custom Edition's own servers) and keep
-  their seat. They are let go when the next map is not a Custom Edition
+  their place. They are let go when the next map is not a Custom Edition
   map, or when they don't come back within 45 seconds.
 - `sv_kick` and `sv_ban` (a ban is by their address). The bans, the limit
   on players from one address (`max_machines_per_address`) and the
@@ -214,11 +220,11 @@ What works:
 
 Not yet:
 
-- At most 4 Custom Edition players at once (they are seats of the server's
-  own machine); a fifth is told the server is full.
-- Game types other than Slayer and Team Slayer (Capture the Flag, Oddball,
-  King of the Hill, Race) are shown to them as Slayer: play Slayer or Team
-  Slayer with them.
+- Bomb is shown to them as Slayer, free for all.
+- Oddball, King of the Hill and Race are not yet played with a real Custom
+  Edition client on our server (their messages are checked against
+  captures of Custom Edition's own server).
+- Every player's ping shows as 0 on their scoreboard.
 - A join between games waits up to 12 seconds for the next one. On an
   empty server, their player goes into the lobby and a game starts after a
   short countdown.
@@ -279,6 +285,15 @@ problem (the log then says so at the first one). `0`, `false`, `no` and
 `off` leave it off, as for every switch here that only has to be set. Logs
 written with it on hold everyone's address: delete them once the problem is
 found.
+
+Joins and passwords: a game with a password takes a machine from the local
+network (the private ranges, link-local, loopback, and 100.64.0.0/10, which
+internet play's players and networks such as Tailscale's use) as before. A
+machine that reaches the game's port from any other address is refused with
+the password message, whichever kind of join it sent, since only internet
+play's invite asks for the password. A game without a password, which is
+every dedicated server's (there is no `sv_password`, [admin.md](admin.md#why-there-is-no-sv_password)),
+takes every join as before.
 
 The settings for hosts in `config.toml`, `network.host_cheats`
 (`HALO_NET_HOST_CHEATS`, `false`) and `network.host_console_objects`

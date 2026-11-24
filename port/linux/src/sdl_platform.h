@@ -150,7 +150,28 @@ void platform_video_present_area(int *x, int *y, int *width, int *height);
 /* the window's mode and size and V-Sync, from config.toml as Settings has
 just written it (the main thread's) */
 void platform_display_apply(void);
+/* the frame's end, every renderer's: OpenGL's window swapped (bgfx and the
+Android Vulkan renderer present on their own first), then the clock that
+holds display.max_fps with V-Sync off, or display.vrr's ceiling */
 void platform_video_swap(void);
+/* How every renderer shows its frames, from display.vsync, display.vrr and
+tuning.present_mode, decided here once for all of them: OpenGL's swap
+interval (sdl_platform.c), bgfx's reset flags and Vulkan present mode
+(d3d8_bgfx.inl, tools/bgfx-patches) and the Android Vulkan renderer's
+swapchain (d3d8_vk.inl, port/android/host/host_vk_present.c). */
+enum
+{
+	/* V-Sync off: each frame shown at once, torn if need be */
+	PLATFORM_PRESENT_IMMEDIATE,
+	/* each frame waits for the display (V-Sync on, or VRR) */
+	PLATFORM_PRESENT_VBLANK,
+	/* tuning.present_mode = "adaptive": each frame waits, but one that
+	missed the display is shown at once, with a tear */
+	PLATFORM_PRESENT_ADAPTIVE,
+};
+int platform_present_mode(void);
+/* the window's display's refresh rate in Hz, 0 where it is not known */
+float platform_display_refresh_rate(void);
 /* frames between the 30 Hz ticks at the display's refresh rate, unless
 display.interpolation is false (port/linux/game/render_interpolation.c) */
 int halo_interpolation_enabled(void);

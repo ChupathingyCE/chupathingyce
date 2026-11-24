@@ -10679,9 +10679,14 @@ static boolean ui_check_for_pause_game(
 						network_game_client_get_machine_index(client);
 					char const *widget_name;
 
-					/* port: a campaign map has only the campaign's pause screen */
+					/* port: a campaign map has only the campaign's pause screens:
+					one player's, or two players' with a split screen of this
+					machine's (the one player's would be cut to the first
+					player's half) */
 					if (network_coop_active())
-						widget_name = "ui\\shell\\solo_game\\pause_game\\pause_game";
+						widget_name = local_player_count >= 2 ?
+							"ui\\shell\\solo_game\\pause_game\\pause_game_split_screen" :
+							"ui\\shell\\solo_game\\pause_game\\pause_game";
 					else switch (local_player_count)
 					{
 					case 1:

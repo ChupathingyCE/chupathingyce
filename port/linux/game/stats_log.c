@@ -1,8 +1,9 @@
 /*
 STATS_LOG.C
 
-A line a second in the log with the frame rate, the mode, the map, the
-renderer and the size of the 3D view (display.stats_log, off by default):
+A line a second in the log with the frame rate (the frames drawn, and of
+them the frames shown in the window), the mode, the map, the renderer and the
+size of the 3D view (display.stats_log, off by default):
 a graphics bug's report, or two builds compared, says which of them was
 running and what the frame rate was, without reading numbers off a screen.
 
@@ -34,6 +35,8 @@ unsigned long system_milliseconds(void);
 #define STATS_LOG_MILLISECONDS 1000
 
 static char stats_log_renderer[160] = "?";
+/* the frames shown since the line before (stats_log_frame_shown) */
+static unsigned long stats_log_shown;
 
 static int stats_log_enabled(void)
 {
@@ -96,6 +99,11 @@ void stats_log_set_renderer(
 		snprintf(stats_log_renderer, sizeof(stats_log_renderer), "?");
 }
 
+void stats_log_frame_shown(void)
+{
+	stats_log_shown++;
+}
+
 void stats_log_tick(void)
 {
 	static unsigned long window_start;
@@ -109,6 +117,7 @@ void stats_log_tick(void)
 	{
 		window_start = 0;
 		frames = 0;
+		stats_log_shown = 0;
 		return;
 	}
 	/* split screen draws the overlays once a view: count each frame once */
@@ -120,15 +129,17 @@ void stats_log_tick(void)
 	if (!window_start)
 	{
 		window_start = now;
+		stats_log_shown = 0;
 		return;
 	}
 	elapsed = now - window_start;
 	if (elapsed < STATS_LOG_MILLISECONDS)
 		return;
 	bounds = render.camera.window_bounds;
-	platform_log("STATS fps=%.1f mode=%s map=%s gpu=\"%s\" res=%dx%d",
-		stats_log_fps(elapsed, frames), stats_log_mode(), stats_log_map(),
+	platform_log("STATS fps=%.1f shown=%.1f mode=%s map=%s gpu=\"%s\" res=%dx%d",
+		stats_log_fps(elapsed, frames), stats_log_fps(elapsed, stats_log_shown), stats_log_mode(), stats_log_map(),
 		stats_log_renderer, (int)(bounds.x1 - bounds.x0), (int)(bounds.y1 - bounds.y0));
 	window_start = now;
 	frames = 0;
+	stats_log_shown = 0;
 }

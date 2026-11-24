@@ -1826,6 +1826,10 @@ static boolean network_game_client_handle_message_server_add_player_ingame(
 					return TRUE;
 				}
 #endif
+				/* port: its name kept to what draws as one line of text, as
+				the names in the host's settings record are
+				(network_game_client_game_settings_updated) */
+				player_name_clean(player.name, NUMBEROF(player.name));
 				/* (the distributed netcode: a player this machine cannot add
 				does not end its game) */
 				if (!network_game_client_add_player_to_game(client, &player))
