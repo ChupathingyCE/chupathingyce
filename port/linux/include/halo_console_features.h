@@ -200,6 +200,12 @@ HALO_CONSOLE_NATIVE_RENDERER
 	by the port, instead of the OpenGL layer (port/linux/src/d3d8_console.inl),
 	and "gl" as before; the setting's default is "gl", or "native" with
 	HALO_CONSOLE_NATIVE_RENDERER_FIRST on the port's compile line
+HALO_CONSOLE_STATE_IN_PLACE
+	a console whose heap has no room for a second copy of the game state
+	(the native builds' 20 MB): a checkpoint revert, a core and a saved
+	game are read straight into the game state, as the original Xbox reads
+	them, instead of beside it and copied (source/saved games/
+	game_state_xbox.c); a file refused once read starts the map over
 HALO_CONSOLE_RENDER_TIMING
 	a console that logs where a frame's time goes: the renderer tells it
 	when the game enters and leaves the device's draws, clears and present
