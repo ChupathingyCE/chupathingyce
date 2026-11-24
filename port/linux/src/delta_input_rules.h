@@ -82,13 +82,26 @@ enum
 /* whether it shows now: fewer than DELTA_HINT_TIMES shown, and no DELTA row
 in the menus */
 int delta_hint_due(int shown, int menu_item);
-/* its title: with a pad used last, "Hold Back for the Delta Guide" (delta.hold_back
-on), else "Press the Guide button" (delta.delta_button on), else the
-keyboard's "Press F3 for the Delta Guide"; key is the
-keyboard's key as its prompts show it (F3, or \ on a Mac) */
+/* its title: with a pad used last (pad: its prompt scheme,
+halo_prompt_schemes.h's, the buttons it draws; 0 the keyboard's), "Hold
+Back for the Delta Guide" (delta.hold_back on), else "Press the Guide
+button" (delta.delta_button on), each button named as that pad names it
+(Share and the PS button on a PlayStation pad, Minus and Home on a
+Nintendo one); else the keyboard's "Press F3 for the Delta Guide"; key is
+the keyboard's key as its prompts show it (F3, or \ on a Mac) */
 void delta_hint_text(char *text, int size, int pad, const char *key, int guide_button, int hold_back);
 /* the same for a Mac (apple), where macOS often keeps the controller's Home
 button: Hold Back, else the keyboard's key, never Guide */
 void delta_hint_text_for(char *text, int size, int pad, const char *key, int guide_button, int hold_back, int apple);
+
+/* a pad's (its prompt scheme's, 1 an Xbox pad's) name for Back ("Back",
+"Share", "Minus", "View") and for its Guide button in a sentence ("the
+Guide button", "the PS button", "the Home button"); the keyboard's and an
+unknown scheme's are an Xbox pad's */
+const char *delta_pad_back_name(int pad);
+const char *delta_pad_guide_name(int pad);
+/* the Guide button's setting's label for that pad ("GUIDE BUTTON", "PS
+BUTTON", "HOME BUTTON") */
+const char *delta_pad_guide_label(int pad);
 
 #endif

@@ -119,7 +119,7 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
         name="linux64",
         compressed_maps=True,
         lua=True,
-        jolt=True,
+        jolt=getattr(sln, "with_ragdolls", True),
         target_flags=[LINUX64_TARGET, march_flag(sln), *(sdl.cflags if sdl else [])],
         game_flags=LINUX64_GAME_FLAGS,
         posix_flags=LINUX64_POSIX_FLAGS,

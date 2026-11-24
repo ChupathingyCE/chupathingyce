@@ -526,8 +526,163 @@ static void check_shown(void)
 	CHECK(text_shown("Jos\xC3\xA9", latin_only, NULL, out, 5) == 3 && !strcmp(out, "Jos"), "cut: [%s]", out);
 }
 
+/* a page of lines: SETTINGS' captions and rows */
+enum { A = GUIDE_LINE_ACTION, I = GUIDE_LINE_INFO, C = GUIDE_LINE_CAPTION, T = GUIDE_LINE_TEXT };
+
+static float lines_height(const float *heights, int first, int shown)
+{
+	float used = 0;
+	int line;
+
+	for (line = first; line < first + shown; line++)
+		used += heights[line];
+	return used;
+}
+
+static void check_lines(void)
+{
+	/* (a caption 16 high, a row 30, as SETTINGS draws them) */
+	static const int kinds[] = { C, A, A, A, C, A, A, C, A, I, I, C, A, A, A, A };
+	float heights[16];
+	int count = 16, line, first, chosen, step;
+	static const int none[] = { C, I, T, I };
+
+	for (line = 0; line < count; line++)
+		heights[line] = kinds[line] == C ? 16.0f : 30.0f;
+	/* (the cursor: only on actions, past captions and info) */
+	CHECK(guide_lines_snap(kinds, count, 0, 1) == 1, "a caption snaps to the action under it");
+	CHECK(guide_lines_snap(kinds, count, 4, -1) == 3, "up from a caption: the action over it");
+	CHECK(guide_lines_move(kinds, count, 3, 1) == 5, "down past a caption");
+	CHECK(guide_lines_move(kinds, count, 8, 1) == 12, "down past info and a caption");
+	CHECK(guide_lines_move(kinds, count, 12, -1) == 8, "up past them");
+	CHECK(guide_lines_move(kinds, count, 1, -1) == 1, "the first action stays");
+	CHECK(guide_lines_move(kinds, count, 15, 1) == 15, "the last stays");
+	CHECK(guide_lines_move(kinds, count, 1, 100) == 15, "a long step stops at the last");
+	CHECK(guide_lines_move(none, 4, 0, 1) == -1 && guide_lines_snap(none, 4, 2, 1) == -1, "no action: none");
+	CHECK(!guide_lines_focusable(kinds, count, -1) && !guide_lines_focusable(kinds, count, count), "out of range");
+	/* (scrolling: every action in view as the cursor walks the page, and
+	nothing past the room) */
+	for (step = 1; step >= -1; step -= 2)
+	{
+		first = 0;
+		chosen = step > 0 ? 1 : 15;
+		for (;;)
+		{
+			int shown;
+
+			first = guide_lines_scroll(kinds, heights, count, chosen, first, 160.0f);
+			shown = guide_lines_shown(kinds, heights, count, first, 160.0f);
+			CHECK(chosen >= first && chosen < first + shown, "line %d shows (first %d, %d shown)", chosen, first, shown);
+			CHECK(lines_height(heights, first, shown) <= 160.5f, "lines %d..%d fit", first, first + shown - 1);
+			CHECK(kinds[first + shown - 1] != C, "no caption left at the bottom (first %d)", first);
+			line = guide_lines_move(kinds, count, chosen, step);
+			if (line == chosen)
+				break;
+			chosen = line;
+		}
+	}
+	/* (a block's first action brings its caption with it) */
+	CHECK(guide_lines_scroll(kinds, heights, count, 5, 6, 160.0f) == 4, "back up to line 5: its caption shows");
+	CHECK(guide_lines_scroll(kinds, heights, count, 1, 3, 160.0f) == 0, "the first block's caption too");
+	/* (information over a block's first action comes with it too) */
+	{
+		static const int about[] = { C, I, I, A, C, A, A };
+		static const float about_heights[] = { 18, 20, 20, 30, 18, 30, 30 };
+
+		CHECK(guide_lines_snap(about, 7, 0, 1) == 3, "the first action under the information");
+		CHECK(guide_lines_scroll(about, about_heights, 7, 3, 3, 120.0f) == 0, "its caption and lines show with it");
+		CHECK(guide_lines_scroll(about, about_heights, 7, 3, 3, 60.0f) == 2, "as many of them as fit");
+	}
+	/* (the end never floats up: a first past the last full start is pulled back) */
+	first = guide_lines_scroll(kinds, heights, count, -1, 15, 160.0f);
+	CHECK(lines_height(heights, first, count - first) <= 160.5f && first > 0 &&
+		lines_height(heights, first - 1, count - first + 1) > 160.5f, "the last lines fill the room (first %d)", first);
+	/* (everything fits: from the top) */
+	CHECK(guide_lines_scroll(kinds, heights, count, 15, 4, 1000.0f) == 0, "a short page from its top");
+	CHECK(guide_lines_shown(kinds, heights, count, 0, 1000.0f) == count, "all of it shows");
+	/* (room for less than a line: still one) */
+	CHECK(guide_lines_shown(kinds, heights, count, 1, 10.0f) == 1, "at least one line");
+	/* (a caption whose row won't fit is left for the next screen) */
+	CHECK(guide_lines_shown(kinds, heights, count, 1, 30 * 3 + 16 + 10) == 3, "the caption waits for its row");
+}
+
+/* the sections down the left, and a list beside its detail */
+static void check_sidebar(void)
+{
+	struct guide_rect area = { 32, 100, 116, 298 };
+	struct guide_sidebar_layout sidebar;
+	struct guide_rect list, detail, body = { 162, 100, 446, 298 };
+	int count, index, other;
+
+	for (count = 0; count <= GUIDE_SIDEBAR_MOST + 2; count++)
+	{
+		guide_layout_sidebar(area, count, 24.0f, &sidebar);
+		CHECK(sidebar.count == (count > GUIDE_SIDEBAR_MOST ? GUIDE_SIDEBAR_MOST : count), "%d sections", count);
+		for (index = 0; index < sidebar.count; index++)
+		{
+			CHECK(guide_rect_inside(sidebar.items[index], area), "item %d of %d inside", index, count);
+			CHECK(sidebar.items[index].height > 0, "item %d of %d has height", index, count);
+			for (other = index + 1; other < sidebar.count; other++)
+				CHECK(!guide_rect_overlap(sidebar.items[index], sidebar.items[other]), "items %d and %d", index, other);
+		}
+	}
+	/* (eight sections fit at their full height with their gaps) */
+	guide_layout_sidebar(area, 8, 24.0f, &sidebar);
+	CHECK(sidebar.items[7].height == 24.0f && sidebar.items[1].y - sidebar.items[0].y == 24.0f + GUIDE_SIDEBAR_GAP,
+		"eight at full size");
+	/* (the sections start at the top: nothing of the Guide's own at the foot) */
+	CHECK(sidebar.items[0].y == area.y, "from the top");
+	/* (more than fit: squeezed, the last one still inside at the foot) */
+	guide_layout_sidebar(area, GUIDE_SIDEBAR_MOST, 30.0f, &sidebar);
+	CHECK(sidebar.items[GUIDE_SIDEBAR_MOST - 1].y + sidebar.items[GUIDE_SIDEBAR_MOST - 1].height <=
+		area.y + area.height + 0.01f, "squeezed into the area");
+	/* (the list and its detail: apart, in the body, the detail at least its minimum) */
+	guide_layout_columns(body, 12.0f, 0.53f, 190.0f, &list, &detail);
+	CHECK(guide_rect_inside(list, body) && guide_rect_inside(detail, body), "columns in the body");
+	CHECK(!guide_rect_overlap(list, detail) && detail.x - (list.x + list.width) >= 11.99f, "columns apart");
+	CHECK(detail.width >= 190.0f - 0.01f, "the detail's minimum (%.1f)", detail.width);
+	CHECK(list.x + list.width + 12 + detail.width <= body.x + body.width + 0.01f, "they fill the body");
+	/* (a narrow body: the list keeps half) */
+	body.width = 300;
+	guide_layout_columns(body, 12.0f, 0.53f, 250.0f, &list, &detail);
+	CHECK(list.width >= (300 - 12) * 0.5f - 0.01f && guide_rect_inside(detail, body), "a narrow body");
+}
+
+/* the sections listed: PLAYERS HERE (3 here) only in a game */
+static void check_sections(void)
+{
+	/* FRIENDS, PARTY, CLAN, PLAYERS HERE, RECENT, WORKSHOP, SERVICE RECORD, SETTINGS */
+	static const int menus[] = { 1, 1, 1, 0, 1, 1, 1, 1 }, game[] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+	static const int none[] = { 0, 0, 0 };
+	struct guide_rect area = { 32, 100, 116, 298 };
+	struct guide_sidebar_layout sidebar;
+	int listed, index;
+
+	/* (in the menus: RB from CLAN and LB from RECENT pass it) */
+	CHECK(guide_sections_go(menus, 8, 2, 3) == 4, "RB past PLAYERS HERE in the menus");
+	CHECK(guide_sections_go(menus, 8, 4, 3) == 2, "LB past PLAYERS HERE in the menus");
+	/* (in a game: it is there) */
+	CHECK(guide_sections_go(game, 8, 2, 3) == 3 && guide_sections_go(game, 8, 4, 3) == 3, "PLAYERS HERE in a game");
+	/* (the game ends with it open: the next one) */
+	CHECK(guide_sections_go(menus, 8, 3, 4) == 4, "a game's end moves on to RECENT");
+	/* (wrapping past either end, and nothing listed) */
+	CHECK(guide_sections_go(menus, 8, 7, 8) == 0 && guide_sections_go(menus, 8, 0, -1) == 7, "wraps");
+	CHECK(guide_sections_go(none, 3, 0, 1) == -1, "none listed");
+	/* (the sidebar: seven in the menus, eight in a game, all inside) */
+	for (listed = 7; listed <= 8; listed++)
+	{
+		guide_layout_sidebar(area, listed, 24.0f, &sidebar);
+		CHECK(sidebar.count == listed, "%d listed", listed);
+		for (index = 0; index < listed; index++)
+			CHECK(guide_rect_inside(sidebar.items[index], area), "item %d of %d inside", index, listed);
+	}
+}
+
 int main(void)
 {
+	check_sections();
+	check_sidebar();
+	check_lines();
 	check_shown();
 	check_marquee();
 	check_scroll();
