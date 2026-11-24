@@ -34,6 +34,11 @@ To build:
 - The 32-bit SDL3: `libsdl3-dev:i386` on Debian and Ubuntu, `lib32-sdl3` on
   Arch Linux. The portable build does not need it: refer to "Portable
   build".
+- The 32-bit static C++ library (`libstdc++.a`), which the ragdolls' Jolt
+  Physics is linked with: `g++-multilib` on Debian and Ubuntu, `gcc` on
+  Arch Linux (its 32-bit libraries come with it). The portable build does
+  not need it: its own system root has one. Players need no 32-bit C++
+  library either way.
 
 To start the game:
 
@@ -81,9 +86,13 @@ starts on more systems than the build machine's:
   32-bit SDL 3. This SDL loads X11, Wayland, libdecor, PipeWire, PulseAudio
   and ALSA when it starts, so it starts with whichever of them the system
   has. It is linked only to glibc. Its license is in `THIRD-PARTY-NOTICES.txt`.
+- It links Debian 11's 32-bit C++ library (GCC 10's `libstdc++.a`)
+  statically, for the ragdolls' Jolt Physics, so the build machine needs no
+  32-bit C++ library of its own.
 
 The 64-bit build (`ninja linux64`, below) is portable the same way, with
-Debian 11's 64-bit (amd64) packages.
+Debian 11's 64-bit (amd64) packages, but for the C++ library: it uses the
+system's 64-bit one, which every distribution has.
 
 At the first build, `tools/linux_sysroot.py` downloads the Debian packages
 (about 25 MB) and the source of SDL. Each package comes from
@@ -414,9 +423,11 @@ The campaign is wired: Campaign, on player 1's profile (the one last used),
 continues its saved game, starts a level it has reached at a difficulty (New
 Game), or loads or deletes any profile's saved game (Load Game). The
 multiplayer screens are wired too: the Server Browser, the map and game type
-lists, Server Setup and its START GAME. A few of the PC version's functions
-still do nothing here, such as the Direct IP screen's own fields and the
-Server Browser's filter settings (`port/assets/menus/UNWIRED.md`). The
+lists, Server Setup and its START GAME. Direct IP joins a game by its address
+(`port/linux/game/direct_join.c`; the Chupathingy menus open it with X on
+System Link). A few of the PC version's functions still do nothing here,
+such as the Server Browser's filter settings
+(`port/assets/menus/UNWIRED.md`). The
 screens open, close and move between each other as the PC version's.
 
 `display.menus` chooses one of two menu sets:
@@ -585,9 +596,10 @@ the setting for one start of the game. It has priority over the file.
 | `debug.gpu_flush_draws` | `-1` | `HALO_GPU_FLUSH_DRAWS` | Flush the GPU's pipeline every this many draws. `-1`: every 3 on Intel graphics with Mesa's driver, which can otherwise hang in the game's long runs of small draws and reset the desktop's graphics too. `0`: never. |
 | `debug.gpu_visibility_readback` | `"auto"` | `HALO_GPU_VISIBILITY_READBACK` | How the lens flare and light glow tests get their results. `auto`: read on the CPU, except on NVIDIA's driver, which copies them into a mapped buffer. AMD's driver loses results that way (no sun flares or light glows). `cpu` or `buffer` forces one. |
 | `debug.door_portals_log` | `false` | `HALO_DOOR_PORTALS_LOG` | Logs the level portals each door covers when it is paired with them (`source/objects/door_portals.c`). |
+| `debug.time_code` | `false` | `HALO_TIME_CODE` | Draws the time code the cutscene scripts turn on (`time_code_show`): the ticks since it started, in the top-left corner, as Bungie's tools showed it. The Xbox's game never drew it. |
 | `display.interpolation` | `true` | `HALO_INTERPOLATION` | `true`: one frame for each refresh of the display. `false`: 30 frames each second, as on the Xbox. Video Setup's Frame Rate sets it (30 (Xbox) is `false`, the others `true`). Refer to "Frame rate". |
 | `display.direct_camera` | `true` | `HALO_DIRECT_CAMERA` | `true`: in first person, on foot, the view points where the player aims in each frame, not where the last tick left it. Refer to "Frame rate". Not in Video Setup: config.toml only. |
-| `display.field_of_view` | `70.0` | `HALO_FIELD_OF_VIEW` | How wide the first-person view is, in degrees across a 4:3 picture: `70`, as on the Xbox, from `50` to `120`. On a wider screen the view shows more at the sides, as before. Scopes zoom in by as much as before. Only the first-person view changes: cutscenes, the third-person views and the game itself (aim, auto-aim, what each machine sends) do not. Video Setup's Field of View sets it in the menus. |
+| `display.field_of_view` | `70.0` | `HALO_FIELD_OF_VIEW` | How wide the first-person view is, in degrees across a 4:3 picture: `70`, as on the Xbox, from `50` to `120`. On a wider screen the view shows more at the sides, as before. Zoomed in, the view is the Xbox's own (a 2x scope shows what it shows at `70`), so the scope's reticle and marks line up with the world as on the Xbox. Only the first-person view changes: cutscenes, the third-person views and the game itself (aim, auto-aim, what each machine sends) do not. Video Setup's Field of View sets it in the menus. |
 | `display.viewmodel_field_of_view` | `0.0` | `HALO_VIEWMODEL_FIELD_OF_VIEW` | How wide the first-person weapon and arms are drawn, in degrees as `display.field_of_view`: `0` (the default) follows `display.field_of_view`, as before; `50` to `120` draws them at that width whatever the view's, so a wide view does not stretch them. `70`: the weapon as on the Xbox. Drawing only. |
 | `display.vehicle_field_of_view` | `0.0` | `HALO_VEHICLE_FIELD_OF_VIEW` | The view's width in a vehicle's seat (driver, gunner or passenger, first or third person), in degrees as `display.field_of_view`: `0` (the default) keeps it as before: a first-person seat follows `display.field_of_view` and a third-person one keeps the game's own; `50` to `120` sets its own for both. Getting in or out eases the view between the two over half a second. Death, cutscenes and scripted cameras keep the game's own. Drawing only. Video Setup's View has Vehicle FOV. |
 | `display.reticle_scale` | `1.0` | `HALO_RETICLE_SCALE` | The reticle's size, `0.5` to `2.0`: `1.0` is the Xbox's. On top of `display.reticle_scales_with_fov`. Video Setup's View: Reticle Size; the Guide and the setup screen have it too. |
@@ -630,7 +642,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.loading_screen_multiplayer_seconds` | `0.0` | `HALO_LOADING_SCREEN_MULTIPLAYER_SECONDS` | The same for every other game: split screen multiplayer, system link, online and network co-op, on a machine that joins and on one that hosts and plays, up to 5: while the loading screen is held, the machine hears nothing from the network, and a host drops a machine it hears nothing from for 15 seconds. Machines already finish loading at their own times. Never on the dedicated server. `0`: no wait. |
 | `display.prepare_shaders` | `true` | `HALO_PREPARE_SHADERS` | Make a map's shaders while its loading screen is up, so the game doesn't stop for a moment to make one the first time something new is drawn: a new area, a weapon, an effect. Each map has a list of what it draws: the stock maps' comes with the game (`port/assets/shaders/stock.keys`), and the game keeps every map's own list in `cache/shader_keys`, so a custom map's shaders are ready from its second load on. The loading screen waits up to 5 seconds for them, its glow showing how far they are. What's left is made in play by bgfx's compile threads, or by an OpenGL driver that compiles in parallel; other drivers make it at its first draw, as before. The OpenGL and bgfx renderers; not the consoles yet. `false`: each shader is made when it is first drawn. |
 | `display.join_screen` | `true` | `HALO_JOIN_SCREEN` | While Online Games joins a game or downloads its map, the loading screen (its sweep looped: `game/loading_screen.c`) with what is going on, the download's progress and B to cancel, back to the list (`game/browser_screen.c`). `false`: the small panel and the download dialog over the list. |
-| `display.xbox_loading_picture` | `true` | `HALO_XBOX_LOADING_PICTURE` | `true`: the loading screen shows the Xbox's own picture, `xbox_loading.tga` in your maps folder (a PAL disc's `loading.tga` works too; NTSC discs have none), and Chupathingy's own when there is none, as after a manual install without the disc's file. `false`: always Chupathingy's. The setup screen's disc import saves a PAL disc's picture as `maps/xbox_loading.tga`. A picture that is not an uncompressed 24-bit TGA of 320 by 240 is skipped. Not on the consoles, which show the disc's picture. |
+| `display.xbox_loading_picture` | `true` | `HALO_XBOX_LOADING_PICTURE` | `true`: the loading screen shows the Xbox's own picture, `xbox_loading.tga` in your maps folder (a PAL disc's `loading.tga` works too; NTSC discs have none), and Chupathingy's own when there is none, as after a manual install without the disc's file. `false`: always Chupathingy's. The setup screen's disc import saves a PAL disc's picture as `maps/xbox_loading.tga`. A picture that is not an uncompressed 24-bit TGA of 320 by 240 is skipped. On the Xbox 360 and the Wii U too; not on the original Xbox, which shows the disc's picture. |
 | `display.scoreboard_team_layout` | `"teams"` | `HALO_SCOREBOARD_TEAM_LAYOUT` | How the multiplayer scoreboard (hold BACK, or tab) lists a team game's players. `"teams"`: a column for each team, red on the left and blue on the right. `"score"`: all the players in order of score. With more players than fit, the mouse wheel and Page Up / Page Down scroll the scoreboard. |
 | `display.scoreboard_background` | `true` | `HALO_SCOREBOARD_BACKGROUND` | `true`: the multiplayer scoreboard (hold BACK, or tab) has a panel behind its text, for clearer text. |
 | `display.scoreboard_icons` | `true` | `HALO_SCOREBOARD_ICONS` | The scoreboard's icons: platform logos and the Delta mark of verified players (SCOREBOARD ICONS in Settings and the Guide). `false`: just names and scores. |
@@ -658,7 +670,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.per_pixel_lighting` | `false` | `HALO_PER_PIXEL_LIGHTING` | `false`: the models (characters, weapons, vehicles, scenery) are lit at each vertex and the light is blended between them, as on the Xbox. The light across a curved surface then shows facets, and a point light that passes close lights only the vertices it reaches. `true`: the models are lit at each pixel by the same lights (the ambient light, two distant lights and two point lights), which changes their look. |
 | `display.camo_weapon_fix` | `false` | `HALO_CAMO_WEAPON_FIX` | `true`: your camouflaged first-person weapon is drawn in the front of the depth range, so a wall close by never cuts it away. `false`: as on the Xbox, where it is drawn after the world and walls cut it. Drawing only. |
 | `display.plasma_sparks` | `false` | `HALO_PLASMA_SPARKS` | `true`: the blue sparks off a live plasma grenade are drawn, at any frame rate. On the Xbox they never showed: a particle that plays one short sequence ran its frame out in its first update, a whole tick, before it was drawn, so the native builds showed them only above 30 frames a second. `false`: as on the Xbox, at any frame rate (`source/effects/particles.c`). Settings: Video Setup, Advanced, and the Guide. |
-| `display.ragdolls` | `false` | `HALO_RAGDOLLS` | `true`: a character killed falls limp, thrown by the blow that killed it, and comes to rest where it lands, instead of its death animation's last pose. Each body is a rigid body ragdoll on Jolt Physics (`port/third_party/jolt`), made from the dying character's own model, collision model and animation graph (`game/ragdolls.c`, `game/physics_jolt.cpp`). Only the picture: the body's place, hit boxes, saved games and the network are as before, and each machine simulates its own. Four fall at once at most, twelve are kept. `false`: as on the Xbox. `debug.ragdolls` (`HALO_RAGDOLLS_DEBUG`) logs them and lets the console's `ragdolls` tests run. Builds with Jolt only (`HALO_PORT_RAGDOLLS`). Settings: Video Setup, Advanced, and the Guide. The idea is from jojoxdk's Halo 1 MCC Box3D Physics Mod. |
+| `display.ragdolls` | `false` | `HALO_RAGDOLLS` | `true`: a character killed plays its death animation and falls limp partway through it, as in Halo 2 and Halo 3 (the ragdoll starts from the animated pose and motion as the body falls or meets the level, and is pulled toward the animation for a quarter second; a body an explosion, a melee blow or a vehicle's hit throws into the air plays its airborne death animation as it flies and goes limp as it meets the ground or a wall; one left on its feet goes limp at once), and comes to rest where it lands, instead of its death animation's last pose. Each body is a rigid body ragdoll on Jolt Physics (`port/third_party/jolt`), made from the dying character's own model, collision model and animation graph (`game/ragdolls.c`, `game/physics_jolt.cpp`). Only the picture: the body's place, hit boxes, saved games and the network are as before, and each machine simulates its own. Four fall at once at most, twelve are kept. If the physics runs out of memory, the bodies are laid down as on the Xbox and ragdolls stay off until the setting is turned off and on again; the game goes on. `false`: as on the Xbox. `debug.ragdolls` (`HALO_RAGDOLLS_DEBUG`) logs them and lets the console's `ragdolls` tests run. Builds with Jolt only (`HALO_PORT_RAGDOLLS`). Settings: Video Setup, Advanced, and the Guide. The idea is from jojoxdk's Halo 1 MCC Box3D Physics Mod. |
 | `display.doors_block_light` | `true` | `HALO_DOORS_BLOCK_LIGHT` | `true`: a closed door stops a dynamic light behind it (a plasma bolt, an explosion, a flashlight in the next room) from lighting the walls and objects on your side. Each door is matched with the level portals it covers once it has rested at each end of its travel; a moving door lets light through. Drawing only: the AI's sense of light and the network are unchanged (`source/objects/door_portals.c`). `false`: the light comes through the door, as on the Xbox. This replaces the old `debug.doors_pass_light` key, which is gone. |
 | `display.light_effects` | `"auto"` | `HALO_LIGHT_EFFECTS` | Light from projectiles, muzzle flashes, glowing emitters and held weapons, with soft falloff, blocked by walls. `"high"`: all of it. `"low"`: only the shots and muzzle flashes. `"off"`: the game's own lighting, as on the Xbox. `"auto"`: `"high"`, or `"off"` on a software renderer. Drawing only. LIGHT EFFECTS in the display settings. Based on chestahh's dynamic lighting in GulchCE (`port/linux/game/lighting_config.c`). Desktop only. |
 | `display.theme` | `"blue"` | `HALO_THEME` | The colors of the Delta Guide and the setup screen: `"blue"` (HALO BLUE), `"green"` (DASHBOARD GREEN), `"orange"` (VISOR ORANGE), `"live"` (LIVE ORANGE) or `"red"` (CHUPATHINGY RED). A change shows at once. |
@@ -796,6 +808,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.announce` | `"latest"` | `HALO_NET_ANNOUNCE` | The OpenCE network version that the games you host announce. `"latest"` follows the newest one the signed legacy table proves for hosting, between games and with no restart. A number pins it, such as `32`. Refer to `docs/delta/versioning.md`, "Auto-announce". |
 | `network.legacy_table` | `""` | `HALO_LEGACY_TABLE` | For testing, and for admins: a legacy table file, not signed, next to `config.toml` unless a full path. Its row for the wire of the build sets the OpenCE network versions that the game announces and joins, in place of the signed tables. The log shows a warning at start. Refer to `docs/delta-implementation.md` (Local override). Empty: none. |
 | `network.list_hosted_games` | `true` | `HALO_NET_LIST_GAMES` | `true`: the system link games this machine hosts are listed on `network.browser_url` (stats.chupathingy.org), where anyone can find and join them. Only public games without a password are listed. `false`: they are kept to invites and the local network, and no carnage report of them is sent. |
+| `network.direct_ip_host` | `false` | `HALO_NET_DIRECT_IP_HOST` | `true`: the games this machine hosts answer a game search from an internet address too (no more than four answers a second), so a player joining by the address (DIRECT IP, `connect`) finds the game at once. `false`: only the local network's and internet play's searches are answered; a Direct IP player still joins, after about 5 seconds. |
 | `network.report_hosted_games` | `true` | `HALO_NET_REPORT_HOSTED` | The stats of the games this machine hosts: a listed game's carnage report, its Delta Stats (`network.report_events`) and the host's own players' claims of their lines. `false`: none of them are sent, and the game stays listed (`network.list_hosted_games`). On the Privacy screen (Gearbox menus). |
 | `network.report_joined_games` | `true` | `HALO_NET_REPORT_GAMES` | When an internet game this machine joined ends, the game sends `network.browser_url` its scores as this machine saw them, with this copy's player ID, and confirms this machine's players' lines in the host's report of the game (`POST /v1/claim`), which puts the game on their profiles. `false`: neither, for games this machine joins. Games it hosts are still reported and confirmed (unless `network.report_hosted_games` is off). On the Privacy screen (Gearbox menus). |
 | `network.report_events` | `true` | `HALO_NET_REPORT_EVENTS` | Delta Stats: the games this machine hosts are recorded (kills with weapons and positions, accuracy, medals, objectives, vehicles, pickups) and sent to `network.browser_url` when each ends. Players are their names, never a hardware ID or an address; an OpenCE player is only their name, team and that game's score, place, kills and deaths. `false`: no events are recorded or sent. On the Privacy screen (Gearbox menus). The carnage report of a hosted game is separate: it is sent while the game is listed (`network.list_hosted_games`), unless `network.report_hosted_games` is off, which stops both. Refer to `docs/delta/stats.md`. |
@@ -1897,8 +1910,10 @@ hooks):
 - `HALO_CONSOLE_MAP_BROWSER`: the console's own Map Browser, under ONLINE
   GAMES.
 
-Every console shows the disc's loading picture, not Chupathingy's
-(`HALO_CONSOLE_NO_LOADING_PICTURE`).
+The original Xbox shows only the disc's loading picture, not Chupathingy's
+(`HALO_CONSOLE_NO_LOADING_PICTURE`). The Xbox 360 and the Wii U show the
+disc's picture when the maps folder has it, and Chupathingy's when it
+doesn't, as the desktop builds do.
 
 ### Game source changes
 

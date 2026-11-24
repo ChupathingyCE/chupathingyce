@@ -138,6 +138,12 @@ static void xbox_address_space_reserve(void)
 	platform_log("Xbox window: Xbox addresses 0x%08x to 0x%08x at host 0x%08x (contiguous memory committed: %u MB)",
 		XBOX_WINDOW_LOW, XBOX_WINDOW_HIGH, (unsigned int)(uintptr_t)window,
 		(unsigned int)(PLATFORM_CONTIGUOUS_SIZE >> 20));
+#ifdef HALO_CONSOLE_WINDOW_LOW
+	/* (a console's smaller window: its heap's room, for the reports) */
+	platform_log("Xbox window: %u MB from 0x%08x (HALO_CONSOLE_WINDOW_LOW), the game's heap 0x%08x to 0x%08x (%u MB, "
+		"committed as it grows)", (unsigned int)(XBOX_WINDOW_SIZE >> 20), XBOX_WINDOW_LOW, XBOX_WINDOW_LOW,
+		(unsigned int)PLATFORM_CONTIGUOUS_BASE, (unsigned int)((PLATFORM_CONTIGUOUS_BASE - XBOX_WINDOW_LOW) >> 20));
+#endif
 	arena_reserved = TRUE;
 }
 

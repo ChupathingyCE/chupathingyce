@@ -921,7 +921,14 @@ static boolean network_game_client_handle_message_server_game_advertise(
 				}
 				else
 #endif
-				network_game_client_new_advertised_game(client, &advertisement);
+				{
+#ifdef HALO_GAME_BROWSER
+					/* port: where it came from (Direct IP joins a host behind
+					a router by it) */
+					network_game_client_note_advertisement_source(source_address);
+#endif
+					network_game_client_new_advertised_game(client, &advertisement);
+				}
 			}
 		}
 		else
@@ -1819,6 +1826,10 @@ static boolean network_game_client_handle_message_server_add_player_ingame(
 					return TRUE;
 				}
 #endif
+				/* port: its name kept to what draws as one line of text, as
+				the names in the host's settings record are
+				(network_game_client_game_settings_updated) */
+				player_name_clean(player.name, NUMBEROF(player.name));
 				/* (the distributed netcode: a player this machine cannot add
 				does not end its game) */
 				if (!network_game_client_add_player_to_game(client, &player))

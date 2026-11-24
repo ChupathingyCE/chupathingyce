@@ -23,6 +23,7 @@ it did before the console had the file.
 #include "platform.h"
 #include "port_config.h"
 #include "halo_port_limits.h"
+#include "halo_console_features.h" /* HALO_DELTA_PEER_IDENTITY */
 #include "posix.h"
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 #include "packaged_install.h"
@@ -659,11 +660,14 @@ static const struct config_setting config_settings[] =
 		"In the game lobby of a game you host: \"button\" (the default) holds\n"
 		"the countdown until you choose START GAME; \"auto\" lets it run by\n"
 		"itself once enough players are in, as the Xbox's lobby does." },
-#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+/* (the join screen is the game list's: browser_screen.c) */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 	{ "display.join_screen", _config_boolean, "true", "HALO_JOIN_SCREEN", _environment_value, _platform_all,
 		"Show the loading screen while a game is joined or its map downloads,\n"
 		"with what is going on and B to cancel. false: a small panel over the\n"
 		"game list." },
+#endif
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
 	{ "display.xbox_loading_picture", _config_boolean, "true", "HALO_XBOX_LOADING_PICTURE", _environment_value,
 		_platform_all,
 		"true: the loading screen shows the Xbox's own picture, xbox_loading.tga\n"
@@ -753,8 +757,11 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_PORT_RAGDOLLS
 	/* (port/linux/game/ragdolls.c; Video Setup's RAGDOLLS. Live) */
 	{ "display.ragdolls", _config_boolean, "false", "HALO_RAGDOLLS", _environment_value, _platform_desktop,
-		"true: a character killed falls limp, thrown by the blow that killed\n"
-		"it, and comes to rest where it lands (Jolt Physics). false (the\n"
+		"true: a character killed plays its death animation and falls limp\n"
+		"partway through it, as in Halo 2 and 3 (one thrown into the air by an\n"
+		"explosion, a melee blow or a vehicle's hit flies in its airborne\n"
+		"death animation and goes limp where it lands), and comes to rest\n"
+		"where it lands (Jolt Physics). false (the\n"
 		"default): its death animation, as on the Xbox. Drawing only: the\n"
 		"body, hit boxes, saved games and the network are as before. The idea\n"
 		"is from jojoxdk's Halo 1 MCC Box3D Physics Mod." },
@@ -1390,6 +1397,11 @@ static const struct config_setting config_settings[] =
 	{ "network.host_public", _config_boolean, "true", "HALO_NET_HOST_PUBLIC", _environment_value, _platform_all,
 		"New internet games you host start as PUBLIC. false starts them as\n"
 		"PRIVATE." },
+	{ "network.direct_ip_host", _config_boolean, "false", "HALO_NET_DIRECT_IP_HOST", _environment_value,
+		_platform_all | _platform_server,
+		"Games you host answer game searches from internet addresses (no\n"
+		"more than four answers a second). Off, only your local network's and\n"
+		"internet play's searches are answered." },
 	{ "network.coop_public", _config_boolean, "false", "HALO_NET_COOP_PUBLIC", _environment_value, _platform_all,
 		"New online co-op games start as PUBLIC. false starts them as PRIVATE." },
 	{ "network.host_cheats", _config_boolean, "false", "HALO_NET_HOST_CHEATS", _environment_value,
@@ -1683,6 +1695,19 @@ static const struct config_setting config_settings[] =
 		"players see your games. A number pins it, like 32 for a server meant\n"
 		"for console players on older builds. A number the table does not allow\n"
 		"for hosting is ignored, and \"latest\" is used." },
+#ifdef HALO_DELTA_PEER_IDENTITY
+	{ "network.networks_trust", _config_string, "\"\"", "HALO_NET_NETWORKS_TRUST", _environment_value,
+		_platform_all | _platform_server,
+		"Other networks whose players' names are checked, beside the signed\n"
+		"list of networks: each a domain and 1 to 4 root keys (64 hex digits),\n"
+		"separated by spaces, and the networks separated by commas, like\n"
+		"\"example.org <key> <key>\". At most 16. Empty for none." },
+	{ "network.networks_block", _config_string, "\"\"", "HALO_NET_NETWORKS_BLOCK", _environment_value,
+		_platform_all | _platform_server,
+		"Networks whose players' names are not checked even when the signed\n"
+		"list has them: domains separated by commas. Your own network can't be\n"
+		"removed. Empty for none." },
+#endif
 	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value,
 		_platform_all | _platform_server,
 		"For testing only: an unsigned legacy table file that sets the OpenCE\n"
@@ -1780,15 +1805,44 @@ static const struct config_setting config_settings[] =
 		"map's own tags. See docs/mods.md." },
 #ifndef HALO_CONSOLE_NO_FORGE
 	{ "game.forge", _config_boolean, "false", "HALO_FORGE", _environment_value, _platform_desktop,
-		"Forge, the layout editor of the multiplayer maps: FORGE in the\n"
-		"Multiplayer menu, and the console's forge commands. Local games only.\n"
+		"Forge, the layout editor of the multiplayer maps and the campaign\n"
+		"missions (their AI characters): FORGE in the Multiplayer menu, and the\n"
+		"console's forge commands. Local games only.\n"
 		"FORGE in the Delta Guide's SETTINGS. See docs/forge.md." },
+	/* (forge.h FORGE_BUILD_MAXIMUM_OBJECTS and _AI: a build with the console's
+	tables keeps the console's numbers) */
+#ifdef HALO_CONSOLE_LIMITS
+	{ "game.forge_objects", _config_integer, "256", "HALO_FORGE_OBJECTS", _environment_value, _platform_desktop,
+		"Forge: the most objects and markers a layout holds (64 to 256 on this\n"
+		"build). A layout of more places what fits. See docs/forge.md." },
+	{ "game.forge_ai", _config_integer, "32", "HALO_FORGE_AI", _environment_value, _platform_desktop,
+		"Forge: the most AI characters alive at once (8 to 32 on this build).\n"
+		"Past it, the rest wait for room. See docs/forge.md." },
+#else
+	{ "game.forge_objects", _config_integer, "512", "HALO_FORGE_OBJECTS", _environment_value, _platform_desktop,
+		"Forge: the most objects and markers a layout holds (64 to 512). A\n"
+		"layout of more places what fits. See docs/forge.md." },
+	{ "game.forge_ai", _config_integer, "128", "HALO_FORGE_AI", _environment_value, _platform_desktop,
+		"Forge: the most AI characters alive at once (8 to 128). Past it, the\n"
+		"rest wait for room. See docs/forge.md." },
+#endif
+	{ "game.forge_hold_to_delete", _config_string, "\"off\"", "HALO_FORGE_HOLD_TO_DELETE", _environment_value,
+		_platform_desktop,
+		"How Forge's monitor deletes: \"off\" at a press of Y or the delete key,\n"
+		"\"controller\" when the controller's Y is held half a second (the key\n"
+		"still at a press), \"all\" when either is held. DELETE in the Forge\n"
+		"menu's OPTIONS. See docs/forge.md." },
 	{ "game.forge_grab_range", _config_string, "\"far\"", "HALO_FORGE_GRAB_RANGE", _environment_value,
 		_platform_desktop,
 		"How far Forge's crosshair reaches to grab, copy or delete: \"near\"\n"
 		"(20 world units, about 60 m), \"medium\" (35 world units, about 105 m)\n"
 		"or \"far\" (60 world units, about 180 m: the default). GRAB RANGE in the\n"
 		"Forge menu's OPTIONS. See docs/forge.md." },
+	{ "game.forge_held_facing", _config_string, "\"keep\"", "HALO_FORGE_HELD_FACING", _environment_value,
+		_platform_desktop,
+		"What Forge's monitor holds: \"keep\" keeps the facing it was grabbed\n"
+		"with (the default); \"view\" turns it with the camera until you turn it\n"
+		"by hand. HELD FACING in the Forge menu's OPTIONS. See docs/forge.md." },
 #endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
@@ -2243,6 +2297,9 @@ static const struct config_setting config_settings[] =
 		"them on the CPU except on NVIDIA. cpu or buffer forces one." },
 	{ "debug.door_portals_log", _config_boolean, "false", "HALO_DOOR_PORTALS_LOG", _environment_set_is_true, _platform_all,
 		"Log which level portals each door covers, as it is paired with them." },
+	{ "debug.time_code", _config_boolean, "false", "HALO_TIME_CODE", _environment_set_is_true, _platform_all,
+		"Draw the cutscene scripts' time code (time_code_show): the ticks since\n"
+		"it started, in the top-left corner, as Bungie's tools showed it." },
 #ifdef HALO_SHADER_PREP
 	{ "debug.draw_every_shader", _config_boolean, "false", "HALO_DRAW_EVERY_SHADER", _environment_set_is_true,
 		_platform_all,

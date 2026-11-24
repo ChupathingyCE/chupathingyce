@@ -282,8 +282,8 @@ static long interpolation_frame;
 static boolean interpolation_rendering;
 #ifdef HALO_PORT_RAGDOLLS
 /* between render_interpolation_frame_begin and _end, whether between ticks or
-not (a dead body's ragdoll drawn) */
-static boolean frame_drawing;
+not: a ragdoll is kept, and dead bodies may be drawn as their ragdolls lie */
+static boolean frame_ragdolls;
 #endif
 static real interpolation_fraction = 1.0f;
 #ifdef HALO_CONSOLE_VIEW_INTERPOLATION
@@ -701,8 +701,7 @@ void render_interpolation_frame_begin(void)
 {
 #ifdef HALO_PORT_RAGDOLLS
 	/* (the dead bodies drawn as their ragdolls lie: ragdolls.c) */
-	frame_drawing = TRUE;
-	ragdolls_frame_begin();
+	frame_ragdolls = ragdolls_frame_begin();
 #endif
 	interpolation_rendering = halo_interpolation_enabled();
 	interpolation_frame++;
@@ -725,7 +724,7 @@ void render_interpolation_frame_end(void)
 {
 #ifdef HALO_PORT_RAGDOLLS
 	ragdolls_frame_end();
-	frame_drawing = FALSE;
+	frame_ragdolls = FALSE;
 #endif
 	interpolation_rendering = FALSE;
 }
@@ -748,8 +747,9 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 
 #ifdef HALO_PORT_RAGDOLLS
 	/* (a dead body's ragdoll, drawn as it lies: while a frame is drawn,
-	whether the frames are between ticks or not; ragdolls.c) */
-	if (frame_drawing && object_index != NONE && !lua_scripting_object_posed(object_index))
+	whether the frames are between ticks or not; ragdolls.c. With no
+	ragdoll kept, as before ragdolls) */
+	if (frame_ragdolls && object_index != NONE && !lua_scripting_object_posed(object_index))
 	{
 		real_matrix4x3 *ragdoll = ragdolls_drawn_pose(object_index);
 
