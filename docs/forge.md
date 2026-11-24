@@ -1,6 +1,6 @@
 # Forge
 
-Forge is a layout editor for the multiplayer maps and the campaign missions. You fly the map as a monitor, place, move, turn and delete objects, put down your own spawn points, teleporters and game type objects (CTF flags, hill points, oddball spawns, race checkpoints), place AI characters on a campaign mission, and save the result as a layout. A saved layout can then be played as a normal game of any game type.
+Forge is a layout editor for the multiplayer maps and the campaign missions. You fly the map as a monitor, place, move, turn and delete objects, put down your own spawn points, teleporters and game type objects (CTF flags, hill points, oddball spawns, race checkpoints), place AI characters (from your own campaign maps), and save the result as a layout. A saved layout can then be played as a normal game of any game type.
 
 It's off by default. Turn it on with FORGE in the Delta Guide's SETTINGS, or `game.forge = true` in `config.toml` (`HALO_FORGE=1`). The Multiplayer menu shows FORGE the next time the menus load. Forge is local only: a Forge game is a game you play alone, and a layout is played as a local game. Nothing of it is sent over the network.
 
@@ -51,7 +51,7 @@ The keyboard's keys are `controls.forge_*` in `config.toml` (see [settings.md](s
 
 X (E) opens the Forge menu: a narrow panel at the right of the screen, so the map stays in view. Its title and the budget are at the top, then the tabs, the list, a box about the row chosen, and the prompts at its foot. It works like the Delta Guide: LB and RB (Q and E) change the tab, the d-pad (arrows or WASD) moves, A (Enter) chooses, B (Esc) goes back, and the mouse can click rows and prompts. X closes it.
 
-- OBJECT BROWSER: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, AI, TELEPORTERS, OBJECTIVES, SPAWNING) with how many objects each has. A opens a category, and A on an object places it in your hands. The count at the top right is the budget: 256 objects and markers.
+- OBJECT BROWSER: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, AI, TELEPORTERS, OBJECTIVES, SPAWNING) with how many objects each has. A opens a category, and A on an object places it in your hands. The count at the top right is the budget: 512 objects and markers (`game.forge_objects`, 64 to 512; 256 before).
 
   ![OBJECTS](screenshots/forge-objects.jpg)
 
@@ -73,21 +73,25 @@ A layout's spawn points replace the map's own for the players they fit (the game
 
 ## AI characters
 
-A multiplayer map has no AI characters in its files. A campaign mission does, so the AI category has them on a campaign map and is empty on a multiplayer map. The missions come from your own maps folder, like the multiplayer maps.
+A multiplayer map has no AI characters in its files. Forge brings them in from your own campaign maps, and a campaign mission has its own.
 
-![AI on a campaign mission](screenshots/forge-ai-fight.jpg)
+![AI on Blood Gulch](screenshots/forge-ai-fight.jpg)
 
+- **On a multiplayer map.** As a Forge game (or a layout played) of a multiplayer map starts, Forge reads the characters from the campaign maps in your maps folder: the Covenant from The Silent Cartographer (or Truth and Reconciliation, Assault on the Control Room, Keyes), the Marines from Halo (or Assault on the Control Room, The Silent Cartographer), the Flood and the Sentinels from The Library (or Keyes, 343 Guilty Spark, The Maw). Nothing is copied off your machine and nothing is kept: it takes a couple of seconds each time, and the pixels and sounds go in a file in the cache folder that is deleted when the map ends. A faction with none of its maps there isn't offered: the AI category says which are missing. Only the Xbox's map files are read.
+
+  ![The AI category on Blood Gulch, with the Flood's and the Sentinels' campaign maps missing](screenshots/forge-ai-sources.jpg)
+- **On a campaign mission.** The missions are in the Forge lobby after the multiplayer maps.
 - **The mission stays out.** A Forge game, or a layout played, on a campaign mission is the same local game as on a multiplayer map. The mission's scripts don't run and its encounters aren't created, so there is no cinematic and none of its own characters. You start at the mission's own starting point unless the layout has spawn points, with the part of the level it's in loaded (Assault on the Control Room and Two Betrayals don't start in their first part). The mission's scripts are what switch between a level's parts as you go, so the part loaded stays the start's: flying or walking into another part of the level shows nothing there. There is no announcer (a mission has none).
 - **What a character is.** The AI category lists the mission's actor variants that have a body: grunts, jackals, elites, hunters, marines, the Flood and so on, each with the weapon the mission gives it (`Elite Major Plasma Rifle`). A vehicle's crew (a dropship's gunner) is not offered. A placed character gets its variant's weapon, grenades and camouflage and fights as the mission's own do.
 - **AI TEAM.** DEFAULT is the character's own side. PLAYER, HUMAN, COVENANT, FLOOD and SENTINEL put it on that side. Marines are on your side, as in the campaign.
 - **AI.** OFF makes it stand where you put it, facing the way you turned it. It can still be shot.
 - **RESPAWN.** NEVER, or the time after its death before it comes back where you put it.
-- **The counts.** The HUD shows `AI 6/32, 3 dead`. At most 32 characters are alive at once. Past that, a character that should come back (a respawn, a new round, a layout loaded) waits until one alive dies, and the HUD says how many wait. A dead character doesn't count against the budget, but it stays in the layout: the next round brings it back and a save keeps it. Its body goes after 45 seconds, or sooner when more than 32 bodies lie around.
+- **The counts.** The HUD shows `AI 6/128, 3 dead`. At most 128 characters are alive at once (`game.forge_ai`, 8 to 128). Past that, a character that should come back (a respawn, a new round, a layout loaded) waits until one alive dies, and the HUD says how many wait. A dead character doesn't count against the budget, but it stays in the layout: the next round brings it back and a save keeps it. Its body goes after 45 seconds, or sooner when more than 32 bodies lie around.
 - **Clearing.** OPTIONS > CLEAR DEAD AI takes the dead characters out of the layout. CLEAR ALL AI takes every character out (press it twice). Neither can be undone.
 
   ![OPTIONS with CLEAR DEAD AI and CLEAR ALL AI](screenshots/forge-ai-options.jpg)
 
-AI characters are saved in the layout with their AI team, AI and respawn (layout versions 2 and 3, which were already part of the format). A layout of a multiplayer map that has character records still loads: the map doesn't have those characters, so they are skipped and the log says so.
+AI characters are saved in the layout with their AI team, AI and respawn (layout versions 2 and 3, which were already part of the format). A layout's characters are placed when the map has them or Forge brought them in. Any other is skipped, and the log says so.
 
 ## From the console
 
@@ -106,7 +110,7 @@ Layouts are saved in `forge/<map>/<name>.hmv` in the save root. The name is made
 - the map's own objects the layout takes away (version 11): each by its category and its index in the map's list;
 - the title, author, description and date, as UTF-8.
 
-All little-endian. Versions 1 to 7 and 11 are read. Each version adds what a layout may hold (AI settings, spawn points, teleporters, game type objects, physics, the map's own objects taken away), and a layout is written as the lowest version that holds it. Version 11 is the number the Halo CE Vita build uses for the same list. `port/linux/game/forge_files.h` describes every byte.
+All little-endian. Versions 1 to 7, 11 and 13 are read. Each version adds what a layout may hold (AI settings, spawn points, teleporters, game type objects, physics, the map's own objects taken away; version 13: more than 256 records, up to 512), and a layout is written as the lowest version that holds it, so a build from before the bigger budget reads a layout of more than 256 as one from a newer build. Version 11 is the number the Halo CE Vita build uses for the same list; 8 to 10 keep the numbers they have in its layouts, and 12 is AI movement's. `port/linux/game/forge_files.h` describes every byte.
 
 Every file goes through the validator before anything is read from it, whether you made it or it came from somewhere else. It checks the size, the header, the version, the map, the counts against the limits, the payload size and CRC-32, every path (characters, length, groups Forge places), every record (kind, path index, every field in range, finite floats inside the world, no unknown flags) and the texts (terminated UTF-8). A file that fails any check is refused whole and the log says why. When a layout is placed, a record whose tag the map doesn't have is skipped, and the budget and the map's bounds are checked again. `tools/test_forge_files.py` tests the validator against malformed files, and fuzzes it.
 

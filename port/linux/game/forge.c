@@ -151,6 +151,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "ai/actors.h"
 #include "ai/ai.h"
 #include "ai/ai_script.h"
+#include "ai/props.h"
 #include "cache/cache_files.h"
 #include "camera/observer.h"
 #include "devices/device_controls.h"
@@ -195,6 +196,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/forge_store.h"
 #include "../src/ui_overlay.h"
 #include "forge_menu.h"
+#include "forge_ai_tags.h"
 #include "halo_keyboard.h"
 
 #include <math.h>
@@ -217,6 +219,7 @@ void platform_log(const char *format, ...);
 int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch);
 /* port_config.c's */
 int config_boolean(char const *name);
+long config_integer(char const *name);
 long hud_get_font_index(void);
 unsigned long system_milliseconds(void);
 /* ui_widget.c's: a menu, or a screen of code over them, takes the input */
@@ -637,7 +640,7 @@ struct forge_spawn
 /* (the players a round's spawns are kept for: absolute indices) */
 #define FORGE_SPAWN_PLAYERS 32
 
-typedef char verify_forge_file_records[FORGE_FILE_MAXIMUM_RECORDS == FORGE_MAXIMUM_OBJECTS ? 1 : -1];
+typedef char verify_forge_file_records[FORGE_FILE_MAXIMUM_RECORDS >= FORGE_MAXIMUM_OBJECTS ? 1 : -1];
 
 /* ---------- globals */
 
@@ -1645,7 +1648,7 @@ static short forge_group_delete(
 	}
 	forge_globals.deleted_count += deleted;
 	platform_log("forge: deleted all %s: %d (%d in use kept); budget %d/%d objects", forge_category_log_names[category],
-		deleted, kept, forge_objects_counted(), FORGE_MAXIMUM_OBJECTS);
+		deleted, kept, forge_objects_counted(), forge_objects_budget());
 	if (!deleted && !kept)
 		forge_menu_notice(("No %s to delete"), forge_category_name(category));
 	else if (kept)
@@ -2344,22 +2347,22 @@ static long forge_place(
 	else
 		forge_tag_readable_name(tag_index, name, sizeof(name));
 	forge_placed_update();
-	if (forge_objects_counted() >= FORGE_MAXIMUM_OBJECTS || forge_globals.placed_count >= FORGE_MAXIMUM_OBJECTS)
+	if (forge_objects_counted() >= forge_objects_budget() || forge_globals.placed_count >= FORGE_MAXIMUM_OBJECTS)
 	{
 		*refusal = _forge_place_budget;
 		if (!quiet)
-			forge_notice("Budget full: %d objects. Delete one to place another.", FORGE_MAXIMUM_OBJECTS);
+			forge_notice("Budget full: %d objects. Delete one to place another.", forge_objects_budget());
 		return NONE;
 	}
 	/* (an AI character: its actor variant's unit, at most FORGE_MAXIMUM_AI
 	alive) */
 	if (tag_get_group_tag(tag_index) == ACTOR_VARIANT_DEFINITION_TAG)
 	{
-		if (forge_ai_alive() >= FORGE_MAXIMUM_AI)
+		if (forge_ai_alive() >= forge_ai_maximum())
 		{
 			*refusal = _forge_place_ai_budget;
 			if (!quiet)
-				forge_notice("AI full: %d alive.", FORGE_MAXIMUM_AI);
+				forge_notice("AI full: %d alive.", forge_ai_maximum());
 			return NONE;
 		}
 		actor_variant_index = tag_index;
@@ -2400,7 +2403,7 @@ static long forge_place(
 		platform_log("forge: spawned %s (%s, %s) at %.2f %.2f %.2f facing %.2f %.2f %.2f; budget %d/%d objects, AI %d/%d",
 			name, forge_tag_leaf(tag_index), entry != NONE ? forge_category_log_names[forge_globals.palette[entry].category] : "?",
 			placement.position.x, placement.position.y, placement.position.z, placement.forward.i, placement.forward.j,
-			placement.forward.k, forge_objects_counted(), FORGE_MAXIMUM_OBJECTS, forge_ai_alive(), FORGE_MAXIMUM_AI);
+			placement.forward.k, forge_objects_counted(), forge_objects_budget(), forge_ai_alive(), forge_ai_maximum());
 		forge_notice("Placed %s", name);
 	}
 
@@ -2675,14 +2678,14 @@ static void forge_hud_update(
 	/* (with AI characters: those alive, and the dead and waiting apart) */
 	if (forge_globals.ai_count > 0 && forge_globals.ai_waiting_count > 0)
 		snprintf(forge_globals.hud_budget, sizeof(forge_globals.hud_budget), "Objects %d/%d, AI %d/%d, %d dead, %d waiting",
-			forge_objects_counted(), FORGE_MAXIMUM_OBJECTS, forge_ai_alive(), FORGE_MAXIMUM_AI, forge_ai_dead_only(),
+			forge_objects_counted(), forge_objects_budget(), forge_ai_alive(), forge_ai_maximum(), forge_ai_dead_only(),
 			forge_globals.ai_waiting_count);
 	else if (forge_globals.ai_count > 0)
 		snprintf(forge_globals.hud_budget, sizeof(forge_globals.hud_budget), "Objects %d/%d, AI %d/%d, %d dead",
-			forge_objects_counted(), FORGE_MAXIMUM_OBJECTS, forge_ai_alive(), FORGE_MAXIMUM_AI, forge_ai_dead_only());
+			forge_objects_counted(), forge_objects_budget(), forge_ai_alive(), forge_ai_maximum(), forge_ai_dead_only());
 	else
 		snprintf(forge_globals.hud_budget, sizeof(forge_globals.hud_budget), "Objects %d/%d", forge_objects_counted(),
-			FORGE_MAXIMUM_OBJECTS);
+			forge_objects_budget());
 	forge_globals.hud_label[0] = 0;
 	forge_globals.hud_label_held = object_try_and_get(forge_globals.held_object_index) != NULL;
 	object_index = forge_globals.hud_label_held ? forge_globals.held_object_index : forge_object_under_crosshair();
@@ -3614,7 +3617,15 @@ static void forge_variant_apply(
 	platform_log("forge: layout \"%s\" applied: %d placed, %d skipped (%d missing tags, %d outside the map, %d past the "
 		"budget, %d refused, %d not objects), %d AI waiting for room", layout->title, placed, skipped, missing, outside,
 		over_budget, refused, other_kinds, waiting);
-	if (skipped)
+	if (over_budget)
+	{
+		char warning[FORGE_LINE_SIZE];
+
+		snprintf(warning, sizeof(warning), "Layout %s: %d placed, %d past the budget of %d objects", layout->title, placed,
+			over_budget, forge_objects_budget());
+		forge_warning_hud(warning);
+	}
+	else if (skipped)
 		forge_notice(("Layout %s: %d placed, %d skipped"), layout->title, placed, skipped);
 	else
 		forge_notice(("Layout %s: %d placed"), layout->title, placed);
@@ -3629,6 +3640,10 @@ static void forge_session_update(
 	long player_index;
 
 	if (!forge_globals.game_active || forge_globals.reload_pending)
+		return;
+	/* (a multiplayer map's AI characters not brought in yet: the session,
+	and its layout, wait for them - forge_ai_tags.c) */
+	if (forge_ai_tags_pending())
 		return;
 	/* (a local game only: never a network game's, hosted or joined) */
 	if (game_connection() != _game_connection_local)
@@ -3661,6 +3676,30 @@ static void forge_session_update(
 		{
 			forge_globals.game_requested = FALSE;
 			platform_log("forge: the Forge game of %s starts", forge_globals.game_map);
+			/* (a multiplayer map: the AI characters its campaign maps gave,
+			said, and the factions none of whose campaign maps is there) */
+			if (forge_ai_faction_lines() > 0)
+			{
+				char found[96] = "";
+				char missing[96] = "";
+				short faction;
+
+				for (faction = 0; faction < forge_ai_faction_lines(); faction++)
+				{
+					char const *name = "";
+					char const *map = NULL;
+					char *list;
+
+					forge_ai_tags_faction(faction, &name, &map);
+					list = map ? found : missing;
+					snprintf(list + strlen(list), sizeof(found) - strlen(list), "%s%s", list[0] ? ", " : "", name);
+				}
+				if (missing[0])
+					forge_warning_hud(found[0] ? "AI from your campaign maps. Missing a campaign map for some." :
+						"No AI: no campaign maps in the maps folder.");
+				platform_log("forge: AI characters from the campaign maps: %s; none for: %s", found[0] ? found : "none",
+					missing[0] ? missing : "none");
+			}
 			if (forge_globals.variant_pending)
 			{
 				forge_globals.variant_pending = FALSE;
@@ -3715,6 +3754,37 @@ static void forge_new_round_start(
 }
 
 /* ---------- public code */
+
+/* the budget and the AI's most alive, as set (game.forge_objects,
+game.forge_ai), clamped to the build's: read as a Forge game's map loads */
+static short forge_budget_set = FORGE_MAXIMUM_OBJECTS;
+static short forge_ai_set = FORGE_MAXIMUM_AI;
+
+static void forge_limits_read(
+	void)
+{
+	long objects = config_integer("game.forge_objects");
+	long ai = config_integer("game.forge_ai");
+
+	forge_budget_set = (short)PIN(objects, FORGE_MINIMUM_OBJECTS, FORGE_MAXIMUM_OBJECTS);
+	forge_ai_set = (short)PIN(ai, FORGE_MINIMUM_AI, FORGE_MAXIMUM_AI);
+	if (forge_budget_set != objects || forge_ai_set != ai)
+		platform_log("forge: game.forge_objects %ld and game.forge_ai %ld taken as %d and %d (this build: %d to %d, %d to %d)",
+			objects, ai, forge_budget_set, forge_ai_set, FORGE_MINIMUM_OBJECTS, FORGE_MAXIMUM_OBJECTS, FORGE_MINIMUM_AI,
+			FORGE_MAXIMUM_AI);
+}
+
+short forge_objects_budget(
+	void)
+{
+	return forge_budget_set;
+}
+
+short forge_ai_maximum(
+	void)
+{
+	return forge_ai_set;
+}
 
 /* whether Forge is on (game.forge): off, nothing of it runs */
 boolean forge_enabled(
@@ -4101,6 +4171,9 @@ void forge_map_loaded(
 		forge_monitor_flying = 0;
 		forge_globals.unit_index = NONE;
 	}
+	/* (the budget and the AI's most, as set now) */
+	if (forge_globals.game_requested)
+		forge_limits_read();
 	/* (the map asked for is the one loaded, by its path; a local game only) */
 	forge_globals.reload_pending = FALSE;
 	forge_globals.game_active = forge_globals.game_requested && scenario_name &&
@@ -4216,7 +4289,70 @@ boolean forge_category_item(
 	entry = &forge_globals.palette[forge_globals.palette_first[category] + item_index];
 	csmemcpy(item->name, entry->name, sizeof(item->name));
 	item->placed = forge_placed_of_tag(entry->tag_index);
+	/* (a character brought in from a campaign map: its faction and mission) */
+	if (category == _forge_category_ai && forge_ai_tags_source_map(entry->tag_index))
+	{
+		short faction = forge_ai_tags_faction_of(entry->tag_index);
+		char const *name = "";
+		char const *map = NULL;
+
+		if (faction != NONE)
+			forge_ai_tags_faction(faction, &name, &map);
+		snprintf(item->faction, sizeof(item->faction), "%s", name);
+		snprintf(item->from, sizeof(item->from), "%s", forge_mission_title(forge_ai_tags_source_map(entry->tag_index)));
+	}
 	return TRUE;
+}
+
+boolean forge_ai_tags_wanted(
+	char const *scenario_name)
+{
+	short map_index;
+
+	if (!forge_enabled() || !forge_globals.game_requested || !scenario_name ||
+		_stricmp(scenario_name, forge_globals.game_map) || game_connection() != _game_connection_local)
+	{
+		return FALSE;
+	}
+	map_index = forge_map_of_level(scenario_name);
+	return map_index != NONE && !forge_maps[map_index].campaign;
+}
+
+char const *forge_mission_title(
+	char const *short_name)
+{
+	short map_index = short_name ? forge_map_of_short(short_name) : NONE;
+
+	return map_index != NONE ? forge_maps[map_index].name : "";
+}
+
+short forge_ai_faction_lines(
+	void)
+{
+	short map_index = forge_globals.game_active ? forge_map_of_level(forge_globals.game_map) : NONE;
+
+	return map_index != NONE && !forge_maps[map_index].campaign ? forge_ai_tags_faction_count() : 0;
+}
+
+short forge_ai_faction_line(
+	short faction,
+	char *line,
+	int size,
+	boolean *missing)
+{
+	char const *name = "";
+	char const *map = NULL;
+
+	line[0] = 0;
+	*missing = FALSE;
+	if (faction < 0 || faction >= forge_ai_faction_lines() || !forge_ai_tags_faction(faction, &name, &map))
+		return 0;
+	*missing = map == NULL;
+	if (map)
+		snprintf(line, (size_t)size, "%s: %s", name, forge_mission_title(map));
+	else
+		snprintf(line, (size_t)size, "%s", name);
+	return 1;
 }
 
 /* (the Forge menu's choice, forge_update's) an item of a category spawned in the
@@ -4423,6 +4559,11 @@ void forge_update(
 		forge_globals.test_buttons_frames--;
 	if (forge_globals.test_sticks_frames > 0)
 		forge_globals.test_sticks_frames--;
+	/* (a multiplayer map's AI characters, brought in from the player's
+	campaign maps once its load is done: forge_ai_tags.c; the palette made
+	again with them) */
+	if (forge_globals.game_active && forge_ai_tags_update())
+		forge_globals.palette_built = FALSE;
 	forge_session_update();
 	/* (the layout's teleporters and flags the engine's, before the tick) */
 	forge_netgame_update();
@@ -5061,7 +5202,7 @@ boolean forge_command(
 	if (!strcmp(word, "budget"))
 	{
 		forge_placed_update();
-		platform_log("forge: budget %d/%d (%d objects, %d markers); HUD: %s", forge_objects_counted(), FORGE_MAXIMUM_OBJECTS,
+		platform_log("forge: budget %d/%d (%d objects, %d markers); HUD: %s", forge_objects_counted(), forge_objects_budget(),
 			forge_globals.placed_count, forge_globals.spawn_count, forge_globals.hud_budget);
 		return TRUE;
 	}
@@ -5160,7 +5301,7 @@ boolean forge_command(
 			forge_spawns_of_kind(_forge_spawn_initial) + forge_spawns_of_kind(_forge_spawn_respawn), forge_spawns_of_kind(_forge_spawn_initial),
 			forge_spawns_of_kind(_forge_spawn_teleporter_sender) +
 			forge_spawns_of_kind(_forge_spawn_teleporter_receiver), forge_objectives_count(NONE, NONE),
-			forge_globals.markers_drawn, forge_globals.map_markers_drawn, forge_objects_counted(), FORGE_MAXIMUM_OBJECTS);
+			forge_globals.markers_drawn, forge_globals.map_markers_drawn, forge_objects_counted(), forge_objects_budget());
 		for (index = 0; index < forge_globals.spawn_count && index < FORGE_SPAWN_TABLE; index++)
 			forge_spawn_log("spawns:", &forge_globals.spawns[index]);
 		return TRUE;
@@ -5219,7 +5360,7 @@ boolean forge_command(
 			position.x, position.y, position.z, forward.i, forward.j, forward.k,
 			held ? forge_tag_leaf(held->definition_index) : forge_globals.held_marker_id ? "a marker" : "nothing",
 			forge_globals.held_distance, aimed != NONE ? forge_tag_leaf(object_get(aimed)->definition_index) : "nothing",
-			forge_globals.spawned_count, forge_globals.deleted_count, forge_objects_counted(), FORGE_MAXIMUM_OBJECTS,
+			forge_globals.spawned_count, forge_globals.deleted_count, forge_objects_counted(), forge_objects_budget(),
 			forge_globals.snap ? "on" : "off", forge_globals.variant_title);
 		return TRUE;
 	}

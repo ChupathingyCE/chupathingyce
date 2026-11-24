@@ -9,15 +9,15 @@ tools/test_forge_files.py) builds it on its own.
 
 A layout is <stem>.hmv in the Forge folder's folder of its map
 (forge_store.h: <save root>/forge/<map>/). Binary, little-endian, at most
-64 KB:
+64 KB (more than 256 records only from version 13 on, below):
 
 	header  64 bytes
 	  magic        char[4]  "HFRG"
-	  version      u16      1 to 7, or 11 (below)
+	  version      u16      1 to 7, 11 or 13 (below)
 	  header size  u16      64
 	  flags        u32      bit 0: a record is not a plain object (a spawn
 	                        point, a teleporter, a game type object); bit
-	                        2: the map's own objects block (version 11);
+	                        2: the map's own objects block (version 11 on);
 	                        no other bit
 	  map name     char[32] the scenario's short name ("bloodgulch"),
 	                        [a-z0-9_], zeros after it
@@ -25,7 +25,7 @@ A layout is <stem>.hmv in the Forge folder's folder of its map
 	                        is only logged)
 	  pack count   u16      0 to 8
 	  path count   u16      0 to 256
-	  record count u16      0 to 256
+	  record count u16      0 to 256 (version 13: 0 to 512)
 	  meta size    u16      4 to 2048
 	  payload size u32      the bytes after the header, exactly
 	  checksum     u32      CRC-32 (IEEE) of those bytes
@@ -40,7 +40,7 @@ A layout is <stem>.hmv in the Forge folder's folder of its map
 	  (world units), yaw pitch roll f32[3] (radians), respawn seconds u16,
 	  count u8, game types u16, variant u8, flags u8, AI team u8,
 	  reserved u8[12] (zero)
-	map's own objects (version 11, header flag bit 2 alone)
+	map's own objects (version 11 on, header flag bit 2 alone)
 	        block version u8 (1), zero u8, categories taken away whole
 	        u16, entry count u16 (0 to 1024), zero u16; then the entries,
 	        4 bytes each: category u8 (0 to 9), kept u8, index u16 (0 to
@@ -80,19 +80,26 @@ that version (a file a writer would not make is refused).
 	   one placement kept instead (kept 1), any other one taken away
 	   (kept 0); the entries ascend strictly (category, then index), and
 	   take something away or keep something
-Versions 8 to 10 (game mode markers, boundaries, a lobby camera) and 12 on
-are refused with _forge_file_newer_version: this build reads versions 1 to
-7 and 11. Version 11 is the Vita build's number for the same block (its
-"blank canvas"), so those layouts' blocks are read the same; 8 to 10 keep
-meaning what they mean there.
+	13 more than 256 records, up to 512 (the desktop builds' Forge budget,
+	   forge.h FORGE_MAXIMUM_OBJECTS): a build from before reads a layout
+	   this big as one from a newer build, not as a damaged one
+Versions 8 to 10 (game mode markers, boundaries, a lobby camera), 12 (AI
+movement) and 14 on are refused with _forge_file_newer_version: this build
+reads versions 1 to 7, 11 and 13. Version 11 is the Vita build's number for
+the same block (its "blank canvas"), so those layouts' blocks are read the
+same; 8 to 10 keep meaning what they mean there. Each version reads what
+the ones below it add: a version 13 layout may hold the map's own objects
+block too.
 
 The validator (forge_file_decode), in order; a file is taken whole or not
 at all:
 - size: at least the 64-byte header, at most 64 KB;
-- header: the magic; the version 1 to 7 (above 7: newer; 0: refused); the
+- header: the magic; the version 1 to 7, 11 or 13 (8 to 10, 12 and above
+  13: newer; 0: refused); the
   header size 64; no unknown flag; the map name [a-z0-9_], 1 to 31
   characters, only zeros after it, and the map expected (the folder's);
-- counts: packs at most 8, paths at most 256, records at most 256, meta at
+- counts: packs at most 8, paths at most 256, records at most 256 (version
+  13: 512), meta at
   most 2048 bytes;
 - the payload size exactly the bytes after the header, and its CRC-32;
 - each pack: its name [a-z0-9_ -], 1 to 24 characters, zeros after it;
@@ -114,7 +121,7 @@ at all:
   receiver; at most 64 game type objects, a hill's points at most 12; the
   flag bit 0 set exactly when a record is not a plain object; the version
   the lowest that holds it;
-- the map's own objects (version 11, flag bit 2): its block's version 1
+- the map's own objects (version 11 on, flag bit 2): its block's version 1
   and zeros, its categories and entries in range, the entries ascending,
   something taken away or kept, a kept entry's category taken away whole
   and a taken entry's not;
@@ -137,18 +144,23 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #define FORGE_FILE_EXTENSION ".hmv"
 /* the newest version written and read, and the oldest read */
-#define FORGE_FILE_VERSION 11
+#define FORGE_FILE_VERSION 13
 #define FORGE_FILE_FIRST_VERSION 1
 /* (the versions this build does not read below FORGE_FILE_VERSION: the
-Vita build's game mode markers, boundaries and lobby camera) */
+Vita build's game mode markers, boundaries and lobby camera; and AI
+movement's 12, #1705's) */
 #define FORGE_FILE_FIRST_SKIPPED_VERSION 8
 #define FORGE_FILE_LAST_SKIPPED_VERSION 10
+#define FORGE_FILE_UNREAD_VERSION 12
+/* the first version with more than FORGE_FILE_EARLIER_MAXIMUM_RECORDS */
+#define FORGE_FILE_MORE_RECORDS_VERSION 13
+#define FORGE_FILE_EARLIER_MAXIMUM_RECORDS 256
 #define FORGE_FILE_HEADER_SIZE 64
 #define FORGE_FILE_MAXIMUM_SIZE 65536
 #define FORGE_FILE_MAXIMUM_PATHS 256
 #define FORGE_FILE_MAXIMUM_PACKS 8
-/* (forge.h FORGE_MAXIMUM_OBJECTS) */
-#define FORGE_FILE_MAXIMUM_RECORDS 256
+/* (forge.h FORGE_MAXIMUM_OBJECTS: a desktop build's; version 13 on) */
+#define FORGE_FILE_MAXIMUM_RECORDS 512
 #define FORGE_FILE_MAXIMUM_META 2048
 #define FORGE_FILE_PATH_MAXIMUM_LENGTH 127
 #define FORGE_FILE_PACK_SIZE 32

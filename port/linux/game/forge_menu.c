@@ -1210,6 +1210,28 @@ static void upper(char *text)
 	}
 }
 
+/* (AI on a multiplayer map) where its characters came from, in a line:
+"Missing: Flood, Sentinels", or "From your campaign maps" */
+static void ai_sources_text(char *text, int size)
+{
+	short faction;
+	boolean any_missing = FALSE;
+
+	snprintf(text, (size_t)size, "%s", "Missing: ");
+	for (faction = 0; faction < forge_ai_faction_lines(); faction++)
+	{
+		char line[64];
+		boolean missing;
+
+		if (!forge_ai_faction_line(faction, line, sizeof(line), &missing) || !missing)
+			continue;
+		snprintf(text + strlen(text), (size_t)size - strlen(text), "%s%s", any_missing ? ", " : "", line);
+		any_missing = TRUE;
+	}
+	if (!any_missing)
+		snprintf(text, (size_t)size, "%s", "From your campaign maps");
+}
+
 static void render_objects(void)
 {
 	short chosen = forge_menu.list_row[_game_tab_objects], index, shown = side_rows_shown(), first;
@@ -1227,6 +1249,16 @@ static void render_objects(void)
 		}
 		snprintf(line, sizeof(line), "%d to place", forge_category_item_count(chosen));
 		snprintf(tag, sizeof(tag), "Placed: %d", forge_group_placed_count(chosen));
+		/* (AI on a multiplayer map: brought from the campaign maps, and the
+		factions none of whose campaign maps is there) */
+		if (chosen == _forge_category_ai && forge_ai_faction_lines() > 0)
+		{
+			char sources[96];
+
+			ai_sources_text(sources, sizeof(sources));
+			side_box(forge_category_name(chosen), line, tag, sources);
+			return;
+		}
 		side_box(forge_category_name(chosen), line, tag, NULL);
 		return;
 	}
@@ -1235,8 +1267,27 @@ static void render_objects(void)
 		short items = forge_category_item_count(chosen);
 		struct forge_item item;
 
+		short notes = 0;
+
+		/* (AI on a multiplayer map: the factions with no campaign map, a row
+		each after the characters, shown with the last of them) */
+		if (chosen == _forge_category_ai)
+		{
+			short faction;
+
+			for (faction = 0; faction < forge_ai_faction_lines(); faction++)
+			{
+				char text[64];
+				boolean missing;
+
+				if (forge_ai_faction_line(faction, text, sizeof(text), &missing) && missing)
+					notes++;
+			}
+		}
 		side_heading(forge_category_name(chosen));
 		first = forge_menu.pane_first = scrolled(forge_menu.pane_first, forge_menu.pane_row, items, shown);
+		if (notes && forge_menu.pane_row >= items - 1)
+			first = forge_menu.pane_first = (short)MAX(0, items + notes - shown);
 		for (index = first; index < items && index < first + shown; index++)
 		{
 			if (!forge_category_item(chosen, index, &item))
@@ -1247,15 +1298,40 @@ static void render_objects(void)
 			side_row(y, index == forge_menu.pane_row, item.name, tag, FALSE, _target_pane, index);
 			y += SIDE_ROW_HEIGHT + SIDE_ROW_GAP;
 		}
-		if (!items)
+		/* (AI on a multiplayer map: a row for each faction none of whose
+		campaign maps is there, after the characters) */
+		if (chosen == _forge_category_ai && forge_ai_faction_lines() > 0)
+		{
+			short faction;
+
+			for (faction = 0; faction < forge_ai_faction_lines() && index >= items && index < first + shown; faction++)
+			{
+				char text[64];
+				boolean missing;
+
+				if (!forge_ai_faction_line(faction, text, sizeof(text), &missing) || !missing)
+					continue;
+				snprintf(line, sizeof(line), "%s", text);
+				upper(line);
+				side_row(y, FALSE, line, "NO MAP", TRUE, _target_pane, NONE);
+				y += SIDE_ROW_HEIGHT + SIDE_ROW_GAP;
+				index++;
+			}
+		}
+		else if (!items)
 			ui_style_text(UI_TEXT_LABEL, SIDE_LEFT + 10, y + 4, UI_ALIGN_LEFT, "None on this map");
 		if (forge_category_item(chosen, forge_menu.pane_row, &item))
 		{
+			char from[96];
+
 			snprintf(name, sizeof(name), "%s", item.name);
 			upper(name);
 			snprintf(line, sizeof(line), "%s", forge_category_name(chosen));
 			snprintf(tag, sizeof(tag), "Placed: %d", item.placed);
-			side_box(name, tag, NULL, NULL);
+			from[0] = 0;
+			if (item.from[0])
+				snprintf(from, sizeof(from), "From %s", item.from);
+			side_box(name, tag, item.faction, from);
 		}
 	}
 }
@@ -1332,7 +1408,7 @@ static void render_layouts(void)
 			snprintf(title, sizeof(title), "%s", forge_menu.view.save_title);
 		else
 			new_title(title, sizeof(title));
-		snprintf(line, sizeof(line), "Placed: %d of %d", forge_menu.view.objects, FORGE_MAXIMUM_OBJECTS);
+		snprintf(line, sizeof(line), "Placed: %d of %d", forge_menu.view.objects, forge_objects_budget());
 		side_box(title, line, side_status(), NULL);
 	}
 	else
@@ -1457,7 +1533,7 @@ static void render_game(void)
 
 	ui_style_panel(SIDE_X, SIDE_Y, SIDE_WIDTH, SIDE_HEIGHT, 1.0f);
 	/* (the title, as the Guide's card's, and the budget) */
-	snprintf(budget, sizeof(budget), "%d / %d", forge_menu.view.objects, FORGE_MAXIMUM_OBJECTS);
+	snprintf(budget, sizeof(budget), "%d / %d", forge_menu.view.objects, forge_objects_budget());
 	{
 		/* (as large as fits left of the budget) */
 		float room = SIDE_RIGHT - SIDE_LEFT - ui_overlay_text_width(UI_FONT_MENU, 10.0f, budget) - 10.0f, size = 12.0f;
@@ -1757,6 +1833,10 @@ void forge_menu_pointer(
 			break;
 		}
 		case _target_pane:
+			/* (a row that says something - a faction with no campaign map -
+			is no choice) */
+			if (forge_menu.targets[index].index < 0)
+				break;
 			if (forge_menu.pane && forge_menu.pane_row == forge_menu.targets[index].index)
 			{
 				handle(GUIDE_INPUT_A);

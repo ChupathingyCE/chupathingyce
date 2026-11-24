@@ -682,7 +682,7 @@ static void forge_spawn_choose(
 
 	if (!forge_camera_get(&position, &forward))
 		return;
-	if (forge_objects_counted() >= FORGE_MAXIMUM_OBJECTS || forge_spawn_points() >= FORGE_MAXIMUM_SPAWNS ||
+	if (forge_objects_counted() >= forge_objects_budget() || forge_spawn_points() >= FORGE_MAXIMUM_SPAWNS ||
 		!forge_marker_kind_room(kind, NONE, FALSE))
 	{
 		if (!forge_marker_kind_room(kind, NONE, TRUE))
@@ -690,7 +690,7 @@ static void forge_spawn_choose(
 		else if (forge_spawn_points() >= FORGE_MAXIMUM_SPAWNS)
 			forge_notice(("Spawn points full: %d. Delete one to place another."), FORGE_MAXIMUM_SPAWNS);
 		else
-			forge_notice(("Budget full: %d objects. Delete one to place another."), FORGE_MAXIMUM_OBJECTS);
+			forge_notice(("Budget full: %d objects. Delete one to place another."), forge_objects_budget());
 		return;
 	}
 	distance = MIN(4.f, forge_structure_distance(&position, &forward) - 1.f);
