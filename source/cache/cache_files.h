@@ -225,6 +225,20 @@ short cache_file_read(
 	boolean *completion_flag_reference,
 	boolean blocking);
 
+/* port: a read's completion flag is set on the cache thread and read on the
+game's. On a CPU that orders memory loosely (the PowerPC consoles, ARM) the
+flag could be seen set before the data the read put in the buffer: the
+thread that sets it makes its data visible first (CACHE_FILE_READ_PUBLISH),
+and one that sees it set reads the data after (CACHE_FILE_READ_SEEN). On
+x86 both are only the compiler's barriers. */
+#if defined(__GNUC__) || defined(__clang__)
+#define CACHE_FILE_READ_PUBLISH() __atomic_thread_fence(__ATOMIC_RELEASE)
+#define CACHE_FILE_READ_SEEN() __atomic_thread_fence(__ATOMIC_ACQUIRE)
+#else
+#define CACHE_FILE_READ_PUBLISH() ((void)0)
+#define CACHE_FILE_READ_SEEN() ((void)0)
+#endif
+
 unsigned long tag_get_group_tag(long tag_index);
 
 /* ---------- prototypes/XBOX_TEXTURE_CACHE.C */

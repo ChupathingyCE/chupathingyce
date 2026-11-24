@@ -4,8 +4,9 @@ HOST_VK_PRESENT.C
 The Vulkan renderer's surface and swapchain (port/android/VULKAN.md, phase 2),
 on the game's window: the surface is made with vkCreateAndroidSurfaceKHR on the
 window's ANativeWindow (no SDL_Vulkan_* call: SDL would load the phone's driver
-beside the chosen one), the swapchain is FIFO with the surface's own images'
-count plus one, and a frame is shown by a letterboxed blit of the game's back
+beside the chosen one), the swapchain's present mode is the one the game's
+V-Sync settings ask for (host_vk_present_mode: FIFO, FIFO_RELAXED, IMMEDIATE or
+MAILBOX, as the surface has them) with the surface's own images' count plus one, and a frame is shown by a letterboxed blit of the game's back
 buffer into the acquired image.
 
 Android destroys the window's ANativeWindow when the app goes to the background
@@ -118,7 +119,51 @@ static int surface_extent(const VkSurfaceCapabilitiesKHR *caps, VkExtent2D *exte
 	return extent->width && extent->height;
 }
 
-/* makes a swapchain for the surface as it is now: FIFO, the surface's own transform left to the compositor
+/* the present mode for host_vk_present_mode, of those the surface has: with V-Sync FIFO (every surface has it), or
+FIFO_RELAXED for adaptive (a late frame shown at once, with a tear), and without V-Sync IMMEDIATE, then MAILBOX, which
+waits for no display either; FIFO where the surface has none of those */
+static VkPresentModeKHR present_mode_choose(int wanted)
+{
+	VkPresentModeKHR modes[16];
+	uint32_t count = 16, index, preference;
+	const VkPresentModeKHR *order;
+	uint32_t order_count;
+	static const VkPresentModeKHR immediate[] = { VK_PRESENT_MODE_IMMEDIATE_KHR, VK_PRESENT_MODE_MAILBOX_KHR };
+	static const VkPresentModeKHR adaptive[] = { VK_PRESENT_MODE_FIFO_RELAXED_KHR };
+
+	if (wanted == HOST_VK_PRESENT_IMMEDIATE)
+	{
+		order = immediate;
+		order_count = 2;
+	}
+	else if (wanted == HOST_VK_PRESENT_ADAPTIVE)
+	{
+		order = adaptive;
+		order_count = 1;
+	}
+	else
+		return VK_PRESENT_MODE_FIFO_KHR;
+	if (!host_vk.vkGetPhysicalDeviceSurfacePresentModesKHR ||
+		host_vk.vkGetPhysicalDeviceSurfacePresentModesKHR(host_vk.physical, B.surface, &count, modes) < 0)
+		return VK_PRESENT_MODE_FIFO_KHR;
+	for (preference = 0; preference < order_count; preference++)
+	{
+		for (index = 0; index < count; index++)
+		{
+			if (modes[index] == order[preference])
+				return order[preference];
+		}
+	}
+	return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+static const char *present_mode_name(VkPresentModeKHR mode)
+{
+	return mode == VK_PRESENT_MODE_IMMEDIATE_KHR ? "IMMEDIATE" : mode == VK_PRESENT_MODE_MAILBOX_KHR ? "MAILBOX" :
+		mode == VK_PRESENT_MODE_FIFO_RELAXED_KHR ? "FIFO_RELAXED" : "FIFO";
+}
+
+/* makes a swapchain for the surface as it is now: present_mode_choose's mode, the surface's own transform left to the compositor
 (preTransform identity: Android turns the picture), the first of B8G8R8A8_UNORM or R8G8B8A8_UNORM it lists in the
 sRGB-nonlinear colour space, one image more than the minimum. Returns 0 (and says why, unless quiet) if it cannot. */
 static int swapchain_create(struct host_vk_swapchain *chain, VkSwapchainKHR old, int quiet, VkSurfaceTransformFlagBitsKHR *transform_out)
@@ -197,7 +242,9 @@ static int swapchain_create(struct host_vk_swapchain *chain, VkSwapchainKHR old,
 	info.preTransform = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) ?
 		VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR : caps.currentTransform;
 	info.compositeAlpha = alpha;
-	info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+	chain->wanted_mode = host_vk_present_mode;
+	chain->present_mode = present_mode_choose(chain->wanted_mode);
+	info.presentMode = chain->present_mode;
 	info.clipped = VK_TRUE;
 	info.oldSwapchain = old;
 	result = vkCreateSwapchainKHR(B.device, &info, NULL, &chain->handle);
@@ -310,9 +357,9 @@ static int ensure_swapchain(void)
 	}
 	else
 	{
-		host_logf(HOST_LOG_INFO, "vk: swapchain %ux%u, %u images, format %s, FIFO, preTransform %s", B.chain.extent.width,
+		host_logf(HOST_LOG_INFO, "vk: swapchain %ux%u, %u images, format %s, %s, preTransform %s", B.chain.extent.width,
 			B.chain.extent.height, B.chain.count, B.chain.format == VK_FORMAT_B8G8R8A8_UNORM ? "B8G8R8A8_UNORM" :
-			"R8G8B8A8_UNORM", transform_name(transform));
+			"R8G8B8A8_UNORM", present_mode_name(B.chain.present_mode), transform_name(transform));
 	}
 	return 1;
 }
@@ -337,8 +384,9 @@ static void swapchain_recreate(const char *reason)
 	{
 		B.chain = made;
 		B.counts.recreations++;
-		host_logf(HOST_LOG_INFO, "vk: swapchain made again (%s): %ux%u, %u images, %.2f ms", reason, B.chain.extent.width,
-			B.chain.extent.height, B.chain.count, (double)(now_ns() - start) / 1e6);
+		host_logf(HOST_LOG_INFO, "vk: swapchain made again (%s): %ux%u, %u images, %s, %.2f ms", reason,
+			B.chain.extent.width, B.chain.extent.height, B.chain.count, present_mode_name(B.chain.present_mode),
+			(double)(now_ns() - start) / 1e6);
 	}
 	else
 	{
@@ -390,6 +438,13 @@ uint32_t host_vk_present_record(VkCommandBuffer command, struct host_vk_target *
 	{
 		frames_since_check = 0;
 		extent_check();
+		if (!B.chain.handle)
+			return UINT32_MAX;
+	}
+	/* (V-Sync or the present mode changed in Settings: the swapchain follows) */
+	if (B.chain.wanted_mode != host_vk_present_mode)
+	{
+		swapchain_recreate("the present mode changed");
 		if (!B.chain.handle)
 			return UINT32_MAX;
 	}

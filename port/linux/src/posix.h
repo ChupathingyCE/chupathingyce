@@ -77,6 +77,13 @@ int posix_is_link(const char *path);
 /* renames the directory (or link) from to to, which must not exist: one
 move, never a copy; 0 on success */
 int posix_rename_directory(const char *from, const char *to);
+/* the file's data written through to the disk (fsync; F_FULLFSYNC on
+macOS, FlushFileBuffers on Windows); 0 on success */
+int posix_sync(int descriptor);
+/* renames the file from to to in one step, replacing a file there (rename;
+MoveFileExA with MOVEFILE_REPLACE_EXISTING on Windows, whose rename never
+replaces one); 0 on success */
+int posix_replace_file(const char *from, const char *to);
 
 /* directory enumeration; the handle is opaque */
 void *posix_directory_open(const char *path);

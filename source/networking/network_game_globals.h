@@ -64,6 +64,8 @@ boolean network_game_client_end_frame(
 	void);
 short network_game_client_get_local_machine_index(
 	void);
+boolean network_game_client_local_player_exists(
+	short controller_index);
 void network_game_client_local_player_quit(
 	short controller_index);
 long network_game_get_number_of_games_played(

@@ -51,8 +51,10 @@ enum
 
 /* ---------- macros */
 
-#define point_physics_definition_get(index) \
-	((struct point_physics_definition *)tag_get(POINT_PHYSICS_DEFINITION_TAG, (index)))
+/* port: a definition with no point physics (NONE) reads zeros, as the
+empty tag's data gave it, without that data's 64 KB zeroed on each call
+(point_physics.c) */
+#define point_physics_definition_get(index) point_physics_definition_get_or_zero(index)
 
 /* ---------- structures */
 
@@ -75,6 +77,9 @@ typedef char point_physics_definition_size_assert[
 	sizeof(struct point_physics_definition) == 0x40 ? 1 : -1];
 
 /* ---------- prototypes/POINT_PHYSICS.C */
+
+struct point_physics_definition *point_physics_definition_get_or_zero(
+	long index);
 
 void point_physics_initialize_for_new_map(
 	void);

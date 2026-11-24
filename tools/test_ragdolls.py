@@ -70,6 +70,22 @@ def test_compiled_only_with_jolt_and_never_on_consoles_or_servers():
     assert "#ifdef HALO_PORT_RAGDOLLS" in read("port/linux/game/ragdolls.c")
 
 
+def test_configure_can_leave_them_out():
+    # (configure.py --without-ragdolls: no Jolt in any desktop build, and
+    # Video Setup's row hidden, as the setting is compiled out with it)
+    assert '"--without-ragdolls"' in read("configure.py")
+    assert "with_ragdolls=args.with_ragdolls" in read("configure.py")
+    for path in ("tools/linux_build.py", "tools/linux64_build.py", "tools/macos_build.py", "tools/unix64_build.py",
+                 "tools/windows_build.py"):
+        text = read(path)
+        assert 'getattr(sln, "with_ragdolls", True)' in text, path
+        assert "jolt=True" not in text, path
+    assert '"--without-ragdolls"' in read("tools/ci_build.py")
+    menus = read("port/linux/game/menu_functions.c")
+    block = menus[menus.index("#ifndef HALO_PORT_RAGDOLLS"):]
+    assert '"op_ragdolls"' in block[:block.index("#endif")]
+
+
 def test_every_hook_is_behind_the_feature():
     for path, call in HOOKS.items():
         text = read(path)
