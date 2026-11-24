@@ -2850,6 +2850,16 @@ int p2p_hosting_public_game(void)
 	return result;
 }
 
+int p2p_hosting_has_password(void)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = p2p.has_join_key;
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
 void p2p_hosting_invite_announced(const char *invite)
 {
 	pthread_mutex_lock(&p2p_lock);
