@@ -88,6 +88,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	static const unsigned char epochs[2] = { 0, 255 };
 	static const unsigned char home_roots[1][32] = { { 0x12, 0x76 } };
 	char *copy = (char *)malloc(size ? size : 1), *text, handle[21], domain[NETWORKS_DOMAIN_SIZE];
+	unsigned char signature[NETWORKS_SIGNATURE_SIZE];
 	const char *why;
 
 	if (!copy)
@@ -97,7 +98,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		check_list(&list);
 	if (networks_signed_check(copy, (int)size, keys, epochs, 2, &list, &why))
 		__builtin_trap();
-	if (networks_signature_text(copy, (int)size, (unsigned char *)handle) && size != 128 && size != 129)
+	if (networks_signature_text(copy, (int)size, signature) && size != 128 && size != 129)
 		__builtin_trap();
 	free(copy);
 	/* (as text: the settings and a typed name) */
