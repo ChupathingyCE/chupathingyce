@@ -13,7 +13,8 @@ its scripts do not run (hs_runtime.c) and its encounters are not created
 (encounters.c), so no cinematic plays and none of its own characters walk
 in. The players spawn at the mission's own starting locations, which name
 no game type (forge_campaign_spawn_location), unless the layout has spawn
-points of its own. A mission's globals have no multiplayer block (the
+points of its own; the structure bsp the start is in is loaded first, as the
+mission's startup script would (forge_campaign_start_bsp_loaded). A mission's globals have no multiplayer block (the
 multiplayer unit, the flag, the ball, the announcer): the reads of it are
 guarded, so the campaign's player unit plays and no announcer speaks.
 
@@ -98,10 +99,80 @@ static boolean forge_campaign_map_loaded(
 	return map_index != NONE && forge_maps[map_index].campaign;
 }
 
+/* whether a start is inside the structure bsp loaded (in one of its
+clusters, at its feet or a little over them: a start on the floor can be
+in no leaf) */
+static boolean forge_campaign_point_in_bsp(
+	real_point3d const *point)
+{
+	struct location location;
+	real_point3d raised = *point;
+
+	if (global_structure_bsp_index == NONE)
+		return FALSE;
+	scenario_location_from_point(&location, point);
+	if (location.cluster_index != NONE)
+		return TRUE;
+	raised.z += 0.5f;
+	scenario_location_from_point(&location, &raised);
+	return location.cluster_index != NONE;
+}
+
+/* (a mission's start, before a player spawns there) the structure bsp the
+start is in, loaded. A mission begins in its first bsp and its startup
+script switches to the one its start is in (switch_bsp); the scripts don't
+run in Forge, and the starting locations' own bsp index is 0 in every
+retail mission, so the bsps are tried in turn (Assault on the Control
+Room's and Two Betrayals' start is not in the first), once a map: FALSE if
+none holds it (the bsp loaded as it was) */
+static short forge_campaign_start_bsp = NONE;
+static long forge_campaign_start_bsp_scenario = NONE;
+
+static boolean forge_campaign_start_bsp_loaded(
+	real_point3d const *point)
+{
+	short bsp;
+	short was = global_structure_bsp_index;
+	struct scenario *scenario = global_scenario_get();
+
+	if (forge_campaign_point_in_bsp(point))
+		return TRUE;
+	if (!scenario)
+		return FALSE;
+	if (forge_campaign_start_bsp_scenario != global_scenario_index)
+	{
+		forge_campaign_start_bsp = NONE;
+		forge_campaign_start_bsp_scenario = global_scenario_index;
+	}
+	/* (the one found before, then each other) */
+	if (forge_campaign_start_bsp != NONE && forge_campaign_start_bsp != global_structure_bsp_index &&
+		scenario_switch_structure_bsp(forge_campaign_start_bsp) && forge_campaign_point_in_bsp(point))
+	{
+		platform_log("forge: the mission's start is in structure bsp %d: loaded again", forge_campaign_start_bsp);
+		return TRUE;
+	}
+	for (bsp = 0; bsp < scenario->structure_bsp_references.count && bsp < MAXIMUM_STRUCTURE_BSPS_PER_SCENARIO; bsp++)
+	{
+		if (bsp == global_structure_bsp_index || !scenario_switch_structure_bsp(bsp))
+			continue;
+		if (forge_campaign_point_in_bsp(point))
+		{
+			forge_campaign_start_bsp = bsp;
+			platform_log("forge: the mission's start is in structure bsp %d of %ld: loaded", bsp,
+				scenario->structure_bsp_references.count);
+			return TRUE;
+		}
+	}
+	platform_log("forge: no structure bsp holds the mission's start: bsp %d kept", was);
+	if (was != NONE && was != global_structure_bsp_index)
+		scenario_switch_structure_bsp(was);
+	return FALSE;
+}
+
 /* (forge_spawn_location, no layout spawn point fits) a mission's own
 starting locations name no game type, so the engine rates none of them for
-a Forge game's: the player's by its number, any type. NONE: the map's own
-choice */
+a Forge game's: the player's by its number, any type, in the structure bsp
+it is in (forge_campaign_start_bsp_loaded). NONE: the map's own choice */
 static short forge_campaign_spawn_location(
 	long player_index,
 	struct player_starting_location *location)
@@ -117,6 +188,15 @@ static short forge_campaign_spawn_location(
 		return _forge_spawn_location_map;
 	absolute = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
 	start = TAG_BLOCK_GET_ELEMENT(&scenario->players, absolute % scenario->players.count, struct player_starting_location);
+	/* (its bsp loaded first; the player spawns at the next tick, in it: a
+	unit made in the tick the bsp changes is not placed there) */
+	if (!forge_campaign_point_in_bsp(&start->position))
+	{
+		short was = global_structure_bsp_index;
+
+		if (forge_campaign_start_bsp_loaded(&start->position) && global_structure_bsp_index != was)
+			return _forge_spawn_location_wait;
+	}
 	csmemset(location, 0, sizeof(*location));
 	location->position = start->position;
 	location->facing = start->facing;
