@@ -32,7 +32,8 @@ box, the prompts):
 - LAYOUTS: SAVE (under the layout's title), SAVE AS NEW, then the map's
   layouts: A loads one (pressed twice: what isn't saved is lost), Y
   deletes one (pressed twice);
-- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, UNDO, REDO, NEW ROUND, PLAY AS
+- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, SKY, FOG, FOG COLOR, FOG
+  DENSITY, FOG START, FOG END (the layout's sky and fog), UNDO, REDO, NEW ROUND, PLAY AS
   SPARTAN, and CONTROLS, the monitor's buttons and keys.
 X or B closes it. What it asks of the session is done by forge.c before the
 next tick (forge_menu_ask); what it shows is read from forge.c each frame
@@ -146,6 +147,13 @@ enum
 	_option_snap = 0,
 	_option_speed,
 	_option_rotate_snap,
+	/* (the layout's sky and fog: forge.h's _forge_environment_* in order) */
+	_option_sky,
+	_option_fog,
+	_option_fog_color,
+	_option_fog_density,
+	_option_fog_start,
+	_option_fog_end,
 	_option_undo,
 	_option_redo,
 	_option_round,
@@ -191,7 +199,7 @@ static struct
 
 static char const *const option_labels[NUMBER_OF_OPTIONS] =
 {
-	"SNAP", "MOVE SPEED", "ROTATION SNAP", "UNDO", "REDO", "NEW ROUND", "PLAY AS SPARTAN", "CONTROLS",
+	"SNAP", "MOVE SPEED", "ROTATION SNAP", "SKY", "FOG", "FOG COLOR", "FOG DENSITY", "FOG START", "FOG END", "UNDO", "REDO", "NEW ROUND", "PLAY AS SPARTAN", "CONTROLS",
 };
 
 
@@ -658,6 +666,14 @@ static void game_option_step(short row, short step)
 	case _option_rotate_snap:
 		forge_menu_ask(_forge_menu_ask_rotate_snap, step, 0, NULL);
 		break;
+	case _option_sky:
+	case _option_fog:
+	case _option_fog_color:
+	case _option_fog_density:
+	case _option_fog_start:
+	case _option_fog_end:
+		forge_menu_ask(_forge_menu_ask_environment, (short)(row - _option_sky), step, NULL);
+		break;
 	default:
 		return;
 	}
@@ -671,6 +687,12 @@ static void game_option_choose(short row)
 	case _option_snap:
 	case _option_speed:
 	case _option_rotate_snap:
+	case _option_sky:
+	case _option_fog:
+	case _option_fog_color:
+	case _option_fog_density:
+	case _option_fog_start:
+	case _option_fog_end:
 		game_option_step(row, 1);
 		return;
 	case _option_undo:
@@ -1341,6 +1363,14 @@ static void option_row_text(short row, char *label, int label_size, char *value,
 		break;
 	case _option_rotate_snap:
 		snprintf(value, (size_t)value_size, "%s", view->rotate_snap);
+		break;
+	case _option_sky:
+	case _option_fog:
+	case _option_fog_color:
+	case _option_fog_density:
+	case _option_fog_start:
+	case _option_fog_end:
+		forge_environment_text((short)(row - _option_sky), value, value_size);
 		break;
 	case _option_undo:
 		snprintf(label, (size_t)label_size, "UNDO (%d)", view->undo);

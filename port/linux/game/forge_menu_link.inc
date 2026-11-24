@@ -102,6 +102,9 @@ static void forge_menu_asks_run(
 		case _forge_menu_ask_round:
 			forge_globals.round_requested = TRUE;
 			break;
+		case _forge_menu_ask_environment:
+			forge_environment_step(first, second);
+			break;
 		case _forge_menu_ask_spartan:
 			forge_end();
 			break;
