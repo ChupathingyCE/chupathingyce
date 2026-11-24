@@ -242,7 +242,7 @@ static struct collision_bsp const *nav_bsp(void)
 
 static boolean nav_walkable(long surface_index)
 {
-	byte const *flags = (byte const *)nav.structure->pathfinding_surfaces.address;
+	byte const *flags = (byte const *)xbox_pointer(nav.structure->pathfinding_surfaces.address);
 
 	return surface_index >= 0 && surface_index < nav.surface_count && TEST_FLAG(flags[surface_index], NAV_WALKABLE_BIT);
 }
@@ -1659,12 +1659,12 @@ static boolean ai_nav_paths_copy(void)
 		ai_nav_paths.walkable = ai_nav_paths.vehicle_walkable = NULL;
 		return FALSE;
 	}
-	csmemcpy(ai_nav_paths.walkable, structure->pathfinding_surfaces.address, (size_t)count);
-	csmemcpy(ai_nav_paths.vehicle_walkable, structure->pathfinding_surfaces.address, (size_t)count);
+	csmemcpy(ai_nav_paths.walkable, xbox_pointer(structure->pathfinding_surfaces.address), (size_t)count);
+	csmemcpy(ai_nav_paths.vehicle_walkable, xbox_pointer(structure->pathfinding_surfaces.address), (size_t)count);
 	ai_nav_paths.structure = *structure;
-	ai_nav_paths.structure.pathfinding_surfaces.address = ai_nav_paths.walkable;
+	ai_nav_paths.structure.pathfinding_surfaces.address = xbox_address(ai_nav_paths.walkable);
 	ai_nav_paths.vehicle_structure = *structure;
-	ai_nav_paths.vehicle_structure.pathfinding_surfaces.address = ai_nav_paths.vehicle_walkable;
+	ai_nav_paths.vehicle_structure.pathfinding_surfaces.address = xbox_address(ai_nav_paths.vehicle_walkable);
 	ai_nav_paths.source = structure;
 	return TRUE;
 }
