@@ -3,7 +3,7 @@ DELTA_CHAT_GAME.H
 
 Text chat over Delta Peer, as the game sees it (docs/delta/peer.md, Chat;
 delta_peer_game.c): plain types only, so the dedicated server's units
-(server/src) and the game's chat (port/linux/game/chat.c) both call it.
+(port/linux/host) and the game's chat (port/linux/game/chat.c) both call it.
 
 The host's side routes: Delta Peer checks a line's session, rate and text,
 then hands it to the host's chat (delta_peer_game_set_chat_host), which

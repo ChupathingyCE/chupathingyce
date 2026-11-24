@@ -374,7 +374,7 @@ def server_dist(platform: str, config: str, output: str) -> int:
     for playlist in sorted((ROOT / "server/playlists").glob("*.txt")):
         shutil.copy2(playlist, dist / "playlists")
     # (sv_name_filter's list, read from the data folder)
-    shutil.copy2(ROOT / "server/blocked_names.txt", dist / "blocked_names.txt")
+    shutil.copy2(ROOT / "port/linux/host/blocked_names.txt", dist / "blocked_names.txt")
     write_build_ids(symbols)
     write_licenses(dist, "server", [])
     print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)

@@ -7,7 +7,7 @@ no platform dependency and no allocation, so the tests
 (port/linux/tests/delta_test.c), the dedicated server and the game build it
 as it is.
 
-The filter reads the blocked names list's format (server/blocked_names.txt:
+The filter reads the blocked names list's format (port/linux/host/blocked_names.txt:
 "<kind> <word>" lines, the words in ROT13) and a player's own list (plain
 words, one a line). A line is checked a word at a time: each word's key
 (lower case, accents dropped, digits and signs that stand for letters read
@@ -55,7 +55,7 @@ struct delta_chat_filter
 	struct delta_chat_filter_entry entries[DELTA_CHAT_FILTER_ENTRIES];
 };
 
-/* the blocked names list's entries (server/blocked_names.txt, in ROT13:
+/* the blocked names list's entries (port/linux/host/blocked_names.txt, in ROT13:
 delta_chat_words.c), for delta_chat_filter_add with rot13 */
 extern const char delta_chat_blocked_words[];
 

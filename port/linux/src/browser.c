@@ -2831,7 +2831,7 @@ static int badge_list_trusted(void)
 }
 
 #ifdef HALO_SERVER
-/* (server/src/server_link.h's, Delta Control's link: plain types) */
+/* (port/linux/host/server_link.h's, Delta Control's link: plain types) */
 int server_link_badge_certificate(unsigned char *certificate, int size);
 int server_link_badge_sign(const unsigned char *message, int size, unsigned char *signature);
 

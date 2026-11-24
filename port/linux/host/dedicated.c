@@ -85,7 +85,7 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #ifdef HALO_SERVER
 /* (the server program's control unit, built with the host's ABI: plain
 types only) */
-#include "../platform/server_control.h"
+#include "server_control.h"
 #endif
 #ifdef HALO_GAME_BROWSER
 /* (text chat's, port/linux/game/chat.h) */

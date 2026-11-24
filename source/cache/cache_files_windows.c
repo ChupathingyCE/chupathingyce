@@ -688,7 +688,7 @@ HANDLE cache_files_ce_map_file(
 /* port: whether a Custom Edition, HaloMD or Halo PC map (<name>@ce, ...) is
 there and not refused, opened as loading it would (ce_map_open); TRUE for
 any other map. The dedicated server asks before it plays one: a map refused
-as it loads stops on the damaged disc error (server/src/dedicated.c) */
+as it loads stops on the damaged disc error (port/linux/host/dedicated.c) */
 boolean cache_files_map_can_open(
 	const char *map_name)
 {

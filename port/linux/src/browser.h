@@ -376,12 +376,12 @@ the listing is a public game's without a password (not one a password
 opened), whose invite a player in it shares on Discord too */
 int browser_join(const char *invite, int open);
 
-/* whether this copy is the dedicated server (server/src/dedicated.c:
+/* whether this copy is the dedicated server (port/linux/host/dedicated.c:
 HALO_DEDICATED names its playlist): it joins no invite, leaves the clipboard
 alone and plays no sound */
 int browser_dedicated(void);
 
-/* the invite this copy probes (server/src/probe.c: HALO_PROBE names it,
+/* the invite this copy probes (port/linux/host/probe.c: HALO_PROBE names it,
 its digits), NULL if it is not a probe: it reads the game the invite leads
 to, prints it, and quits */
 const char *browser_probe(void);

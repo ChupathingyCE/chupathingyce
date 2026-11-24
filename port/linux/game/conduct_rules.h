@@ -1,7 +1,7 @@
 /*
 CONDUCT_RULES.H
 
-A dedicated server's betrayal and AFK limits (server/src/server_conduct.c,
+A dedicated server's betrayal and AFK limits (port/linux/host/server_conduct.c,
 server/docs/moderation.md), the parts that need no game to decide: when a
 player's betrayals in a game earn a warning or a kick, whether an automatic
 kick is a player's second in a day (then a short ban), whether a player's

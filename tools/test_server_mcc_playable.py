@@ -1,4 +1,4 @@
-"""A dedicated server plays an MCC playlist (server/src/server_commands.c's
+"""A dedicated server plays an MCC playlist (port/linux/host/server_commands.c's
 server_map_playable, which the playlist asks of each game before it starts):
 an MCC multiplayer map the catalog has is playable in a build with MCC maps
 (HALO_MCC 1, hosted at OpenCE's 43), a missing one or a campaign level is
@@ -72,7 +72,7 @@ def test_server_mcc_playable(tmp_path, mcc):
     cc = shutil.which("clang") or shutil.which("cc") or shutil.which("gcc")
     if not cc:
         pytest.skip("no C compiler")
-    body = function(read("server/src/server_commands.c"), "server_map_playable")
+    body = function(read("port/linux/host/server_commands.c"), "server_map_playable")
     # (only its MCC part and the Xbox family's answer are this test's)
     body = body[:body.index("#ifdef HALO_MAP_LIST")] + "\treturn FALSE;\n}\n"
     source = tmp_path / "playable.c"

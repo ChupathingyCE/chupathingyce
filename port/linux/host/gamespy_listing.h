@@ -9,7 +9,7 @@ and, toward each master in a list, sends QR2 heartbeats and answers the
 master's challenge.
 
 Built with the host's ABI (server_control.h's rule): only int and char
-cross here. The game's thread (server/src/server_gamespy.c) hands the
+cross here. The game's thread (port/linux/host/server_gamespy.c) hands the
 server's state over once a second; the socket has its own thread.
 */
 

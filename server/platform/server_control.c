@@ -4,7 +4,7 @@ SERVER_CONTROL.C
 The dedicated server's console and control API (server/docs/admin.md): a
 thread of their own reads commands typed on the server's standard input
 and the API's HTTP requests, and queues them for the game's main thread,
-which runs them (server/src/server_commands.c, each frame) and hands back
+which runs them (port/linux/host/server_commands.c, each frame) and hands back
 their output. Nothing here touches the game: it is built with the host's
 ABI, and what crosses to the game's units is plain types.
 
@@ -57,21 +57,21 @@ platform_log) are kept in a ring here, any public address in them hidden
 (control_protocol.h), whatever debug.log_addresses says.
 */
 
-#include "server_control.h"
+#include "../../port/linux/host/server_control.h"
 #include "control_protocol.h"
 #include "control_web.h"
 #include "control_roles.h"
 #include "control_accounts.h"
 #include "control_tls.h"
 #include "server_terminal.h"
-#include "../src/server_roles.h"
-#include "../src/server_link.h"
+#include "../../port/linux/host/server_roles.h"
+#include "../../port/linux/host/server_link.h"
 
 #include "monocypher.h"
 #include "qrcodegen.h"
 
 /* (the sockets, files and random bytes, on Linux and Windows) */
-#include "server_host.h"
+#include "../../port/linux/host/server_host.h"
 
 #include <pthread.h>
 #include <stdarg.h>

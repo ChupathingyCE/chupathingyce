@@ -1,7 +1,7 @@
 /*
 GAMESPY_HARNESS.C
 
-server/platform/gamespy_listing.c alone, for tools/test_gamespy_listing.py:
+port/linux/host/gamespy_listing.c alone, for tools/test_gamespy_listing.py:
 the listing started on a port with a list of masters, given a made-up
 server's state, until its standard input ends (then stopped, which sends
 the masters the last heartbeat). Its notices go to standard output.
@@ -37,9 +37,9 @@ With joins on, the harness has no game: each join is refused as a game
 between games would refuse it (reason 0), and the log says so.
 */
 
-#include "../platform/gamespy_listing.h"
-#include "../platform/ce_messages.h"
-#include "../platform/ce_transport.h"
+#include "../gamespy_listing.h"
+#include "../ce_messages.h"
+#include "../ce_transport.h"
 
 #include <poll.h>
 #include <stdio.h>

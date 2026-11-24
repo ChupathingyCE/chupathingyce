@@ -225,7 +225,7 @@ def test_a_host_rule_off_by_default():
     assert 'config_boolean("network.air_turn_aim")' in rules
     assert "rules.flags |= DELTA_WIRE_HOST_AIR_TURN_AIM" in rules
     assert "DELTA_WIRE_HOST_AIR_TURN_AIM = 0x10" in (ROOT / "port/linux/src/delta_wire.h").read_text(encoding="utf-8")
-    server = (ROOT / "server/src/server_config.c").read_text(encoding="utf-8")
+    server = (ROOT / "port/linux/host/server_config.c").read_text(encoding="utf-8")
     assert '{ "air_turn_aim", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_AIR_TURN_AIM",' in server
     assert "`network.air_turn_aim` | `false` | `HALO_NET_AIR_TURN_AIM` |" in \
         (ROOT / "port/linux/README.md").read_text(encoding="utf-8")

@@ -8,7 +8,7 @@ codes need no tables of their own, and a batch, JSON of numbers and a few
 names, compresses about seven to one with them. The game's zlib (the
 port's copy) inflates only, which is why this is here.
 
-No state between calls; the unit tests (server/tests/events_test.c) check
+No state between calls; the unit tests (port/linux/host/tests/events_test.c) check
 its output with zlib's inflate.
 */
 

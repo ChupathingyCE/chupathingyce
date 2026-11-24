@@ -238,7 +238,7 @@ static struct oddball_globals oddball_globals = { 0 };
 
 #ifdef HALO_SERVER
 /* port: Oddball's scores and the balls' carriers, as Custom Edition's
-clients are told them (server/src/server_ce.c): by absolute player index,
+clients are told them (port/linux/host/server_ce.c): by absolute player index,
 by team, and by ball (a player's handle, NONE for none) */
 void game_engine_oddball_get_state(
 	long const **individual_scores,

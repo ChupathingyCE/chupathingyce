@@ -53,7 +53,7 @@ void network_game_generate_join_game_token(
 void network_game_server_kick_machine(
 	long machine_index,
 	boolean kept_out);
-/* port: the dedicated server's kick and ban (server/src/server_commands.c):
+/* port: the dedicated server's kick and ban (port/linux/host/server_commands.c):
 the client machine at the index refused with the rejection code and
 dropped, not kept out after (a ban is bans.txt's, which every join is
 checked against); FALSE if it is none that joined */
@@ -140,7 +140,7 @@ void network_game_server_update_ticks(
 	short tick_count);
 /* port: a dedicated server's Custom Edition client as a machine of the game
 of its own, with no connection (network_server_manager.c, "virtual
-machines"; server/src/server_ce.c): added (its index, NONE if none), its
+machines"; port/linux/host/server_ce.c): added (its index, NONE if none), its
 player added, removed, and whether a machine is one */
 long network_game_server_port_add_virtual_machine(
 	wchar_t const *name,

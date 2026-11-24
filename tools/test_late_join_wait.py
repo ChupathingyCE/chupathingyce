@@ -87,6 +87,6 @@ def test_hold_is_its_own_setting():
     assert "`network.late_join_hold`" in (ROOT / "docs/settings.md").read_text(encoding="utf-8")
     assert "`network.late_join_hold` | `false` | `HALO_NET_LATE_JOIN_HOLD` |" in \
         (ROOT / "port/linux/README.md").read_text(encoding="utf-8")
-    server = (ROOT / "server/src/server_config.c").read_text(encoding="utf-8")
+    server = (ROOT / "port/linux/host/server_config.c").read_text(encoding="utf-8")
     assert '{ "late_join_hold", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_LATE_JOIN_HOLD",' in server
     assert '"late_join_wait"' not in server

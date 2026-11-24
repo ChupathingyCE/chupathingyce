@@ -4,8 +4,8 @@
 The server (server/README.md) is the game itself, the same sources and
 network code as the Linux builds (tools/linux_build.py for x86,
 tools/lp64_build.py for x64 and arm64), with the dedicated server's director
-(server/src) and without anything a player sits in front of: SDL's window,
-input and sound are replaced by server/platform's headless units, so the
+(port/linux/host) and without anything a player sits in front of: SDL's window,
+input and sound are replaced by port/linux/host's headless units, so the
 program links only the C library. It needs SDL's headers to compile (the
 renderer's OpenGL declarations, which it never calls), fetched once from
 SDL's release (SDL_TARBALL_URL), never its library.
@@ -51,6 +51,7 @@ from .linux_build import (
     lto_flags,
     march_flag,
 )
+from .host_sources import HOST_DIR
 from .lp64_build import Lp64Build, Lp64Host, lp64_configure_inputs, lp64_excluded
 from .ninja_syntax import Writer
 
@@ -58,25 +59,25 @@ SERVER_DIR = Path("server")
 SERVER_PLATFORM_DIR = SERVER_DIR / "platform"
 # the server's own platform units, with the Xbox's ABI (they stand in for
 # the ones it leaves out)
-SERVER_PLATFORM_SOURCES = [SERVER_PLATFORM_DIR / "server_platform.c", SERVER_PLATFORM_DIR / "server_input.c"]
+SERVER_PLATFORM_SOURCES = [HOST_DIR / "server_platform.c", HOST_DIR / "server_input.c"]
 # and with the host's ABI: SDL's few utility functions, glibc's backtrace,
 # and the console (and its line editing), control API and web admin page, and their HTTPS (server/docs/admin.md;
 # the page's files are embedded by tools/embed_webui.py), and the GameSpy-style
 # status queries and heartbeats (gamespy_listing.c) and Custom Edition's join
 # wire on the same port (ce_transport.c, ce_messages.c)
-SERVER_NATIVE_SOURCES = [SERVER_PLATFORM_DIR / "sdl_headless.c", SERVER_PLATFORM_DIR / "backtrace.c",
+SERVER_NATIVE_SOURCES = [HOST_DIR / "sdl_headless.c", HOST_DIR / "backtrace.c",
                          SERVER_PLATFORM_DIR / "control_protocol.c", SERVER_PLATFORM_DIR / "control_web.c",
                          SERVER_PLATFORM_DIR / "control_tls.c", SERVER_PLATFORM_DIR / "server_control.c",
                          SERVER_PLATFORM_DIR / "server_terminal.c",
                          SERVER_PLATFORM_DIR / "control_roles.c", SERVER_PLATFORM_DIR / "control_accounts.c",
                          SERVER_PLATFORM_DIR / "server_roles.c", SERVER_PLATFORM_DIR / "control_link_protocol.c",
                          SERVER_PLATFORM_DIR / "control_link.c", SERVER_PLATFORM_DIR / "server_events.c",
-                         SERVER_PLATFORM_DIR / "gamespy_listing.c", SERVER_PLATFORM_DIR / "ce_transport.c",
-                         SERVER_PLATFORM_DIR / "ce_messages.c", SERVER_PLATFORM_DIR / "server_bans.c",
+                         HOST_DIR / "gamespy_listing.c", HOST_DIR / "ce_transport.c",
+                         HOST_DIR / "ce_messages.c", SERVER_PLATFORM_DIR / "server_bans.c",
                          SERVER_PLATFORM_DIR / "report_queue.c"]
 # the Windows server's own (tools/windows_build.py, ninja server-windows64):
 # Ctrl+C, and the Windows service
-SERVER_WINDOWS_SOURCES = [SERVER_PLATFORM_DIR / "server_windows.c"]
+SERVER_WINDOWS_SOURCES = [HOST_DIR / "server_windows.c"]
 SERVER_WEBUI_DIR = SERVER_DIR / "webui"
 # the window, input and self-updater the server has none of
 SERVER_EXCLUDED = {
@@ -205,7 +206,7 @@ def server_configure_inputs() -> List[Path]:
     """Files whose change must re-run configure.py."""
     if not PORT_CONFIG.is_file():
         return [Path(__file__)]
-    return [Path(__file__), SERVER_PLATFORM_DIR, SERVER_WEBUI_DIR, Path("tools/embed_webui.py"),
+    return [Path(__file__), HOST_DIR, SERVER_PLATFORM_DIR, SERVER_WEBUI_DIR, Path("tools/embed_webui.py"),
             *lp64_configure_inputs(), *hud_configure_inputs()]
 
 

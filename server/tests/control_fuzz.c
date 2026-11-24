@@ -23,7 +23,7 @@ site relays as a command line, JSON as the link reads it).
 #include "../platform/control_web.h"
 #include "../platform/control_roles.h"
 #include "../platform/control_link_protocol.h"
-#include "../src/command_line.h"
+#include "../../port/linux/host/command_line.h"
 #include "../../port/linux/src/server_names.h"
 
 #include <stdint.h>

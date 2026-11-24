@@ -1,4 +1,4 @@
-# Slayer and Team Slayer, every multiplayer map (server/src/dedicated.c).
+# Slayer and Team Slayer, every multiplayer map (port/linux/host/dedicated.c).
 # One entry a line: the map, then the game type. The server plays them in
 # order, back to the top after the last.
 

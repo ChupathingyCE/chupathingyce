@@ -1,6 +1,6 @@
 """Tests the dedicated server's GameSpy-style status queries and master
-heartbeats (server/platform/gamespy_listing.c) through
-server/tests/gamespy_harness.c, on the loopback address only: the two query
+heartbeats (port/linux/host/gamespy_listing.c) through
+port/linux/host/tests/gamespy_harness.c, on the loopback address only: the two query
 forms Halo Custom Edition 1.0.10's own server answers ("\\basic\\" and QR2's
 FE FD 00), QR2's echo, and the heartbeats and challenge exchange with a
 stand-in master (tools/gamespy_fake_master.py). No test reaches a real
@@ -20,8 +20,8 @@ sys.path.insert(0, str(ROOT))
 from tools.gamespy_fake_master import (  # noqa: E402
     CAPTURED_CHALLENGE, CAPTURED_RESPONSE, FakeMaster, challenge_response, parse_pairs, parse_qr2_sections)
 
-HARNESS_SOURCES = [ROOT / "server" / "tests" / "gamespy_harness.c", ROOT / "server" / "platform" / "gamespy_listing.c",
-                   ROOT / "server" / "platform" / "ce_transport.c", ROOT / "server" / "platform" / "ce_messages.c"]
+HARNESS_SOURCES = [ROOT / "port" / "linux" / "host" / "tests" / "gamespy_harness.c", ROOT / "port" / "linux" / "host" / "gamespy_listing.c",
+                   ROOT / "port" / "linux" / "host" / "ce_transport.c", ROOT / "port" / "linux" / "host" / "ce_messages.c"]
 def compiler():
     for name in ("clang", "cc", "gcc"):
         path = shutil.which(name)

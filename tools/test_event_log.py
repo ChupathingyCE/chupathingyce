@@ -1,5 +1,5 @@
 """Delta Stats' event log and its compression (port/linux/src/event_log.c,
-event_gzip.c), through server/tests/events_test.c built with the build
+event_gzip.c), through port/linux/host/tests/events_test.c built with the build
 machine's C compiler (under AddressSanitizer and UndefinedBehaviorSanitizer
 where it has them): the batch is the documented schema (docs/delta/stats.md,
 "Delta Stats"), its limits hold, its gzip inflates with zlib, and random
@@ -17,7 +17,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCES = [
-    ROOT / "server" / "tests" / "events_test.c",
+    ROOT / "port" / "linux" / "host" / "tests" / "events_test.c",
     ROOT / "port" / "linux" / "src" / "event_log.c",
     ROOT / "port" / "linux" / "src" / "event_gzip.c",
     ROOT / "port" / "third_party" / "monocypher" / "monocypher.c",

@@ -2,7 +2,7 @@
 CE_TRANSPORT_FUZZ.C
 
 libFuzzer's entry for Halo Custom Edition 1.0.10's join wire
-(server/platform/ce_transport.c, ce_messages.c), as tools/test_host_fuzz.py
+(port/linux/host/ce_transport.c, ce_messages.c), as tools/test_host_fuzz.py
 builds it. Each input is a list of steps a client or the game takes against
 a freshly started transport: [kind][length][bytes], the bytes of a step cut
 at its length.
@@ -23,8 +23,8 @@ at its length.
      of time, chosen by the bytes
 */
 
-#include "../platform/ce_messages.h"
-#include "../platform/ce_transport.h"
+#include "../ce_messages.h"
+#include "../ce_transport.h"
 
 #include <math.h>
 #include <netinet/in.h>

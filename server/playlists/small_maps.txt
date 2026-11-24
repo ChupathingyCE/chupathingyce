@@ -1,4 +1,4 @@
-# Slayer, every player for themselves, on the smaller maps (server/src/dedicated.c):
+# Slayer, every player for themselves, on the smaller maps (port/linux/host/dedicated.c):
 # no team games, so any number of players, one included, can start a game.
 # The big maps (Blood Gulch, Sidewinder, Boarding Action) are left to teams.
 # One entry a line: the map, then the game type, played in order.

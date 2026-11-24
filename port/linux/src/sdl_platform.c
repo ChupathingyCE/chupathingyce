@@ -710,7 +710,7 @@ BOOL platform_sdl_initialize(void)
 #endif
 #ifdef HALO_GAME_BROWSER
 	/* the dedicated server and a probe play no sound and need no display
-	(server/src) */
+	(port/linux/host) */
 	if (browser_headless())
 	{
 		SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");

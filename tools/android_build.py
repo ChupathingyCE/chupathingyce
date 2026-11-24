@@ -31,6 +31,7 @@ from .linux_build import (CUSTOM_EDITION_DEFINES, MODS_DEFINES, LINUX_PROFILE, M
                           musl_math_sources, pgo_mode, pgo_profile,
                           profile_use_flags, updater_defines, xdk_headers)
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
+from .host_sources import director_sources
 from .ninja_syntax import Writer
 from .third_party_notices import ninja_build as ninja_notices
 from .version import VERSION_SOURCES
@@ -630,9 +631,9 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         objects.append(guest_object(source, cflags))
     for source in sorted(Path(config["game_sources"]).glob("*.c")):
         objects.append(guest_object(source, game_cflags))
-    # the dedicated server's director, with the game browser (server/)
+    # the dedicated server's director, with the game browser (port/linux/host)
     if getattr(sln, "game_browser", False):
-        for source in sorted(Path("server/src").glob("*.c")):
+        for source in director_sources():
             objects.append(guest_object(source, game_cflags))
 
     # the platform layer shared with Linux, and the guest runtime

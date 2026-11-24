@@ -2,7 +2,7 @@
 SERVER_EVENTS.C
 
 Delta Stats' side of Delta Control (glue): every moderator's action the
-server audits (server_roles.c's recorder, server/src/server_roles.h) goes
+server audits (server_roles.c's recorder, port/linux/host/server_roles.h) goes
 into the game's event log too, as the batch's "moderation" (docs/delta/stats.md,
 "Delta Stats"). The recorder is called on whichever thread made the change,
 so the action waits in event_upload.c's queue for the game's thread
@@ -13,7 +13,7 @@ warnings. Logins, invitations and the rest stay in the audit file alone.
 */
 
 #include "../../port/linux/src/event_log.h"
-#include "../src/server_roles.h"
+#include "../../port/linux/host/server_roles.h"
 #include "control_roles.h"
 
 #include <stdio.h>

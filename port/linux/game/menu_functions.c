@@ -113,8 +113,8 @@ their handlers open opens.
 #include "mcc_maps.h"
 #ifdef HALO_GAME_BROWSER
 /* (game type files: the dedicated server's, gametype_files.c) */
-#include "../../../server/src/server_config.h"
-#include "../../../server/src/server_gametype_variant.h"
+#include "../host/server_config.h"
+#include "../host/server_gametype_variant.h"
 #include "../src/gametype_folder.h"
 #include "gametype_files.h"
 #endif
@@ -8269,7 +8269,7 @@ The host's rules are a nested list, as the settings screens' are: HOST
 RULES opens it, and B goes back out of it. B leaves them as they were.
 
 The editor shows every setting of the game type, as the dedicated server's
-game type files have them (server/src/server_config.c's table), a page at
+game type files have them (port/linux/host/server_config.c's table), a page at
 a time (GENERAL, PLAYERS, WEAPONS, VEHICLES, INDICATORS: each page its own
 screen, which the bumpers replace with the next). A saves it: as a file of
 the save folder's gametypes/ and as a saved gametype of its name

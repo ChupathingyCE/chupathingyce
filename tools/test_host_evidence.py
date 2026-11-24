@@ -18,7 +18,7 @@ DISTRIBUTED_C = GAME / "network_distributed.c"
 OBJECTS_C = GAME / "network_objects.c"
 DAMAGE_C = GAME / "network_damage.c"
 EVIDENCE_C = GAME / "host_evidence.c"
-COMMANDS_C = ROOT / "server" / "src" / "server_commands.c"
+COMMANDS_C = ROOT / "port" / "linux" / "host" / "server_commands.c"
 ROLES_C = ROOT / "server" / "platform" / "control_roles.c"
 CONTROL_C = ROOT / "server" / "platform" / "server_control.c"
 

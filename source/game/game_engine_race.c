@@ -319,7 +319,7 @@ static struct race_globals race_globals = { 0 };
 
 #ifdef HALO_SERVER
 /* port: Race's state as Custom Edition's clients are told it
-(server/src/server_ce.c): each player's first flag and laps' flags (by
+(port/linux/host/server_ce.c): each player's first flag and laps' flags (by
 absolute player index), each team's laps, the flags of a whole lap and
 the rally flag */
 void game_engine_race_get_state(

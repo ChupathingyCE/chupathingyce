@@ -9,8 +9,8 @@ JSON and what the site is sent. Built and run by tools/test_server_bans.py
 in a data folder of its own.
 */
 
-#include "../src/server_bans.h"
-#include "../src/server_reports.h"
+#include "../../port/linux/host/server_bans.h"
+#include "../../port/linux/host/server_reports.h"
 #include "../platform/control_protocol.h"
 #include "monocypher.h"
 

@@ -1,5 +1,5 @@
 """Runs the C tests of the dedicated server's command lines, control API and
-web admin page (server/tests/control_test.c: server/src/command_line.c,
+web admin page (server/tests/control_test.c: port/linux/host/command_line.c,
 server/platform/control_protocol.c and control_web.c, with Monocypher and
 the page's files as tools/embed_webui.py embeds them) with the build
 machine's C compiler, under AddressSanitizer and UndefinedBehaviorSanitizer
@@ -37,8 +37,8 @@ MBEDTLS = ROOT / "port" / "third_party" / "mbedtls"
 PLATFORM = ROOT / "server" / "platform"
 SOURCES = [
     ROOT / "server" / "tests" / "control_test.c",
-    ROOT / "server" / "src" / "command_line.c",
-    ROOT / "server" / "src" / "server_config.c",
+    ROOT / "port" / "linux" / "host" / "command_line.c",
+    ROOT / "port" / "linux" / "host" / "server_config.c",
     ROOT / "port" / "linux" / "src" / "server_names.c",
     PLATFORM / "control_protocol.c",
     PLATFORM / "control_web.c",
@@ -50,7 +50,7 @@ SOURCES = [
 ]
 HARNESS_SOURCES = [
     ROOT / "server" / "tests" / "control_harness.c",
-    ROOT / "server" / "src" / "command_line.c",
+    ROOT / "port" / "linux" / "host" / "command_line.c",
     PLATFORM / "server_control.c",
     PLATFORM / "server_terminal.c",
     PLATFORM / "server_roles.c",
@@ -620,7 +620,7 @@ def test_every_command_has_a_permission():
     """Each command in server_commands.c's table has a line in the permission
     table (control_roles.c): one left out would be the console's alone, so
     it is caught here instead of in a moderator's hands."""
-    commands_source = (ROOT / "server" / "src" / "server_commands.c").read_text()
+    commands_source = (ROOT / "port" / "linux" / "host" / "server_commands.c").read_text()
     table = commands_source[commands_source.index("static struct server_command const server_commands[] ="):]
     table = table[:table.index("\n};")]
     commands = re.findall(r'^\s*\{ "(\w+)",', table, re.M)

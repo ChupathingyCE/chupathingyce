@@ -2,7 +2,7 @@
 
 The host's map change (source/networking/network_server_manager.c) keeps the game's map when this machine lacks the
 new one; the test host's map list (port/linux/game/network_test.c) skips such a map to the next installed one; a
-dedicated server (server/src/dedicated.c) whose playlist has no installed map hosts nothing and says so once."""
+dedicated server (port/linux/host/dedicated.c) whose playlist has no installed map hosts nothing and says so once."""
 import sys
 from pathlib import Path
 
@@ -40,7 +40,7 @@ CONTROLS = {
 def generated(control=None):
     server = read('source/networking/network_server_manager.c')
     test = read('port/linux/game/network_test.c')
-    dedicated = read('server/src/dedicated.c')
+    dedicated = read('port/linux/host/dedicated.c')
     code = '\n'.join(
         [f"#define NONE_PLAYABLE_MILLISECONDS {constant(dedicated, 'NONE_PLAYABLE_MILLISECONDS')}"] +
         [function(test, name) for name in ('network_test_map', 'network_test_map_count', 'network_test_map_path',

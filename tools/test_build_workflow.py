@@ -246,7 +246,7 @@ def test_plan_fast_check_for_shared_code(fake_gh):
     (["port/android/app/build.gradle"], "android"),
     (["port/macos/main.m"], "macos"),
     (["port/unix/unix_main.c"], "freebsd"),
-    (["server/src/main.c"], "server"),
+    (["port/linux/host/main.c"], "server"),
     (["port/linux/src/d3d8_bgfx.inl"], "linux64"),
 ])
 def test_plan_adds_the_platform_changed(fake_gh, files, area):

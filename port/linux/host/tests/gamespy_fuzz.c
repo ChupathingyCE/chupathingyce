@@ -2,14 +2,14 @@
 GAMESPY_FUZZ.C
 
 libFuzzer's entry for what anyone on the internet can send the dedicated
-server's GameSpy port (server/platform/gamespy_listing.c, built into this
+server's GameSpy port (port/linux/host/gamespy_listing.c, built into this
 file so its master packet reader, which is not exported, is run too), as
 tools/test_host_fuzz.py builds it. The input's first byte says how much of
 what follows is the server's state (a status, its text fields made
 terminated as the server's own are); the rest is a query or master packet.
 */
 
-#include "../platform/gamespy_listing.c"
+#include "../gamespy_listing.c"
 
 #include <stdint.h>
 

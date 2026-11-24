@@ -6,7 +6,7 @@ events, kept within fixed limits, and the game's batch made of them, as
 JSON (schema 1).
 
 Built with the platform layer's ABI, with nothing of the game's: the unit
-tests (server/tests/events_test.c) build it as it is.
+tests (port/linux/host/tests/events_test.c) build it as it is.
 
 Limits (bounded memory, whatever the game): a game keeps at most
 event_log_capacity() events (network.events_limit), and its players' slots,

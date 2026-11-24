@@ -38,8 +38,8 @@ kicks and bans are the server's, through the game's own protocol.
 /* (Delta Peer's own headers: the moderation host's hooks and the verified
 player they pass, shared with delta_peer.c so the layout can't drift; and
 identity.h's certificate capabilities) */
-#include "../../port/linux/src/delta_moderation.h"
-#include "../../port/linux/src/identity.h"
+#include "../src/delta_moderation.h"
+#include "../src/identity.h"
 
 enum
 {

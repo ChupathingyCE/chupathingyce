@@ -308,7 +308,7 @@ enum
 	SERVER_SETTING_GAMESPY_LISTING,
 	SERVER_SETTING_GAMESPY_PORT,
 	/* Halo Custom Edition 1.0.10's join wire answered on that port
-	(server/platform/ce_transport.h) */
+	(port/linux/host/ce_transport.h) */
 	SERVER_SETTING_CE_JOINS,
 	/* the host's rules for its players' extras (port/linux/game/host_rules.h):
 	whether players may show names above heads, and watch a follow camera
@@ -324,7 +324,7 @@ enum
 	SERVER_SETTING_BETRAYAL_KICK,
 	SERVER_SETTING_AFK_KICK_MINUTES,
 	/* the line each Custom Edition player gets in their chat as they join
-	(server/src/server_ce.c; empty: none) */
+	(port/linux/host/server_ce.c; empty: none) */
 	SERVER_SETTING_CE_WELCOME,
 	/* a party's players kept on one team where the teams stay even
 	(port/linux/game/party_teams.h; Delta Peer's party teams) */

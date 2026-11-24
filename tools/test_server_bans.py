@@ -96,10 +96,10 @@ def test_only_bound_identities_reach_reports_and_bans():
     peer_header = (ROOT / "port/linux/src/delta_peer.h").read_text(encoding="utf-8")
     peer = (ROOT / "port/linux/src/delta_peer.c").read_text(encoding="utf-8")
     peer_game = (ROOT / "port/linux/src/delta_peer_game.c").read_text(encoding="utf-8")
-    moderation = (ROOT / "server/src/server_moderation.c").read_text(encoding="utf-8")
-    reports = (ROOT / "server/src/server_reports.c").read_text(encoding="utf-8")
+    moderation = (ROOT / "port/linux/host/server_moderation.c").read_text(encoding="utf-8")
+    reports = (ROOT / "port/linux/host/server_reports.c").read_text(encoding="utf-8")
     # (the server takes Delta Peer's own struct, so the layout can't drift)
-    assert '#include "../../port/linux/src/delta_moderation.h"' in moderation
+    assert '#include "../src/delta_moderation.h"' in moderation
     assert "struct delta_peer_identity\n{" not in moderation and _struct_fields(peer_header, "delta_peer_identity")
     assert "identity && identity->bound ? identity : NULL" in peer
     assert "if (identity && !identity->bound)\n\t\tidentity = NULL;" in moderation

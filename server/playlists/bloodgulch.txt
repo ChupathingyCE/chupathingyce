@@ -1,5 +1,5 @@
 # Blood Gulch only, Team Slayer and Slayer in turn, for the biggest games
-# (server/src/dedicated.c). While a single player waits, the team entry is
+# (port/linux/host/dedicated.c). While a single player waits, the team entry is
 # left for the Slayer one.
 # One entry a line: the map, then the game type, played in order.
 

@@ -3,7 +3,7 @@ SERVER_NAMES.H
 
 The blocked names: the dedicated server's (sv_name_filter, server/docs/
 settings.md: the list file, blocked_names.txt in the data folder,
-server/blocked_names.txt in the repository, the same list the ChupathingyCE
+port/linux/host/blocked_names.txt in the repository, the same list the ChupathingyCE
 site uses) and the game lists' (browser.c: the site's /v1/blocked-names,
 else the built-in copy), and whether a name is on one. Plain C, with no game
 types, so the same unit is built into the game, the server and the tests

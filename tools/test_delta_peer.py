@@ -143,10 +143,10 @@ def test_moderator_key_vector(tmp_path):
 
 def test_chat_words_match_blocked_names():
     """the chat filter's built-in list (port/linux/src/delta_chat_words.c) is
-    server/blocked_names.txt's entries, in its order"""
+    port/linux/host/blocked_names.txt's entries, in its order"""
     import re
 
-    entries = [line.strip() for line in (ROOT / "server" / "blocked_names.txt").read_text().splitlines()
+    entries = [line.strip() for line in (ROOT / "port" / "linux" / "host" / "blocked_names.txt").read_text().splitlines()
                if line.strip() and not line.strip().startswith("#")]
     source = (ROOT / "port" / "linux" / "src" / "delta_chat_words.c").read_text()
     built = re.findall(r'^\t"(.*)\\n"', source, re.MULTILINE)

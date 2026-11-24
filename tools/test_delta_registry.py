@@ -196,7 +196,7 @@ def test_game_modes_match_network_rules_h():
 
 
 def test_permissions_match_the_code():
-    roles = (ROOT / "server" / "src" / "server_roles.h").read_text()
+    roles = (ROOT / "port" / "linux" / "host" / "server_roles.h").read_text()
     server = values(roles, r"\bSERVER_PERMISSION_(\w+) = (0x\w+),")
     server.pop("all")
     wire = values(WIRE_H, r"\bDELTA_MODERATION_(\w+) = (0x\w+)")

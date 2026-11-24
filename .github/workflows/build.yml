@@ -231,14 +231,14 @@ jobs:
           echo "$files"
           has() { grep -qE "$1" <<< "$files" && echo true || echo false; }
           # (what changes how every platform builds)
-          [ "$(has '^(configure\.py|VERSION|tools/(ci_build|version|download|ffmpeg_build|bgfx_build|third_party_notices)\.py)$')" = true ] \
+          [ "$(has '^(configure\.py|VERSION|tools/(ci_build|version|download|ffmpeg_build|bgfx_build|third_party_notices|host_sources)\.py)$')" = true ] \
             && everything "the build's plumbing changed"
           out full false
           out windows "$(has '^(port/windows/|server/windows/|tools/windows_build\.py$)')"
           out android "$(has '^(port/android/|tools/android)')"
           out macos "$(has '^(port/macos/|port/ios/|tools/macos_build\.py$)')"
           out freebsd "$(has '^(port/unix/|tools/unix64_build\.py$)')"
-          out server "$(has '^(server/|tools/server_build\.py$)')"
+          out server "$(has '^(server/|port/linux/host/|tools/server_build\.py$)')"
           out linux64 "$(has '^(tools/linux64_build\.py$|tools/linux_sysroot\.py$|tools/bgfx-patches/|port/linux/src/(d3d8_bgfx|bgfx_))')"
           # (a pull request of the server's alone builds x64)
           out server_archs '["x64"]'

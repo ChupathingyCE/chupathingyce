@@ -2,7 +2,7 @@
 SERVER_CONTROL.H
 
 The dedicated server's console and control API (server_control.c) as the
-units that use it see them: the game's main thread (server/src/
+units that use it see them: the game's main thread (port/linux/host/
 server_commands.c, built with the Xbox's ABI) and the tests' stand-in for
 it (server/tests/control_harness.c). server_control.c is built with the
 host's ABI, so only plain int and char cross here, which every ABI the

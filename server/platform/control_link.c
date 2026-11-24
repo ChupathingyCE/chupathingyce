@@ -31,16 +31,16 @@ threads), so polls are short: one every few seconds, no long poll.
 #include "control_link_protocol.h"
 #include "control_protocol.h"
 #include "control_roles.h"
-#include "../src/server_roles.h"
-#include "../src/server_link.h"
-#include "../src/server_bans.h"
-#include "../src/server_reports.h"
+#include "../../port/linux/host/server_roles.h"
+#include "../../port/linux/host/server_link.h"
+#include "../../port/linux/host/server_bans.h"
+#include "../../port/linux/host/server_reports.h"
 
 #include "monocypher.h"
 #include "monocypher-ed25519.h"
 
 /* (the files and random bytes, on Linux and Windows) */
-#include "server_host.h"
+#include "../../port/linux/host/server_host.h"
 
 #include <pthread.h>
 #include <stdarg.h>

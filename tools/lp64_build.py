@@ -67,6 +67,7 @@ from .linux_build import (
     opus_sources,
     updater_defines,
 )
+from .host_sources import HOST_DIR, director_sources
 from .ninja_syntax import Writer
 from .version import VERSION_SOURCES
 
@@ -207,7 +208,7 @@ def rewritten_inputs(extra_roots: Sequence[Path] = ()) -> List[Path]:
     inputs. Headers come along whole, so that includes relative to the
     including file find the rewritten copies."""
     roots = [Path("source"), LINUX_PORT_DIR / "game", LINUX_PORT_DIR / "src", LINUX_PORT_DIR / "include",
-             Path("port/include"), KCP_DIR, TOML_DIR, Path("server/src"), *extra_roots]
+             Path("port/include"), KCP_DIR, TOML_DIR, HOST_DIR, *extra_roots]
     files = []
     for root in roots:
         for path in sorted(root.rglob("*")):
@@ -314,9 +315,9 @@ class Lp64Build:
         for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
             if source.as_posix() not in excluded:
                 add(lp64(source), game_cflags)
-        # the dedicated server's director, with the game browser (server/)
+        # the dedicated server's director, with the game browser (port/linux/host)
         if getattr(sln, "game_browser", False):
-            for source in sorted(Path("server/src").glob("*.c")):
+            for source in director_sources():
                 add(lp64(source), game_cflags)
 
         platform_dir = Path(linux_config["platform_sources"])

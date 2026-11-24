@@ -6,12 +6,12 @@ moderators file, the accounts' and the site's keys, the audit file, the
 actors' limits, under one lock.
 */
 
-#include "../src/server_roles.h"
+#include "../../port/linux/host/server_roles.h"
 #include "control_roles.h"
 #include "control_protocol.h"
 
 /* (the files, on Linux and Windows) */
-#include "server_host.h"
+#include "../../port/linux/host/server_host.h"
 
 #include <stdarg.h>
 #include <pthread.h>

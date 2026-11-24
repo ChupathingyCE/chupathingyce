@@ -39,7 +39,7 @@
     return node;
   }
 
-  // a word of a command line (server/src/command_line.c): quoted, with \ and " escaped
+  // a word of a command line (port/linux/host/command_line.c): quoted, with \ and " escaped
   function quote(text) {
     return '"' + String(text).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
   }

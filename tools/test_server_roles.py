@@ -30,7 +30,7 @@ def test_roles(tmp_path):
     build = subprocess.run(
         [cc, "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-O1", "-pthread",
          str(ROOT / "server" / "tests" / "roles_test.c"), str(PLATFORM / "server_roles.c"),
-         str(PLATFORM / "control_roles.c"), str(PLATFORM / "control_protocol.c"), str(ROOT / "server" / "src" / "command_line.c"),
+         str(PLATFORM / "control_roles.c"), str(PLATFORM / "control_protocol.c"), str(ROOT / "port" / "linux" / "host" / "command_line.c"),
          "-I", str(ROOT / "port" / "third_party" / "monocypher"), str(ROOT / "port" / "third_party" / "monocypher" / "monocypher.c"),
          "-o", str(binary)],
         capture_output=True, text=True,
@@ -54,5 +54,5 @@ def test_one_identity_layout():
             if pattern.search(path.read_text(encoding="utf-8", errors="replace")):
                 found.append(path.relative_to(ROOT).as_posix())
     assert found == ["port/linux/src/delta_peer.h"]
-    assert '#include "../../port/linux/src/delta_moderation.h"' in \
-        (ROOT / "server" / "src" / "server_moderation.c").read_text(encoding="utf-8")
+    assert '#include "../src/delta_moderation.h"' in \
+        (ROOT / "port" / "linux" / "host" / "server_moderation.c").read_text(encoding="utf-8")

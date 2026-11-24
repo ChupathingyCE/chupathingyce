@@ -6,7 +6,7 @@
     "server/platform/control_web.c",
     "server/platform/control_roles.c",
     "server/platform/control_link_protocol.c",
-    "server/src/command_line.c",
+    "port/linux/host/command_line.c",
     "port/linux/src/server_names.c",
     "port/third_party/monocypher/monocypher.c",
     "port/third_party/monocypher/monocypher-ed25519.c"

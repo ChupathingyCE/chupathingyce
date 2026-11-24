@@ -20,9 +20,9 @@ CHAT_C = GAME / "chat.c"
 DISTRIBUTED_C = GAME / "network_distributed.c"
 MENUS_C = GAME / "menu_functions.c"
 PORT_CONFIG_C = ROOT / "port" / "linux" / "src" / "port_config.c"
-CONFIG_C = ROOT / "server" / "src" / "server_config.c"
-CONFIG_H = ROOT / "server" / "src" / "server_config.h"
-DEDICATED_C = ROOT / "server" / "src" / "dedicated.c"
+CONFIG_C = ROOT / "port" / "linux" / "host" / "server_config.c"
+CONFIG_H = ROOT / "port" / "linux" / "host" / "server_config.h"
+DEDICATED_C = ROOT / "port" / "linux" / "host" / "dedicated.c"
 SETTINGS_MD = ROOT / "server" / "docs" / "settings.md"
 
 
