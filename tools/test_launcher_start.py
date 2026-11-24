@@ -177,3 +177,20 @@ def test_resource_maps_are_not_broken_maps():
     out = subprocess.run([str(program)], check=True, capture_output=True, text=True).stdout.split()
     # (Xbox, Custom Edition, Halo PC, HaloMD, a pack's folder)
     assert out == ["----", "sss-", "sss-", "sss-", "----"]
+
+
+def test_setup_restart_never_loops():
+    """SETUP (launcher_restart_to_setup) does not start another copy in a
+    run nobody watches, whose copy with --setup never shows the setup screen
+    and comes back to the menus, nor from a copy started with --setup that
+    didn't show it: each would start the next (#1614)"""
+    restart = body("int launcher_restart_to_setup(void)")
+    unwatched = restart.index("if (platform_run_is_unwatched())")
+    shown = restart.index("if (setup && !launcher.shown)")
+    for start in ('update_start_in_place_with(path, "--setup")', 'update_launch_with(path, "--setup")'):
+        assert unwatched < restart.index(start) and shown < restart.index(start), start
+    # (each refusal returns 0, which the halt screen's RESTART shows as
+    # "Couldn't restart", and says why in the log)
+    assert restart.count("return 0;") >= 3
+    assert "launcher: SETUP: not starting again in a run nobody watches" in restart
+
