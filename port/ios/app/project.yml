@@ -105,6 +105,8 @@ targets:
       - sdk: CoreHaptics.framework
       - sdk: CoreBluetooth.framework
       - sdk: UniformTypeIdentifiers.framework
+      - sdk: CoreMedia.framework
+      - sdk: VideoToolbox.framework
       - sdk: libiconv.tbd
       - sdk: libz.tbd
 
@@ -183,6 +185,8 @@ targets:
       - sdk: CoreHaptics.framework
       - sdk: CoreBluetooth.framework
       - sdk: UniformTypeIdentifiers.framework
+      - sdk: CoreMedia.framework
+      - sdk: VideoToolbox.framework
       - sdk: Network.framework
       - sdk: libiconv.tbd
       - sdk: libz.tbd

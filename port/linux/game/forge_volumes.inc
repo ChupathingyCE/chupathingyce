@@ -14,7 +14,7 @@ players).
 
 A volume is one of the layout's markers (forge_spawns.inc: placed from the
 menu, carried, let go, its properties opened from it, deleted, saved as a
-version 13 record of forge_files.h), drawn for the monitor alone as a
+version 14 record of forge_files.h), drawn for the monitor alone as a
 wireframe in its type's colour (red, orange, blue), never for the Spartan
 or in a layout played: who plays sees nothing of it, as a map's own kill
 zones show nothing. Its effects are the game's, a tick at a time
@@ -84,7 +84,7 @@ static void forge_volume_defaults(
 	spawn->volume_target = FORGE_FILE_VOLUME_EVERY_UNIT;
 }
 
-/* a version 13 record's volume (checked by the validator) as a marker's */
+/* a version 14 record's volume (checked by the validator) as a marker's */
 static void forge_volume_from_record(
 	struct forge_spawn *spawn,
 	struct forge_file_record const *record)
@@ -98,7 +98,7 @@ static void forge_volume_from_record(
 	spawn->team = (signed char)(record->team == 0 || record->team == 1 ? record->team : NONE);
 }
 
-/* a volume as its version 13 record (its place and yaw the caller's) */
+/* a volume as its version 14 record (its place and yaw the caller's) */
 static void forge_volume_to_record(
 	struct forge_spawn const *spawn,
 	struct forge_file_record *record)

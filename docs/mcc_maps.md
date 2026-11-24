@@ -171,6 +171,11 @@ Only installing differs:
   the item's page so Steam.app records the subscription, unless a
   `steam_api` library on the Mac reached the signed-in client. PLAY, UPDATE
   and REMOVE work on those downloads.
+- Signed Mac builds (hardened runtime) never load another game's
+  `steam_api` library, since macOS refuses a library signed by another
+  team: the Steam app link is off, `paths.steam_api` is ignored, and GET
+  subscribes through the item's page while the game's own download fetches
+  it. Unsigned builds work as above.
 
 Any failure (no Steam, Steam offline, MCC not owned, a missing function, a
 ten-second connect timeout) leaves the page and the folder watch as they
@@ -815,8 +820,12 @@ loads by its tag, bitmap index, size and the CRC-32 of its first mip level
 as the map stores it, before conversion (`hud_hires_tags.c`,
 `mcc_bitmaps.c`); a map's own art keeps its look whatever its tags are
 named. Cells the layout can't match surely, MCC's controller buttons among
-them, are copied from the map's own pixels into the texture. Meters are left
-as MCC draws them. Turning High-Res HUD off restores MCC's sheets at once.
+them, are copied from the map's own pixels into the texture. The health,
+shield and ammo meters use the Xbox maps' high-res meters, laid out as MCC's
+meter sheets (`tools/hud_assets.py mcc-meters`), with their exact segment
+thresholds and coverage. A meter sheet is replaced whole or not at all, so a
+meter never mixes MCC's pieces with ours. Turning High-Res HUD off restores
+MCC's sheets at once.
 
 Visual checks must cover real stock/custom MCC HUDs at native resolution; synthetic
 tests alone cannot establish that every authored layout matches MCC.

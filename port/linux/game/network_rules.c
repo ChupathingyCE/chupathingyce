@@ -927,6 +927,54 @@ int network_rules_address_full(uint32_t address, uint32_t const *others, int cou
 	return same >= maximum;
 }
 
+int network_rules_address_joins_as_lan(uint32_t address)
+{
+	return network_rules_address_is_local(address) || (address & 0xFFC00000u) == 0x64400000u;
+}
+
+int network_rules_join_password_refused(uint32_t address, int has_password)
+{
+	return has_password && !network_rules_address_joins_as_lan(address);
+}
+
+int network_rules_search_answered(uint32_t address, int direct_ip_host, uint32_t now,
+	struct network_rules_search_budget *budget)
+{
+	const uint32_t full = NETWORK_RULES_SEARCH_BURST * 1000u;
+
+	if (network_rules_address_joins_as_lan(address))
+		return 1;
+	/* (the internet's: multicast, the reserved range and broadcast never) */
+	if (!direct_ip_host || address >= 0xE0000000u)
+		return 0;
+	if (!budget->started)
+	{
+		budget->started = 1;
+		budget->tokens = full;
+	}
+	else
+	{
+		/* (the time since, wrapping; a clock that went back adds none) */
+		uint32_t elapsed = now - budget->time;
+
+		if (elapsed > 0x7FFFFFFFu)
+			elapsed = 0;
+		if (elapsed >= full / NETWORK_RULES_SEARCH_PER_SECOND)
+			budget->tokens = full;
+		else
+		{
+			budget->tokens += elapsed * NETWORK_RULES_SEARCH_PER_SECOND;
+			if (budget->tokens > full)
+				budget->tokens = full;
+		}
+	}
+	budget->time = now;
+	if (budget->tokens < 1000u)
+		return 0;
+	budget->tokens -= 1000u;
+	return 1;
+}
+
 /* ---------- chupa-43a's facts */
 
 static unsigned rules_word(uint8_t const *bytes)

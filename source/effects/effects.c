@@ -2520,10 +2520,22 @@ static void effect_update(
 
 				if (count > MAXIMUM_SPLIT_SCREEN_PARTICLE_COUNT)
 				{
-					effect->particle_counts[particle_index] = (byte)(long)
-						(((real)count - MAXIMUM_SPLIT_SCREEN_PARTICLE_COUNT) /
-						local_player_count() +
-						MAXIMUM_SPLIT_SCREEN_PARTICLE_COUNT);
+					/* port: none with no local player (a dedicated server, or
+					a network client before its player is added). The split
+					screen share divided by 0 there, and the infinity's
+					conversion to a byte gave 0 on x86 but 255 on ARM and
+					PowerPC */
+					if (local_player_count() <= 0)
+					{
+						effect->particle_counts[particle_index] = 0;
+					}
+					else
+					{
+						effect->particle_counts[particle_index] = (byte)(long)
+							(((real)count - MAXIMUM_SPLIT_SCREEN_PARTICLE_COUNT) /
+							local_player_count() +
+							MAXIMUM_SPLIT_SCREEN_PARTICLE_COUNT);
+					}
 				}
 			}
 

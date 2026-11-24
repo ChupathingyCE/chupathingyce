@@ -61,7 +61,13 @@ XBOX_EXPECTED = {
     "HALO_CONSOLE_NO_STUBBS",
     "HALO_CONSOLE_NO_DEBUG_CAMERA_KEYS",
     "HALO_CONSOLE_NO_FORGE",
+    "HALO_CONSOLE_NO_LOADING_PICTURE",
 }
+
+# what the 360 and the Wii U keep that the other consoles leave out:
+# Chupathingy's loading picture, for a maps folder without loading.tga
+# (port/linux/game/loading_picture.c)
+BIG_ENDIAN_KEPT = {"HALO_CONSOLE_NO_LOADING_PICTURE"}
 
 
 def gates(defines):
@@ -187,8 +193,14 @@ def test_the_xbox_gets_its_switches():
 def test_every_console_gets_the_every_console_switches(console):
     """what the Switch alone gets is what the headers give every console
     (their lists of every console's switch): each console gets it too"""
-    missing = gates(CONSOLES["switch"]) - gates(CONSOLES[console])
+    kept = BIG_ENDIAN_KEPT if console in ("xbox360", "wiiu") else set()
+    missing = gates(CONSOLES["switch"]) - gates(CONSOLES[console]) - kept
     assert not missing, "{} misses {}".format(console, sorted(missing))
+
+
+@pytest.mark.parametrize("console", ["xbox360", "wiiu"])
+def test_the_360_and_the_wii_u_have_chupathingys_loading_picture(console):
+    assert not BIG_ENDIAN_KEPT & gates(CONSOLES[console])
 
 
 @pytest.mark.parametrize("console", ["xbox", "xbox360", "wiiu"])

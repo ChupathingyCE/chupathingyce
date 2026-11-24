@@ -143,11 +143,15 @@ enum
 static const char *const section_names[NUMBER_OF_SECTIONS] = { "PLAY", "MAPS", "SETTINGS", "LOGS & HELP", "ABOUT",
 	"QUIT" };
 
-/* Settings' tabs: settings_rows.h's groups, then PATHS and ALL */
+/* Settings' tabs: the Guide's SETTINGS pages but ABOUT (settings_rows.h's
+SETTINGS_PAGE_*, in their order), with the setup screen's own rows too, then
+NETWORK, PATHS, UPDATES and ALL */
 enum
 {
 	_tab_display,
-	_tab_audio,
+	_tab_sound,
+	_tab_game,
+	_tab_guide,
 	_tab_network,
 	_tab_paths,
 	_tab_updates,
@@ -155,7 +159,8 @@ enum
 	NUMBER_OF_TABS
 };
 
-static const char *const tab_names[NUMBER_OF_TABS] = { "DISPLAY", "AUDIO", "NETWORK", "PATHS", "UPDATES", "ALL" };
+static const char *const tab_names[NUMBER_OF_TABS] = { "DISPLAY", "SOUND", "GAME", "GUIDE", "NETWORK", "PATHS",
+	"UPDATES", "ALL" };
 
 enum
 {
@@ -577,6 +582,20 @@ enum
 	MAP_VERSION_COMPRESSED = 0x861A0000,
 };
 
+/* where Halo MCC's maps go, said when they are in another family's folder:
+maps_mcc, in a build that plays them (HALO_MCC: docs/mcc_maps.md). A player
+who copies MCC's halo1/maps into maps is told so, not that the disc's maps
+are damaged */
+#if HALO_MCC
+#define MCC_MAP_STATE "MCC map: goes in maps_mcc"
+#define MCC_FILES_PICKED "Those are Halo MCC maps. They go in maps_mcc. Chupathingy needs the Xbox maps here."
+#define MCC_FILES_STATUS "Your maps folder has Halo MCC maps. They go in maps_mcc. Chupathingy needs the Xbox maps there."
+#else
+#define MCC_MAP_STATE "MCC map, not played here"
+#define MCC_FILES_PICKED "Those are Halo MCC maps. Chupathingy needs the Xbox maps."
+#define MCC_FILES_STATUS "Your maps folder has Halo MCC maps. Chupathingy needs the Xbox maps there."
+#endif
+
 /* a map file's cache version by its header (a compressed map's as its own);
 0 when it is not a cache file */
 static long map_version(const char *path)
@@ -868,7 +887,11 @@ static void family_scan(struct family *family, int list)
 		{
 			family->unsupported++;
 			if (list)
-				map_entry_add(name, "MCC map, not yet", COLOR_GREY);
+			{
+				map_entry_add(name, MCC_MAP_STATE, COLOR_AMBER);
+				platform_log("maps: %s/%s is a Halo MCC map (header version %ld): %s", family->folder, name,
+					version, MCC_MAP_STATE);
+			}
 		}
 		else
 		{
@@ -1023,7 +1046,12 @@ static void family_state(const struct family *family, char *text, size_t size, u
 			snprintf(text, size, "Halo PC maps, not Xbox");
 			*color = COLOR_AMBER;
 		}
-		else if (family->good || family->broken || family->stray)
+		else if (family->ui_version == MAP_VERSION_MCC)
+		{
+			snprintf(text, size, "Halo MCC maps, not Xbox");
+			*color = COLOR_AMBER;
+		}
+		else if (family->good || family->broken || family->stray || family->unsupported)
 		{
 			snprintf(text, size, "No ui.map");
 			*color = COLOR_AMBER;
@@ -1402,21 +1430,92 @@ static void all_rows(void)
 	}
 }
 
-/* a tab's rows of settings_rows.h's group */
-static void group_rows(int group)
+/* a row of settings_rows.h's */
+static struct row *setting_row(const struct settings_row *setting)
+{
+	struct row *row = row_add(_action_setting, settings_row_label(setting));
+
+	row->setting = setting;
+	row->cycles = 1;
+	settings_row_value(setting, row->value, sizeof(row->value));
+	if (settings_row_restart(setting))
+		snprintf(row->badge, sizeof(row->badge), "NEEDS A RESTART");
+	return row;
+}
+
+/* a tab's rows of settings_rows.h's group: with on_pages 0, only those
+no page of the Guide's lists (they are on that page's tab) */
+static void group_rows(int group, int on_pages)
 {
 	const struct settings_row *setting;
 	int index;
 
 	for (index = 0; (setting = settings_row_at(group, index)) != NULL; index++)
 	{
-		struct row *row = row_add(_action_setting, settings_row_label(setting));
+		if (on_pages || settings_key_page(settings_row_key(setting)) < 0)
+			setting_row(setting);
+	}
+}
 
-		row->setting = setting;
-		row->cycles = 1;
-		settings_row_value(setting, row->value, sizeof(row->value));
-		if (settings_row_restart(setting))
-			snprintf(row->badge, sizeof(row->badge), "NEEDS A RESTART");
+/* whether a setting is one of the setup screen's own groups' (a tab of its
+own has it) */
+static int setup_group_setting(const struct settings_row *setting)
+{
+	static const int groups[] = { SETTINGS_GROUP_DISPLAY, SETTINGS_GROUP_AUDIO, SETTINGS_GROUP_NETWORK,
+		SETTINGS_GROUP_UPDATES };
+	const struct settings_row *other;
+	size_t group;
+	int index;
+
+	for (group = 0; group < sizeof(groups) / sizeof(groups[0]); group++)
+	{
+		for (index = 0; (other = settings_row_at(groups[group], index)) != NULL; index++)
+		{
+			if (other == setting)
+				return 1;
+		}
+	}
+	return 0;
+}
+
+/* a tab of a page of the Guide's SETTINGS: group's rows that no page lists
+first (the setup screen's own: the display's mode, the sound's device; -1
+for none), then the page's rows in its blocks, a gap above each, as the
+Guide has them. The rows the Guide draws itself (its devices, logs and
+About, and voice's, whose channel is the game's) aren't here; ALL has
+their settings. GAME ends with the Guide's rows no page lists, as the
+Guide's GAME does */
+static void page_rows(int page, int group)
+{
+	const struct settings_row *setting;
+	const char *const *line;
+	int index, gap;
+
+	if (group >= 0)
+		group_rows(group, 0);
+	gap = launcher.row_count > 0;
+	for (line = settings_page_lines(page); line && *line; line++)
+	{
+		if ((*line)[0] == '#')
+		{
+			gap = launcher.row_count > 0;
+			continue;
+		}
+		setting = settings_row_for_key(*line);
+		if (!setting)
+			continue;
+		setting_row(setting)->gap = gap;
+		gap = 0;
+	}
+	if (page != SETTINGS_PAGE_OTHER)
+		return;
+	gap = launcher.row_count > 0;
+	for (index = 0; (setting = settings_row_at(SETTINGS_GROUP_GUIDE, index)) != NULL; index++)
+	{
+		if (settings_key_page(settings_row_key(setting)) >= 0 || setup_group_setting(setting))
+			continue;
+		setting_row(setting)->gap = gap;
+		gap = 0;
 	}
 }
 
@@ -1449,13 +1548,19 @@ static void settings_rows_build(void)
 	switch (launcher.tab)
 	{
 	case _tab_display:
-		group_rows(SETTINGS_GROUP_DISPLAY);
+		page_rows(SETTINGS_PAGE_DISPLAY, SETTINGS_GROUP_DISPLAY);
 		break;
-	case _tab_audio:
-		group_rows(SETTINGS_GROUP_AUDIO);
+	case _tab_sound:
+		page_rows(SETTINGS_PAGE_SOUND, SETTINGS_GROUP_AUDIO);
+		break;
+	case _tab_game:
+		page_rows(SETTINGS_PAGE_GAME, -1);
+		break;
+	case _tab_guide:
+		page_rows(SETTINGS_PAGE_GUIDE, -1);
 		break;
 	case _tab_network:
-		group_rows(SETTINGS_GROUP_NETWORK);
+		group_rows(SETTINGS_GROUP_NETWORK, 0);
 		/* (network.map_downloads_from_host's: the disclaimer, the one place
 		besides the download's own question where "always" is picked) */
 		{
@@ -1505,7 +1610,7 @@ static void settings_rows_build(void)
 			snprintf(row->value, sizeof(row->value), "%s", state == UPDATER_CHECKING ? "Checking\xE2\x80\xA6" :
 				state == UPDATER_NEWER ? latest : state == UPDATER_LATEST ? "You have it" : "Couldn't check");
 		}
-		group_rows(SETTINGS_GROUP_UPDATES);
+		group_rows(SETTINGS_GROUP_UPDATES, 1);
 		/* (update.channel's: what Testing and Nightly mean, and that going
 		back never installs an older build) */
 		{
@@ -2653,6 +2758,7 @@ static void folder_picked(const char *picked)
 	{
 		message("NOT THE XBOX MAPS", COLOR_WHITE, version == MAP_VERSION_HALO_PC ||
 			version == MAP_VERSION_CUSTOM_EDITION ? "Those are Halo PC maps. Chupathingy needs the Xbox maps." :
+			version == MAP_VERSION_MCC ? MCC_FILES_PICKED :
 			"That ui.map isn't one we can read. Pick the folder with your Xbox maps.");
 		return;
 	}
@@ -2861,10 +2967,30 @@ static int restart_with(const char *mode)
 	return 1;
 }
 
+static void command_line(int *setup, int *play, char *mode, size_t mode_size, int *joining);
+
 int launcher_restart_to_setup(void)
 {
 	char path[PATH_SIZE];
+	char mode[64];
+	int setup, play, joining;
 
+	/* (a run nobody watches never shows the setup screen, launcher_at_start:
+	the copy started with --setup would come back to the menus, where the
+	same scripted input could press SETUP again, and so on) */
+	if (platform_run_is_unwatched())
+	{
+		platform_log("launcher: SETUP: not starting again in a run nobody watches");
+		return 0;
+	}
+	/* (nor does a copy started with --setup that could not show it start
+	another) */
+	command_line(&setup, &play, mode, sizeof(mode), &joining);
+	if (setup && !launcher.shown)
+	{
+		platform_log("launcher: SETUP: started with --setup, which didn't show: not starting again");
+		return 0;
+	}
 	if (!executable_path(path, sizeof(path)))
 	{
 		platform_log("launcher: could not start again on the setup screen");
@@ -4179,6 +4305,8 @@ void launcher_at_start(void)
 		if (launcher.families[0].ui_version == MAP_VERSION_HALO_PC ||
 			launcher.families[0].ui_version == MAP_VERSION_CUSTOM_EDITION)
 			set_status(COLOR_AMBER, "Your maps folder has Halo PC maps. Chupathingy needs the Xbox maps there.");
+		else if (launcher.families[0].ui_version == MAP_VERSION_MCC || launcher.families[0].unsupported)
+			set_status(COLOR_AMBER, MCC_FILES_STATUS);
 		else
 			set_status(COLOR_AMBER, "Add your Xbox maps to play.");
 	}
