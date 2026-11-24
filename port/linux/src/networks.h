@@ -104,7 +104,8 @@ int networks_shown(const char *name, const char *domain, const char *home, char 
 /* ---------- the signed list of networks */
 
 /* a signature as its file has it: 128 lowercase hex digits and one line
-feed or none. 1 and its bytes, or 0 */
+feed or none. 1 and its bytes (NETWORKS_SIGNATURE_SIZE of them, so signature
+holds that many), or 0 */
 int networks_signature_text(const char *text, int length, unsigned char *signature);
 /* the document read (its signature checked elsewhere): 1 and the list, or 0
 and why (a short phrase for the log) */
@@ -154,6 +155,8 @@ enum
 	NETWORKS_MACHINES = 64,
 	/* issuer keys refused for turning up under two networks */
 	NETWORKS_REFUSED_MOST = 64,
+	/* home's own issuer keys remembered (never refused) */
+	NETWORKS_HOME_KEYS_MOST = 16,
 	/* networks_issuer_lookup's answers past a network's index */
 	NETWORKS_NONE = -1,
 	NETWORKS_LIMITED = -2,
@@ -165,13 +168,19 @@ struct networks_memory
 	struct
 	{
 		unsigned char issuer[NETWORKS_ISSUER_SIZE];
-		/* its network's index in trust (-1: none) and the root key's */
+		/* its network's index in trust (-1: none; NETWORKS_TWO_NETWORKS:
+		another network's claim on one of home's issuer keys, refused) and
+		the root key's */
 		int network, root;
 		int used;
 	} seen[NETWORKS_SEEN_MOST];
 	int next;
 	unsigned char refused[NETWORKS_REFUSED_MOST][NETWORKS_KEY_SIZE];
 	int refused_count;
+	/* home's issuer keys proven so far (signed by a home root key in date,
+	the certificate in date): no other network's claim on one is taken */
+	unsigned char home_keys[NETWORKS_HOME_KEYS_MOST][NETWORKS_KEY_SIZE];
+	int home_key_count, home_key_next;
 	/* (each machine's looks this minute: minute is now / 60 + 1, 0 none) */
 	struct
 	{
@@ -183,15 +192,19 @@ struct networks_memory
 };
 
 /* (trust made again: what was found for it forgotten; the refused issuer
-keys and the machines' counts are kept) */
+keys, home's issuer keys and the machines' counts are kept) */
 void networks_memory_forget(struct networks_memory *memory);
 /* networks_issuer_network for a proof or card from machine (0 to
 NETWORKS_MACHINES - 1; any other shares the last's count), remembered: an
 issuer certificate seen before is answered from memory; one not seen
 before is looked for only NETWORKS_LOOKS_A_MINUTE times a minute for a
-machine (past that NETWORKS_LIMITED); an issuer key found under two
-networks' roots is refused from then on (NETWORKS_TWO_NETWORKS). The
-network's index, or NETWORKS_NONE */
+machine (past that NETWORKS_LIMITED). One issuer key, one network, and only
+claims fully proven count (the root key in date, the signature good, the
+certificate in date): another network's claim on one of home's issuer keys
+is refused and home's stays (NETWORKS_TWO_NETWORKS for the claim); a key
+proven under two other networks is refused for both from then on
+(NETWORKS_TWO_NETWORKS). Home's own issuer is never refused. The network's
+index, or NETWORKS_NONE */
 int networks_issuer_lookup(const struct networks_trust *trust, struct networks_memory *memory,
 	const unsigned char *issuer, int issuer_size, unsigned long now, int machine,
 	unsigned char (*roots)[NETWORKS_KEY_SIZE], int *root_count);

@@ -1153,6 +1153,36 @@ static int issuer_refused(const struct networks_memory *memory, const unsigned c
 	return 0;
 }
 
+static int home_key(const struct networks_memory *memory, const unsigned char *key)
+{
+	int index;
+
+	for (index = 0; index < memory->home_key_count; index++)
+	{
+		if (!memcmp(memory->home_keys[index], key, NETWORKS_KEY_SIZE))
+			return 1;
+	}
+	return 0;
+}
+
+/* whether an issuer certificate found under network (by its root key root)
+is fully proven now: that root key in date, its signature good, the key
+not weak, the certificate in date */
+static int issuer_proven(const struct networks_trust *trust, const unsigned char *issuer, int network, int root,
+	unsigned long now)
+{
+	struct identity_issuer parsed;
+
+	if (network < 0 || network >= trust->count || root < 0 || root >= trust->networks[network].root_count ||
+		in_date(trust, network, root, now, NULL, NULL) < 0)
+	{
+		return 0;
+	}
+	return identity_check_issuer(issuer, NETWORKS_ISSUER_SIZE,
+		(const unsigned char (*)[IDENTITY_KEY_SIZE])trust->networks[network].roots[root].key, 1, now, &parsed) ==
+		IDENTITY_OK;
+}
+
 int networks_issuer_lookup(const struct networks_trust *trust, struct networks_memory *memory,
 	const unsigned char *issuer, int issuer_size, unsigned long now, int machine,
 	unsigned char (*roots)[NETWORKS_KEY_SIZE], int *root_count)
@@ -1162,8 +1192,6 @@ int networks_issuer_lookup(const struct networks_trust *trust, struct networks_m
 
 	if (issuer_size != NETWORKS_ISSUER_SIZE || !identity_parse_issuer(issuer, issuer_size, &parsed))
 		return NETWORKS_NONE;
-	if (issuer_refused(memory, parsed.public_key))
-		return NETWORKS_TWO_NETWORKS;
 	for (index = 0; index < NETWORKS_SEEN_MOST; index++)
 	{
 		if (memory->seen[index].used && !memcmp(memory->seen[index].issuer, issuer, NETWORKS_ISSUER_SIZE))
@@ -1189,20 +1217,53 @@ int networks_issuer_lookup(const struct networks_trust *trust, struct networks_m
 			return NETWORKS_LIMITED;
 		memory->machines[bucket].count++;
 		found = issuer_signer(trust, issuer, issuer_size, &root);
-		/* (one issuer, one network: the same issuer key under another
-		network's root refuses it for both) */
-		for (index = 0; found >= 0 && index < NETWORKS_SEEN_MOST; index++)
+		/* (one issuer, one network, counted only once a claim is fully
+		proven. Home's claim always stands: any other network's claim on
+		the same key is refused. Two other networks' claims refuse the key
+		for both) */
+		if (found == 0 && issuer_proven(trust, issuer, found, root, now))
 		{
-			const unsigned char *other = memory->seen[index].issuer;
-
-			if (memory->seen[index].used && memory->seen[index].network >= 0 &&
-				memory->seen[index].network != found && !memcmp(other + 16, parsed.public_key, NETWORKS_KEY_SIZE))
+			if (!home_key(memory, parsed.public_key))
 			{
-				if (memory->refused_count < NETWORKS_REFUSED_MOST)
-					memcpy(memory->refused[memory->refused_count++], parsed.public_key, NETWORKS_KEY_SIZE);
-				memory->changes++;
-				return NETWORKS_TWO_NETWORKS;
+				if (memory->home_key_count < NETWORKS_HOME_KEYS_MOST)
+					slot = memory->home_key_count++;
+				else
+				{
+					slot = memory->home_key_next;
+					memory->home_key_next = (memory->home_key_next + 1) % NETWORKS_HOME_KEYS_MOST;
+				}
+				memcpy(memory->home_keys[slot], parsed.public_key, NETWORKS_KEY_SIZE);
 			}
+			for (index = 0; index < NETWORKS_SEEN_MOST; index++)
+			{
+				if (memory->seen[index].used && memory->seen[index].network > 0 &&
+					!memcmp(memory->seen[index].issuer + 16, parsed.public_key, NETWORKS_KEY_SIZE))
+				{
+					memory->seen[index].network = NETWORKS_TWO_NETWORKS;
+					memory->changes++;
+				}
+			}
+		}
+		else if (found > 0 && issuer_proven(trust, issuer, found, root, now))
+		{
+			if (home_key(memory, parsed.public_key))
+				found = NETWORKS_TWO_NETWORKS;
+			for (index = 0; found > 0 && index < NETWORKS_SEEN_MOST; index++)
+			{
+				const unsigned char *other = memory->seen[index].issuer;
+
+				if (memory->seen[index].used && memory->seen[index].network > 0 &&
+					memory->seen[index].network != found && !memcmp(other + 16, parsed.public_key, NETWORKS_KEY_SIZE) &&
+					issuer_proven(trust, other, memory->seen[index].network, memory->seen[index].root, now))
+				{
+					if (memory->refused_count < NETWORKS_REFUSED_MOST)
+						memcpy(memory->refused[memory->refused_count++], parsed.public_key, NETWORKS_KEY_SIZE);
+					memory->changes++;
+					return NETWORKS_TWO_NETWORKS;
+				}
+			}
+			if (found == NETWORKS_TWO_NETWORKS)
+				memory->changes++;
 		}
 		slot = memory->next;
 		memory->next = (memory->next + 1) % NETWORKS_SEEN_MOST;
@@ -1211,6 +1272,12 @@ int networks_issuer_lookup(const struct networks_trust *trust, struct networks_m
 		memory->seen[slot].root = root;
 		memory->seen[slot].used = 1;
 	}
+	if (found == NETWORKS_TWO_NETWORKS)
+		return NETWORKS_TWO_NETWORKS;
+	/* (home's own issuer is never refused; another network's claim on a
+	refused key, or on one of home's, is) */
+	if (found > 0 && (issuer_refused(memory, parsed.public_key) || home_key(memory, parsed.public_key)))
+		return NETWORKS_TWO_NETWORKS;
 	found = in_date(trust, found, root, now, roots, root_count);
 	return found < 0 ? NETWORKS_NONE : found;
 }

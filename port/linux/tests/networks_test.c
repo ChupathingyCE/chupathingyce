@@ -597,11 +597,33 @@ static void test_local(void)
 	CHECK(networks_issuer_network(&trust, other_issuer, 112, 1790199999UL, NULL, NULL) == 1);
 }
 
+/* an issuer certificate: head's 48 bytes signed by the root key whose seed
+is SHA-256 of seed_text */
+static void issuer_signed(const unsigned char *head, const char *seed_text, unsigned char *out)
+{
+	static const char label[] = "chupathingy identity issuer v1\n";
+	unsigned char seed[32], message[128];
+
+	identity_sha256(seed_text, (int)strlen(seed_text), seed);
+	memcpy(message, label, sizeof(label) - 1);
+	memcpy(message + sizeof(label) - 1, head, 48);
+	memcpy(out, head, 48);
+	identity_sign(seed, message, (int)(sizeof(label) - 1 + 48), out + 48);
+}
+
+static void write32(unsigned char *out, unsigned long value)
+{
+	out[0] = (unsigned char)value;
+	out[1] = (unsigned char)(value >> 8);
+	out[2] = (unsigned char)(value >> 16);
+	out[3] = (unsigned char)(value >> 24);
+}
+
 static void test_memory(void)
 {
 	static struct networks_memory memory;
-	static const char label[] = "chupathingy identity issuer v1\n";
-	unsigned char seed[32], message[128], twin[112], other[112], roots[4][32];
+	unsigned char seed[32], twin[112], third[112], head[48], other[112], roots[4][32], third_root[32];
+	char hex[65], local[128];
 	int index, count;
 
 	memset(&memory, 0, sizeof(memory));
@@ -636,27 +658,89 @@ static void test_memory(void)
 	}
 	/* a machine number out of range shares the last's count */
 	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 111, VECTOR_NOW, 999, NULL, NULL) == NETWORKS_NONE);
-	/* one issuer, one network: home's issuer key signed by example.org's
-	root as well refuses it for both */
-	identity_sha256("open network test root example.org primary", 42, seed);
-	memcpy(message, label, sizeof(label) - 1);
-	memcpy(message + sizeof(label) - 1, home_issuer, 48);
-	memcpy(twin, home_issuer, 48);
-	identity_sign(seed, message, (int)(sizeof(label) - 1 + 48), twin + 48);
+	/* one issuer, one network: example.org's root signing home's issuer key
+	as well is refused for example.org alone; home's issuer stays */
+	issuer_signed(home_issuer, "open network test root example.org primary", twin);
 	networks_trust_make(&trust, "chupathingy.org", (const unsigned char (*)[32])home_roots, 2, &list, "", "", NULL,
 		NULL);
 	CHECK(networks_issuer_network(&trust, twin, 112, VECTOR_NOW, NULL, NULL) == 1);
 	CHECK(networks_issuer_lookup(&trust, &memory, twin, 112, VECTOR_NOW + 120, 1, NULL, NULL) ==
 		NETWORKS_TWO_NETWORKS);
-	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW + 120, 0, NULL, NULL) ==
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW + 120, 0, roots, &count) == 0 &&
+		count == 2);
+	CHECK(networks_issuer_lookup(&trust, &memory, twin, 112, VECTOR_NOW + 120, 1, NULL, NULL) ==
 		NETWORKS_TWO_NETWORKS);
-	CHECK(memory.changes == 1);
+	CHECK(memory.changes == 1 && memory.refused_count == 0);
 	/* example.org's own issuer is untouched */
 	CHECK(networks_issuer_lookup(&trust, &memory, other_issuer, 112, VECTOR_NOW + 120, 0, NULL, NULL) == 1);
-	/* forgotten with a new trust, the refusal kept */
+	/* forgotten with a new trust: home's issuer still stands, the claim still
+	refused */
 	networks_memory_forget(&memory);
-	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW + 120, 2, NULL, NULL) ==
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW + 120, 2, NULL, NULL) == 0);
+	CHECK(networks_issuer_lookup(&trust, &memory, twin, 112, VECTOR_NOW + 120, 2, NULL, NULL) ==
 		NETWORKS_TWO_NETWORKS);
+	/* the claim seen first: taken until home's own turns up, then refused,
+	and home's taken */
+	memset(&memory, 0, sizeof(memory));
+	CHECK(networks_issuer_lookup(&trust, &memory, twin, 112, VECTOR_NOW, 1, NULL, NULL) == 1);
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW, 0, NULL, NULL) == 0);
+	CHECK(networks_issuer_lookup(&trust, &memory, twin, 112, VECTOR_NOW, 1, NULL, NULL) == NETWORKS_TWO_NETWORKS);
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW, 0, NULL, NULL) == 0);
+	CHECK(memory.changes == 1 && memory.refused_count == 0);
+	/* two other networks' proven claims on one key refuse it for both */
+	identity_sha256("open network test root third.org", 32, seed);
+	identity_public(seed, third_root);
+	identity_hex(third_root, 32, hex);
+	snprintf(local, sizeof(local), "third.org %s", hex);
+	networks_trust_make(&trust, "chupathingy.org", (const unsigned char (*)[32])home_roots, 2, &list, local, "", NULL,
+		NULL);
+	CHECK(trust.count == 3);
+	issuer_signed(other_issuer, "open network test root third.org", third);
+	memset(&memory, 0, sizeof(memory));
+	CHECK(networks_issuer_lookup(&trust, &memory, other_issuer, 112, VECTOR_NOW, 0, NULL, NULL) == 1);
+	CHECK(networks_issuer_lookup(&trust, &memory, third, 112, VECTOR_NOW, 1, NULL, NULL) == NETWORKS_TWO_NETWORKS);
+	CHECK(networks_issuer_lookup(&trust, &memory, other_issuer, 112, VECTOR_NOW + 60, 2, NULL, NULL) ==
+		NETWORKS_TWO_NETWORKS);
+	CHECK(memory.changes == 1 && memory.refused_count == 1);
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW, 0, NULL, NULL) == 0);
+	/* ...but never home's: two other networks' claims on home's key refuse
+	the claims, home's issuer stays */
+	issuer_signed(home_issuer, "open network test root third.org", third);
+	memset(&memory, 0, sizeof(memory));
+	CHECK(networks_issuer_lookup(&trust, &memory, twin, 112, VECTOR_NOW, 0, NULL, NULL) == 1);
+	CHECK(networks_issuer_lookup(&trust, &memory, third, 112, VECTOR_NOW, 1, NULL, NULL) == NETWORKS_TWO_NETWORKS);
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW, 2, NULL, NULL) == 0);
+	CHECK(networks_issuer_lookup(&trust, &memory, twin, 112, VECTOR_NOW, 0, NULL, NULL) == NETWORKS_TWO_NETWORKS);
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, VECTOR_NOW + 60, 2, NULL, NULL) == 0);
+	/* a second claim not fully proven refuses nothing: a certificate out of
+	date, or signed by a root key past its until */
+	memcpy(head, other_issuer, 48);
+	write32(head + 8, VECTOR_NOW - 200000);
+	write32(head + 12, VECTOR_NOW - 100000);
+	issuer_signed(head, "open network test root third.org", third);
+	memset(&memory, 0, sizeof(memory));
+	CHECK(networks_issuer_lookup(&trust, &memory, other_issuer, 112, VECTOR_NOW, 0, NULL, NULL) == 1);
+	CHECK(networks_issuer_lookup(&trust, &memory, third, 112, VECTOR_NOW, 1, NULL, NULL) == 2);
+	CHECK(networks_issuer_lookup(&trust, &memory, other_issuer, 112, VECTOR_NOW, 0, NULL, NULL) == 1);
+	CHECK(memory.changes == 0 && memory.refused_count == 0);
+	takes(changed("\"key\": \"8b2f06a8475780f3e0f47305f664da217859814835b40e8bc548be9618e8f50a\",\n          \"until\": 0",
+		"\"key\": \"8b2f06a8475780f3e0f47305f664da217859814835b40e8bc548be9618e8f50a\",\n          \"until\": 1790199999"));
+	networks_trust_make(&trust, "chupathingy.org", (const unsigned char (*)[32])home_roots, 2, &list, local, "", NULL,
+		NULL);
+	issuer_signed(other_issuer, "open network test root third.org", third);
+	memset(&memory, 0, sizeof(memory));
+	CHECK(networks_issuer_lookup(&trust, &memory, third, 112, VECTOR_NOW, 1, NULL, NULL) == 2);
+	CHECK(networks_issuer_lookup(&trust, &memory, other_issuer, 112, VECTOR_NOW, 0, NULL, NULL) == NETWORKS_NONE);
+	CHECK(networks_issuer_lookup(&trust, &memory, third, 112, VECTOR_NOW, 1, NULL, NULL) == 2);
+	CHECK(memory.changes == 0 && memory.refused_count == 0);
+	/* (a home claim out of date takes nothing either: example.org's claim on
+	that key still goes through to the date check) */
+	takes(VECTOR_LIST_DOCUMENT);
+	networks_trust_make(&trust, "chupathingy.org", (const unsigned char (*)[32])home_roots, 2, &list, "", "", NULL,
+		NULL);
+	memset(&memory, 0, sizeof(memory));
+	CHECK(networks_issuer_lookup(&trust, &memory, home_issuer, 112, 1800000000UL, 0, NULL, NULL) == 0);
+	CHECK(memory.home_key_count == 0);
 	/* a key past its until: found, but vouches for nothing */
 	memset(&memory, 0, sizeof(memory));
 	memcpy(other, other_issuer, sizeof(other));

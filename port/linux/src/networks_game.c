@@ -355,7 +355,8 @@ int networks_check_issuer(const unsigned char *issuer, int machine, unsigned lon
 		if (said != networks.memory.changes)
 		{
 			said = networks.memory.changes;
-			platform_log("networks: an issuer key turned up under two networks' root keys: refused for both");
+			platform_log("networks: an issuer key turned up under two networks' root keys: refused for every "
+				"network but home");
 		}
 	}
 	domain[0] = 0;
