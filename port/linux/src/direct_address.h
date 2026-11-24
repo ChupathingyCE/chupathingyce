@@ -343,12 +343,14 @@ static inline enum direct_address_result direct_address_parse(const char *text, 
 }
 
 /* whether a typed text is an address (IPv4 or IPv6), which is never shown
-again once entered; a host name is */
+again once entered; a host name is. An address with a bad port or a path
+after it is one too */
 static inline int direct_address_is_numeric(const char *text)
 {
 	struct direct_address address;
 
-	return direct_address_parse(text, &address) == _direct_address_ok && address.kind != _direct_address_name;
+	direct_address_parse(text, &address);
+	return address.kind == _direct_address_ipv4 || address.kind == _direct_address_ipv6;
 }
 
 /* text as a field shows it once entered: a dot for each character of an

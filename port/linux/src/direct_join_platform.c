@@ -180,7 +180,8 @@ int direct_saved_write(const char *text)
 	}
 	written = fwrite(text, 1, length, file) == length;
 	written = !fclose(file) && written;
-	if (!written || rename(partial, path))
+	/* (Windows' rename never replaces a file: posix_replace_file) */
+	if (!written || posix_replace_file(partial, path))
 	{
 		remove(partial);
 		return 0;

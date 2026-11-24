@@ -167,6 +167,13 @@ int main(void)
 	CHECK(direct_address_is_numeric("::1"));
 	CHECK(!direct_address_is_numeric("halo.example.com"));
 	CHECK(!direct_address_is_numeric("not an address"));
+	/* (an address with a bad port, or a path, still never shown) */
+	CHECK(direct_address_is_numeric("203.0.113.45:99999"));
+	CHECK(direct_address_is_numeric("[2001:db8::1]:0"));
+	CHECK(direct_address_is_numeric("203.0.113.45:5150/x"));
+	direct_address_shown("203.0.113.45:0", shown, sizeof(shown));
+	CHECK(!strstr(shown, "203"));
+	CHECK(!direct_address_is_numeric("halo.example.com:99999"));
 
 	/* a saved one's name */
 	direct_address_saved_name("", "203.0.113.45", 2, shown, sizeof(shown));
