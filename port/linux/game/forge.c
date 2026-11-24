@@ -50,11 +50,12 @@ the mouse looks:
   click, nudge mode instead (forge_precision.inc);
 - right trigger: grab the object or marker under the crosshair, and let
   go of the one held (it falls where it is let go);
-- Y: delete the object held, or the one under the crosshair;
+- Y: delete the object held, or the one under the crosshair (held half a
+  second instead, with game.forge_hold_to_delete: forge_delete_asked);
 - X: the Forge menu (forge_menu.c): OBJECTS (the map's objects by
   category, the one chosen spawned in the monitor's hand), PROPERTIES (of
   what is held: it opens there), LAYOUTS (save, save as new, load, delete)
-  and OPTIONS (snap, speed, rotation snap, undo, redo, new round, Spartan,
+  and OPTIONS (snap, speed, rotation snap, delete, undo, redo, new round, Spartan,
   the controls); what it asks is done here (forge_menu_link.inc);
 - B: a copy of the object held or under the crosshair, held;
 - White: the movement speed (slow, normal, fast); in rotate mode, its
@@ -228,6 +229,9 @@ int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch);
 /* port_config.c's */
 int config_boolean(char const *name);
 long config_integer(char const *name);
+char const *config_string(char const *name);
+/* ui_overlay.c's: the keyboard and mouse used last (else a controller) */
+int ui_overlay_keyboard(void);
 long hud_get_font_index(void);
 unsigned long system_milliseconds(void);
 /* ui_widget.c's: a menu, or a screen of code over them, takes the input */
@@ -285,6 +289,8 @@ over its ring */
 #define FORGE_MINIMUM_HOLD_DISTANCE 0.5f
 #define FORGE_MAXIMUM_HOLD_DISTANCE 40.f
 #define FORGE_STICK_DEAD_ZONE 0.15f
+/* (game.forge_hold_to_delete) how long the delete button is held to delete */
+#define FORGE_DELETE_HOLD_MILLISECONDS 500
 /* a placed object's respawn time unless its properties say */
 #define FORGE_DEFAULT_RESPAWN_SECONDS 30
 /* how far outside the structure's world bounds a layout's object may be
@@ -578,6 +584,9 @@ struct forge_pad
 	boolean fast;
 	boolean nearer;
 	boolean farther;
+	/* the keyboard's delete key (controls.forge_delete), apart from the
+	controller's Y: game.forge_hold_to_delete may treat them apart */
+	boolean delete_key;
 };
 
 /* a tag the Forge menu offers */
@@ -857,6 +866,13 @@ static struct
 	boolean nudge_flicked[3];
 	/* (the Forge menu's status line: when menu_status was written) */
 	unsigned long menu_status_time;
+	/* (game.forge_hold_to_delete) the delete button held since (system time, 0
+	not held), done for this hold, how far along (0 to 1, for the HUD's
+	fill); the delete that needs no hold down last frame */
+	unsigned long delete_hold_since;
+	boolean delete_hold_done;
+	real delete_hold_fraction;
+	boolean delete_press_was_down;
 } forge_globals = { FALSE, "", FALSE, FALSE, FALSE, 0, NONE, FALSE, NONE, 0.f, { 0.f }, { 0.f }, _forge_speed_normal };
 
 /* ---------- private code */
@@ -1817,7 +1833,7 @@ static void forge_pad_get(
 		/* (rotate mode is the left trigger's with an object held) */
 		pad->down[_forge_button_alternate] |= holding && TEST_FLAG(keys, HALO_FORGE_KEY_ROTATE);
 		pad->down[_forge_button_duplicate] |= TEST_FLAG(keys, HALO_FORGE_KEY_COPY) != 0;
-		pad->down[_forge_button_delete] |= TEST_FLAG(keys, HALO_FORGE_KEY_DELETE) != 0;
+		pad->delete_key = TEST_FLAG(keys, HALO_FORGE_KEY_DELETE) != 0;
 		pad->down[_forge_button_straighten] |= TEST_FLAG(keys, HALO_FORGE_KEY_UPRIGHT) != 0;
 		pad->down[_forge_button_speed] |= TEST_FLAG(keys, HALO_FORGE_KEY_SPEED) != 0;
 		pad->down[_forge_button_menu] |= TEST_FLAG(keys, HALO_FORGE_KEY_MENU) != 0;
@@ -1869,6 +1885,99 @@ static void forge_pad_get(
 	}
 
 	return;
+}
+
+/* ---- delete: pressed, or held (game.forge_hold_to_delete) */
+
+enum
+{
+	/* (today's) a press deletes */
+	_forge_delete_press = 0,
+	/* the controller's Y held FORGE_DELETE_HOLD_MILLISECONDS deletes; the
+	keyboard's key still at a press */
+	_forge_delete_hold_controller,
+	/* both held */
+	_forge_delete_hold_all,
+	NUMBER_OF_FORGE_DELETE_MODES
+};
+
+/* game.forge_hold_to_delete: "off" (the default), "controller" or "all";
+anything else is "off" */
+static short forge_delete_mode(
+	void)
+{
+	char const *mode = config_string("game.forge_hold_to_delete");
+
+	if (mode && !strcmp(mode, "controller"))
+		return _forge_delete_hold_controller;
+	if (mode && !strcmp(mode, "all"))
+		return _forge_delete_hold_all;
+	return _forge_delete_press;
+}
+
+/* whether a delete is asked this frame: a press of what deletes at a press,
+or a hold of what deletes when held, once it has been held long enough
+(once a hold: let go to delete again). The hold is counted in system time,
+outside the game's tick: Forge's monitor is the editor's, never a game's
+simulation */
+static boolean forge_delete_asked(
+	struct forge_pad const *pad)
+{
+	short mode = forge_delete_mode();
+	boolean button = pad->down[_forge_button_delete];
+	boolean held = (mode != _forge_delete_press && button) || (mode == _forge_delete_hold_all && pad->delete_key);
+	boolean press = (mode == _forge_delete_press && (button || pad->delete_key)) ||
+		(mode == _forge_delete_hold_controller && pad->delete_key);
+	boolean pressed = press && !forge_globals.delete_press_was_down;
+	unsigned long now = system_milliseconds();
+	unsigned long elapsed;
+
+	forge_globals.delete_press_was_down = press;
+	forge_globals.delete_hold_fraction = 0.f;
+	if (!held)
+	{
+		forge_globals.delete_hold_since = 0;
+		forge_globals.delete_hold_done = FALSE;
+		return pressed;
+	}
+	if (!forge_globals.delete_hold_since)
+	{
+		forge_globals.delete_hold_since = now ? now : 1;
+		forge_globals.delete_hold_done = FALSE;
+	}
+	if (forge_globals.delete_hold_done)
+		return pressed;
+	elapsed = now - forge_globals.delete_hold_since;
+	if (elapsed >= FORGE_DELETE_HOLD_MILLISECONDS)
+	{
+		forge_globals.delete_hold_done = TRUE;
+		return TRUE;
+	}
+	forge_globals.delete_hold_fraction = (real)elapsed / (real)FORGE_DELETE_HOLD_MILLISECONDS;
+	return pressed;
+}
+
+/* (a menu over the monitor) what is held there deletes nothing once it
+is gone: let go first */
+static void forge_delete_hold_reset(
+	void)
+{
+	forge_globals.delete_hold_since = 1;
+	forge_globals.delete_hold_done = TRUE;
+	forge_globals.delete_hold_fraction = 0.f;
+	forge_globals.delete_press_was_down = TRUE;
+}
+
+/* the delete prompt's word: "HOLD DELETE" when the device used last deletes
+when held */
+static char const *forge_delete_word(
+	void)
+{
+	short mode = forge_delete_mode();
+
+	if (mode == _forge_delete_hold_all || (mode == _forge_delete_hold_controller && !ui_overlay_keyboard()))
+		return "HOLD DELETE";
+	return "DELETE";
 }
 
 /* ---- the monitor's world */
@@ -4845,7 +4954,10 @@ void forge_update(
 	/* (a menu of the game's over it, pausing it: no HUD, no controls) */
 	forge_globals.hud_hidden = game_time_get_paused();
 	if (forge_globals.hud_hidden)
+	{
+		forge_delete_hold_reset();
 		return;
+	}
 	forge_placed_update();
 	forge_homes_update();
 	forge_physics_update();
@@ -4887,9 +4999,11 @@ void forge_update(
 	if (forge_menu_game_open())
 	{
 		forge_globals.rotating = FALSE;
+		forge_delete_hold_reset();
 	}
 	else
 	{
+		boolean delete_asked = forge_delete_asked(&pad);
 		boolean rotating = pad.down[_forge_button_alternate] && object_try_and_get(forge_globals.held_object_index);
 
 		/* (LT + the right stick's click: rotate mode and nudge mode
@@ -4949,7 +5063,7 @@ void forge_update(
 		}
 		/* (Y: a marker held, or under the crosshair before what is behind
 		it, deleted; else the object held or aimed at) */
-		if (pressed[_forge_button_delete])
+		if (delete_asked)
 		{
 			if (forge_globals.held_marker_id)
 			{
@@ -5088,14 +5202,14 @@ static void forge_draw_prompts(
 		snprintf(snap, sizeof(snap), "SNAP: %s", text);
 		FORGE_PROMPT(UI_BUTTON_LEFT_SHOULDER, HALO_FORGE_KEY_SPEED, forge_globals.nudge_mode ? "NUDGE STEP" : snap);
 		FORGE_PROMPT(NONE, HALO_FORGE_KEY_NUDGE, forge_globals.nudge_mode ? "RS: ROTATE" : "RS: NUDGE");
-		FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, "DELETE");
+		FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, forge_delete_word());
 	}
 	else if (holding)
 	{
 		FORGE_PROMPT(UI_BUTTON_RIGHT_TRIGGER, HALO_FORGE_KEY_GRAB, "LET GO");
 		FORGE_PROMPT(UI_BUTTON_LEFT_TRIGGER, HALO_FORGE_KEY_ROTATE, "ROTATE");
 		FORGE_PROMPT(UI_BUTTON_B, HALO_FORGE_KEY_COPY, "COPY");
-		FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, "DELETE");
+		FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, forge_delete_word());
 		FORGE_PROMPT(UI_BUTTON_X, HALO_FORGE_KEY_MENU, "PROPERTIES");
 	}
 	else
@@ -5105,7 +5219,7 @@ static void forge_draw_prompts(
 		if (forge_globals.hud_label[0])
 		{
 			FORGE_PROMPT(UI_BUTTON_B, HALO_FORGE_KEY_COPY, "COPY");
-			FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, "DELETE");
+			FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, forge_delete_word());
 		}
 		FORGE_PROMPT(UI_BUTTON_X, HALO_FORGE_KEY_MENU, "FORGE MENU");
 		FORGE_PROMPT(UI_BUTTON_LEFT_SHOULDER, HALO_FORGE_KEY_SPEED, speed);
@@ -5161,6 +5275,12 @@ void forge_draw(
 	if (forge_menu_game_open())
 		return;
 	forge_draw_prompts();
+	/* (game.forge_hold_to_delete) the delete held: its fill over the crosshair */
+	if (forge_globals.delete_hold_fraction > 0.f &&
+		(forge_globals.hud_label[0] || forge_globals.held_marker_id || object_try_and_get(forge_globals.held_object_index)))
+	{
+		forge_menu_draw_hold(forge_globals.delete_hold_fraction);
+	}
 
 	/* the crosshair, and under it what it is on (ice blue) or what is
 	held (orange) */

@@ -32,7 +32,7 @@ box, the prompts):
 - LAYOUTS: SAVE (under the layout's title), SAVE AS NEW, then the map's
   layouts: A loads one (pressed twice: what isn't saved is lost), Y
   deletes one (pressed twice);
-- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, UNDO, REDO, NEW ROUND, CLEAR
+- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, DELETE, UNDO, REDO, NEW ROUND, CLEAR
   DEAD AI (the layout's dead AI characters), CLEAR ALL AI (every one,
   pressed twice), PLAY AS SPARTAN, and CONTROLS, the monitor's buttons and
   keys.
@@ -71,6 +71,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 void platform_log(char const *format, ...);
 unsigned long system_milliseconds(void);
 char const *config_string(char const *name);
+int config_write(char const *name, char const *value);
 boolean main_menu_is_active(void);
 boolean cache_files_map_installed(char const *map_name);
 /* ui_widget.c's: the menus' sounds (its _ui_audio_feedback_*) */
@@ -152,6 +153,7 @@ enum
 	_option_snap = 0,
 	_option_speed,
 	_option_rotate_snap,
+	_option_delete,
 	_option_undo,
 	_option_redo,
 	_option_round,
@@ -199,7 +201,7 @@ static struct
 
 static char const *const option_labels[NUMBER_OF_OPTIONS] =
 {
-	"SNAP", "MOVE SPEED", "ROTATION SNAP", "UNDO", "REDO", "NEW ROUND", "CLEAR DEAD AI", "CLEAR ALL AI", "PLAY AS SPARTAN",
+	"SNAP", "MOVE SPEED", "ROTATION SNAP", "DELETE", "UNDO", "REDO", "NEW ROUND", "CLEAR DEAD AI", "CLEAR ALL AI", "PLAY AS SPARTAN",
 	"CONTROLS",
 };
 
@@ -654,6 +656,24 @@ static void game_tab_go(short tab)
 		entries_read(forge_menu.view.map_index);
 }
 
+/* OPTIONS' DELETE: game.forge_hold_to_delete's values, in the row's order, and
+the row's words for them */
+static char const *const delete_modes[] = { "off", "controller", "all" };
+static char const *const delete_mode_names[] = { "PRESS", "HOLD: CONTROLLER", "HOLD: ALL" };
+
+static short delete_mode(void)
+{
+	char const *mode = config_string("game.forge_hold_to_delete");
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(delete_modes); index++)
+	{
+		if (mode && !strcmp(mode, delete_modes[index]))
+			return index;
+	}
+	return 0;
+}
+
 static void game_option_step(short row, short step)
 {
 	switch (row)
@@ -667,6 +687,13 @@ static void game_option_step(short row, short step)
 	case _option_rotate_snap:
 		forge_menu_ask(_forge_menu_ask_rotate_snap, step, 0, NULL);
 		break;
+	case _option_delete:
+	{
+		short count = (short)NUMBEROF(delete_modes);
+
+		config_write("game.forge_hold_to_delete", delete_modes[(delete_mode() + count + (step < 0 ? -1 : 1)) % count]);
+		break;
+	}
 	default:
 		return;
 	}
@@ -680,6 +707,7 @@ static void game_option_choose(short row)
 	case _option_snap:
 	case _option_speed:
 	case _option_rotate_snap:
+	case _option_delete:
 		game_option_step(row, 1);
 		return;
 	case _option_undo:
@@ -1443,6 +1471,9 @@ static void option_row_text(short row, char *label, int label_size, char *value,
 	case _option_rotate_snap:
 		snprintf(value, (size_t)value_size, "%s", view->rotate_snap);
 		break;
+	case _option_delete:
+		snprintf(value, (size_t)value_size, "%s", delete_mode_names[delete_mode()]);
+		break;
 	case _option_undo:
 		snprintf(label, (size_t)label_size, "UNDO (%d)", view->undo);
 		break;
@@ -1957,6 +1988,21 @@ void forge_menu_draw_prompts(
 	}
 }
 
+/* (forge.c's forge_draw) the delete held (game.forge_hold_to_delete): a bar over
+the crosshair that fills as it is held */
+void forge_menu_draw_hold(
+	float fraction)
+{
+	float width = 56.0f, height = 5.0f, x = 320.0f - width * 0.5f, y = 222.0f;
+
+	if (!ui_overlay_available() || forge_menu.screen != _screen_none)
+		return;
+	fraction = fraction < 0.0f ? 0.0f : fraction > 1.0f ? 1.0f : fraction;
+	ui_overlay_layer(0);
+	ui_overlay_rect(x - 1.0f, y - 1.0f, width + 2.0f, height + 2.0f, 2.0f, 0x000000A0);
+	ui_overlay_rect(x, y, width * fraction, height, 2.0f, 0xE8553DFF);
+}
+
 #else
 
 void forge_menu_open_lobby(void) { }
@@ -1969,5 +2015,6 @@ void forge_menu_process(void) { }
 void forge_menu_pointer(struct halo_ui_pointer const *pointer) { (void)pointer; }
 void forge_menu_render(void) { }
 void forge_menu_draw_prompts(struct forge_hud_prompt const *prompts, short count) { (void)prompts; (void)count; }
+void forge_menu_draw_hold(float fraction) { (void)fraction; }
 
 #endif
