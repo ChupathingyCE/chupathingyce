@@ -152,6 +152,11 @@ boolean network_objects_creating_host_object(void);
 /* (port: Forge's placement, port/linux/game/forge.c: the object chosen, as
 it is, not the game type's in its place) */
 extern int forge_placing_exact;
+/* (port: the map's own objects a Forge layout takes away, and which object
+each placement made for the editor: port/linux/game/forge_map_objects.inc) */
+extern int forge_map_objects_active;
+boolean forge_map_placement_skipped(struct scenario_object_datum const *placement);
+void forge_map_placement_made(struct scenario_object_datum const *placement, long object_index);
 #endif
 boolean network_objects_may_delete(long object_index);
 /* source/networking/network_game_globals.c's */
@@ -4199,6 +4204,12 @@ long object_new_from_scenario(
 	
 	long result = NONE;
 
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a placement a Forge layout takes away is not made (a Forge
+	game or a layout played alone) */
+	if (forge_map_objects_active && forge_map_placement_skipped(scenario_object))
+		return NONE;
+#endif
 	/* port: a palette entry the scenario has (a map's index; retail's are
 	all NONE or in range) */
 	if (VALID_INDEX(scenario_object->palette_entry_index, palette->count) &&
@@ -4234,6 +4245,10 @@ long object_new_from_scenario(
 					{
 						object_name_list_new(result, scenario_object->name_index);
 					}
+#ifndef HALO_CONSOLE_NO_FORGE
+					if (forge_map_objects_active)
+						forge_map_placement_made(scenario_object, result);
+#endif
 				}
 			}
 		}

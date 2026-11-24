@@ -428,4 +428,18 @@ void forge_netgame_flags_prepare(
 boolean forge_netgame_custom_flags(
 	void);
 
+/* ---------- prototypes/FORGE_MAP_OBJECTS.INC */
+
+/* (objects.c, game_engine.c) a Forge game or a layout played is up: the
+map's own objects' hooks are asked */
+extern int forge_map_objects_active;
+
+/* (game_engine.c game_engine_update_item_spawn) whether the session takes
+an item spawn of the map's away, and the item a spawn made */
+boolean forge_map_item_spawn_skipped(
+	long equipment_index);
+void forge_map_item_spawn_made(
+	long equipment_index,
+	long object_index);
+
 #endif
