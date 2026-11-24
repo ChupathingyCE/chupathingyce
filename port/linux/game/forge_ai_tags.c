@@ -51,7 +51,8 @@ second for a while):
    texture and sound caches' reads of them (cache_file_read) are served
    from it (forge_ai_tags_read).
 forge_ai_tags_map_unloaded lets all of it go (the data files deleted)
-before the map's tags go, after the texture and sound caches.
+before the map's tags go, after the texture and sound caches; data files a
+crash left behind are deleted at the next start (the first map's load).
 
 Crafted input: a mission's file is anyone's. Its header's sizes are bounded,
 every pointer the walks follow must lie in its tags, every tag index must
@@ -588,6 +589,13 @@ static boolean source_move(
 	{
 		walk_fail(&walk, "a damaged tag header", header->signature);
 	}
+	/* (a list the header counts must be somewhere: walk_move lets a null
+	through, which the loops below would read from) */
+	if (!walk.failed && (!header->tag_instances || (header->vertex_buffer_count && !header->vertex_buffers) ||
+		(header->index_buffer_count && !header->index_buffers)))
+	{
+		walk_fail(&walk, "a tag header's list with no address", (unsigned long)header->tag_count);
+	}
 	if (!walk.failed)
 	{
 		walk_move(&walk, (XPTR(void) *)&header->tag_instances,
@@ -614,6 +622,9 @@ static boolean source_move(
 		struct tag_schema_definition const *definition;
 		byte *root;
 
+		/* (every tag has a name: source_tag_name reads it) */
+		if (!instance->name)
+			walk_fail(&walk, "a tag with no name", (unsigned long)index);
 		walk_move(&walk, (XPTR(void) *)&instance->name, 1, "a tag's name");
 		/* (a structure bsp's: none yet, in another part of the file) */
 		if (!instance->base_address || (unsigned long)instance->base_address == (unsigned long)NONE)
@@ -1775,11 +1786,38 @@ static char forge_ai_tags_pending_map[256];
 static unsigned long forge_ai_tags_next_try;
 static short forge_ai_tags_tries;
 
+/* (the first map's load, the menus' as the game starts) the data files a
+copy of the game left behind when it stopped with a map's characters in
+(a crash: forge_ai_tags_map_unloaded deletes them otherwise), deleted */
+static void forge_ai_tags_clear_leftovers(
+	void)
+{
+	static boolean cleared;
+	short faction;
+	short map;
+
+	if (cleared)
+		return;
+	cleared = TRUE;
+	for (faction = 0; faction < NUMBER_OF_FORGE_AI_FACTIONS; faction++)
+	{
+		for (map = 0; map < FORGE_AI_MAXIMUM_MAPS && forge_ai_factions[faction].maps[map]; map++)
+		{
+			char path[64];
+
+			snprintf(path, sizeof(path), "z:\\forge_ai_%s.dat", forge_ai_factions[faction].maps[map]);
+			if (DeleteFileA(path))
+				platform_log("forge ai: %s left behind by an earlier run: deleted", path);
+		}
+	}
+}
+
 void forge_ai_tags_loaded(
 	char const *scenario_name)
 {
 	short faction;
 
+	forge_ai_tags_clear_leftovers();
 	if (forge_ai_tags.loaded || forge_ai_tags.source_count)
 		forge_ai_tags_unloaded();
 	forge_ai_tags_pending_map[0] = 0;
