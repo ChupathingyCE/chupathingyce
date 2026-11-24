@@ -18,7 +18,7 @@ It also builds each platform whose own files the pull request changes, using the
 | `port/android/`, `tools/android*` | `android64` |
 | `port/macos/`, `port/ios/`, `tools/macos_build.py` | `macos` |
 | `port/unix/`, `tools/unix64_build.py` | `freebsd64` |
-| `server/`, `tools/server_build.py` | `server` (x64 only) |
+| `server/`, `tools/server_build.py`, `tools/sdl_headers.py` | `server` (x64 only) |
 | `tools/linux64_build.py`, `tools/linux_sysroot.py`, `tools/bgfx-patches/`, the bgfx renderer files | `linux64` |
 
 Changes to documentation alone (`*.md`, `docs/`) don't build.
