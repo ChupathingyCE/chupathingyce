@@ -83,6 +83,11 @@ round - at most FORGE_MAXIMUM_OBJECTS: past it the Forge menu's choice is
 refused, said on the screen. Its table is a fixed array, each index
 checked.
 
+The map's own objects (its scenery, vehicles, weapons and item spawns) are
+moved and deleted as the layout's are: one deleted is taken away from the
+map's, one grabbed or turned becomes one of the layout's, and the layout
+saves which of the map's it takes away (forge_map_objects.inc).
+
 NEW ROUND (the Forge menu's) resets the map as the engine's map_reset does; the
 layout, each object at its placed spot (where the editor put it, not where
 play took it), is taken as the game's state goes (forge_map_resetting) and
@@ -130,7 +135,13 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
                            CLEAR ALL AI)
   forge kill #<id>         (tests) a layout's AI character killed
   forge where | budget | objects | spawns | netflags | ai  the state in the log
+  forge map [category]     the map's own objects the editor can take, and
+                           the ones the layout takes away, in the log
   forge shot               (tests) a screenshot, as the screenshot key
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "cseries.h"
@@ -152,6 +163,7 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
 #include "input/input.h"
 #include "interface/hud_messaging.h"
 #include "items/equipment_definitions.h"
+#include "items/item_definitions.h"
 #include "items/items.h"
 #include "items/weapon_definitions.h"
 #include "items/weapons.h"
@@ -471,7 +483,7 @@ static struct
 	{ "boulder", "Boulder" },
 	{ "boulder_crouch", "Low Boulder" },
 	{ "boulder_doublewide", "Wide Boulder" },
-	{ "boulder_large_grey", "Large Grey Boulder" },
+	{ "boulder_large_grey", "Large Gray Boulder" },
 	{ "a50_rock_large", "Large Rock" },
 	{ "snowrock", "Snow Rocks" },
 	{ "snowrocksmall", "Small Snow Rocks" },
@@ -826,6 +838,12 @@ static char const *const forge_physics_log_names[NUMBER_OF_FORGE_PHYSICS_MODES] 
 static void forge_netgame_log(void);
 static char const *forge_netgame_flags_warning(void);
 static void forge_spawn_remove(struct forge_spawn *spawn);
+/* (forge_map_objects.inc) */
+static boolean forge_map_object_take(long object_index, boolean keep);
+static void forge_map_objects_start(struct forge_file_layout const *layout);
+static void forge_map_objects_capture(struct forge_file_layout *layout);
+static void forge_map_made_clear(void);
+static void forge_map_objects_log(char const *category_word);
 static short forge_spawn_points(void);
 static void forge_spawn_grounded(real_point3d *position);
 static void forge_draw_line(long font_index, rectangle2d const *bounds, short justification, real red, real green,
@@ -1981,10 +1999,13 @@ static void forge_grab_local(
 	return;
 }
 
-/* the object under the crosshair held */
+/* the object under the crosshair held (one of the map's own the
+layout's from now on: forge_map_objects.inc) */
 static void forge_grab(
 	long object_index)
 {
+	if (!forge_map_object_take(object_index, TRUE))
+		return;
 	forge_grab_local(object_index);
 }
 
@@ -2053,6 +2074,9 @@ static void forge_set_facing(
 	{
 		struct forge_transform from;
 
+		/* (one of the map's own: the layout's from now on) */
+		if (!forge_map_object_take(object_index, TRUE))
+			return;
 		forge_transform_get(object_index, &from);
 		object_set_position(object_index, &object->object.position, forward, up);
 		SET_FLAG(object->object.flags, _object_at_rest_bit, FALSE);
@@ -2270,6 +2294,9 @@ static void forge_delete(
 	char name[FORGE_NAME_SIZE];
 
 	if (!object || forge_object_is_players(object_index))
+		return;
+	/* (one of the map's own: taken away from the map's, saved so) */
+	if (!forge_map_object_take(object_index, FALSE))
 		return;
 	forge_object_name(object_index, name, sizeof(name));
 	platform_log("forge: deleted %s (%s)", name, forge_tag_leaf(object->definition_index));
@@ -3354,6 +3381,8 @@ static boolean forge_variant_capture(
 	if (spawns)
 	{
 		skipped = (short)(skipped + forge_spawns_capture(layout));
+		/* (the map's own objects it takes away) */
+		forge_map_objects_capture(layout);
 	}
 	if (skipped)
 		platform_log("forge: %d placed objects left out of the layout", skipped);
@@ -3996,7 +4025,7 @@ boolean forge_properties_get(
 	if (spawn)
 	{
 		forge_spawn_properties_get(spawn, properties);
-		/* (where it stands, metres: forge_precision.inc) */
+		/* (where it stands, meters: forge_precision.inc) */
 		{
 			real_point3d const *at = spawn->id == forge_globals.held_marker_id ? &forge_globals.held_marker_position :
 				&spawn->home.position;
@@ -4078,6 +4107,9 @@ void forge_map_resetting(
 	}
 	forge_globals.round_count++;
 	forge_globals.round_pending = TRUE;
+	/* (the map's objects go: the placements make them again, but for the
+	ones the session takes away) */
+	forge_map_made_clear();
 	platform_log("forge: new round %ld: the layout taken: %d objects", forge_globals.round_count,
 		forge_round_layout.record_count);
 }
@@ -4159,6 +4191,8 @@ void forge_map_loaded(
 	forge_spawns_clear();
 	if (forge_globals.game_active && forge_globals.variant_pending)
 		forge_spawns_from_layout(&forge_variant_layout);
+	/* (the map's own objects it takes away, before the map makes them) */
+	forge_map_objects_start(forge_globals.game_active && forge_globals.variant_pending ? &forge_variant_layout : NULL);
 	/* (its teleporters and flags the engine's netgame flags as its game
 	starts: forge_netgame.inc; any other game's the map's own) */
 	forge_netgame_changed();
@@ -4779,7 +4813,7 @@ void forge_update(
 }
 
 /* a line of the monitor's HUD in a font, at bounds (justification: 0 left,
-2 centred), in a colour */
+2 centered), in a color */
 static void forge_draw_line(
 	long font_index,
 	rectangle2d const *bounds,
@@ -5252,6 +5286,12 @@ boolean forge_command(
 		platform_log("forge: objects listed: %d", forge_globals.placed_count);
 		return TRUE;
 	}
+	/* (the map's own objects: forge_map_objects.inc) */
+	if (!strcmp(word, "map"))
+	{
+		forge_map_objects_log(rest);
+		return TRUE;
+	}
 	if (!strcmp(word, "spawns"))
 	{
 		short index;
@@ -5577,3 +5617,4 @@ with this file's) */
 #include "forge_precision.inc"
 #include "forge_ai.inc"
 #include "forge_menu_link.inc"
+#include "forge_map_objects.inc"

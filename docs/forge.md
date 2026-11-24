@@ -43,6 +43,8 @@ You start as the monitor. The prompts at the bottom of the screen say what the b
 | X | E | The Forge menu |
 | Back + right stick click | M | Switch between the monitor and playing as the Spartan |
 
+Spawn points, teleporters and game type objects show as markers on the ground only while you're the monitor. Players don't see them, as a map's own teleporters have no marker: place a Teleporter or Teleporter Base from SCENERY where you want players to see one.
+
 The keyboard's keys are `controls.forge_*` in `config.toml` (see [settings.md](settings.md)). The Forge menu's OPTIONS > CONTROLS lists them as they are set.
 
 ## The Forge menu
@@ -64,6 +66,8 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
 - OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), CLEAR DEAD AI, CLEAR ALL AI (press it twice), PLAY AS SPARTAN and CONTROLS.
 
   ![OPTIONS](screenshots/forge-options.jpg)
+
+The map's own objects (its vehicles, weapons, scenery and the rest) can be moved and deleted too, and the layout keeps that. One you delete is gone when the layout is loaded or played. One you grab or turn becomes one of the layout's objects: it counts in the budget, its properties can be set, and it is placed where you let it go. The map's file is never changed: the layout lists which of the map's objects it takes away.
 
 A layout's spawn points replace the map's own for the players they fit (the game type, the team). A game type object replaces the map's own of that type (a CTF flag: that team's). Any type the layout has none of keeps the map's.
 
@@ -98,17 +102,18 @@ AI characters are saved in the layout with their AI team, AI and respawn (layout
 
 ## Layout files
 
-Layouts are saved in `forge/<map>/<name>.hmv` in the save root. The format is small and fixed, so layouts can be shared as files:
+Layouts are saved in `forge/<map>/<name>.hmv` in the save root. The name is made from the title: lower-case letters, digits and `_`, with a number when another layout has it. Names Windows keeps for devices (`con`, `prn`, `aux`, `nul`, `com1` to `com9`, `lpt1` to `lpt9`) are never used: a layout titled `CON` is saved as `con_1.hmv`, and a file or map folder with one of those names is never opened. The format is small and fixed, so layouts can be shared as files:
 
 - a 64-byte header: `HFRG`, version, header size, flags, the map's short name, the map's checksum, the counts, the payload's size and its CRC-32;
 - the tag paths the records place (never tag indices);
 - 48-byte records: kind, path index, team, position, yaw, pitch and roll, respawn time, game types, flags;
+- the map's own objects the layout takes away (version 11): each by its category and its index in the map's list;
 - the title, author, description and date, as UTF-8.
 
-All little-endian. Versions 1 to 7 and 13 are read. Each version adds what a layout may hold (AI settings, spawn points, teleporters, game type objects, physics; version 13: more than 256 records, up to 512), and a layout is written as the lowest version that holds it, so a build from before the bigger budget reads a layout of more than 256 as one from a newer build. Versions 8 to 10 keep the numbers they have in the Halo CE Vita build's layouts; 11 (the map's own objects taken away) and 12 (AI movement) are other changes' numbers. `port/linux/game/forge_files.h` describes every byte.
+All little-endian. Versions 1 to 7, 11 and 13 are read. Each version adds what a layout may hold (AI settings, spawn points, teleporters, game type objects, physics, the map's own objects taken away; version 13: more than 256 records, up to 512), and a layout is written as the lowest version that holds it, so a build from before the bigger budget reads a layout of more than 256 as one from a newer build. Version 11 is the number the Halo CE Vita build uses for the same list; 8 to 10 keep the numbers they have in its layouts, and 12 is AI movement's. `port/linux/game/forge_files.h` describes every byte.
 
 Every file goes through the validator before anything is read from it, whether you made it or it came from somewhere else. It checks the size, the header, the version, the map, the counts against the limits, the payload size and CRC-32, every path (characters, length, groups Forge places), every record (kind, path index, every field in range, finite floats inside the world, no unknown flags) and the texts (terminated UTF-8). A file that fails any check is refused whole and the log says why. When a layout is placed, a record whose tag the map doesn't have is skipped, and the budget and the map's bounds are checked again. `tools/test_forge_files.py` tests the validator against malformed files, and fuzzes it.
 
 ## Console commands
 
-Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge clearai dead|all`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags`, `ai` to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`, `forge kill #id` (an AI character).
+Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge clearai dead|all`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags`, `map [category]` (the map's own objects, and the ones the layout takes away), `ai` to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`, `forge kill #id` (an AI character).
