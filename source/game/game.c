@@ -411,6 +411,15 @@ void game_tick(
 	decisions that belong to the host. */
 	if (!(network_game_distributed_client() && network_coop_active()))
 		hs_update();
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge game's or a layout's volumes act on what is in them
+	(port/linux/game/forge_volumes.inc); nothing in any other game */
+	{
+		extern void forge_volumes_tick(void);
+
+		forge_volumes_tick();
+	}
+#endif
 	recorded_animations_update();
 	HALO_PERF_BEGIN(_halo_perf_tick_objects);
 	objects_update();

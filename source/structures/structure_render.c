@@ -148,9 +148,9 @@ typedef char verify_structure_render_globals_size[
 
 /* ---------- prototypes */
 
-static boolean compare_surface_indices(
-	long surface_index1,
-	long surface_index2);
+static void structure_render_sort_surface_indices(
+	long *surface_indices,
+	long count);
 static void structure_render_dynamic_triangles_from_bitvector(
 	short surface_count,
 	long *surface_indices,
@@ -246,21 +246,183 @@ void structure_render_set_fog_offset(
 
 /* ---------- private code */
 
-static boolean compare_surface_indices(
-	long surface_index1,
-	long surface_index2)
+/* port: the surface indices into ascending order, as qsort_4byte with
+compare_surface_indices put them, without a call through a pointer for
+each comparison. Ascending integers have one order whatever sorts them, so
+the triangles come out the same and in the same order. The dynamic lights'
+and shadows' lists run to thousands of surfaces on a10. A list of 64 or
+more is checked first (one already ascending is left as it is) and sorted
+by its digits, 11 bits a pass, as many passes as its largest index needs;
+a shorter one by a quicksort with the comparison inline. */
+static void structure_render_radix_sort_surface_indices(
+	long *surface_indices,
+	long count,
+	unsigned long largest)
 {
-	if (surface_index1 < surface_index2)
+	static long scratch[MAXIMUM_LOCALLY_RENDERED_SURFACES];
+	long *from = surface_indices;
+	long *to = scratch;
+	unsigned long shift;
+
+	for (shift = 0; shift < LONG_BITS && (largest >> shift); shift += 11)
 	{
-		return FALSE;
+		unsigned long counts[2048];
+		unsigned long total = 0;
+		unsigned long digit;
+		long index;
+		long *swap;
+
+		csmemset(counts, 0, sizeof(counts));
+		for (index = 0; index < count; index++)
+			counts[((unsigned long)from[index] >> shift) & 2047]++;
+		for (digit = 0; digit < 2048; digit++)
+		{
+			unsigned long here = counts[digit];
+
+			counts[digit] = total;
+			total += here;
+		}
+		for (index = 0; index < count; index++)
+			to[counts[((unsigned long)from[index] >> shift) & 2047]++] = from[index];
+		swap = from;
+		from = to;
+		to = swap;
+	}
+	if (from != surface_indices)
+		csmemcpy(surface_indices, from, count * sizeof(surface_indices[0]));
+
+	return;
+}
+
+static void structure_render_sort_surface_indices(
+	long *surface_indices,
+	long count)
+{
+	long *lo_stack[64];
+	long *hi_stack[64];
+	long depth = 0;
+	long *lo = surface_indices;
+	long *hi = surface_indices + count - 1;
+
+	if (count < 2)
+		return;
+
+	if (count >= 64 && count <= MAXIMUM_LOCALLY_RENDERED_SURFACES)
+	{
+		unsigned long largest = 0;
+		boolean ascending = TRUE;
+		boolean negative = FALSE;
+		long index;
+
+		for (index = 0; index < count; index++)
+		{
+			if (surface_indices[index] < 0)
+				negative = TRUE;
+			if ((unsigned long)surface_indices[index] > largest)
+				largest = (unsigned long)surface_indices[index];
+			if (index && surface_indices[index] < surface_indices[index - 1])
+				ascending = FALSE;
+		}
+		if (ascending)
+			return;
+		if (!negative)
+		{
+			structure_render_radix_sort_surface_indices(surface_indices, count, largest);
+			return;
+		}
 	}
 
-	if (surface_index2 < surface_index1)
+	for (;;)
 	{
-		return TRUE;
+		if (hi - lo < 16)
+		{
+			long *scan;
+
+			for (scan = lo + 1; scan <= hi; scan++)
+			{
+				long value = *scan;
+				long *place = scan;
+
+				while (place > lo && place[-1] > value)
+				{
+					*place = place[-1];
+					place--;
+				}
+				*place = value;
+			}
+		}
+		else
+		{
+			long *middle = lo + ((hi - lo) >> 1);
+			long *i = lo;
+			long *j = hi;
+			long pivot;
+			long temporary;
+
+			/* (the median of three for the pivot) */
+			if (*middle < *lo)
+			{
+				temporary = *middle;
+				*middle = *lo;
+				*lo = temporary;
+			}
+			if (*hi < *lo)
+			{
+				temporary = *hi;
+				*hi = *lo;
+				*lo = temporary;
+			}
+			if (*hi < *middle)
+			{
+				temporary = *hi;
+				*hi = *middle;
+				*middle = temporary;
+			}
+			pivot = *middle;
+			while (i <= j)
+			{
+				while (*i < pivot)
+					i++;
+				while (*j > pivot)
+					j--;
+				if (i <= j)
+				{
+					temporary = *i;
+					*i = *j;
+					*j = temporary;
+					i++;
+					j--;
+				}
+			}
+			/* (the larger part waits on the stack, the smaller goes on) */
+			if (j - lo > hi - i)
+			{
+				if (lo < j)
+				{
+					lo_stack[depth] = lo;
+					hi_stack[depth++] = j;
+				}
+				lo = i;
+			}
+			else
+			{
+				if (i < hi)
+				{
+					lo_stack[depth] = i;
+					hi_stack[depth++] = hi;
+				}
+				hi = j;
+			}
+			if (lo < hi)
+				continue;
+		}
+		if (--depth < 0)
+			break;
+		lo = lo_stack[depth];
+		hi = hi_stack[depth];
 	}
 
-	return FALSE;
+	return;
 }
 
 static void structure_render_dynamic_triangles_from_bitvector(
@@ -271,56 +433,44 @@ static void structure_render_dynamic_triangles_from_bitvector(
 {
 	struct structure_bsp *structure_bsp = global_structure_bsp_get();
 	short surface_index_index = 0;
-	long surface_index = 0;
+	long word_count = (structure_bsp->surfaces.count + LONG_BITS - 1) / LONG_BITS;
+	long word_index;
 
-	if (structure_bsp->surfaces.count > 0)
+	/* port: the set bits taken lowest first, by counting the zeros below
+	them, rather than testing all 32 bits of every word that has one (the
+	visible structure is a bit vector of all of the structure's surfaces,
+	walked for it and for each light and shadow every frame). The last
+	word is masked to the surfaces the structure has, where the old walk
+	stopped: the same surfaces in the same order. */
+	for (word_index = 0; word_index < word_count; word_index++)
 	{
-		do
+		unsigned long bits = surface_flags[word_index];
+
+		if (word_index == word_count - 1 && (structure_bsp->surfaces.count % LONG_BITS))
+			bits &= ((unsigned long)1 << (structure_bsp->surfaces.count % LONG_BITS)) - 1;
+		while (bits)
 		{
-			if (*surface_flags)
-			{
-				short bit_index;
+			long surface_index = word_index * LONG_BITS + __builtin_ctz((unsigned int)bits);
+			struct structure_surface *surface = TAG_BLOCK_GET_ELEMENT(
+				&structure_bsp->surfaces,
+				surface_index,
+				struct structure_surface);
 
-				for (bit_index = 0;
-					bit_index < LONG_BITS;
-					bit_index++, surface_index++)
-				{
-					if (surface_index >= structure_bsp->surfaces.count)
-					{
-						break;
-					}
+			bits &= bits - 1;
+			match_assert(
+				"c:\\halo\\SOURCE\\structures\\structure_render.c",
+				421,
+				surface_index_index>=0 && surface_index_index<surface_count);
 
-					if (TEST_FLAG(*surface_flags, bit_index))
-					{
-						struct structure_surface *surface = TAG_BLOCK_GET_ELEMENT(
-							&structure_bsp->surfaces,
-							surface_index,
-							struct structure_surface);
-
-						match_assert(
-							"c:\\halo\\SOURCE\\structures\\structure_render.c",
-							421,
-							surface_index_index>=0 && surface_index_index<surface_count);
-
-						*surface_indices++ = surface_index;
-						triangles[surface_index_index * NUMBER_OF_VERTICES_PER_TRIANGLE + 0] =
-							surface->vertex_indices[0];
-						triangles[surface_index_index * NUMBER_OF_VERTICES_PER_TRIANGLE + 1] =
-							surface->vertex_indices[1];
-						triangles[surface_index_index * NUMBER_OF_VERTICES_PER_TRIANGLE + 2] =
-							surface->vertex_indices[2];
-						surface_index_index++;
-					}
-				}
-			}
-			else
-			{
-				surface_index += LONG_BITS;
-			}
-
-			surface_flags++;
+			*surface_indices++ = surface_index;
+			triangles[surface_index_index * NUMBER_OF_VERTICES_PER_TRIANGLE + 0] =
+				surface->vertex_indices[0];
+			triangles[surface_index_index * NUMBER_OF_VERTICES_PER_TRIANGLE + 1] =
+				surface->vertex_indices[1];
+			triangles[surface_index_index * NUMBER_OF_VERTICES_PER_TRIANGLE + 2] =
+				surface->vertex_indices[2];
+			surface_index_index++;
 		}
-		while (surface_index < structure_bsp->surfaces.count);
 	}
 
 	return;
@@ -334,7 +484,7 @@ static void structure_render_dynamic_triangles_from_indices(
 	struct structure_bsp *structure_bsp = global_structure_bsp_get();
 	short surface_index_index;
 
-	qsort_4byte(surface_indices, surface_count, compare_surface_indices);
+	structure_render_sort_surface_indices(surface_indices, surface_count);
 
 	for (surface_index_index = 0;
 		surface_index_index < surface_count;

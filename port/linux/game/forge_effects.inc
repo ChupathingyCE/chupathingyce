@@ -10,7 +10,7 @@ blood, oil, signs) on the ground under where it is put, at a size.
 
 Each is one of the layout's markers (forge_spawns.inc: placed, carried,
 let go, its properties opened from it, deleted; drawn for the monitor
-alone as a small marker where it stands) and saved as a version 15 record
+alone as a small marker where it stands) and saved as a version 16 record
 of forge_files.h, its tag by path. What it shows is the game's own effect
 or decal, seen by everyone in a Forge game and in a layout played: the
 effect started a tick at a time (game.c's game_tick, forge_effects_tick),
@@ -294,7 +294,7 @@ static boolean forge_effect_choose_named(
 	return FALSE;
 }
 
-/* a version 15 record (checked by the validator) as a marker: its tag
+/* a version 16 record (checked by the validator) as a marker: its tag
 found by path on this map (none: skipped); TRUE if placed */
 static boolean forge_effect_from_record(
 	struct forge_file_layout const *layout,
@@ -327,7 +327,7 @@ static boolean forge_effect_from_record(
 	return TRUE;
 }
 
-/* a marker as its version 15 record (its place and yaw the caller's); FALSE
+/* a marker as its version 16 record (its place and yaw the caller's); FALSE
 when its path could not be added */
 static boolean forge_effect_to_record(
 	struct forge_spawn const *spawn,

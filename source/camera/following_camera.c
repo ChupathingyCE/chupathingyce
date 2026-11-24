@@ -215,6 +215,15 @@ void following_camera_update(
 	}
 	camera->unit_index = camera_info.unit_index;
 	camera->seat_index = camera_info.seat_index;
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* (port: a Pelican or dropship a player flies in Forge: the chase
+	camera kept behind its hull, not in it; port/linux/game/forge_flyable.inc) */
+	{
+		real forge_flyable_camera_scale(long unit_index);
+
+		camera->distance_scale = forge_flyable_camera_scale(camera_info.unit_index);
+	}
+#endif
 
 	if (camera_info.camera)
 	{

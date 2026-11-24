@@ -115,6 +115,8 @@ network_test_update, which does nothing there */
 #include "networking/network_client_manager.h"
 #include "networking/network_server_manager.h"
 #include "game/game.h"
+#include "halo_port_features.h"
+#include "ai_nav.h" /* port: port/linux/game/ai_nav.c (HALO_AI_NAV_TEST) */
 #include "game/game_engine.h"
 #include "game/game_modes.h" /* the game modes layer's built-ins (swat, hardcore, ...) */
 #include "game/players.h"
@@ -1661,6 +1663,12 @@ void network_test_update(
 	game's time starts over) */
 	if (game_engine_running() && !main_menu_loaded)
 		network_test.played = TRUE;
+#if HALO_AI_NAV
+	/* (debug: HALO_AI_NAV_TEST, the map's navigation tested in this game:
+	port/linux/game/ai_nav.c) */
+	if (game_engine_running() && !main_menu_loaded)
+		ai_nav_test_update();
+#endif
 	if (game_in_progress() && game_time_get() < network_test.logged_time)
 		network_test.logged_time = 0;
 #ifdef HALO_GAME_BROWSER

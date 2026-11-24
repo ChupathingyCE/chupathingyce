@@ -534,6 +534,15 @@ long scenario_get_sky_definition_index(
 
 		definition_index = sky_reference->index;
 	}
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge layout's sky in place of the map's
+	(port/linux/game/forge_environment.inc) */
+	{
+		long forge_sky_definition_index(long definition_index);
+
+		definition_index = forge_sky_definition_index(definition_index);
+	}
+#endif
 
 	return definition_index;
 }
@@ -1567,6 +1576,15 @@ void scenario_get_atmospheric_fog(
 		else
 		{
 			fog = &sky->outdoor_fog;
+#ifndef HALO_CONSOLE_NO_FORGE
+			/* port: a Forge layout's fog outdoors
+			(port/linux/game/forge_environment.inc) */
+			{
+				struct sky_atmospheric_fog const *forge_outdoor_fog(struct sky_atmospheric_fog const *fog);
+
+				fog = (struct sky_atmospheric_fog *)forge_outdoor_fog(fog);
+			}
+#endif
 		}
 		indoor_fog_scale =
 			(short)sky_index == NONE && sky->indoor_fog_screen.index != NONE

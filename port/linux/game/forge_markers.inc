@@ -4,16 +4,22 @@ FORGE_MARKERS.INC
 Forge's markers (included by forge.c, for its statics): the layout's player
 spawn points, teleporters and game type objects (forge_spawns.inc,
 forge_netgame.inc), which are no objects, shown to the monitor as small
-see-through markers on the ground in their team's or channel's colour, and
+see-through markers on the ground in their team's or channel's color, and
 taken, carried, let go, turned and deleted like an object, their properties
 opened from them (X while holding one). The map's own player spawns are
-drawn beside them, grey and read only.
+drawn beside them, gray and read only.
 
 A marker is drawn (forge_marker_draw: the game's debug-geometry shaders, a
-colour a vertex, blended), never an object: nothing of it is sent anywhere
+color a vertex, blended), never an object: nothing of it is sent anywhere
 or saved but the layout record it stands for. Shown only while the player
-is the monitor in a Forge game; a layout played shows its teleporters'
-markers alone (a teleporter is no object: its marker is what shows it).
+is the monitor in a Forge game: the Spartan in a Forge game, and anyone in
+a layout played, sees none, teleporters' included (a teleporter is no
+object: a layout shows where one is with the scenery placed there, as a
+map's own teleporters are shown).
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 /* ---------- constants */
@@ -42,7 +48,7 @@ enum
 {
 	/* (a marker of the layout: forge_spawns.inc) */
 	_forge_marker_player_spawn = 0,
-	/* (the map's own: grey) */
+	/* (the map's own: gray) */
 	_forge_marker_map_spawn,
 	NUMBER_OF_FORGE_MARKER_DRAW_KINDS
 };
@@ -61,14 +67,16 @@ struct forge_marker
 	short kind;
 	real_point3d position;
 	real_vector3d forward;
-	/* its colour */
+	/* its color */
 	real red;
 	real green;
 	real blue;
 	/* under the crosshair, or held: brighter */
 	boolean lit;
-	/* (a player spawn) an initial spawn: a second ring, a filled centre */
+	/* (a player spawn) an initial spawn: a second ring, a filled center */
 	boolean initial;
+	/* (a patrol area: forge_ai_move.inc) a thin ring this wide round it */
+	real area_radius;
 };
 
 /* ---------- private code */
@@ -144,8 +152,8 @@ static void forge_marker_ring(
 
 /* a marker drawn in the 3D (render.c's hook, after the objects), flat on
 the ground: a
-ring in its colour over a faint disc, a chevron on it pointing where it
-faces; an initial spawn's a second ring inside and a filled centre;
+ring in its color over a faint disc, a chevron on it pointing where it
+faces; an initial spawn's a second ring inside and a filled center;
 blended, a little over the ground under it, the walls in front hiding it */
 static void forge_marker_draw(
 	struct forge_marker const *marker)
@@ -185,12 +193,18 @@ static void forge_marker_draw(
 	forge_marker_ring(vertices, &count, &center, 0.f, FORGE_MARKER_RING_INNER, forge_marker_pixel(marker, 0.8f, alpha * 0.35f));
 	forge_marker_ring(vertices, &count, &center, FORGE_MARKER_RING_INNER, FORGE_MARKER_DISC_RADIUS,
 		forge_marker_pixel(marker, 1.f, alpha));
-	/* (an initial spawn's: a second ring and a filled centre) */
+	/* (an initial spawn's: a second ring and a filled center) */
 	if (marker->initial)
 	{
 		forge_marker_ring(vertices, &count, &center, FORGE_MARKER_DISC_RADIUS * 0.5f, FORGE_MARKER_DISC_RADIUS * 0.62f,
 			forge_marker_pixel(marker, 1.f, alpha));
 		forge_marker_ring(vertices, &count, &center, 0.f, FORGE_MARKER_DISC_RADIUS * 0.22f, forge_marker_pixel(marker, 1.f, alpha));
+	}
+	/* (a patrol area's: a thin ring at its edge) */
+	if (marker->area_radius > FORGE_MARKER_DISC_RADIUS)
+	{
+		forge_marker_ring(vertices, &count, &center, marker->area_radius - 0.08f, marker->area_radius + 0.08f,
+			forge_marker_pixel(marker, 1.f, alpha * 0.8f));
 	}
 	/* (the chevron: two flat arms meeting at its tip, past the ring where
 	it faces) */
@@ -259,13 +273,37 @@ static boolean forge_marker_of_spawn(
 	return TRUE;
 }
 
-/* a player spawn point's colour: its team's (any: white); a teleporter's
+/* a player spawn point's color: its team's (any: white); a teleporter's
 its channel's (a sender and its receiver the same); a game type object's
 its own */
 static void forge_marker_spawn_color(
 	struct forge_spawn const *spawn,
 	struct forge_marker *marker)
 {
+	/* (a volume's: its type's, forge_volumes.inc) */
+	if (forge_spawn_is_volume(spawn))
+	{
+		forge_volume_color(spawn, marker);
+		return;
+	}
+	/* (an AI route's point or patrol area: its route's color) */
+	if (spawn->kind == _forge_spawn_ai_route || spawn->kind == _forge_spawn_ai_area)
+	{
+		static real const route_colors[4][3] =
+		{
+			{ 1.00f, 0.70f, 0.10f },
+			{ 0.20f, 0.95f, 0.85f },
+			{ 0.95f, 0.35f, 0.95f },
+			{ 0.70f, 1.00f, 0.25f },
+		};
+		short route = (short)(spawn->channel & 3);
+		real shade = 1.f - 0.15f * (real)((spawn->channel >> 2) & 3);
+
+		marker->red = route_colors[route][0] * shade;
+		marker->green = route_colors[route][1] * shade;
+		marker->blue = route_colors[route][2] * shade;
+		return;
+	}
 	/* (an effect's: pale cyan; a decal's: tan) */
 	if (forge_spawn_is_effect(spawn))
 	{
@@ -354,7 +392,7 @@ static long forge_marker_under_crosshair(
 {
 	real_point3d position;
 	real_vector3d forward;
-	real nearest = FORGE_PICK_RANGE;
+	real nearest = forge_grab_range();
 	long nearest_id = NONE;
 	short index;
 
@@ -393,41 +431,75 @@ static long forge_marker_under_crosshair(
 	return nearest_id;
 }
 
-/* the layout's teleporters drawn for a player who is not the monitor (the
-Spartan in a Forge game, anyone in a layout played: forge_netgame.inc):
-a teleporter is no object, its marker is what shows it */
-static short forge_markers_render_teleporters(
+/* an AI route drawn: a flat band from each point to the next (the last to
+the first), in the route's color, a little over the points' markers */
+static void forge_markers_render_routes(
 	void)
 {
 	short index;
-	short drawn = 0;
 
-	for (index = 0; index < forge_globals.spawn_count && index < FORGE_SPAWN_TABLE && drawn < FORGE_MARKER_MOST_DRAWN; index++)
+	for (index = 0; index < forge_globals.spawn_count && index < FORGE_SPAWN_TABLE; index++)
 	{
-		struct forge_spawn const *spawn = &forge_globals.spawns[index];
+		struct forge_spawn const *from = &forge_globals.spawns[index];
+		struct forge_spawn const *to = NULL;
 		struct forge_marker marker;
-		real_vector3d to_marker;
+		struct forge_marker_vertex vertices[6];
+		real_point3d a, b, a0, a1, b0, b1;
+		real_vector3d along, side, unused;
+		long count = 0;
+		long buffer;
+		short other;
+		void *locked;
 
-		if (!forge_spawn_is_teleporter(spawn))
+		if (from->kind != _forge_spawn_ai_route)
 			continue;
-		csmemset(&marker, 0, sizeof(marker));
-		marker.kind = _forge_marker_player_spawn;
-		marker.initial = spawn->kind == _forge_spawn_teleporter_sender;
-		marker.position = spawn->home.position;
-		marker.forward = spawn->home.forward;
-		to_marker.i = marker.position.x - render.camera.position.x;
-		to_marker.j = marker.position.y - render.camera.position.y;
-		to_marker.k = marker.position.z - render.camera.position.z;
-		if (dot_product3d(&to_marker, &render.camera.forward) < -FORGE_MARKER_HEIGHT ||
-			!render_frustum_sphere_visible(&render.frustum, &marker.position, FORGE_MARKER_HEIGHT))
+		for (other = (short)(index + 1); other < forge_globals.spawn_count && !to; other++)
 		{
-			continue;
+			if (forge_globals.spawns[other].kind == _forge_spawn_ai_route && forge_globals.spawns[other].channel == from->channel)
+				to = &forge_globals.spawns[other];
 		}
-		forge_marker_spawn_color(spawn, &marker);
-		forge_marker_draw(&marker);
-		drawn++;
+		for (other = 0; other < index && !to; other++)
+		{
+			if (forge_globals.spawns[other].kind == _forge_spawn_ai_route && forge_globals.spawns[other].channel == from->channel)
+				to = &forge_globals.spawns[other];
+		}
+		if (!to)
+			continue;
+		forge_marker_of_spawn(from, &a, &unused);
+		forge_marker_of_spawn(to, &b, &unused);
+		a.z += 0.3f;
+		b.z += 0.3f;
+		vector_from_points3d(&a, &b, &along);
+		along.k = 0.f;
+		if (normalize3d(&along) == 0.f)
+			continue;
+		side.i = -along.j;
+		side.j = along.i;
+		side.k = 0.f;
+		point_from_line3d(&a, &side, 0.07f, &a0);
+		point_from_line3d(&a, &side, -0.07f, &a1);
+		point_from_line3d(&b, &side, 0.07f, &b0);
+		point_from_line3d(&b, &side, -0.07f, &b1);
+		csmemset(&marker, 0, sizeof(marker));
+		forge_marker_spawn_color(from, &marker);
+		forge_marker_triangle(vertices, &count, &a0, &b0, &b1, forge_marker_pixel(&marker, 1.f, 0.75f));
+		forge_marker_triangle(vertices, &count, &a0, &b1, &a1, forge_marker_pixel(&marker, 1.f, 0.75f));
+		buffer = rasterizer_dynamic_vertices_new(_rasterizer_vertex_type_debug, count);
+		if (buffer == NONE)
+			continue;
+		rasterizer_globals.current_lock_operation = _rasterizer_lock_debug;
+		locked = rasterizer_dynamic_vertices_lock(buffer);
+		if (locked)
+		{
+			csmemcpy(locked, vertices, (size_t)count * sizeof(vertices[0]));
+			rasterizer_dynamic_vertices_unlock(buffer);
+			rasterizer_debug_drawing_begin(FALSE);
+			rasterizer_draw_dynamic_vertices(0, count / 3, buffer, 3);
+			rasterizer_debug_drawing_end();
+		}
+		rasterizer_globals.current_lock_operation = _rasterizer_lock_none;
+		rasterizer_dynamic_vertices_delete(buffer);
 	}
-	return drawn;
 }
 
 /* (render.c's hook) every marker of the layout, and the map's own spawns */
@@ -440,12 +512,12 @@ static void forge_markers_render(
 
 	if (!forge_markers_shown())
 	{
-		forge_globals.markers_drawn = forge_globals.game_active ? forge_markers_render_teleporters() : 0;
+		forge_globals.markers_drawn = 0;
 		forge_globals.map_markers_drawn = 0;
 		return;
 	}
 	under = forge_globals.held_marker_id ? NONE : forge_marker_under_crosshair(NULL);
-	/* (the player spawn points, in their team's colour) */
+	/* (the player spawn points, in their team's color) */
 	for (index = 0; index < forge_globals.spawn_count && index < FORGE_SPAWN_TABLE && drawn < FORGE_MARKER_MOST_DRAWN; index++)
 	{
 		struct forge_spawn const *spawn = &forge_globals.spawns[index];
@@ -455,7 +527,7 @@ static void forge_markers_render(
 		csmemset(&marker, 0, sizeof(marker));
 		marker.kind = _forge_marker_player_spawn;
 		/* (an initial spawn's, a teleporter sender's: a second ring and a
-		filled centre) */
+		filled center) */
 		marker.initial = spawn->kind == _forge_spawn_initial || spawn->kind == _forge_spawn_teleporter_sender ||
 			spawn->kind == _forge_spawn_flag || spawn->kind == _forge_spawn_oddball;
 		forge_marker_of_spawn(spawn, &marker.position, &marker.forward);
@@ -463,17 +535,33 @@ static void forge_markers_render(
 		to_marker.j = marker.position.y - render.camera.position.y;
 		to_marker.k = marker.position.z - render.camera.position.z;
 		forge_marker_spawn_color(spawn, &marker);
+		marker.lit = spawn->id == under || spawn->id == forge_globals.held_marker_id;
+		/* (a volume: its wireframe, whenever any of it is in view; its
+		marker at its floor's middle, where the crosshair takes it) */
+		if (forge_spawn_is_volume(spawn))
+		{
+			real radius = forge_volume_bounding_radius(spawn);
+
+			if (!render_frustum_sphere_visible(&render.frustum, &marker.position, radius))
+				continue;
+			forge_volume_draw(spawn, &marker);
+			drawn++;
+		}
+		if (spawn->kind == _forge_spawn_ai_area)
+			marker.area_radius = forge_ai_area_radii[PIN(spawn->option, 0, FORGE_FILE_AI_AREA_SIZES - 1)];
 		if (dot_product3d(&to_marker, &render.camera.forward) < -FORGE_MARKER_INITIAL_HEIGHT ||
 			!render_frustum_sphere_visible(&render.frustum, &marker.position, FORGE_MARKER_INITIAL_HEIGHT))
 		{
 			continue;
 		}
-		marker.lit = spawn->id == under || spawn->id == forge_globals.held_marker_id;
 		forge_marker_draw(&marker);
 		drawn++;
 	}
 	forge_globals.markers_drawn = drawn;
-	/* (the map's own player spawns, grey, read only: near ones) */
+	/* (each AI route's points joined in their order, the last to the first:
+	forge_ai_move.inc) */
+	forge_markers_render_routes();
+	/* (the map's own player spawns, gray, read only: near ones) */
 	forge_globals.map_markers_drawn = 0;
 	if (global_scenario_index != NONE)
 	{
@@ -587,7 +675,7 @@ static void forge_marker_held_update(
 
 		forge_snapped(&position, &facing, &up);
 	}
-	/* (stood on what is under it, within a few metres) */
+	/* (stood on what is under it, within a few meters) */
 	down.i = 0.f;
 	down.j = 0.f;
 	down.k = -4.f;

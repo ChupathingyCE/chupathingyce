@@ -29,10 +29,12 @@ change. Any game that is not a Forge game nor a layout played, and any
 other map, has the map's own block back, as it was: its game logic is not
 changed.
 
-A teleporter is drawn as its marker (forge_markers.inc) for everyone in a
-Forge game or a layout played, the monitor and the Spartan alike, in
-its channel's colour: the sender with a second ring and a filled centre, the
-receiver a plain ring, its chevron where a player sent there faces.
+A teleporter is drawn as its marker (forge_markers.inc) for the monitor
+alone, in its channel's color: the sender with a second ring and a filled
+center, the receiver a plain ring, its chevron where a player sent there
+faces. A player (the Spartan in a Forge game, anyone in a layout played)
+sees no marker, as a map's own teleporters have none: the layout's scenery
+(the map's Teleporter, Teleporter Base) shows where one is.
 
 The layout's game type objects (the Forge menu's OBJECTIVES: a CTF flag's spot,
 a King of the Hill hill's point, an oddball's spawn, a race checkpoint) are
@@ -53,6 +55,10 @@ when a flag is let go and on saving (forge_netgame_flags_warning), and a game
 with a layout's own flags gives such a team its spawns back
 (ctf_engine_initialize_for_new_map, forge_netgame_custom_flags). A game with
 the map's own flags keeps the rule as it is.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 /* ---------- constants */
@@ -139,7 +145,7 @@ static boolean forge_spawn_is_teleporter(
 static boolean forge_spawn_is_objective(
 	struct forge_spawn const *spawn)
 {
-	return spawn->kind >= _forge_spawn_flag && spawn->kind <= _forge_spawn_race;
+	return spawn->kind >= _forge_spawn_flag && spawn->kind <= FORGE_LAST_OBJECTIVE_KIND;
 }
 
 /* a game type object kind's indices (forge_files.h's limits: a CTF flag's

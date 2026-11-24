@@ -9,6 +9,10 @@ world, and nothing in it reaches the game: it is only the picture.
 
 Jolt's memory goes through counting hooks (physics_jolt_get_stats); its jobs
 run on the caller's thread (JobSystemSingleThreaded).
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include <Jolt/Jolt.h>
@@ -85,18 +89,81 @@ made, the step's memory) and before a ragdoll */
 const size_t WORLD_ROOM = 32 * 1024 * 1024;
 const size_t RAGDOLL_ROOM = 4 * 1024 * 1024;
 
-/* (an allocation the C heap refuses all the same is said, and the game
-stops there rather than writing through a null) */
+/* the reserve: what an allocation the C heap refuses all the same is given
+(Jolt does not check for a null, so it is never handed one). Taken when a
+world is made, given back when nothing in it is used any more. From the
+first refusal on, physics_jolt_out_of_memory says so: the ragdolls let every
+body go and the world goes, all in the same tick (ragdolls.c). A mesh being
+made stops at its next piece; the reserve holds the rest of what a step or
+a ragdoll asks. Only an allocation the reserve has no room for either still
+stops the game. */
+const size_t RESERVE_SIZE = 2 * 1024 * 1024;
+const size_t RESERVE_ALIGNMENT = 16;
+
+struct reserve_state
+{
+	unsigned char *block;
+	size_t used;
+	/* (the reserve's allocations not yet freed: it starts again empty at 0) */
+	unsigned int live;
+	bool out_of_memory;
+	/* (the tests: the allocation this many from now refused, as the C heap
+	would refuse it, and every one after it until the world goes; 0 none) */
+	unsigned int refuse_after;
+	bool refusing;
+} reserve;
+
+bool reserve_owns(void const *block)
+{
+	return reserve.block && (unsigned char const *)block >= reserve.block &&
+		(unsigned char const *)block < reserve.block + RESERVE_SIZE;
+}
+
+/* the reserve given back when nothing in it is used */
+void reserve_release(void)
+{
+	if (reserve.block && !reserve.live)
+	{
+		std::free(reserve.block);
+		reserve.block = nullptr;
+		reserve.used = 0;
+	}
+}
+
 void *raw_allocate(size_t bytes)
 {
-	void *block = std::malloc(bytes);
+	void *block = nullptr;
 
-	if (!block)
+	if (reserve.refuse_after && !--reserve.refuse_after)
+		reserve.refusing = true;
+	if (!reserve.refusing)
+		block = std::malloc(bytes);
+	if (block)
+		return block;
+	if (!reserve.out_of_memory)
+		platform_log("jolt: no memory for %lu bytes: the ragdolls stop", (unsigned long)bytes);
+	reserve.out_of_memory = true;
+	size_t start = (reserve.used + RESERVE_ALIGNMENT - 1) & ~(RESERVE_ALIGNMENT - 1);
+	if (!reserve.block || bytes > RESERVE_SIZE - start)
 	{
-		platform_log("jolt: no memory for %lu bytes: the game stops here", (unsigned long)bytes);
+		platform_log("jolt: no memory for %lu bytes, and the reserve has no room either: the game stops here",
+			(unsigned long)bytes);
 		std::abort();
 	}
-	return block;
+	reserve.used = start + bytes;
+	reserve.live++;
+	return reserve.block + start;
+}
+
+void raw_free(void *block)
+{
+	if (!reserve_owns(block))
+	{
+		std::free(block);
+		return;
+	}
+	if (reserve.live && !--reserve.live)
+		reserve.used = 0;
 }
 
 void *counted_allocate(size_t size)
@@ -114,7 +181,7 @@ void counted_free(void *pointer)
 		return;
 	unsigned char *block = (unsigned char *)pointer - HEADER;
 	note(-(long)*(size_t *)block);
-	std::free(block);
+	raw_free(block);
 }
 
 void *counted_reallocate(void *pointer, size_t old_size, size_t new_size)
@@ -147,7 +214,7 @@ void counted_aligned_free(void *pointer)
 	if (!pointer)
 		return;
 	note(-(long)((size_t *)pointer)[-2]);
-	std::free(((void **)pointer)[-1]);
+	raw_free(((void **)pointer)[-1]);
 }
 
 /* ---------- layers */
@@ -403,6 +470,9 @@ ShapeRefC mesh_shape(float const *vertices, int vertex_count, int const *triangl
 	mesh_pieces(vertices, triangles, triangle_count, order, pieces);
 	for (std::pair<int, int> const &piece : pieces)
 	{
+		/* (out of memory: no more pieces, the reserve kept for the rest) */
+		if (reserve.out_of_memory)
+			return nullptr;
 		VertexList points;
 		IndexedTriangleList list;
 
@@ -443,6 +513,8 @@ ShapeRefC mesh_shape(float const *vertices, int vertex_count, int const *triangl
 		else
 			compound.AddShape(Vec3::sZero(), Quat::sIdentity(), shape.Get());
 	}
+	if (reserve.out_of_memory)
+		return nullptr;
 	if (pieces.size() > 1)
 	{
 		if (compound.mSubShapes.empty())
@@ -494,6 +566,12 @@ int physics_jolt_create(int maximum_bodies, float const gravity[3])
 	if (!room_for(WORLD_ROOM))
 	{
 		trace("no world: the C heap has no %u MB free in one piece", (unsigned)(WORLD_ROOM >> 20));
+		return 0;
+	}
+	reserve.out_of_memory = false;
+	if (!reserve.block && (reserve.block = (unsigned char *)std::malloc(RESERVE_SIZE)) == nullptr)
+	{
+		trace("no world: no memory for its reserve");
 		return 0;
 	}
 	if (!registered)
@@ -548,6 +626,8 @@ void physics_jolt_destroy(void)
 	}
 	delete the_world;
 	the_world = nullptr;
+	reserve.refusing = false;
+	reserve_release();
 }
 
 int physics_jolt_exists(void)
@@ -564,11 +644,23 @@ void physics_jolt_forget_meshes(void)
 {
 	level_kept = nullptr;
 	level_kept_key = 0;
+	if (!the_world)
+		reserve_release();
+}
+
+int physics_jolt_out_of_memory(void)
+{
+	return reserve.out_of_memory;
+}
+
+void physics_jolt_refuse_allocations_after(unsigned int count)
+{
+	reserve.refuse_after = count;
 }
 
 int physics_jolt_add_mesh(float const *vertices, int vertex_count, int const *triangles, int triangle_count)
 {
-	if (!the_world || triangle_count <= 0)
+	if (!the_world || triangle_count <= 0 || reserve.out_of_memory)
 		return -1;
 	/* (the same level as the last world's - made again after a checkpoint
 	revert -: its mesh kept, not made again) */
@@ -597,7 +689,7 @@ int physics_jolt_add_mesh(float const *vertices, int vertex_count, int const *tr
 int physics_jolt_add_moving_mesh(float const *vertices, int vertex_count, int const *triangles, int triangle_count,
 	float const position[3], float const rotation[4])
 {
-	if (!the_world || triangle_count <= 0)
+	if (!the_world || triangle_count <= 0 || reserve.out_of_memory)
 		return -1;
 	ShapeRefC shape = mesh_shape(vertices, vertex_count, triangles, triangle_count);
 	if (!shape)
@@ -608,7 +700,7 @@ int physics_jolt_add_moving_mesh(float const *vertices, int vertex_count, int co
 int physics_jolt_add_moving_hull(float const *points, int point_count, float convex_radius,
 	float const position[3], float const rotation[4])
 {
-	if (!the_world || point_count < 4)
+	if (!the_world || point_count < 4 || reserve.out_of_memory)
 		return -1;
 	Array<Vec3> hull_points;
 	for (int index = 0; index < point_count; index++)
@@ -678,7 +770,7 @@ void physics_jolt_optimize(void)
 
 void physics_jolt_step(float dt, int collision_steps)
 {
-	if (!the_world)
+	if (!the_world || reserve.out_of_memory)
 		return;
 	auto started = std::chrono::steady_clock::now();
 	the_world->system.Update(dt, collision_steps > 0 ? collision_steps : 1, &the_world->temporary, &the_world->jobs);
@@ -715,7 +807,7 @@ int physics_jolt_rig_create(struct physics_jolt_rig_body const *in, int count, s
 
 	if (!options)
 		options = &none;
-	if (!the_world || count <= 0)
+	if (!the_world || count <= 0 || reserve.out_of_memory)
 		return -1;
 	if (!room_for(RAGDOLL_ROOM))
 	{
@@ -878,7 +970,7 @@ int physics_jolt_rig_create(struct physics_jolt_rig_body const *in, int count, s
 	ragdoll->AddToPhysicsSystem(EActivation::Activate);
 	BodyInterface &bodies = the_world->system.GetBodyInterfaceNoLock();
 	for (int body = 0; body < count; body++)
-		bodies.SetLinearVelocity(ragdoll->GetBodyID(body), vec(in[body].velocity));
+		bodies.SetLinearAndAngularVelocity(ragdoll->GetBodyID(body), vec(in[body].velocity), vec(in[body].angular_velocity));
 	for (size_t slot = 0; slot < the_world->ragdolls.size(); slot++)
 	{
 		if (!the_world->ragdolls[slot])
@@ -926,6 +1018,35 @@ void physics_jolt_rig_add_velocity(int ragdoll, int body, float const velocity[3
 	BodyID id = r->GetBodyID(body);
 	bodies.SetLinearVelocity(id, bodies.GetLinearVelocity(id) + vec(velocity));
 	bodies.ActivateBody(id);
+}
+
+void physics_jolt_rig_drive(int ragdoll, int body, float const position[3], float const rotation[4], float dt,
+	float weight)
+{
+	Ragdoll *r = ragdoll_get(ragdoll);
+	if (!r || body < 0 || body >= (int)r->GetBodyCount() || !(dt > 0.f) || !(weight > 0.f))
+		return;
+	weight = std::min(weight, 1.f);
+	BodyInterface &bodies = the_world->system.GetBodyInterfaceNoLock();
+	BodyID id = r->GetBodyID(body);
+	RVec3 now;
+	Quat turned;
+	bodies.GetPositionAndRotation(id, now, turned);
+	Vec3 there = vec(position);
+	Quat goal = quat(rotation);
+	if (!there.IsNaN() && !goal.IsNaN())
+	{
+		/* (the velocity and spin that reach the pose in dt: a kinematic
+		body's, as Jolt moves one) */
+		Vec3 linear = (there - Vec3(now)) / dt;
+		Vec3 axis;
+		float angle;
+		(goal * turned.Conjugated()).Normalized().GetAxisAngle(axis, angle);
+		Vec3 angular = axis * (angle / dt);
+		Vec3 v = bodies.GetLinearVelocity(id), w = bodies.GetAngularVelocity(id);
+		bodies.SetLinearAndAngularVelocity(id, v + (linear - v) * weight, w + (angular - w) * weight);
+		bodies.ActivateBody(id);
+	}
 }
 
 int physics_jolt_rig_active(int ragdoll)
