@@ -18,9 +18,10 @@ false details:
 	password's key, 56: p2p_seal_token; a tombstone's zero), players, most
 	players, the gametype's engine (1 each), the game's name,
 	map and gametype (a length byte, then up to 32, 32 and 24 characters of
-	printable ASCII), a stamp (8: its first byte the game's kind, version 37,
-	0 from our hosts, which play none of OpenCE's game types; the rest
-	reserved, zero), and the signature (64) of
+	printable ASCII), a stamp (8: its first byte the game's kind, version 37:
+	the game modes layer's mode in the low 7 bits and Hardcore in bit 7, as
+	network_server_manager.c sets it, 0 to a host announcing older or in a
+	tombstone; the rest reserved, zero), and the signature (64) of
 	"hceu-lobby-1" and all before it.
 
 Each host has a slot, hceu/3/lobby/s/<its key's hash in hex>: its listing,

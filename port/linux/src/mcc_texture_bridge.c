@@ -154,6 +154,10 @@ BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
             GLuint replacement=hud_hires_override_texture(entry->hud_asset,&description->levels);
             if (replacement) {
                 description->hires=TRUE;*texture=replacement;
+                /* (a high-res meter: its coverage and exact segment
+                 * thresholds, as an Xbox map's are: xbox_textures.c) */
+                description->hires_coverage=hud_hires_override_coverage(entry->hud_asset)!=0;
+                description->hires_point_threshold=hud_hires_override_point_threshold(entry->hud_asset)!=0;
                 return TRUE;
             }
             /* Allocation/upload failure retains the original descriptor. */
