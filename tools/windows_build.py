@@ -158,7 +158,8 @@ WIN32_FLAGS = [
     "-std=gnu11",
     "-DWIN32_LEAN_AND_MEAN",
     "-DNOMINMAX",
-    "-D_WIN32_WINNT=0x0A00",
+    "-D_WIN32_WINNT=0x0601",
+    "-DWINVER=0x0601",
     "-Wall",
 ]
 
@@ -570,9 +571,9 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         # no console window (the port's log goes to halo.log instead,
         # win32_posix.c): under Wine (Proton, gamescope) the console window
         # can hide the game's window
-        base_ldflags += ["-Wl,/SUBSYSTEM:WINDOWS", "-Wl,/ENTRY:mainCRTStartup"]
+        base_ldflags += ["-Xlinker /SUBSYSTEM:WINDOWS,6.01", "-Wl,/ENTRY:mainCRTStartup"]
     else:
-        base_ldflags += ["-Wl,/SUBSYSTEM:CONSOLE"]
+        base_ldflags += ["-Xlinker /SUBSYSTEM:CONSOLE,6.01"]
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
              extra_objects: List[Path], implicit_inputs: List[Path]) -> None:
@@ -854,7 +855,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     stub_subsystem = "WINDOWS" if getattr(sln, "port_release", False) else "CONSOLE"
     n.build(outputs=stub, rule=f"{prefix}_link", inputs=[stub_object, stub_resource],
             variables={"ldflags": " ".join([f"--target={target.triple}", "-fuse-ld=lld", "-g",
-                                            f"-Wl,/SUBSYSTEM:{stub_subsystem}",
+                                            f"-Xlinker /SUBSYSTEM:{stub_subsystem},6.01",
                                             "-Wl,/ENTRY:wWinMainCRTStartup"]),
                        "libs": "-luser32"})
     n.build(outputs=prefix, rule="phony", inputs=[output, stub, sdl_dll, brokers])
