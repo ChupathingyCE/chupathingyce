@@ -815,8 +815,12 @@ loads by its tag, bitmap index, size and the CRC-32 of its first mip level
 as the map stores it, before conversion (`hud_hires_tags.c`,
 `mcc_bitmaps.c`); a map's own art keeps its look whatever its tags are
 named. Cells the layout can't match surely, MCC's controller buttons among
-them, are copied from the map's own pixels into the texture. Meters are left
-as MCC draws them. Turning High-Res HUD off restores MCC's sheets at once.
+them, are copied from the map's own pixels into the texture. The health,
+shield and ammo meters use the Xbox maps' high-res meters, laid out as MCC's
+meter sheets (`tools/hud_assets.py mcc-meters`), with their exact segment
+thresholds and coverage. A meter sheet is replaced whole or not at all, so a
+meter never mixes MCC's pieces with ours. Turning High-Res HUD off restores
+MCC's sheets at once.
 
 Visual checks must cover real stock/custom MCC HUDs at native resolution; synthetic
 tests alone cannot establish that every authored layout matches MCC.

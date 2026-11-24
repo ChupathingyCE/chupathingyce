@@ -51,7 +51,16 @@ mcc-layout: the same for MCC's stock HUD sheets (read from your own MCC
     restored sheet, MCC's controller buttons, a whole bitmap matching under
     MCC_MATCH) is listed as kept and left empty: the game draws the map's
     own texels there. Writes port/assets/hud/mcc_layout.json (numbers only)
-    and adds any art it uses to port/assets/hud/art.
+    and adds any art it uses to port/assets/hud/art. The meters are laid
+    out as mcc-meters does.
+mcc-meters: MCC's stock meter sheets (the health, shield and ammo meters)
+    laid out from the Xbox maps' high-res meters (layout.json's meter cells
+    and their art in port/assets/hud/art, so no restored tags are needed):
+    each MCC cell matched with the restored meter sprite its shape overlaps
+    best, aligned by its content, at MCC's scale (4x the Xbox's, as the
+    art's). Every cell of a meter sheet must match at MCC_MATCH, or none of
+    it is laid out, so a meter is never half MCC's and half ours. Replaces
+    only the meters' entries in port/assets/hud/mcc_layout.json.
 build: draws port/assets/hud/art and svg with layout.json into
     port/assets/hud/*.png, and with mcc_layout.json into
     port/assets/hud/mcc/*.png (committed; the builds embed them).
@@ -834,6 +843,88 @@ def layout(arguments) -> None:
     LAYOUT.write_text(json.dumps({"assets": entries}, indent=1) + "\n")
 
 
+def mcc_meter_entries(mcc_map: "MccMap", tag: str, renders: dict) -> list:
+    """An MCC map's stock meter sheet (all its bitmaps) laid out from the
+    Xbox maps' high-res meter cells (layout.json): [] for each bitmap if any
+    cell matches nothing at MCC_MATCH, so the sheet stays wholly MCC's."""
+    candidates = [cell for entry in json.loads(LAYOUT.read_text())["assets"] if entry["tag"] == tag
+                  for cell in entry["cells"] if cell["kind"] == "meter" and "art" in cell]
+    if not candidates or ("bitm", tag) not in mcc_map.tags:
+        return []
+    group = mcc_map.bitmap_group(tag)
+    entries = []
+    for index, bitmap in enumerate(group["bitmaps"]):
+        name = sheet_name(tag, index)
+        if bitmap["pixels"] is None or bitmap["format"] not in (2, 3):
+            print(f"{mcc_map.path}: {name}: not a stock meter sheet here: left out")
+            return []
+        width, height = bitmap["width"], bitmap["height"]
+        texels = decode_mcc_bitmap(bitmap)
+        cells = sorted({tuple(pixel_rectangle(sprite, width, height))
+                        for sequence in group["sequences"] for sprite in sequence if sprite[0] == index})
+        matched = []
+        for cell in cells or [(0, 0, width, height)]:
+            left, top, right, bottom = cell
+            alpha = texels[top:bottom, left:right, 3]
+            if alpha.size == 0 or np.count_nonzero(alpha) <= 4:
+                continue
+            best = None
+            # (the art is at MCC's scale: MCC's meter sheets are 4x the
+            # Xbox's, as the restored art is)
+            for candidate in candidates:
+                clip = candidate["clip"]
+                if not (0.6 < (clip[2] - clip[0]) / (right - left) < 1.6 and
+                        0.6 < (clip[3] - clip[1]) / (bottom - top) < 1.6):
+                    continue
+                key = ("art", candidate["art"], 1)
+                if key not in renders:
+                    renders[key] = np.asarray(Image.open(ASSETS / "art" / candidate["art"]).convert("RGBA"))
+                score, corner = match(alpha, renders[key], clip, 1)
+                if best is None or score > best[0]:
+                    best = (score, corner, candidate)
+            if best is None or best[0] < MCC_MATCH:
+                print(f"{name}: cell {list(cell)} matches " +
+                      ("nothing" if best is None else f"best at {best[0]:.2f}") + ": the meters are left out")
+                return []
+            score, corner, candidate = best
+            found = {"mcc": list(cell), "art": candidate["art"], "source_scale": 1, "source": corner,
+                     "clip": candidate["clip"], "kind": "meter", "score": round(score, 3)}
+            # (discrete segments: MCC's fill order is the Xbox's, each
+            # segment's one value)
+            values = set(np.unique(texels[top:bottom, left:right, 2][alpha > 0]))
+            health = set(range(30, 241, 30))
+            if candidate.get("thresholds") and health <= values <= health | {0}:
+                found["thresholds"] = candidate["thresholds"]
+            matched.append(found)
+        entries.append({
+            "name": name,
+            "tag": tag,
+            "bitmap": index,
+            "width": width,
+            "height": height,
+            "format": MCC_FORMATS[bitmap["format"]],
+            "scale": 1,
+            "crc": zlib.crc32(bitmap["pixels"]),
+            "cells": matched,
+            "keep": [],
+        })
+        print(f"{name}: {width}x{height} {MCC_FORMATS[bitmap['format']]}, {len(matched)} meter cells, "
+              f"worst match {min(cell['score'] for cell in matched):.2f}")
+    return entries
+
+
+def mcc_meters(arguments) -> None:
+    """Only the meters' entries of mcc_layout.json, laid out again."""
+    resources = [MccResources(Path(path)) for path in arguments.bitmaps]
+    mcc_map = MccMap(Path(arguments.map[0]), resources)
+    renders = {}
+    entries = [entry for entry in json.loads(MCC_LAYOUT.read_text())["assets"] if entry["tag"] not in METERS]
+    for tag in sorted(METERS):
+        entries += mcc_meter_entries(mcc_map, tag, renders)
+    entries.sort(key=lambda entry: entry["name"])
+    MCC_LAYOUT.write_text(json.dumps({"assets": entries}, indent=1) + "\n")
+
+
 def mcc_layout(arguments) -> None:
     """The MCC maps' stock HUD sheets (MCC's own, which its maps and the
     Workshop's carry unless their makers drew their own) laid out as the
@@ -906,6 +997,10 @@ def mcc_layout(arguments) -> None:
                 }
                 print(f"{name}: {width}x{height} {MCC_FORMATS[bitmap['format']]} at {scale}x, {len(matched)} cells, "
                       f"{len(keep)} kept, worst match {min(cell['score'] for cell in matched):.2f}")
+    # (the meters, from the Xbox maps' high-res meters: the first map's)
+    for tag in sorted(METERS):
+        for entry in mcc_meter_entries(MccMap(Path(arguments.map[0]), resources), tag, renders):
+            entries[entry["name"]] = entry
     keep_used(used, svg_root, False)
     MCC_LAYOUT.write_text(json.dumps({"assets": [entries[name] for name in sorted(entries)]}, indent=1) + "\n")
 
@@ -1137,13 +1232,16 @@ def main() -> None:
     command.add_argument("--hek", required=True)
     command.add_argument("--svg")
     command.add_argument("--font", default=TAHOMA_BOLD)
+    command = commands.add_parser("mcc-meters")
+    command.add_argument("--map", required=True, action="append")
+    command.add_argument("--bitmaps", required=True, action="append")
     commands.add_parser("build")
     commands.add_parser("thresholds")
     command = commands.add_parser("check")
     command.add_argument("--map", required=True)
     command.add_argument("--out", required=True)
     arguments = parser.parse_args()
-    {"layout": layout, "mcc-layout": mcc_layout, "build": build, "thresholds": thresholds, "check": check}[arguments.command](arguments)
+    {"layout": layout, "mcc-layout": mcc_layout, "mcc-meters": mcc_meters, "build": build, "thresholds": thresholds, "check": check}[arguments.command](arguments)
 
 
 if __name__ == "__main__":
