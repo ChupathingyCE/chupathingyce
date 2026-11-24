@@ -106,8 +106,9 @@ and RESTART: pause_patch) */
 #define CUSTOM_CHANGE_SETTINGS_BUTTON "ui\\shell\\multiplayer_game\\pause_game\\change_settings_button"
 /* the tags pause_patch adds: six buttons and their texts, and the middle
 and bottom parts of the stock box's pieces, a widget and a bitmap each (the
-campaign's has six pieces) */
-#define PAUSE_PATCH_TAGS (12 + 4 * 6)
+campaign's has six pieces); on a joined co-op machine, two players' screen's
+own copy of the box and its pieces (pause_box_unshare) and their parts too */
+#define PAUSE_PATCH_TAGS (12 + 4 * 6 + 1 + 6 + 4 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -2110,7 +2111,8 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 	struct ui_widget_child_reference *grown = allocate(3 * count * sizeof(struct ui_widget_child_reference));
 	short split = PAUSE_BOX_SPLIT, key = PAUSE_BOX_KEY;
 
-	if (!grown || count > 6)
+	/* (a shorter box keeps some of its plain middle) */
+	if (!grown || count > 6 || key - split + grow <= 0)
 		return;
 	/* (every piece tall enough first: all of them drawn taller, or none) */
 	for (piece = 0; piece < count; piece++)
@@ -2156,6 +2158,72 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 	box->child_widgets.address = XBOX_ADDRESS(grown);
 	box->child_widgets.count = 3 * count;
 	box->bounds.y1 = (short)(box->bounds.y1 + grow);
+}
+
+/* the screen's stock box (pause_box_stock), its child index; NONE if it has none */
+static long pause_screen_box_child(long screen_tag)
+{
+	struct ui_widget_definition const *definition = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+	struct ui_widget_child_reference const *children = xbox_pointer(definition->child_widgets.address);
+	long child;
+
+	for (child = definition->child_widgets.count - 1; child >= 0; child--)
+	{
+		if (children[child].widget_tag.index != NONE &&
+			tag_get(UI_WIDGET_DEFINITION_TAG, children[child].widget_tag.index) &&
+			pause_box_stock(tag_get(UI_WIDGET_DEFINITION_TAG, children[child].widget_tag.index)))
+		{
+			return child;
+		}
+	}
+	return NONE;
+}
+
+/* the screen's own copy of a stock box it shares with another screen (the
+campaign's one and two player pause screens share theirs), its pieces
+copied too: pause_box_grow cuts the pieces it draws taller, so each screen's
+list can make its own box taller or shorter. FALSE if it isn't copied */
+static boolean pause_box_unshare(struct cache_file_tag_instance *instances, long screen_tag, long shared_tag)
+{
+	struct ui_widget_definition *definition = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+	struct ui_widget_child_reference *children = xbox_pointer(definition->child_widgets.address);
+	long box_child = pause_screen_box_child(screen_tag);
+	struct ui_widget_definition *box;
+	struct ui_widget_child_reference *pieces;
+	long piece, box_tag;
+
+	if (box_child == NONE || children[box_child].widget_tag.index != shared_tag)
+		return FALSE;
+	box = allocate(sizeof(*box));
+	if (!box)
+		return FALSE;
+	memcpy(box, tag_get(UI_WIDGET_DEFINITION_TAG, shared_tag), sizeof(*box));
+	pieces = allocate(box->child_widgets.count * (long)sizeof(*pieces));
+	if (!pieces)
+		return FALSE;
+	memcpy(pieces, xbox_pointer(box->child_widgets.address), box->child_widgets.count * sizeof(*pieces));
+	for (piece = 0; piece < box->child_widgets.count; piece++)
+	{
+		struct ui_widget_definition *copy;
+		long piece_tag;
+
+		if (pieces[piece].widget_tag.index == NONE)
+			continue;
+		copy = allocate(sizeof(*copy));
+		if (!copy)
+			return FALSE;
+		memcpy(copy, tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index), sizeof(*copy));
+		piece_tag = next_tag();
+		/* (by the piece's own name, which pause_box_stock knows it by) */
+		instance_set(instances, UI_WIDGET_DEFINITION_TAG, piece_tag, tag_get_name(pieces[piece].widget_tag.index), "",
+			copy);
+		reference_set(&pieces[piece].widget_tag, UI_WIDGET_DEFINITION_TAG, piece_tag);
+	}
+	box->child_widgets.address = XBOX_ADDRESS(pieces);
+	box_tag = next_tag();
+	instance_set(instances, UI_WIDGET_DEFINITION_TAG, box_tag, "pause/box", "", box);
+	reference_set(&children[box_child].widget_tag, UI_WIDGET_DEFINITION_TAG, box_tag);
+	return TRUE;
 }
 
 /* a screen's pause list, found by its RESUME GAME, else the button before
@@ -2242,7 +2310,9 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 		else
 			children[child].vertical_offset -= *grow / 2;
 	}
-	if (box_child != NONE && !*box_grown && *grow > 0)
+	/* (or shorter: a joined co-op machine's list loses REVERT and RESTART,
+	and its key would otherwise sit above an empty band of the box) */
+	if (box_child != NONE && !*box_grown && *grow != 0)
 	{
 		/* (trimmed first: the box's taller parts are copies of its pieces) */
 		pause_box_trim(tag_get(UI_WIDGET_DEFINITION_TAG, children[box_child].widget_tag.index));
@@ -2273,6 +2343,15 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 		game_connection() != GAME_CONNECTION_NETWORK_SERVER;
 	if (solo_screen != NONE)
 	{
+		/* (two players' screen on a joined machine loses rows of its own:
+		its own box, before either screen's is made taller or shorter) */
+		if (pause_coop_joined && split_screen != NONE && pause_screen_box_child(solo_screen) != NONE)
+		{
+			struct ui_widget_definition const *solo = tag_get(UI_WIDGET_DEFINITION_TAG, solo_screen);
+
+			pause_box_unshare(instances, split_screen, XBOX_POINTER(struct ui_widget_child_reference const,
+				solo->child_widgets.address)[pause_screen_box_child(solo_screen)].widget_tag.index);
+		}
 		if (settings || pause_controls_offered() || pause_guide_offered() || pause_coop_joined)
 			pause_screen_patch(instances, solo_screen, NONE, FALSE, settings, FALSE, &patched_list, &grow, &box_grown);
 		/* (and two players' on a joined machine: only those rows out) */
