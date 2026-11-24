@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 BirchWoodGod
+# SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Runs the C tests of Forge's layout files (port/linux/game/forge_files.c,
 the format and its validator) and their folder (port/linux/src/
 forge_store.c) with the build machine's C compiler, in a scratch folder:
@@ -71,6 +74,8 @@ def test_forge_files(tmp_path):
     ("!= checksum)", "!= checksum && 0)"),
     # (an object's count let past 1)
     ("(record->kind == _forge_record_object && record->count > 1)", "0"),
+    # (a name Windows keeps for a device let through)
+    ("return !forge_file_name_reserved(file_name);", "return 1;"),
 ])
 def test_forge_files_negative_controls(tmp_path, original, mutated):
     """The validator with a check taken out must fail the tests: they check
@@ -89,3 +94,18 @@ def test_forge_files_negative_controls(tmp_path, original, mutated):
     assert result.returncode == 0, result.stdout + result.stderr
     run = subprocess.run([str(binary), str(scratch), "200"], capture_output=True, text=True, timeout=600)
     assert run.returncode != 0, "the changed validator passed every test"
+
+
+def test_forge_keys_polled_only_when_forge_is_on():
+    """The monitor's keys (controls.forge_*) are read from the keyboard only
+    while game.forge is on: off, nothing of Forge runs, its keys too."""
+    source = (ROOT / "port" / "linux" / "src" / "xinput_sdl.c").read_text()
+    wanted = source[source.index("static BOOL forge_keys_wanted(void)"):]
+    wanted = wanted[:wanted.index("\n}\n")]
+    assert 'config_boolean("game.forge")' in wanted
+    assert "#ifdef HALO_CONSOLE_NO_FORGE" in wanted
+    controls = source[source.index("static void keyboard_controls("):]
+    controls = controls[:controls.index("\n}\n")]
+    poll = controls[controls.index("forge_bindings[action][slot]") - 400:controls.index("forge_bindings[action][slot]")]
+    assert "if (forge_keys_wanted())" in poll
+    assert controls.count("forge_bindings[") == 1
