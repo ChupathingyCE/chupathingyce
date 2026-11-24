@@ -33,6 +33,9 @@ static boolean network_connection_active(struct network_connection *connection) 
 static boolean network_connection_connected(struct network_connection *connection) { return connection->connected; }
 static boolean network_connection_going_stale(struct network_connection *connection) { return FALSE; }
 static boolean network_game_is_splitscreen_local(void) { return FALSE; }
+/* (listening for a minute: the network trouble box is client_trouble_box's) */
+#define MILLISECONDS_PER_SECOND 1000
+static unsigned long network_game_client_listened_milliseconds(void) { return 60000; }
 static boolean network_game_client_network_lost(void) { return FALSE; }
 static short local_player_get_next(short index) { return NONE; }
 static void display_error(short error, short local_player_index, boolean a, boolean b) { errors_shown++; }

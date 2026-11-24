@@ -17,6 +17,10 @@ drawn and driven by code over the menus or the game, as the Guide is.
 
 Off with game.forge off; none of it on the consoles (HALO_CONSOLE_NO_FORGE)
 or without the Guide (HALO_GUIDE), where the calls below do nothing.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef __FORGE_MENU_H
@@ -73,5 +77,10 @@ the keyboard's keys */
 void forge_menu_draw_prompts(
 	struct forge_hud_prompt const *prompts,
 	short count);
+
+/* (forge.c's forge_draw) the delete held (game.forge_hold_to_delete): how far
+along, 0 to 1, as a fill over the crosshair */
+void forge_menu_draw_hold(
+	float fraction);
 
 #endif

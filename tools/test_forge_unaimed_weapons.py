@@ -16,6 +16,8 @@ the sources with a small set of tags standing in for a map's, and checks:
     - a weapon whose every trigger can't be aimed (the Xbox flamethrower) is not;
     - its ammunition is not, while ammunition another, aimed, weapon also uses is;
     - the rest of the palette (vehicles, the gravity rifle, grenades) as before;
+    - an AI character (an actor variant that names its unit) is offered as AI,
+      a vehicle's crew and a variant with no unit are not;
 and that the checks fail when the flag is ignored (a negative control).
 Needs clang (or cc) and Python 3 alone.
 
@@ -71,8 +73,14 @@ typedef unsigned short word;
 #define FORGE_SCENERY_DEFINITION_TAG 'scen'
 #define MACHINE_DEFINITION_TAG 'mach'
 #define CONTROL_DEFINITION_TAG 'ctrl'
+#define ACTOR_VARIANT_DEFINITION_TAG 'actv'
+#define LIGHT_FIXTURE_DEFINITION_TAG 'lifi'
 enum { _weapon_trigger_projectiles_cannot_be_aimed_bit = CANNOT_BE_AIMED_BIT };
-enum { _forge_category_vehicles = 0, _forge_category_weapons, _forge_category_equipment, _forge_category_scenery };
+enum { _forge_category_vehicles = 0, _forge_category_weapons, _forge_category_equipment, _forge_category_scenery,
+    _forge_category_ai, _forge_category_campaign_vehicles, _forge_category_campaign_objects };
+/* (no tag here was brought in from a campaign map: forge_ai_tags.c) */
+static char const *forge_ai_tags_source_map(long tag_index) { (void)tag_index; return 0; }
+static int forge_ai_tags_offered(long tag_index) { (void)tag_index; return 1; }
 struct tag_block { long count; void *address; };
 struct tag_reference { unsigned long group_tag; long index; };
 #define TAG_BLOCK_GET_ELEMENT(block, index, type) (&((type *)(block)->address)[index])
@@ -80,16 +88,22 @@ struct weapon_trigger_definition { unsigned long flags; };
 struct weapon_ammunition_object { short rounds; struct tag_reference object; };
 struct weapon_magazine_definition { struct tag_block ammunition_objects; };
 struct weapon_definition { struct { struct tag_block magazines; struct tag_block triggers; } weapon; };
+struct actor_variant_definition { struct tag_reference unit_reference; };
 
 /* the map's tags */
-struct tag { unsigned long group; char const *name; struct weapon_definition weapon; };
-enum { TAG_COUNT = 12 };
+struct tag { unsigned long group; char const *name; struct weapon_definition weapon;
+    struct actor_variant_definition variant; };
+enum { TAG_COUNT = 15 };
 static struct tag tags[TAG_COUNT];
 static unsigned long tag_get_group_tag(long index) { return tags[index].group; }
 static char const *tag_get_name(long index) { return tags[index].name; }
 static struct weapon_definition *weapon_definition_get(long index) {
     if (tags[index].group != WEAPON_DEFINITION_TAG) abort();
     return &tags[index].weapon;
+}
+static struct actor_variant_definition *actor_variant_definition_get(long index) {
+    if (tags[index].group != ACTOR_VARIANT_DEFINITION_TAG) abort();
+    return &tags[index].variant;
 }
 struct tag_iterator { unsigned long group; long next; };
 static void tag_iterator_new(struct tag_iterator *iterator, unsigned long group) { iterator->group = group; iterator->next = 0; }
@@ -151,6 +165,14 @@ int main(void) {
     other(11, WEAPON_DEFINITION_TAG, "vehicles\\warthog\\warthog gun");
     tags[11].weapon.weapon.triggers.count = 1;
     tags[11].weapon.weapon.triggers.address = &triggers[0];
+    /* (AI characters: an actor variant with its unit; a vehicle's crew; one
+    that names no unit) */
+    other(12, ACTOR_VARIANT_DEFINITION_TAG, "characters\\elite\\elite major\\elite major plasma rifle");
+    tags[12].variant.unit_reference.index = 4;
+    other(13, ACTOR_VARIANT_DEFINITION_TAG, "vehicles\\banshee\\banshee pilot");
+    tags[13].variant.unit_reference.index = 4;
+    other(14, ACTOR_VARIANT_DEFINITION_TAG, "characters\\elite\\elite unitless");
+    tags[14].variant.unit_reference.index = NONE;
 
     CHECK(forge_tag_category(0) == _forge_category_weapons, "the assault rifle is left out");
     CHECK(forge_tag_category(1) == NONE, "the flamethrower nobody can aim is offered");
@@ -164,6 +186,9 @@ int main(void) {
     CHECK(forge_tag_category(9) == _forge_category_equipment, "the health pack is left out");
     CHECK(forge_tag_category(10) == _forge_category_scenery, "the boulder is left out");
     CHECK(forge_tag_category(11) == NONE, "a vehicle's gun is offered");
+    CHECK(forge_tag_category(12) == _forge_category_ai, "an AI character is left out");
+    CHECK(forge_tag_category(13) == NONE, "a vehicle's crew is offered");
+    CHECK(forge_tag_category(14) == NONE, "an actor variant with no unit is offered");
     printf("%d failure(s)\n", failures);
     return failures != 0;
 }

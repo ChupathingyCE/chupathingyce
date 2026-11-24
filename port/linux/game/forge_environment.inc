@@ -5,8 +5,9 @@ Forge's sky and fog (included by forge.c, for its statics): a layout may
 show another sky of the map's in place of its own - any sky tag the loaded
 map has, the scenario's first - and a fog of its own outdoors: its colour,
 its density, where it starts and where it is whole. The Forge menu's
-OPTIONS sets them (SKY, FOG, FOG COLOR, FOG DENSITY, FOG START, FOG END);
-they are saved with the layout as its version 14 record (forge_files.h) and
+SKY AND FOG tab sets them (SKY, FOG, FOG COLOR, FOG DENSITY, FOG START,
+FOG END);
+they are saved with the layout as its version 15 record (forge_files.h) and
 drawn the same for every player of a Forge game or of the layout played.
 
 Nothing of the map is changed: the scenario keeps its skies; where the
@@ -150,14 +151,14 @@ static void forge_environment_log(
 }
 
 /* (the map loaded for a Forge game or a layout played) the layout's sky
-and fog: a version 14 file's (checked by the validator); a sky the map
+and fog: a version 15 file's (checked by the validator); a sky the map
 does not have is the map's own */
 static void forge_environment_from_layout(
 	struct forge_file_layout const *layout)
 {
 	short index;
 
-	if (forge_file_layout_version(layout) < 14)
+	if (forge_file_layout_version(layout) < FORGE_FILE_ENVIRONMENT_VERSION)
 		return;
 	for (index = 0; index < layout->record_count && index < FORGE_FILE_MAXIMUM_RECORDS; index++)
 	{
@@ -191,7 +192,7 @@ static void forge_environment_from_layout(
 	}
 }
 
-/* (forge_variant_capture, a save) the sky and fog as the layout's version 14
+/* (forge_variant_capture, a save) the sky and fog as the layout's version 15
 record, when it has either; how many could not be (the file full) */
 static short forge_environment_capture(
 	struct forge_file_layout *layout)
@@ -274,7 +275,7 @@ static short forge_environment_choice(
 	return index;
 }
 
-/* an option of the sky and fog stepped (OPTIONS' rows; the console's forge
+/* an option of the sky and fog stepped (SKY AND FOG's rows; the console's forge
 environment) */
 static void forge_environment_step(
 	short row,

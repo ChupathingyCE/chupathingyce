@@ -260,6 +260,7 @@ settings is left as it is and still works.
 | `HALO_NET_LIST_GAMES` | `true` | `false`: not listed on the game list (invites and the Server Browser still work). |
 | `HALO_NET_REPORT_HOSTED` | `true` | `false`: the server stays listed, but sends no carnage reports or Delta Stats of its games. |
 | `HALO_NET_ONLINE` | `true` | Internet play: how players outside your network reach the server. `false` keeps it to the local network. |
+| `HALO_NET_DIRECT_IP_HOST` | `false` | `true`: the server also answers game searches from internet addresses, no more than four answers a second (`network.direct_ip_host`). Off, it answers its local network's and internet play's searches only; the game list and Online Games pings don't need it. |
 | `HALO_NET_TUNNEL_PORT` | `0` (any) | The UDP port internet play uses. A fixed one can be forwarded, for networks whose NAT stops connections. |
 | `HALO_NET_PUBLIC_ADDRESS` | (none) | The address players reach the server at, as `host` or `host:port`, when they come in through a relay or tunnel with its own address (a VPS forwarding UDP to a Docker bridge, frp). The server advertises it to the game list, invites and Online Games pings in place of the address STUN finds, and UPnP isn't asked. The port defaults to `HALO_NET_TUNNEL_PORT`, so set that too. The server then only answers players who reach it there and sends nothing to their addresses first, which a relay couldn't pass on. |
 | `HALO_NET_ALLOW_UPNP` | `true` | Let internet play ask the router to forward its port (UPnP). |
@@ -285,6 +286,15 @@ problem (the log then says so at the first one). `0`, `false`, `no` and
 `off` leave it off, as for every switch here that only has to be set. Logs
 written with it on hold everyone's address: delete them once the problem is
 found.
+
+Joins and passwords: a game with a password takes a machine from the local
+network (the private ranges, link-local, loopback, and 100.64.0.0/10, which
+internet play's players and networks such as Tailscale's use) as before. A
+machine that reaches the game's port from any other address is refused with
+the password message, whichever kind of join it sent, since only internet
+play's invite asks for the password. A game without a password, which is
+every dedicated server's (there is no `sv_password`, [admin.md](admin.md#why-there-is-no-sv_password)),
+takes every join as before.
 
 The settings for hosts in `config.toml`, `network.host_cheats`
 (`HALO_NET_HOST_CHEATS`, `false`) and `network.host_console_objects`

@@ -402,7 +402,8 @@ static int bridge_backend(void)
 	/* (MCC from the Steam client: the client subscribes, unless the game's
 	own Steam download is here, which installs on every platform) */
 	if (backend == STEAM_BRIDGE_BACKEND_STEAMCMD && workshop.client_mcc_count > 0 &&
-		(!steam_link_available() || config_boolean("debug.workshop_steamcmd")))
+		(!steam_link_available() || config_boolean("debug.workshop_steamcmd")) &&
+		!steam_bridge_platform_client_blocked())
 		return STEAM_BRIDGE_BACKEND_CLIENT;
 	return backend;
 #endif
@@ -2678,6 +2679,13 @@ void workshop_browser_link_follow(void)
 		steam_bridge_status() != STEAM_BRIDGE_CONNECTING)
 	{
 		steam_bridge_open(bridge_uses_steamcmd());
+	}
+	/* (open since before the link, waiting on that sign-in: begun again, so
+	that the GET asked for once linked goes, not "Failed") */
+	else if (steam_bridge_sign_in_needed())
+	{
+		platform_log("Workshop: Steam linked; the bridge connects again");
+		steam_bridge_restart(bridge_uses_steamcmd());
 	}
 }
 
