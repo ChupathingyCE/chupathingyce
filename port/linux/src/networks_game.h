@@ -9,7 +9,7 @@ server (networks_game.c; the rules are networks.c's): the home network
 (identity_key.h's domain and root keys), the signed list of networks
 (fetched from network.browser_url's /v1/delta/networks and .sig, cached as
 delta_networks.signed in the save root), and the local settings
-network.networks_add and network.networks_remove.
+network.networks_trust and network.networks_block.
 */
 
 #ifndef NETWORKS_GAME_H

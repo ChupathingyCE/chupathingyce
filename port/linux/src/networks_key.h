@@ -18,7 +18,7 @@ recovery's 255.
 
 While every key is all zero (before the keys are made), a build takes no
 signed list and fetches none: it trusts its home network and the local
-additions (network.networks_add) alone.
+additions (network.networks_trust) alone.
 */
 
 #ifndef NETWORKS_KEY_H

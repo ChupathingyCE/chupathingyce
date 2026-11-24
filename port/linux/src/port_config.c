@@ -1691,13 +1691,13 @@ static const struct config_setting config_settings[] =
 		"for console players on older builds. A number the table does not allow\n"
 		"for hosting is ignored, and \"latest\" is used." },
 #ifdef HALO_DELTA_PEER_IDENTITY
-	{ "network.networks_add", _config_string, "\"\"", "HALO_NET_NETWORKS_ADD", _environment_value,
+	{ "network.networks_trust", _config_string, "\"\"", "HALO_NET_NETWORKS_TRUST", _environment_value,
 		_platform_all | _platform_server,
 		"Other networks whose players' names are checked, beside the signed\n"
 		"list of networks: each a domain and 1 to 4 root keys (64 hex digits),\n"
 		"separated by spaces, and the networks separated by commas, like\n"
 		"\"example.org <key> <key>\". At most 16. Empty for none." },
-	{ "network.networks_remove", _config_string, "\"\"", "HALO_NET_NETWORKS_REMOVE", _environment_value,
+	{ "network.networks_block", _config_string, "\"\"", "HALO_NET_NETWORKS_BLOCK", _environment_value,
 		_platform_all | _platform_server,
 		"Networks whose players' names are not checked even when the signed\n"
 		"list has them: domains separated by commas. Your own network can't be\n"

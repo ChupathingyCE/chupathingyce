@@ -148,7 +148,7 @@ signed its issuer certificate, so today's read as `chupathingy.org`.
   domain and root keys, which nothing changes), the newest signed list
   (cached as `delta_networks.signed` in the save root, fetched from
   `network.browser_url`'s `/v1/delta/networks` and `.sig` every few hours),
-  and `network.networks_add` and `network.networks_remove`. The list has
+  and `network.networks_trust` and `network.networks_block`. The list has
   its own keys (`networks_key.h`), never the legacy table's. While they are
   all zero no list is taken or fetched, and a game trusts its home network
   and its local additions alone.
@@ -159,7 +159,7 @@ signed its issuer certificate, so today's read as `chupathingy.org`.
   limit).
 - A player of another network shows as `Name:domain` wherever verified
   names show (`profile_names.c`: scoreboard, lobby, chat, postgame, the
-  Guide). They get no site card, clan tag, role or ban (moderation hears
+  Guide); where a column is too narrow, as the name alone and a `:`. They get no site card, clan tag, role or ban (moderation hears
   only of the home network's bound proofs), and no ADD FRIEND in the
   Guide. One identity is one player by device, or by network and account
   together.

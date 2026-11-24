@@ -52,6 +52,10 @@ short network_game_client_get_local_machine_index(void);
 /* (cseries_windows.h's) */
 unsigned long system_milliseconds(void);
 
+/* the mark after another network's player's name where their domain has no
+room ("Milenko:" for Milenko:example.org) */
+#define OTHER_NETWORK_MARK ((wchar_t)':')
+
 enum
 {
 	PLAYER_ID_SIZE = 16,
@@ -447,57 +451,32 @@ static boolean profile_names_player_unmarked(
 {
 	wchar_t whole[NETWORKS_NAME_MOST + 8];
 
-	/* (another network's player: Name:domain, the domain always whole when
-	the column has room for it and three of the name's letters, the name
-	cut first) */
+	/* (another network's player: Name:domain where the column has room for
+	it all; else the name alone, cut if it must be, and the mark that says
+	another network's, OTHER_NETWORK_MARK, so it never reads as one of this
+	network's players) */
 	if (identity->other_network && identity->network[0])
 	{
-		wchar_t own[24], domain[NETWORKS_DOMAIN_SIZE + 1];
+		wchar_t own[24], cut[24];
 		long room = (size - 1) * 10, used, index;
 
 		wide_from_utf8(text, own, NUMBEROF(own));
-		domain[0] = ':';
-		wide_from_utf8(identity->network, domain + 1, NUMBEROF(domain) - 1);
 		used = wide_length(own);
 		for (index = 0; own[index]; index++)
 			whole[index] = own[index];
-		for (index = 0; domain[index]; index++)
-			whole[used + index] = domain[index];
-		whole[used + index] = 0;
+		whole[used] = ':';
+		wide_from_utf8(identity->network, whole + used + 1, NUMBEROF(whole) - used - 1);
 		if (wide_length(whole) <= size - 1 && text_width(whole) <= room)
 		{
 			fit(whole, name, size);
 			return name[0] != 0;
 		}
-		if (wide_length(domain) + 6 <= size - 1 && text_width(domain) + 3 * 13 + 3 * character_width('.') <= room)
-		{
-			wchar_t cut[24];
-
-			fit_room(own, cut, size - wide_length(domain), room - text_width(domain));
-			used = wide_length(cut);
-			for (index = 0; index < used; index++)
-				name[index] = cut[index];
-			for (index = 0; domain[index]; index++)
-				name[used + index] = domain[index];
-			name[used + index] = 0;
-			return name[0] != 0;
-		}
-		/* (a column too narrow for both: each cut, the name first to half the
-		room, so the colon and the domain's start always show: "ave...:exa...") */
-		{
-			wchar_t cut_name[24], cut_domain[NETWORKS_DOMAIN_SIZE + 1];
-			long name_room = (room - character_width(':')) / 2, letters = (size - 2) / 2;
-
-			fit_room(own, cut_name, letters + 1, name_room);
-			used = wide_length(cut_name);
-			fit_room(domain + 1, cut_domain, size - 1 - used, room - text_width(cut_name) - character_width(':'));
-			for (index = 0; index < used; index++)
-				name[index] = cut_name[index];
-			name[used++] = ':';
-			for (index = 0; cut_domain[index] && used < size - 1; index++)
-				name[used++] = cut_domain[index];
-			name[used] = 0;
-		}
+		fit_room(own, cut, size - 1, room - character_width(OTHER_NETWORK_MARK));
+		used = wide_length(cut);
+		for (index = 0; index < used && index < size - 2; index++)
+			name[index] = cut[index];
+		name[index++] = OTHER_NETWORK_MARK;
+		name[index] = 0;
 		return name[0] != 0;
 	}
 	if (clan[0])

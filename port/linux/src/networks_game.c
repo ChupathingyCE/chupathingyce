@@ -15,9 +15,9 @@ The networks this machine trusts (networks_game.h; delta-spec's link.md,
    background at start and every few hours. A list of an older or equal
    serial is never taken. While the list keys are all zero, no list is
    taken or fetched;
-3. network.networks_add: networks of the player's own, each a domain and
+3. network.networks_trust: networks of the player's own, each a domain and
    its root keys;
-4. network.networks_remove: domains not trusted even when the list has
+4. network.networks_block: domains not trusted even when the list has
    them (never home).
 
 Nothing here asks another network anything: a name is checked offline
@@ -100,7 +100,7 @@ static void networks_remake(void)
 
 	networks_trust_make(&networks.trust, networks.home, (const unsigned char (*)[NETWORKS_KEY_SIZE])networks.home_roots,
 		networks.home_root_count, networks.list.serial ? &networks.list : NULL,
-		config_string("network.networks_add"), config_string("network.networks_remove"), say, NULL);
+		config_string("network.networks_trust"), config_string("network.networks_block"), say, NULL);
 	networks_memory_forget(&networks.memory);
 	networks.generation++;
 	names[0] = 0;
