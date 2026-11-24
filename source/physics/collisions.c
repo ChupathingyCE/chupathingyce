@@ -494,10 +494,14 @@ the point and the vector alone. So a ray asked again (the same values) is
 answered as it was (a surface met, or none and the leaves it passed through,
 32 at most kept) while the bsp (scenario_structure_bsp_generation) and the
 breakable surfaces' flags (compared each time) are as they were. Its objects
-are tested again as before: they move. The sound manager's thread only */
+are tested again as before: they move. The sound manager's thread only.
+Its cost: 164 bytes an entry, 21 KB of statics with 128 entries (counted
+in the Xbox's 64 MB). The rays asked again are the ones of the sounds
+playing near the player; the table is direct-mapped, so 256 entries (43 KB)
+would mostly make two of them sharing an entry rarer */
 enum
 {
-	OBSTRUCTION_MEMO_ENTRIES = 256,
+	OBSTRUCTION_MEMO_ENTRIES = 128,
 	OBSTRUCTION_MEMO_LEAVES = 32
 };
 
