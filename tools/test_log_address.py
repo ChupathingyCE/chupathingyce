@@ -73,6 +73,13 @@ int main(int count, char **arguments)
 			printf("%d\n", config_environment_set(arguments[index]));
 		return 0;
 	}
+	if (count > 1 && !strcmp(arguments[1], "names"))
+	{
+		int index;
+		for (index = 2; index < count; index++)
+			printf("%s\n", log_address_name(arguments[index], text, sizeof(text)));
+		return 0;
+	}
 	whole = count > 1 && !strcmp(arguments[1], "whole");
 	{
 		int index;
@@ -186,6 +193,21 @@ def test_host_names_are_tags(program):
     assert lines[8] == lines[5]
     assert lines[7] != lines[5]
     assert not any("example" in line for line in lines)
+
+
+def test_odd_names_are_tags(program):
+    """Text that is not a plain host name (a link, a port too many, IPv6-like
+    text, a link with a port, a long line) is a tag too, never written as
+    typed, though each holds an address."""
+    odd = ["http://203.0.113.45", "1.2.3.4:5:6", "2001:db8::1", "[2001:db8::1]:2302",
+           "http://203.0.113.45:2302", "203.0.113.45:2302:1", "a" * 300 + " 203.0.113.45"]
+    lines = run(program, "names", *odd)
+    assert len(lines) == len(odd)
+    for line in lines:
+        assert re.fullmatch(r"name#[0-9a-f]{6}", line), line
+        assert "203" not in line and "2001" not in line
+    # (different text, different tags)
+    assert len(set(lines)) == len(lines)
 
 
 def test_environment_false_values_do_not_set(program):

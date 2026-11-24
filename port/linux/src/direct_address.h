@@ -7,9 +7,9 @@ address (bare, or in brackets with a port after), or a host name, then an
 optional :port. Parsed here with no sockets or game, so that the unit test
 (port/linux/tests/direct_address_test.c) runs it as the game does.
 
-Also how a typed address is shown once it is entered: an address never
-again (a dot for each of its characters, as a password is), a host name
-as it is, and a saved one by the name its player gave it, else "Saved
+Also how a typed address is shown once it is entered: a host name as it
+is, anything else never again (a star for each of its characters, as a
+password is), and a saved one by the name its player gave it, else "Saved
 server <n>" (never_show_ips: the menus, the HUD, screenshots).
 
 Plain C99, header only: every build that joins by address includes it.
@@ -342,19 +342,22 @@ static inline enum direct_address_result direct_address_parse(const char *text, 
 	return _direct_address_ok;
 }
 
-/* whether a typed text is an address (IPv4 or IPv6), which is never shown
-again once entered; a host name is. An address with a bad port or a path
-after it is one too */
-static inline int direct_address_is_numeric(const char *text)
+/* whether a typed text may be shown again once entered: only a host name
+(its port may be a bad one). An address is never shown, nor anything that
+is not a host name: a link ("http://203.0.113.45"), an address with a port
+too many ("1.2.3.4:5:6"), text too long to be one; each may hold an
+address */
+static inline int direct_address_shown_as_typed(const char *text)
 {
 	struct direct_address address;
+	enum direct_address_result result = direct_address_parse(text, &address);
 
-	direct_address_parse(text, &address);
-	return address.kind == _direct_address_ipv4 || address.kind == _direct_address_ipv6;
+	return (result == _direct_address_ok || result == _direct_address_bad_port) &&
+		address.kind == _direct_address_name;
 }
 
-/* text as a field shows it once entered: a dot for each character of an
-address (as a password's stars), a host name as it is (its port too).
+/* text as a field shows it once entered: a host name as it is (its port
+too), anything else a star for each character (as a password's).
 Writes shown (size bytes) and returns it */
 static inline const char *direct_address_shown(const char *text, char *shown, size_t size)
 {
@@ -367,7 +370,7 @@ static inline const char *direct_address_shown(const char *text, char *shown, si
 		shown[0] = 0;
 		return shown;
 	}
-	if (!direct_address_is_numeric(text))
+	if (direct_address_shown_as_typed(text))
 	{
 		snprintf(shown, size, "%s", text);
 		return shown;
@@ -386,7 +389,7 @@ static inline const char *direct_address_saved_name(const char *name, const char
 {
 	if (name && *name)
 		snprintf(shown, size, "%s", name);
-	else if (text && *text && !direct_address_is_numeric(text))
+	else if (text && *text && direct_address_shown_as_typed(text))
 		snprintf(shown, size, "%s", text);
 	else
 		snprintf(shown, size, "Saved server %d", number);

@@ -163,17 +163,59 @@ int main(void)
 	CHECK(!strcmp(shown, ""));
 	direct_address_shown("203.0.113.45", shown, 4);
 	CHECK(!strcmp(shown, "***"));
-	CHECK(direct_address_is_numeric("10.0.0.1"));
-	CHECK(direct_address_is_numeric("::1"));
-	CHECK(!direct_address_is_numeric("halo.example.com"));
-	CHECK(!direct_address_is_numeric("not an address"));
-	/* (an address with a bad port, or a path, still never shown) */
-	CHECK(direct_address_is_numeric("203.0.113.45:99999"));
-	CHECK(direct_address_is_numeric("[2001:db8::1]:0"));
-	CHECK(direct_address_is_numeric("203.0.113.45:5150/x"));
+	/* (only a host name shown as typed: an address, with a bad port or a
+	path too, and anything that is not a host name never) */
+	CHECK(!direct_address_shown_as_typed("10.0.0.1"));
+	CHECK(!direct_address_shown_as_typed("::1"));
+	CHECK(direct_address_shown_as_typed("halo.example.com"));
+	CHECK(!direct_address_shown_as_typed("not an address"));
+	CHECK(!direct_address_shown_as_typed("203.0.113.45:99999"));
+	CHECK(!direct_address_shown_as_typed("[2001:db8::1]:0"));
+	CHECK(!direct_address_shown_as_typed("203.0.113.45:5150/x"));
 	direct_address_shown("203.0.113.45:0", shown, sizeof(shown));
 	CHECK(!strstr(shown, "203"));
-	CHECK(!direct_address_is_numeric("halo.example.com:99999"));
+	CHECK(direct_address_shown_as_typed("halo.example.com:99999"));
+	/* (links, ports too many, IPv6-like text, too long: each may hold an
+	address, so masked) */
+	{
+		static const char *const masked[] = {
+			"http://203.0.113.45",
+			"http://203.0.113.45:2302",
+			"https://halo.example.com:2302/join",
+			"halo://203.0.113.45",
+			"1.2.3.4:5:6",
+			"203.0.113.45:2302:1",
+			"2001:db8::1::2",
+			"2001:db8:zz::1",
+			"[2001:db8::1]x",
+			"[2001:db8::1",
+			"fe80::1%en0",
+			"203.0.113.45 2302",
+		};
+		size_t index;
+
+		for (index = 0; index < sizeof(masked) / sizeof(masked[0]); index++)
+		{
+			if (direct_address_shown_as_typed(masked[index]))
+			{
+				printf("shown as typed: \"%s\"\n", masked[index]);
+				failures++;
+			}
+			direct_address_shown(masked[index], shown, sizeof(shown));
+			CHECK(!strstr(shown, "203") && !strstr(shown, "2001") && !strstr(shown, "fe80"));
+		}
+	}
+	{
+		char long_text[400];
+		char long_shown[400];
+
+		/* (an address after text too long to parse) */
+		memset(long_text, 'a', sizeof(long_text));
+		strcpy(long_text + sizeof(long_text) - 20, " 203.0.113.45");
+		CHECK(!direct_address_shown_as_typed(long_text));
+		direct_address_shown(long_text, long_shown, sizeof(long_shown));
+		CHECK(!strstr(long_shown, "203"));
+	}
 
 	/* a saved one's name */
 	direct_address_saved_name("", "203.0.113.45", 2, shown, sizeof(shown));
@@ -182,6 +224,10 @@ int main(void)
 	CHECK(!strcmp(shown, "Friday LAN"));
 	direct_address_saved_name(NULL, "halo.example.com", 1, shown, sizeof(shown));
 	CHECK(!strcmp(shown, "halo.example.com"));
+	direct_address_saved_name(NULL, "http://203.0.113.45", 3, shown, sizeof(shown));
+	CHECK(!strcmp(shown, "Saved server 3"));
+	direct_address_saved_name(NULL, "1.2.3.4:5:6", 4, shown, sizeof(shown));
+	CHECK(!strcmp(shown, "Saved server 4"));
 
 	if (failures)
 	{
