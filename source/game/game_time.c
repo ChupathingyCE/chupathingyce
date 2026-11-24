@@ -160,6 +160,21 @@ static long game_time_freeze_tick(
 	return freeze_tick;
 }
 
+/* port: TRUE once a game reaches debug.freeze_at_tick; never in a network
+game (a client or host that stops ticking falls out of the game), nor the
+main menu's scene, whose lobby has to count down */
+static boolean game_time_frozen_at_tick(
+	void)
+{
+	short connection = game_connection();
+
+	return game_time_freeze_tick() > 0 &&
+		game_time_globals->server_time >= game_time_freeze_tick() &&
+		connection != _game_connection_network_client &&
+		connection != _game_connection_network_server &&
+		!main_menu_is_active();
+}
+
 /* ---------- public code */
 
 boolean game_time_initialized(
@@ -637,10 +652,8 @@ void game_time_update(
 					{
 						/* port: debug.freeze_at_tick stops the game at that tick,
 						as game_speed 0 would, so that every run draws the same
-						moment (tools/renderer_gate.py's pictures); never the main
-						menu's scene, whose lobby has to count down */
-						if (game_time_freeze_tick() > 0 &&
-							game_time_globals->server_time >= game_time_freeze_tick() && !main_menu_is_active())
+						moment (tools/renderer_gate.py's pictures) */
+						if (game_time_frozen_at_tick())
 						{
 							game_time_globals->speed = 0.f;
 							game_time_globals->leftover_dt = 0.f;
