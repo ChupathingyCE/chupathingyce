@@ -171,6 +171,11 @@ Only installing differs:
   the item's page so Steam.app records the subscription, unless a
   `steam_api` library on the Mac reached the signed-in client. PLAY, UPDATE
   and REMOVE work on those downloads.
+- Signed Mac builds (hardened runtime) never load another game's
+  `steam_api` library, since macOS refuses a library signed by another
+  team: the Steam app link is off, `paths.steam_api` is ignored, and GET
+  subscribes through the item's page while the game's own download fetches
+  it. Unsigned builds work as above.
 
 Any failure (no Steam, Steam offline, MCC not owned, a missing function, a
 ten-second connect timeout) leaves the page and the folder watch as they

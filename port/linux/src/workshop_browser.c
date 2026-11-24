@@ -402,7 +402,8 @@ static int bridge_backend(void)
 	/* (MCC from the Steam client: the client subscribes, unless the game's
 	own Steam download is here, which installs on every platform) */
 	if (backend == STEAM_BRIDGE_BACKEND_STEAMCMD && workshop.client_mcc_count > 0 &&
-		(!steam_link_available() || config_boolean("debug.workshop_steamcmd")))
+		(!steam_link_available() || config_boolean("debug.workshop_steamcmd")) &&
+		!steam_bridge_platform_client_blocked())
 		return STEAM_BRIDGE_BACKEND_CLIENT;
 	return backend;
 #endif
