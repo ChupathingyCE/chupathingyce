@@ -2869,6 +2869,10 @@ int workshop_browser_cancel(int index)
 		if (!strcmp(pending_gets[slot], item->id))
 			pending_gets[slot][0] = 0;
 	}
+	/* (the Steam client's subscription undone if the GET made it: the
+	client stops downloading as the game's own download does) */
+	if (bridge_ready())
+		steam_bridge_cancel(item->id);
 	steam_link_cancel_get(item->id);
 	failed_clear(item->id);
 	platform_log("Workshop: item %s's GET cancelled", item->id);
@@ -3255,7 +3259,23 @@ void workshop_join_cancel(void)
 	if (joining.state == WORKSHOP_JOIN_LINKING)
 		steam_link_cancel();
 	if (joining.state == WORKSHOP_JOIN_CONNECTING || joining.state == WORKSHOP_JOIN_DOWNLOADING)
-		steam_bridge_close();
+	{
+		/* (asked of Steam: the Steam client's subscription undone if this
+		join made it, so the client stops downloading too, and the game's
+		own download stopped and its part deleted, as the tab's CANCEL;
+		the item was missing when the join asked, so this is never an
+		update's copy) */
+		if (joining.asked)
+		{
+			if (bridge_ready())
+				steam_bridge_cancel(joining.id);
+			if (link_offered())
+				steam_link_cancel_get(joining.id);
+			platform_log("Workshop: the join's item %s cancelled", joining.id);
+		}
+		if (!workshop.tab_open)
+			steam_bridge_close();
+	}
 	joining.state = WORKSHOP_JOIN_IDLE;
 }
 
