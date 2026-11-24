@@ -112,13 +112,14 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
   forge spawn <name>       the first palette tag with name in its readable
                            name or its tag's, spawned in front of the
                            camera and held
-  forge marker respawn|initial|sender|receiver|flag|hill|oddball|race
-                           a marker placed and held
+  forge marker respawn|initial|sender|receiver|flag|hill|oddball|race|
+                           route|area  a marker placed and held
   forge grab [#id] | drop  the object or marker under the crosshair (or
                            the layout's of that id) grabbed, the held one
                            let go
   forge turn <degrees>     the held (or aimed at) object turned about up
-  forge property team|respawn|start|yaw|pitch|roll|resetrot|physics [-]
+  forge property team|respawn|start|yaw|pitch|roll|resetrot|physics|
+                           aiteam|ai|behavior|route|vehicles [-]
                            the held object's property stepped (back with -)
   forge distance <wu>      the held object that far from the camera
   forge snap [on|off]      snapping (the grid), flipped or set
@@ -136,7 +137,8 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
   forge kill #<id>         (tests) a layout's AI character killed
   forge board #<id>        (tests) the Spartan into a layout's vehicle;
                            "#<id> walk <seat>" at a seat's way in
-  forge where | budget | objects | spawns | netflags | ai  the state in the log
+  forge where | budget | objects | spawns | netflags | ai [move]  the state
+                           in the log
   forge map [category]     the map's own objects the editor can take, and
                            the ones the layout takes away, in the log
   forge shot               (tests) a screenshot, as the screenshot key
@@ -201,6 +203,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/ui_overlay.h"
 #include "forge_menu.h"
 #include "forge_ai_tags.h"
+#include "halo_port_features.h"
+#include "ai_nav.h" /* port: port/linux/game/ai_nav.c */
 #include "halo_keyboard.h"
 
 #include <math.h>
@@ -351,38 +355,46 @@ enum
 static char const *const forge_category_names[NUMBER_OF_FORGE_CATEGORIES] =
 {
 	"VEHICLES", "WEAPONS", "EQUIPMENT", "SCENERY", "AI", "CAMPAIGN VEHICLES", "CAMPAIGN OBJECTS", "TELEPORTERS",
-	"OBJECTIVES", "SPAWNING",
+	"OBJECTIVES", "SPAWNING", "AI ROUTES",
 };
 /* (the log's and the console's) */
 static char const *const forge_category_log_names[NUMBER_OF_FORGE_CATEGORIES] =
 {
 	"vehicles", "weapons", "equipment", "scenery", "ai", "campaign_vehicles", "campaign_objects", "teleporters",
-	"objectives", "spawning",
+	"objectives", "spawning", "ai_routes",
 };
 /* (forge_spawns.inc) the markers' categories' items (SPAWNING's,
 TELEPORTERS', OBJECTIVES'), its kinds' names */
 static char const *const forge_spawn_kind_names[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
 	"Respawn Point", "Initial Spawn", "Teleporter Sender", "Teleporter Receiver",
-	"CTF Flag", "Hill Point", "Oddball Spawn", "Race Checkpoint",
+	"CTF Flag", "Hill Point", "Oddball Spawn", "Race Checkpoint", "AI Go Here", "Patrol Area",
 };
 static char const *const forge_spawn_kind_log_names[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
 	"respawn point", "initial spawn", "teleporter sender", "teleporter receiver",
-	"ctf flag", "hill point", "oddball spawn", "race checkpoint",
+	"ctf flag", "hill point", "oddball spawn", "race checkpoint", "ai route point", "patrol area",
 };
 /* (the console's "forge marker <word>") */
 static char const *const forge_spawn_kind_words[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
-	"respawn", "initial", "sender", "receiver", "flag", "hill", "oddball", "race",
+	"respawn", "initial", "sender", "receiver", "flag", "hill", "oddball", "race", "route", "area",
 };
+/* (forge_ai_move.inc) a patrol area's radius by its size (world units), a
+route stop's wait (seconds), and their words */
+static real const forge_ai_area_radii[FORGE_FILE_AI_AREA_SIZES] = { 3.f, 5.f, 8.f, 12.f, 20.f };
+static short const forge_ai_stop_seconds[NUMBER_OF_FORGE_FILE_ROUTE_STOPS] = { 0, 5, 15, 5 };
+static char const *const forge_ai_behavior_names[NUMBER_OF_FORGE_FILE_AI_BEHAVIORS] = { "HOLD", "PATROL", "PURSUE" };
+static char const *const forge_ai_behavior_log_names[NUMBER_OF_FORGE_FILE_AI_BEHAVIORS] = { "hold", "patrol", "pursue" };
+static char const *const forge_ai_stop_names[NUMBER_OF_FORGE_FILE_ROUTE_STOPS] = { "NONE", "WAIT 5 S", "WAIT 15 S", "LAND" };
 /* a markers' category's first kind and its kinds (NONE: not one) */
 static short forge_marker_category_first(
 	short category)
 {
 	return category == _forge_category_spawning ? _forge_spawn_respawn :
 		category == _forge_category_teleporters ? _forge_spawn_teleporter_sender :
-		category == _forge_category_objectives ? _forge_spawn_flag : NONE;
+		category == _forge_category_objectives ? _forge_spawn_flag :
+		category == _forge_category_ai_routes ? _forge_spawn_ai_route : NONE;
 }
 
 static short forge_marker_category_count(
@@ -390,7 +402,8 @@ static short forge_marker_category_count(
 {
 	return category == _forge_category_spawning ? NUMBER_OF_FORGE_SPAWN_KINDS :
 		category == _forge_category_teleporters ? FORGE_TELEPORTER_KINDS :
-		category == _forge_category_objectives ? FORGE_OBJECTIVE_KINDS : 0;
+		category == _forge_category_objectives ? FORGE_OBJECTIVE_KINDS :
+		category == _forge_category_ai_routes ? FORGE_AI_ROUTE_KINDS : 0;
 }
 
 /* the maps Forge edits: the Xbox's multiplayer maps, then the campaign
@@ -589,6 +602,16 @@ file saves and what a new round places again). An object gone in play
 it is still the layout's and comes back with the next round, or after its
 respawn time (forge_item_life_update); only the editor's delete (or undo)
 takes an entry out */
+/* (forge_ai_move.inc) a placed character's AI movement settings (a layout
+record's, version 12): its behavior (FORGE_FILE_AI_*), its route (0 none,
+else 1 up) and options (FORGE_FILE_AI_OPTION_*); a vehicle's route alone */
+struct forge_ai_move_settings
+{
+	unsigned char behavior;
+	unsigned char route;
+	unsigned char options;
+};
+
 struct forge_placed
 {
 	long object_index;
@@ -603,6 +626,9 @@ struct forge_placed
 	unsigned char flags;
 	unsigned short respawn_seconds;
 	unsigned char ai_team;
+	/* (forge_ai_move.inc) a character's behavior, route and vehicles, a
+	vehicle's route */
+	struct forge_ai_move_settings move;
 	/* its own number this session (the undo history names it by this) */
 	long id;
 	/* where the editor put it (its placed spot: saved, and where a new
@@ -646,6 +672,7 @@ struct forge_undo
 	unsigned char flags;
 	unsigned short respawn_seconds;
 	unsigned char ai_team;
+	struct forge_ai_move_settings move;
 	/* where it was before the step, and after */
 	struct forge_transform from;
 	struct forge_transform to;
@@ -667,6 +694,10 @@ struct forge_spawn
 	/* (a teleporter's: forge_netgame.inc) its channel, 0 to
 	FORGE_TELEPORTER_CHANNELS - 1; a game type object's index */
 	short channel;
+	/* (an AI route point's: forge_ai_move.inc) its stop
+	(FORGE_FILE_ROUTE_STOP_*); a patrol area's size (0 to
+	FORGE_FILE_AI_AREA_SIZES - 1) */
+	short option;
 	/* where, facing along the ground */
 	struct forge_transform home;
 };
@@ -898,6 +929,13 @@ static short forge_ai_clear(boolean all);
 static void forge_ai_life_update(void);
 static boolean forge_ai_property_apply(struct forge_placed *placed, short property, short step);
 static void forge_ai_log(void);
+struct forge_ai_move_settings;
+static void forge_ai_move_update(void);
+static void forge_ai_move_capture(struct forge_placed const *placed, unsigned long group_tag, struct forge_file_record *record);
+static void forge_ai_move_from_record(struct forge_placed *placed, struct forge_file_record const *record);
+static void forge_ai_move_properties_get(struct forge_placed const *placed, struct forge_properties *properties);
+static boolean forge_ai_move_property_apply(struct forge_placed *placed, short property, short step);
+static void forge_ai_move_log(void);
 static boolean forge_campaign_map_loaded(void);
 static short forge_campaign_spawn_location(long player_index, struct player_starting_location *location);
 static void forge_category_choose(short category, short item_index);
@@ -2556,6 +2594,7 @@ static void forge_duplicate(
 			copy->flags = original.flags;
 			copy->respawn_seconds = original.respawn_seconds;
 			copy->ai_team = original.ai_team;
+			copy->move = original.move;
 			forge_physics_apply(copy);
 			forge_ai_apply(copy);
 		}
@@ -2864,6 +2903,10 @@ static boolean forge_undo_fill(
 	entry->flags = placed ? placed->flags : FORGE_RECORD_PLACE_AT_START;
 	entry->respawn_seconds = placed ? placed->respawn_seconds : FORGE_DEFAULT_RESPAWN_SECONDS;
 	entry->ai_team = placed ? placed->ai_team : FORGE_AI_TEAM_DEFAULT;
+	if (placed)
+		entry->move = placed->move;
+	else
+		csmemset(&entry->move, 0, sizeof(entry->move));
 	forge_transform_get(object_index, &entry->from);
 	entry->to = entry->from;
 	return TRUE;
@@ -2939,6 +2982,7 @@ static boolean forge_undo_bring_back(
 		placed->flags = entry->flags;
 		placed->respawn_seconds = entry->respawn_seconds;
 		placed->ai_team = entry->ai_team;
+		placed->move = entry->move;
 		forge_physics_apply(placed);
 		forge_ai_apply(placed);
 		if (entry->id != NONE)
@@ -3153,7 +3197,10 @@ static void forge_property_apply(
 	}
 	if (!placed)
 		return;
-	/* (an AI character's AI team, AI and respawn: forge_ai.inc) */
+	/* (an AI character's AI team, AI and respawn: forge_ai.inc; its
+	movement, or a vehicle's route: forge_ai_move.inc) */
+	if (forge_ai_move_property_apply(placed, property, step))
+		return;
 	if (placed->ai && forge_ai_property_apply(placed, property, step))
 		return;
 	if (!placed->ai && (property == _forge_property_ai_team || property == _forge_property_ai))
@@ -3408,6 +3455,9 @@ static boolean forge_variant_capture(
 		{
 			record->flags &= (unsigned char)~(FORGE_RECORD_AI_OFF | FORGE_RECORD_AI_RESPAWN);
 		}
+		/* (AI movement: version 12, a character's behavior, route and
+		options, a vehicle's route) */
+		forge_ai_move_capture(placed, (unsigned long)group_tag, record);
 		/* (an object's physics: version 7, never both) */
 		if ((record->flags & FORGE_RECORD_PHYSICS_MASK) == FORGE_RECORD_PHYSICS_MASK)
 			record->flags &= (unsigned char)~FORGE_RECORD_PHYSICS_MASK;
@@ -3617,6 +3667,7 @@ static void forge_variant_apply(
 			entry->flags = record->flags;
 			entry->respawn_seconds = record->respawn_seconds;
 			entry->ai_team = (unsigned char)(record->ai_team % NUMBER_OF_FORGE_AI_TEAMS);
+			forge_ai_move_from_record(entry, record);
 			entry->home.position = position;
 			entry->home.forward = forward;
 			entry->home.up = up;
@@ -3640,6 +3691,7 @@ static void forge_variant_apply(
 			entry->team = record->team;
 			entry->flags = record->flags;
 			entry->respawn_seconds = record->respawn_seconds;
+			forge_ai_move_from_record(entry, record);
 			if (entry->ai)
 			{
 				entry->ai_team = (unsigned char)(record->ai_team % NUMBER_OF_FORGE_AI_TEAMS);
@@ -4121,6 +4173,7 @@ boolean forge_properties_get(
 	properties->character = placed->ai;
 	properties->ai_team = (short)(placed->ai_team % NUMBER_OF_FORGE_AI_TEAMS);
 	properties->ai_on = !(placed->flags & FORGE_RECORD_AI_OFF);
+	forge_ai_move_properties_get(placed, properties);
 	if (placed->ai && !(placed->flags & FORGE_RECORD_AI_RESPAWN))
 		properties->respawn_seconds = 0;
 	return TRUE;
@@ -4199,6 +4252,10 @@ void forge_map_reset(
 void forge_map_loaded(
 	char const *scenario_name)
 {
+#if HALO_AI_NAV
+	/* (the last map's navigation let go: forge_ai_move.inc) */
+	ai_nav_map_reset();
+#endif
 	/* (every object of the last map is gone, its indices with them) */
 	forge_globals.placed_count = 0;
 	forge_globals.ai_count = forge_globals.ai_dead_count = forge_globals.ai_waiting_count = 0;
@@ -4717,6 +4774,7 @@ void forge_update(
 			/* (its AI characters: their lives and AI, forge_ai.inc) */
 			forge_ai_life_update();
 			forge_ai_hold();
+			forge_ai_move_update();
 		}
 		return;
 	}
@@ -4724,6 +4782,8 @@ void forge_update(
 		return;
 	forge_item_life_update();
 	forge_ai_life_update();
+	/* (the characters' movement, the craft's flights: forge_ai_move.inc) */
+	forge_ai_move_update();
 	/* (NEW ROUND: once the Forge menu has closed and the game runs - the engine
 	resets a map only then) */
 	if (forge_globals.round_requested)
@@ -5518,7 +5578,11 @@ boolean forge_command(
 	/* (the layout's AI characters in the log: in a layout played too) */
 	if (!strcmp(word, "ai"))
 	{
-		forge_ai_log();
+		/* ("forge ai move": their movement, forge_ai_move.inc) */
+		if (!strcmp(rest, "move"))
+			forge_ai_move_log();
+		else
+			forge_ai_log();
 		return TRUE;
 	}
 	if (!strcmp(word, "where"))
@@ -5737,7 +5801,8 @@ boolean forge_command(
 	{
 		static char const *const properties[NUMBER_OF_FORGE_PROPERTIES] =
 		{
-			"team", "respawn", "start", "yaw", "pitch", "roll", "resetrot", "physics", "aiteam", "ai",
+			"team", "respawn", "start", "yaw", "pitch", "roll", "resetrot", "physics", "aiteam", "ai", "behavior", "route",
+			"vehicles",
 		};
 		char name[32];
 		char const *cursor = rest;
@@ -5807,5 +5872,6 @@ with this file's) */
 #include "forge_precision.inc"
 #include "forge_ai.inc"
 #include "forge_flyable.inc"
+#include "forge_ai_move.inc"
 #include "forge_menu_link.inc"
 #include "forge_map_objects.inc"

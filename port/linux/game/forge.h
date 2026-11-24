@@ -56,8 +56,9 @@ enum
 	/* a readable name's bytes (UTF-8) */
 	FORGE_NAME_SIZE = 64,
 	/* the markers of a layout (forge_spawns.inc: player spawn points,
-	teleporters, game type objects), within the objects' budget */
-	FORGE_MAXIMUM_SPAWNS = 64,
+	teleporters, game type objects, 64 of them; AI route points and patrol
+	areas, forge_ai_move.inc, 80 more), within the objects' budget */
+	FORGE_MAXIMUM_SPAWNS = 144,
 	FORGE_SPAWN_TABLE = FORGE_MAXIMUM_SPAWNS,
 	/* (forge_ai.inc) the AI characters of a layout alive at once, within
 	the objects' budget, at most: past forge_ai_maximum the rest wait for
@@ -88,6 +89,9 @@ enum
 	/* (the player spawn points: RESPAWN POINT and INITIAL SPAWN, no tag of
 	the map's: forge_spawns.inc) */
 	_forge_category_spawning,
+	/* (AI movement: AI GO HERE, a route's point, and PATROL AREA, no tag of
+	the map's: forge_ai_move.inc) */
+	_forge_category_ai_routes,
 	NUMBER_OF_FORGE_CATEGORIES
 };
 
@@ -119,11 +123,17 @@ enum
 	_forge_spawn_hill,
 	_forge_spawn_oddball,
 	_forge_spawn_race,
-	NUMBER_OF_FORGE_MARKER_KINDS
+	/* (forge_ai_move.inc) an AI route's point, its route in channel; a
+	patrol area, its route in channel */
+	_forge_spawn_ai_route,
+	_forge_spawn_ai_area,
+	NUMBER_OF_FORGE_MARKER_KINDS,
+	FORGE_LAST_OBJECTIVE_KIND = _forge_spawn_race
 };
 /* each category of markers: how many kinds */
 #define FORGE_TELEPORTER_KINDS 2
 #define FORGE_OBJECTIVE_KINDS 4
+#define FORGE_AI_ROUTE_KINDS 2
 /* (forge_netgame.inc) a teleporter's channels (forge_files.h's) */
 #define FORGE_TELEPORTER_CHANNELS 16
 
@@ -146,6 +156,11 @@ enum
 	/* (an AI character's: forge_ai.inc) its AI team and its AI on or off */
 	_forge_property_ai_team,
 	_forge_property_ai,
+	/* (forge_ai_move.inc) a character's behavior (HOLD, PATROL, PURSUE),
+	route and vehicles; a vehicle's route (its AI pilot's or drivers') */
+	_forge_property_ai_move,
+	_forge_property_ai_route,
+	_forge_property_ai_vehicles,
 	NUMBER_OF_FORGE_PROPERTIES
 };
 
@@ -186,6 +201,15 @@ struct forge_properties
 	boolean character;
 	short ai_team;
 	boolean ai_on;
+	/* (forge_ai_move.inc) a character's behavior (FORGE_FILE_AI_*), route
+	(NONE, or 0 up) and whether it takes vehicles; a vehicle's route
+	(vehicle set). A route point's stop and a patrol area's size
+	(FORGE_FILE_ROUTE_STOP_*, a size index): a marker's option */
+	short ai_move;
+	short ai_route;
+	boolean ai_vehicles;
+	boolean vehicle;
+	short marker_option;
 };
 
 /* what the monitor's controls ask of the flying camera this frame */
@@ -374,6 +398,25 @@ short forge_objects_budget(
 	void);
 short forge_ai_maximum(
 	void);
+
+/* ---------- prototypes/FORGE_AI_MOVE.INC */
+
+/* (actors.c actor_update, once its action has given its orders) a Forge
+character's movement on the map's navigation (ai_nav.c): its route, area, pursuit
+or idle spot */
+void forge_ai_move_actor_control(
+	long actor_index);
+/* (actors.c actor_update, before its controls go to its unit) a Forge
+character driving a vehicle the AI has no driving for (a Warthog) steered
+as a player drives */
+void forge_ai_move_actor_output(
+	long actor_index);
+/* (actor_moving.c actor_path_refresh) a Forge character's path search on
+the navigation's copy of the walkable surfaces */
+struct path_state;
+void forge_ai_move_path_structure(
+	long actor_index,
+	struct path_state *state);
 
 /* ---------- prototypes/FORGE_MENU_LINK.INC
 

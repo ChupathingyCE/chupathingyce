@@ -145,7 +145,7 @@ static boolean forge_spawn_is_teleporter(
 static boolean forge_spawn_is_objective(
 	struct forge_spawn const *spawn)
 {
-	return spawn->kind >= _forge_spawn_flag && spawn->kind < NUMBER_OF_FORGE_MARKER_KINDS;
+	return spawn->kind >= _forge_spawn_flag && spawn->kind <= FORGE_LAST_OBJECTIVE_KIND;
 }
 
 /* a game type object kind's indices (forge_files.h's limits: a CTF flag's

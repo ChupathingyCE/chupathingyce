@@ -516,6 +516,12 @@ static int forge_file_kind_teleporter(
 	return kind == _forge_record_teleporter_in || kind == _forge_record_teleporter_out;
 }
 
+static int forge_file_kind_ai_marker(
+	int kind)
+{
+	return kind == _forge_record_ai_route_point || kind == _forge_record_ai_area;
+}
+
 static int forge_file_record_check(
 	struct forge_file_layout const *layout,
 	int version,
@@ -524,7 +530,28 @@ static int forge_file_record_check(
 	int character;
 	int spawn;
 
-	if (record->kind >= NUMBER_OF_FORGE_RECORD_KINDS)
+	if (record->kind >= NUMBER_OF_FORGE_RECORD_KINDS && !forge_file_kind_ai_marker(record->kind))
+		return 0;
+	/* (version 12's route point and patrol area: no path, their route in
+	the team byte, a point's stop or an area's size in the variant, the yaw
+	alone, nothing else; none before version 12) */
+	if (forge_file_kind_ai_marker(record->kind))
+	{
+		if (version < 12 || record->path_index != FORGE_FILE_NO_PATH || record->team < 0 ||
+			record->team >= FORGE_FILE_MAXIMUM_ROUTES || record->respawn_seconds || record->count || record->game_types ||
+			record->flags || record->ai_team || record->ai_behavior || record->ai_route || record->ai_options ||
+			record->variant >= (record->kind == _forge_record_ai_route_point ? NUMBER_OF_FORGE_FILE_ROUTE_STOPS :
+				FORGE_FILE_AI_AREA_SIZES))
+		{
+			return 0;
+		}
+		if (!forge_file_record_floats_check(record) || record->angles[1] != 0.f || record->angles[2] != 0.f)
+			return 0;
+		return 1;
+	}
+	/* (version 12's AI movement fields: an object's only, checked below
+	once its group is known; none before version 12) */
+	if (version < 12 && (record->ai_behavior || record->ai_route || record->ai_options))
 		return 0;
 	/* (the kinds no build has written: a hill, a kill zone - refused in any
 	version, as unknown kinds are) */
@@ -537,7 +564,8 @@ static int forge_file_record_check(
 	{
 		if (version < 6 || record->path_index != FORGE_FILE_NO_PATH || record->team < 0 ||
 			record->team >= forge_file_flag_type_indices(record->variant) || record->respawn_seconds || record->count ||
-			record->game_types || record->flags || record->ai_team)
+			record->game_types || record->flags || record->ai_team || record->ai_behavior || record->ai_route ||
+			record->ai_options)
 		{
 			return 0;
 		}
@@ -551,7 +579,8 @@ static int forge_file_record_check(
 	{
 		if (version < 5 || record->path_index != FORGE_FILE_NO_PATH || record->team < 0 ||
 			record->team >= FORGE_FILE_MAXIMUM_TELEPORTER_CHANNELS || record->respawn_seconds || record->count ||
-			record->game_types || record->variant || record->flags || record->ai_team)
+			record->game_types || record->variant || record->flags || record->ai_team || record->ai_behavior ||
+			record->ai_route || record->ai_options)
 		{
 			return 0;
 		}
@@ -604,6 +633,20 @@ static int forge_file_record_check(
 		record->ai_team >= NUMBER_OF_FORGE_AI_TEAMS || (!character && (record->ai_team || (record->flags & FORGE_RECORD_AI_OFF))))
 	{
 		return 0;
+	}
+	/* (version 12's AI movement: a character's behavior, route and options,
+	a vehicle's route alone; nothing on anything else) */
+	if (record->ai_behavior || record->ai_route || record->ai_options)
+	{
+		int vehicle = forge_file_kind_has_object(record->kind) && record->kind == _forge_record_object &&
+			layout->paths[record->path_index].group_tag == FORGE_GROUP_VEHICLE;
+
+		if (record->ai_behavior >= NUMBER_OF_FORGE_FILE_AI_BEHAVIORS || record->ai_route > FORGE_FILE_MAXIMUM_ROUTES ||
+			(record->ai_options & ~FORGE_FILE_AI_OPTIONS_KNOWN) || (!character && !vehicle) ||
+			(vehicle && (record->ai_behavior || record->ai_options)))
+		{
+			return 0;
+		}
 	}
 	/* (version 3's respawn: a character's only, after a second or more) */
 	if ((record->flags & FORGE_RECORD_AI_RESPAWN) && (!character || record->respawn_seconds == 0))
@@ -658,7 +701,9 @@ int forge_file_layout_version(
 		struct forge_file_record const *record = &layout->records[index];
 		int needs = FORGE_FILE_FIRST_VERSION;
 
-		if (record->flags & FORGE_RECORD_PHYSICS_MASK)
+		if (forge_file_kind_ai_marker(record->kind) || record->ai_behavior || record->ai_route || record->ai_options)
+			needs = 12;
+		else if (record->flags & FORGE_RECORD_PHYSICS_MASK)
 			needs = 7;
 		else if (record->kind == _forge_record_flag)
 			needs = 6;
@@ -691,6 +736,9 @@ int forge_file_layout_check(
 	int teleporters = 0;
 	int game_objects = 0;
 	int physics = 0;
+	int ai_movement = 0;
+	int route_points = 0;
+	int ai_areas = 0;
 	unsigned char hill_points[FORGE_FILE_MAXIMUM_HILLS];
 	unsigned int sender_channels = 0;
 	unsigned int receiver_channels = 0;
@@ -699,8 +747,7 @@ int forge_file_layout_check(
 	if (!layout || !forge_file_meta_terminated(layout))
 		return _forge_file_bad_meta;
 	if (layout->version && (layout->version < FORGE_FILE_FIRST_VERSION || layout->version > FORGE_FILE_VERSION ||
-		(layout->version >= FORGE_FILE_FIRST_SKIPPED_VERSION && layout->version <= FORGE_FILE_LAST_SKIPPED_VERSION) ||
-		layout->version == FORGE_FILE_UNREAD_VERSION))
+		(layout->version >= FORGE_FILE_FIRST_SKIPPED_VERSION && layout->version <= FORGE_FILE_LAST_SKIPPED_VERSION)))
 	{
 		return _forge_file_bad_version;
 	}
@@ -742,7 +789,7 @@ int forge_file_layout_check(
 		}
 	}
 	version = forge_file_layout_version(layout);
-	/* (the map's own objects: version 11's alone, taking something away
+	/* (the map's own objects: version 11 on, taking something away
 	or keeping something, its entries in range and ascending; none, zeros) */
 	if (layout->flags & FORGE_FILE_FLAG_CANVAS)
 	{
@@ -789,6 +836,17 @@ int forge_file_layout_check(
 			physics = 1;
 		if (layout->records[index].kind == _forge_record_player_spawn)
 			player_spawns = 1;
+		/* (version 12's AI movement: the route points and patrol areas
+		counted) */
+		if (forge_file_kind_ai_marker(layout->records[index].kind) || layout->records[index].ai_behavior ||
+			layout->records[index].ai_route || layout->records[index].ai_options)
+		{
+			ai_movement = 1;
+		}
+		if (layout->records[index].kind == _forge_record_ai_route_point)
+			route_points++;
+		if (layout->records[index].kind == _forge_record_ai_area)
+			ai_areas++;
 		/* (version 6's game type objects: a hill's points counted, its
 		number checked in range with the record) */
 		if (layout->records[index].kind == _forge_record_flag)
@@ -816,15 +874,17 @@ int forge_file_layout_check(
 	/* (each version is written only for what it adds - version 3 for a
 	respawning character, 4 for a player spawn, 5 for a teleporter, 6 for a
 	game type object, 7 for an object's physics, 11 for the map's own
-	objects, 13 for more than 256 records: a file of one without it is not
-	one a writer made) */
+	objects, 12 for AI movement, 13 for more than 256 records: a file of one
+	without it is not one a writer made) */
 	if ((version == 3 && !respawning) || (version == 4 && !player_spawns) || (version == 5 && !teleporters) ||
 		(version == 6 && !game_objects) || (version == 7 && !physics) ||
-		(version == 11 && !(layout->flags & FORGE_FILE_FLAG_CANVAS)) ||
+		(version == 11 && !(layout->flags & FORGE_FILE_FLAG_CANVAS)) || (version == 12 && !ai_movement) ||
 		(version == FORGE_FILE_MORE_RECORDS_VERSION && layout->record_count <= FORGE_FILE_EARLIER_MAXIMUM_RECORDS))
 	{
 		return _forge_file_bad_version;
 	}
+	if (route_points > FORGE_FILE_MAXIMUM_ROUTE_POINTS || ai_areas > FORGE_FILE_MAXIMUM_AI_AREAS)
+		return _forge_file_too_many;
 	if (game_objects > FORGE_FILE_MAXIMUM_GAME_OBJECTS)
 		return _forge_file_too_many;
 	/* (the teleporters within their most, each sender's channel with a
@@ -895,8 +955,7 @@ static int forge_file_decode_checked(
 	if (version < FORGE_FILE_FIRST_VERSION)
 		return forge_file_refused(_forge_file_bad_version, why, why_size, NULL);
 	if (version > FORGE_FILE_VERSION ||
-		(version >= FORGE_FILE_FIRST_SKIPPED_VERSION && version <= FORGE_FILE_LAST_SKIPPED_VERSION) ||
-		version == FORGE_FILE_UNREAD_VERSION)
+		(version >= FORGE_FILE_FIRST_SKIPPED_VERSION && version <= FORGE_FILE_LAST_SKIPPED_VERSION))
 	{
 		snprintf(detail, sizeof(detail), "version %u", version);
 		return forge_file_refused(_forge_file_newer_version, why, why_size, detail);
@@ -1024,6 +1083,10 @@ static int forge_file_decode_checked(
 		record->flags = (unsigned char)read_u8(&reader);
 		/* (version 1's first reserved byte: checked with the record) */
 		record->ai_team = (unsigned char)read_u8(&reader);
+		/* (version 12's: checked with the record) */
+		record->ai_behavior = (unsigned char)read_u8(&reader);
+		record->ai_route = (unsigned char)read_u8(&reader);
+		record->ai_options = (unsigned char)read_u8(&reader);
 		/* (the reserved bytes: zeros) */
 		for (reserved = 0; reserved < FORGE_FILE_RECORD_RESERVED_SIZE; reserved++)
 		{
@@ -1207,6 +1270,9 @@ int forge_file_encode(
 		write_bytes(&writer, record->variant, 1);
 		write_bytes(&writer, record->flags, 1);
 		write_bytes(&writer, record->ai_team, 1);
+		write_bytes(&writer, record->ai_behavior, 1);
+		write_bytes(&writer, record->ai_route, 1);
+		write_bytes(&writer, record->ai_options, 1);
 		for (axis = 0; axis < FORGE_FILE_RECORD_RESERVED_SIZE; axis++)
 			write_bytes(&writer, 0, 1);
 	}

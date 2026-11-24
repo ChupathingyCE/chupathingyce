@@ -72,8 +72,10 @@ def test_forge_files(tmp_path):
     # (a newer version read as if it were known)
     ("if (version > FORGE_FILE_VERSION ||\n", "if (version > 14 ||\n"),
     # (the Vita build's versions 8 to 10 read as if they were this build's)
-    ("(version >= FORGE_FILE_FIRST_SKIPPED_VERSION && version <= FORGE_FILE_LAST_SKIPPED_VERSION) ||\n\t\tversion == FORGE_FILE_UNREAD_VERSION)",
-     "version == FORGE_FILE_UNREAD_VERSION)"),
+    ("if (version > FORGE_FILE_VERSION ||\n\t\t(version >= FORGE_FILE_FIRST_SKIPPED_VERSION && version <= FORGE_FILE_LAST_SKIPPED_VERSION))",
+     "if (version > FORGE_FILE_VERSION)"),
+    # (a route point's route not checked)
+    ("record->team >= FORGE_FILE_MAXIMUM_ROUTES ||", "0 ||"),
     # (more than 256 records let past under a version before 13)
     ("layout->version && layout->version < FORGE_FILE_MORE_RECORDS_VERSION &&", "0 &&"),
     # (the checksum not looked at)
