@@ -327,6 +327,40 @@ static void test_versions(void)
 	CHECK(size > 0 && work[AT_VERSION] == 7);
 	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok && layout_b.version == 7);
 
+	/* (more than 256 records: version 13, read back; 256 stay version 1) */
+	sample_layout(&layout_a);
+	while (layout_a.record_count < FORGE_FILE_EARLIER_MAXIMUM_RECORDS)
+		add_record(&layout_a, 1, 50.f + (float)(layout_a.record_count % 40), -120.f - (float)(layout_a.record_count / 40));
+	CHECK(forge_file_layout_version(&layout_a) == 1);
+	add_record(&layout_a, 1, 40.f, -100.f);
+	CHECK(forge_file_layout_version(&layout_a) == FORGE_FILE_MORE_RECORDS_VERSION);
+	size = encode(&layout_a, work);
+	CHECK(size > 0 && work[AT_VERSION] == FORGE_FILE_MORE_RECORDS_VERSION);
+	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok &&
+		layout_b.version == FORGE_FILE_MORE_RECORDS_VERSION && layout_b.record_count == FORGE_FILE_EARLIER_MAXIMUM_RECORDS + 1);
+	/* (the same records under an earlier version: too many for it, as a
+	build from before version 13 counts them) */
+	put16(work, AT_VERSION, 7);
+	put32(work, AT_CHECKSUM, forge_file_crc32(0, work + FORGE_FILE_HEADER_SIZE, (size_t)(size - FORGE_FILE_HEADER_SIZE)));
+	CHECK(decode(work, size, "bloodgulch", &layout_c) == _forge_file_too_many);
+	layout_a.version = 7;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_too_many);
+	/* (the most version 13 holds, and one more) */
+	layout_a.version = 0;
+	while (layout_a.record_count < FORGE_FILE_MAXIMUM_RECORDS)
+		add_record(&layout_a, 1, 50.f + (float)(layout_a.record_count % 40), -120.f - (float)(layout_a.record_count / 40));
+	size = encode(&layout_a, work);
+	CHECK(size > 0 && decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok &&
+		layout_b.record_count == FORGE_FILE_MAXIMUM_RECORDS);
+	put16(work, AT_RECORDS, FORGE_FILE_MAXIMUM_RECORDS + 1);
+	CHECK(decode(work, size, "bloodgulch", &layout_c) == _forge_file_too_many);
+	/* (version 13 with 256 records or fewer is not one a writer made) */
+	sample_layout(&layout_a);
+	layout_a.version = FORGE_FILE_MORE_RECORDS_VERSION;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
+	layout_a.version = 9;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
+
 	/* (a version that holds nothing of its own is not one a writer made) */
 	sample_layout(&layout_a);
 	layout_a.version = 4;
@@ -403,6 +437,12 @@ static void test_refused(void)
 	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
 	fresh();
 	put16(work, AT_VERSION, 11);
+	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
+	fresh();
+	put16(work, AT_VERSION, 12);
+	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
+	fresh();
+	put16(work, AT_VERSION, FORGE_FILE_VERSION + 1);
 	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
 	fresh();
 	put16(work, AT_VERSION, 0xFFFF);

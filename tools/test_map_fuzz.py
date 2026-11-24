@@ -88,6 +88,15 @@ TARGETS = {
     "xbox": ("MAP_FUZZ_XBOX", VALIDATOR),
     "ce": ("MAP_FUZZ_CE", CUSTOM_EDITION),
     "vorbis": ("MAP_FUZZ_VORBIS", ["port/linux/game/ce_vorbis.c"]),
+    # (a campaign map read for Forge's AI characters: forge_ai_tags.c)
+    "forge_ai": ("MAP_FUZZ_FORGE_AI", [
+        "port/linux/game/forge_ai_tags.c",
+        *VALIDATOR,
+        "source/bitmaps/bitmaps.c",
+        "source/rasterizer/rasterizer_geometry.c",
+        "source/rasterizer/rasterizer_swizzle.c",
+        *(f"port/third_party/zlib/{name}.c" for name in ("adler32", "crc32", "inffast", "inflate", "inftrees", "zutil")),
+    ]),
 }
 
 
@@ -344,6 +353,8 @@ def seeds(target):
         return {"minimal_xbox.map": xbox_map()}
     if target == "ce":
         return {"minimal_ce.map": ce_map()}
+    if target == "forge_ai":
+        return {"minimal_xbox.map": xbox_map()}
     return {"empty.ogg": b"OggS"}
 
 

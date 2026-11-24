@@ -66,7 +66,12 @@ def test_forge_files(tmp_path):
 @pytest.mark.skipif(sys.platform == "win32", reason="the store's tests use POSIX file helpers")
 @pytest.mark.parametrize("original, mutated", [
     # (a newer version read as if it were known)
-    ("if (version > FORGE_FILE_VERSION)\n", "if (version > 11)\n"),
+    ("if (version > FORGE_FILE_VERSION ||\n", "if (version > 14 ||\n"),
+    # (the versions 8 to 12 read as if they were this build's)
+    ("if (version > FORGE_FILE_VERSION ||\n\t\t(version >= FORGE_FILE_FIRST_SKIPPED_VERSION && version <= FORGE_FILE_LAST_SKIPPED_VERSION))",
+     "if (version > FORGE_FILE_VERSION)"),
+    # (more than 256 records let past under a version before 13)
+    ("layout->version && layout->version < FORGE_FILE_MORE_RECORDS_VERSION &&", "0 &&"),
     # (the checksum not looked at)
     ("!= checksum)", "!= checksum && 0)"),
     # (an object's count let past 1)
