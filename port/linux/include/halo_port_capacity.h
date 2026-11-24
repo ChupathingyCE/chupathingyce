@@ -248,6 +248,27 @@ MB console), up to this */
 #define HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE 0x4000000
 #endif
 
+/* ---------- sound cache
+
+The sound cache holds the samples of the sounds playing and recently
+played, in 4 KB pages (cache/xbox_sound_cache.c): the Xbox's 4 MB, 1024
+pages. A sound that finds no run of pages free of the ones playing isn't
+played (the log's "SOUND CACHE BLOWN"). Stock maps fit it; SPV3's levels
+don't: their decoded permutations reach 900 KB each and the ones playing
+filled the run, 9 of its 22 levels blowing it with 75 of the 512 sounds
+held. The desktop builds take 32 MB (8192 pages), its pages taken only as
+sounds are written (xbox_memory.c), and keep the 512 sounds (Halo PC's
+too). Only which sounds stay loaded changes: nothing reaches the network or
+the game state. Android's guest build (82 MB of window above the game
+state), the dedicated server (no sound) and the consoles (by their memory
+class: physical_memory_map.h) keep the Xbox's. */
+
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_MEMORY_CLASS) && \
+	!defined(HALO_CONSOLE_XBOX_RENDER_SIZES) && !defined(HALO_SERVER) && \
+	!(defined(HALO_ANDROID) && !defined(HALO_64BIT))
+#define HALO_PORT_SOUND_CACHE_SIZE 0x2000000 /* (0x400000) */
+#endif
+
 /* ---------- structure rendering
 
 The structure BSP's surfaces (its triangles) drawn in a frame

@@ -23,6 +23,10 @@ unsigned long physical_memory_get_sound_cache_size(void);
 
 #define SOUND_CACHE_SIZE physical_memory_get_sound_cache_size()
 #endif
+#if !defined(SOUND_CACHE_SIZE) && defined(HALO_PORT_SOUND_CACHE_SIZE)
+/* (the desktop builds': halo_port_capacity.h) */
+#define SOUND_CACHE_SIZE HALO_PORT_SOUND_CACHE_SIZE
+#endif
 #ifndef SOUND_CACHE_SIZE
 #define SOUND_CACHE_SIZE 0x400000
 #endif
