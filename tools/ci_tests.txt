@@ -8,6 +8,7 @@ tools/test_air_turn_aim.py
 tools/test_android_asm_convert.py
 tools/test_android_mcc_memory.py
 tools/test_audio_balance.py
+tools/test_audio_levels.py
 tools/test_bgfx_build_patches.py
 tools/test_bgfx_formats.py
 tools/test_bgfx_overlay_textures.py
@@ -34,6 +35,7 @@ tools/test_console_light_limits.py
 tools/test_console_link.py
 tools/test_console_log_view.py
 tools/test_console_meter_stages.py
+tools/test_console_packager.py
 tools/test_console_shell.py
 tools/test_console_structure_culling.py
 tools/test_coop_level_prompt.py
@@ -58,6 +60,7 @@ tools/test_fog_screen_camera.py
 tools/test_footer_prompts.py
 tools/test_forge_files.py
 tools/test_forge_mouse_look.py
+tools/test_forge_unaimed_weapons.py
 tools/test_game_list_rules.py
 tools/test_gamespy_listing.py
 tools/test_guide_layout.py
@@ -70,7 +73,10 @@ tools/test_host_evidence.py
 tools/test_host_fuzz.py
 tools/test_http_url_rules.py
 tools/test_hud_mcc_layout.py
+tools/test_hud_safe_zone.py
 tools/test_identity.py
+tools/test_join_password.py
+tools/test_join_password_pair.py
 tools/test_join_reasons.py
 tools/test_kcp_flush.py
 tools/test_kcp_peer.py
@@ -141,6 +147,7 @@ tools/test_p2p_public_address.py
 tools/test_p2p_signal_sockets.py
 tools/test_packaged_install.py
 tools/test_party_teams.py
+tools/test_pause_leave.py
 tools/test_picture_check.py
 tools/test_ping.py
 tools/test_platform_names.py
@@ -154,6 +161,7 @@ tools/test_rename_stub.py
 tools/test_report_clip.py
 tools/test_retry_backoff.py
 tools/test_save_folder.py
+tools/test_search_answer.py
 tools/test_server_badge.py
 tools/test_server_bans.py
 tools/test_server_control.py
@@ -161,6 +169,7 @@ tools/test_server_mcc_playable.py
 tools/test_server_monitor.py
 tools/test_server_roles.py
 tools/test_settings_layout.py
+tools/test_settings_pages.py
 tools/test_social.py
 tools/test_spv3_survey.py
 tools/test_steam_bridge.py
@@ -185,3 +194,4 @@ tools/test_workshop_play_history.py
 tools/test_workshop_questions.py
 tools/test_xbox_audio.py
 tools/test_xbox_heap.py
+tools/test_zoomed_field_of_view.py

@@ -82,6 +82,11 @@ round - at most FORGE_MAXIMUM_OBJECTS: past it the Forge menu's choice is
 refused, said on the screen. Its table is a fixed array, each index
 checked.
 
+The map's own objects (its scenery, vehicles, weapons and item spawns) are
+moved and deleted as the layout's are: one deleted is taken away from the
+map's, one grabbed or turned becomes one of the layout's, and the layout
+saves which of the map's it takes away (forge_map_objects.inc).
+
 NEW ROUND (the Forge menu's) resets the map as the engine's map_reset does; the
 layout, each object at its placed spot (where the editor put it, not where
 play took it), is taken as the game's state goes (forge_map_resetting) and
@@ -125,7 +130,13 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
                            the tests' controller
   forge menu open|close    the Forge menu opened or closed, as X does
   forge where | budget | objects | spawns | netflags  the state in the log
+  forge map [category]     the map's own objects the editor can take, and
+                           the ones the layout takes away, in the log
   forge shot               (tests) a screenshot, as the screenshot key
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "cseries.h"
@@ -142,6 +153,7 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
 #include "input/input.h"
 #include "interface/hud_messaging.h"
 #include "items/equipment_definitions.h"
+#include "items/item_definitions.h"
 #include "items/items.h"
 #include "items/weapon_definitions.h"
 #include "items/weapons.h"
@@ -181,6 +193,15 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef HALO_CONSOLE_NO_FORGE
+/* (the consoles leave Forge's hooks out: director.c has no monitor camera
+there and the console's input no Forge keys. The Wii U's linker drops the
+calls unused, the 360's links every one, so they are nothing here) */
+#define director_forge_camera(local_player_index, fly, position, forward) \
+	((void)(local_player_index), (void)(fly), (void)(position), (void)(forward))
+#define halo_forge_keys() 0UL
+#endif
 
 void platform_log(const char *format, ...);
 /* xinput_sdl.c's: the mouse's look since the last call */
@@ -438,7 +459,7 @@ static struct
 	{ "boulder", "Boulder" },
 	{ "boulder_crouch", "Low Boulder" },
 	{ "boulder_doublewide", "Wide Boulder" },
-	{ "boulder_large_grey", "Large Grey Boulder" },
+	{ "boulder_large_grey", "Large Gray Boulder" },
 	{ "a50_rock_large", "Large Rock" },
 	{ "snowrock", "Snow Rocks" },
 	{ "snowrocksmall", "Small Snow Rocks" },
@@ -774,6 +795,12 @@ static char const *const forge_physics_log_names[NUMBER_OF_FORGE_PHYSICS_MODES] 
 static void forge_netgame_log(void);
 static char const *forge_netgame_flags_warning(void);
 static void forge_spawn_remove(struct forge_spawn *spawn);
+/* (forge_map_objects.inc) */
+static boolean forge_map_object_take(long object_index, boolean keep);
+static void forge_map_objects_start(struct forge_file_layout const *layout);
+static void forge_map_objects_capture(struct forge_file_layout *layout);
+static void forge_map_made_clear(void);
+static void forge_map_objects_log(char const *category_word);
 static short forge_spawn_points(void);
 static void forge_spawn_grounded(real_point3d *position);
 static void forge_draw_line(long font_index, rectangle2d const *bounds, short justification, real red, real green,
@@ -871,9 +898,75 @@ static void forge_tag_readable_name(
 		forge_name_words(leaf, name, size);
 }
 
+/* whether no trigger of a weapon tag can be aimed (each fires along its
+"primary trigger" marker, where the gun points in the holder's hands, not
+where the holder looks: weapons.c weapon_trigger_fire) */
+static boolean forge_weapon_cannot_be_aimed(
+	long tag_index)
+{
+	struct weapon_definition *definition = weapon_definition_get(tag_index);
+	long trigger_index;
+
+	if (!definition || definition->weapon.triggers.count <= 0)
+		return FALSE;
+	for (trigger_index = 0; trigger_index < definition->weapon.triggers.count; trigger_index++)
+	{
+		struct weapon_trigger_definition *trigger = TAG_BLOCK_GET_ELEMENT(&definition->weapon.triggers,
+			trigger_index, struct weapon_trigger_definition);
+
+		if (!TEST_FLAG(trigger->flags, _weapon_trigger_projectiles_cannot_be_aimed_bit))
+			return FALSE;
+	}
+	return TRUE;
+}
+
+/* whether an equipment tag is only the ammunition of weapons nobody can aim
+(forge_weapon_cannot_be_aimed): their magazines' ammunition, and no other
+weapon's */
+static boolean forge_equipment_only_unaimed_ammunition(
+	long tag_index)
+{
+	struct tag_iterator iterator;
+	long weapon_tag_index;
+	boolean found = FALSE;
+
+	tag_iterator_new(&iterator, WEAPON_DEFINITION_TAG);
+	while ((weapon_tag_index = tag_iterator_next(&iterator)) != NONE)
+	{
+		struct weapon_definition *definition;
+		long magazine_index;
+		boolean feeds = FALSE;
+
+		if (tag_get_group_tag(weapon_tag_index) != WEAPON_DEFINITION_TAG)
+			continue;
+		definition = weapon_definition_get(weapon_tag_index);
+		for (magazine_index = 0; !feeds && magazine_index < definition->weapon.magazines.count; magazine_index++)
+		{
+			struct weapon_magazine_definition *magazine = TAG_BLOCK_GET_ELEMENT(&definition->weapon.magazines,
+				magazine_index, struct weapon_magazine_definition);
+			long object_index;
+
+			for (object_index = 0; !feeds && object_index < magazine->ammunition_objects.count; object_index++)
+			{
+				struct weapon_ammunition_object *ammunition = TAG_BLOCK_GET_ELEMENT(&magazine->ammunition_objects,
+					object_index, struct weapon_ammunition_object);
+
+				feeds = ammunition->object.index == tag_index;
+			}
+		}
+		if (!feeds)
+			continue;
+		if (!forge_weapon_cannot_be_aimed(weapon_tag_index))
+			return FALSE;
+		found = TRUE;
+	}
+	return found;
+}
+
 /* the browser's category of a tag of the loaded map, NONE if it offers
 none of it: a vehicle's gun, the flag and the ball (the game's), anything
-of a cinematic's, a character that names no unit (a vehicle's crew) */
+of a cinematic's, a character that names no unit (a vehicle's crew), a
+weapon nobody can aim and its ammunition */
 static short forge_tag_category(
 	long tag_index)
 {
@@ -901,8 +994,21 @@ static short forge_tag_category(
 		pickup prompt is the tag's "<need a string entry here>") */
 		if (!strncmp(name, "weapons\\gravity rifle\\", 22))
 			return NONE;
+		/* (nor a weapon whose shots can't be aimed: the unfinished
+		flamethrower, also in every Xbox multiplayer map's tags though no
+		game puts it down (#1589). Its trigger can't be aimed, so its flames
+		go where the gun points in the Spartan's hands, which have no
+		animations for it: always the ground in front of their feet, a
+		little to the left, wherever the player looks. Its HUD has no
+		reticle and no ammunition. Halo PC's finished flamethrower is
+		aimed, and would be offered) */
+		if (forge_weapon_cannot_be_aimed(tag_index))
+			return NONE;
 		return _forge_category_weapons;
 	case EQUIPMENT_DEFINITION_TAG:
+		/* (nor the ammunition of a weapon left out for that) */
+		if (forge_equipment_only_unaimed_ammunition(tag_index))
+			return NONE;
 		return strstr(name, "grenade") ? _forge_category_weapons : _forge_category_equipment;
 	case FORGE_SCENERY_DEFINITION_TAG:
 	case MACHINE_DEFINITION_TAG:
@@ -1673,8 +1779,13 @@ static long forge_object_under_crosshair_at(
 			FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit) |
 			FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_bipeds_bit) |
 			FLAG(_collision_test_objects_vehicles_bit) | FLAG(_collision_test_objects_scenery_bit) |
-			FLAG(_collision_test_objects_machines_bit) | FLAG(_collision_test_objects_controls_bit) |
-			FLAG(_collision_test_forge_phased_objects_bit),
+			FLAG(_collision_test_objects_machines_bit) | FLAG(_collision_test_objects_controls_bit)
+#ifndef HALO_CONSOLE_NO_FORGE
+			/* (PHASED objects too: not on the consoles, which leave Forge's
+			hooks in collisions.c out) */
+			| FLAG(_collision_test_forge_phased_objects_bit)
+#endif
+			,
 			&position,
 			&vector,
 			ignored,
@@ -1806,10 +1917,13 @@ static void forge_grab_local(
 	return;
 }
 
-/* the object under the crosshair held */
+/* the object under the crosshair held (one of the map's own the
+layout's from now on: forge_map_objects.inc) */
 static void forge_grab(
 	long object_index)
 {
+	if (!forge_map_object_take(object_index, TRUE))
+		return;
 	forge_grab_local(object_index);
 }
 
@@ -1878,6 +1992,9 @@ static void forge_set_facing(
 	{
 		struct forge_transform from;
 
+		/* (one of the map's own: the layout's from now on) */
+		if (!forge_map_object_take(object_index, TRUE))
+			return;
 		forge_transform_get(object_index, &from);
 		object_set_position(object_index, &object->object.position, forward, up);
 		SET_FLAG(object->object.flags, _object_at_rest_bit, FALSE);
@@ -2095,6 +2212,9 @@ static void forge_delete(
 	char name[FORGE_NAME_SIZE];
 
 	if (!object || forge_object_is_players(object_index))
+		return;
+	/* (one of the map's own: taken away from the map's, saved so) */
+	if (!forge_map_object_take(object_index, FALSE))
 		return;
 	forge_object_name(object_index, name, sizeof(name));
 	platform_log("forge: deleted %s (%s)", name, forge_tag_leaf(object->definition_index));
@@ -3116,6 +3236,8 @@ static boolean forge_variant_capture(
 	if (spawns)
 	{
 		skipped = (short)(skipped + forge_spawns_capture(layout));
+		/* (the map's own objects it takes away) */
+		forge_map_objects_capture(layout);
 	}
 	if (skipped)
 		platform_log("forge: %d placed objects left out of the layout", skipped);
@@ -3181,8 +3303,9 @@ static boolean forge_variant_save(
 
 /* (the session's start) the layout read for it placed: each record's
 tag found by its path among the palette's (the browser's tags: nothing
-else is ever placed), its place inside the structure's world, within the
-budget. A record whose tag the map does not have, or that cannot be
+else is ever placed, but a weapon nobody can aim, or its ammunition, in a
+layout saved before they were left out), its place inside the
+structure's world, within the budget. A record whose tag the map does not have, or that cannot be
 placed, is skipped and counted, never the variant refused (it passed the
 validator whole before it was read). (A new round's layout, round, is
 placed the same way, said as a new round) */
@@ -3217,6 +3340,22 @@ static void forge_variant_apply(
 			{
 				tags[index] = tag_index;
 				break;
+			}
+		}
+		/* (a weapon nobody can aim, or ammunition only such a weapon uses,
+		left out of the palette (#1589) but in a layout saved before that:
+		still placed) */
+		if (tags[index] == NONE &&
+			(layout->paths[index].group_tag == (unsigned int)WEAPON_DEFINITION_TAG ||
+			layout->paths[index].group_tag == (unsigned int)EQUIPMENT_DEFINITION_TAG))
+		{
+			long tag_index = tag_loaded((long)layout->paths[index].group_tag, layout->paths[index].path);
+
+			if (tag_index != NONE &&
+				(layout->paths[index].group_tag == (unsigned int)WEAPON_DEFINITION_TAG ?
+				forge_weapon_cannot_be_aimed(tag_index) : forge_equipment_only_unaimed_ammunition(tag_index)))
+			{
+				tags[index] = tag_index;
 			}
 		}
 		if (tags[index] == NONE)
@@ -3643,7 +3782,7 @@ boolean forge_properties_get(
 	if (spawn)
 	{
 		forge_spawn_properties_get(spawn, properties);
-		/* (where it stands, metres: forge_precision.inc) */
+		/* (where it stands, meters: forge_precision.inc) */
 		{
 			real_point3d const *at = spawn->id == forge_globals.held_marker_id ? &forge_globals.held_marker_position :
 				&spawn->home.position;
@@ -3719,6 +3858,9 @@ void forge_map_resetting(
 	}
 	forge_globals.round_count++;
 	forge_globals.round_pending = TRUE;
+	/* (the map's objects go: the placements make them again, but for the
+	ones the session takes away) */
+	forge_map_made_clear();
 	platform_log("forge: new round %ld: the layout taken: %d objects", forge_globals.round_count,
 		forge_round_layout.record_count);
 }
@@ -3790,6 +3932,8 @@ void forge_map_loaded(
 	forge_spawns_clear();
 	if (forge_globals.game_active && forge_globals.variant_pending)
 		forge_spawns_from_layout(&forge_variant_layout);
+	/* (the map's own objects it takes away, before the map makes them) */
+	forge_map_objects_start(forge_globals.game_active && forge_globals.variant_pending ? &forge_variant_layout : NULL);
 	/* (its teleporters and flags the engine's netgame flags as its game
 	starts: forge_netgame.inc; any other game's the map's own) */
 	forge_netgame_changed();
@@ -4337,7 +4481,7 @@ void forge_update(
 }
 
 /* a line of the monitor's HUD in a font, at bounds (justification: 0 left,
-2 centred), in a colour */
+2 centered), in a color */
 static void forge_draw_line(
 	long font_index,
 	rectangle2d const *bounds,
@@ -4810,6 +4954,12 @@ boolean forge_command(
 		platform_log("forge: objects listed: %d", forge_globals.placed_count);
 		return TRUE;
 	}
+	/* (the map's own objects: forge_map_objects.inc) */
+	if (!strcmp(word, "map"))
+	{
+		forge_map_objects_log(rest);
+		return TRUE;
+	}
 	if (!strcmp(word, "spawns"))
 	{
 		short index;
@@ -5108,3 +5258,4 @@ with this file's) */
 #include "forge_physics.inc"
 #include "forge_precision.inc"
 #include "forge_menu_link.inc"
+#include "forge_map_objects.inc"

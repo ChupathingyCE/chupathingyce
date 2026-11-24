@@ -384,6 +384,8 @@ symbols in this file:
 #include "coop_progress.h" /* port: port/linux/game/coop_progress.c */
 #include "camera/director.h"
 #include "units/units.h" /* port: the vehicle field of view */
+#include "units/unit_definitions.h" /* port: a zoomed view's width */
+#include "items/weapons.h" /* port: a zoomed view's width */
 #include "camera/observer.h"
 #include "cutscene/cinematics.h"
 #include "effects/player_effects.h"
@@ -681,7 +683,15 @@ struct game_options
 typedef char game_options_size_assert[
 	sizeof(struct game_options) == 0x10C ? 1 : -1];
 
+/* port: packed (retail's layout, 0x38B bytes) on the original Xbox only.
+Packed, the structure and its global had no alignment, and the windows'
+cameras' floats sat at odd addresses: PowerPC takes an exception on a
+misaligned float store (the Wii U's main menu with two local players). The
+other builds give it its natural alignment; the fields are where they were,
+only the end is padded. */
+#ifdef HALO_XBOX_CONSOLE
 #pragma pack(push, 1)
+#endif
 struct _screenshot_and_framerate_globals
 {
 	short count;
@@ -695,10 +705,18 @@ struct _screenshot_and_framerate_globals
 	boolean framerate_reset;
 	boolean halt_recursion_lock;
 };
+#ifdef HALO_XBOX_CONSOLE
 #pragma pack(pop)
 
 typedef char screenshot_and_framerate_globals_size_assert[
 	sizeof(struct _screenshot_and_framerate_globals) == 0x38B ? 1 : -1];
+#else
+typedef char screenshot_and_framerate_globals_windows_offset_assert[
+	offsetof(struct _screenshot_and_framerate_globals, windows) == 8 ? 1 : -1];
+typedef char screenshot_and_framerate_globals_framerate_samples_offset_assert[
+	offsetof(struct _screenshot_and_framerate_globals, framerate_samples) ==
+		8 + sizeof(struct render_window) * (MAXIMUM_WINDOWS + 1) ? 1 : -1];
+#endif
 
 #ifndef HALO_XBOX_CONSOLE
 void network_test_update(boolean main_menu_loaded, real seconds);
@@ -1264,9 +1282,9 @@ unsigned long config_changes(void);
 
 /* port: display.field_of_view, the first-person view's width in degrees
 (the Xbox's 70, 50 to 120), as the scale of the tangent of the camera's half
-angle: the unit's and each zoom level's view widen or narrow together, so a
-scope magnifies as much as before. Only what is drawn changes; the observer,
-aim and the game's state keep the original angles. */
+angle. A zoomed view is drawn at the Xbox's own width
+(local_view_zoom_weight). Only what is drawn changes; the observer, aim and
+the game's state keep the original angles. */
 static real first_person_field_of_view_scale(
 	void)
 {
@@ -1337,12 +1355,47 @@ static boolean local_player_seated(
 (local_view_field_of_view_update): what set_window_camera_values widens
 the view by and the reticle is sized by, so both are the same frame's */
 static real local_view_scales[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS] = { 1.f, 1.f, 1.f, 1.f };
+/* how much of the widening each keeps this frame (local_view_zoom_weight) */
+static real local_view_zoom_weights[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS] = { 1.f, 1.f, 1.f, 1.f };
 /* how far each is into a vehicle's view, 0 on foot to 1 seated, and when */
 static real local_view_vehicle_weights[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 static unsigned long local_view_times[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 
 /* the time getting in or out eases the view between the two widths over */
 #define VEHICLE_VIEW_EASE_MILLISECONDS 500
+
+/* port: how much of display.field_of_view's widening a first-person view
+on foot keeps at the observer's field of view: all of it at the unit's own
+width, none at the weapon's first zoom level or closer, and in between while
+the zoom eases in or out. A zoomed view is drawn at the Xbox's width: the
+scope's mask, its reticle and its ticks are drawn at the Xbox's size, and
+the world inside them has to be too, or the reticle no longer covers what
+it did and its marks don't line up with the target (#1666). In a seat, or
+without a weapon that zooms, all of it, as before. */
+static real local_view_zoom_weight(
+	short local_player_index,
+	real field_of_view)
+{
+	long unit_index = player_control_get_unit_index(local_player_index);
+	struct unit_datum *unit;
+	long weapon_index;
+	real unit_field_of_view;
+	real zoomed;
+
+	if (unit_index == NONE || local_player_seated(local_player_index))
+		return 1.f;
+	unit = unit_get(unit_index);
+	weapon_index = unit_inventory_get_weapon(unit_index, unit->unit.current_weapon_index);
+	if (weapon_index == NONE)
+		return 1.f;
+	/* (a zoom level's view is the unit's angle over its magnification:
+	weapon_get_field_of_view) */
+	zoomed = 1.f / weapon_get_zoom_magnification(weapon_index, 0);
+	unit_field_of_view = unit_definition_get(unit->definition_index)->unit.camera_field_of_view;
+	if (!(zoomed < 1.f) || !(unit_field_of_view > 0.f) || !valid_real(field_of_view))
+		return 1.f;
+	return PIN((field_of_view / unit_field_of_view - zoomed) / (1.f - zoomed), 0.f, 1.f);
+}
 
 /* port: the local player's view scale, once a frame: in first person
 display.field_of_view's; in a vehicle's seat display.vehicle_field_of_view's,
@@ -1351,7 +1404,8 @@ or out, turning back from where it is if that reverses; the game's own
 in any other view (a scripted camera, death), which also ends an ease, so
 a respawn starts at the view on foot at once */
 static real local_view_field_of_view_update(
-	short local_player_index)
+	short local_player_index,
+	real field_of_view)
 {
 	short perspective;
 	unsigned long now = system_milliseconds();
@@ -1384,6 +1438,14 @@ static real local_view_field_of_view_update(
 	that the game shows in third person starts at the game's own) */
 	on_foot = perspective == _director_perspective_first_person ? first_person_field_of_view_scale() : 1.f;
 	local_view_scales[local_player_index] = on_foot + (vehicle_field_of_view_scale(perspective) - on_foot) * weight;
+	/* (zoomed: the Xbox's width; at the Xbox's 70 nothing to take back) */
+	local_view_zoom_weights[local_player_index] = 1.f;
+	if (local_view_scales[local_player_index] != 1.f && perspective == _director_perspective_first_person)
+	{
+		weight = local_view_zoom_weight(local_player_index, field_of_view);
+		local_view_zoom_weights[local_player_index] = weight;
+		local_view_scales[local_player_index] = 1.f + (local_view_scales[local_player_index] - 1.f) * weight;
+	}
 
 	return local_view_scales[local_player_index];
 }
@@ -1414,17 +1476,26 @@ real first_person_weapon_projection_scale(
 		}
 	}
 
-	return weapon_scale > 0.0f ? first_person_field_of_view_scale() / weapon_scale : 1.0f;
+	if (weapon_scale > 0.0f)
+	{
+		real view_scale = first_person_field_of_view_scale();
+
+		/* (the world's frustum it is drawn in is narrowed back as far
+		while a zoom eases out: local_view_zoom_weight) */
+		if (render.local_player_index >= 0 && render.local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+			view_scale = 1.0f + (view_scale - 1.0f) * local_view_zoom_weights[render.local_player_index];
+		return view_scale / weapon_scale;
+	}
+	return 1.0f;
 }
 
 /* port: display.crosshair_position (#508), how far down (in the window's
 units, a HUD pixel) a local player's aim point is drawn, and the crosshair
 with it, from the middle of its window, where the Xbox draws both ("retail",
-0). "centered" puts them in the middle of the player's view: the same in a
-game alone, but a split screen's views reach the screen's edges past their
-windows (the title-safe frame), so the Xbox's aim is a little off their
-middle. "lowered" puts them a tenth of the view's height below its middle,
-as later Halo games do. The view itself moves (render_player_frame moves
+0). "lowered" puts them a tenth of the view's height below its middle, as
+later Halo games do. (A split screen view's window is put in the view's
+middle by display.hud_safe_zone: compute_window_bounds. "centered", which
+did that here, is retired: port_config.c's config_retire_centered_crosshair.) The view itself moves (render_player_frame moves
 its frustum's bounds, as a tiled screenshot's are), so the aim stays under
 the crosshair: what is seen and where shots go are the same, only framed
 higher or lower. Not while zoomed (the scope's picture is drawn in the
@@ -1451,9 +1522,7 @@ real first_person_aim_offset(
 		position = 0;
 		if (config_text("display.crosshair_position", text, sizeof(text)))
 		{
-			if (!strcmp(text, "centered"))
-				position = 1;
-			else if (!strcmp(text, "lowered"))
+			if (!strcmp(text, "lowered"))
 				position = 2;
 		}
 	}
@@ -1594,7 +1663,7 @@ void set_window_camera_values(
 		/* port: display.field_of_view, in first person, and
 		display.vehicle_field_of_view in a vehicle's seat */
 		if (window->local_player_index != NONE)
-			field_of_view_tangent *= local_view_field_of_view_update(window->local_player_index);
+			field_of_view_tangent *= local_view_field_of_view_update(window->local_player_index, observer->field_of_view);
 		window->rasterizer_camera.position = observer->position;
 		window->rasterizer_camera.forward = observer->forward;
 		window->rasterizer_camera.up = observer->up;
@@ -1812,6 +1881,9 @@ static void compute_subframe_counts(
 	return;
 }
 
+/* port: display.hud_safe_zone (hud_draw.c) */
+boolean hud_safe_zone_centers_windows(void);
+
 void compute_window_bounds(
 	long player_index,
 	long num_players,
@@ -1892,6 +1964,25 @@ void compute_window_bounds(
 		pixel_bounds->y0 = rasterizer_globals.reserved04.screen_bounds.y0;
 	if (vertical_index+1==vertical_count)
 		pixel_bounds->y1 = rasterizer_globals.reserved04.screen_bounds.y1;
+
+	/* port: display.hud_safe_zone other than the Xbox's margins ("pc", or
+	"auto" in split screen): the window, its size kept, in the middle of
+	its view, where the Xbox's sits off it (the frame's share, 4 pixels from
+	the lines between views). Its crosshair, aim, weapon and HUD are in the
+	view's middle, and every view alike. Drawing only: the window is the
+	view's projection's, not the game's (hud_draw.c) */
+	if (num_players>1 && hud_safe_zone_centers_windows())
+	{
+		short dx = (short)(((pixel_bounds->x0+pixel_bounds->x1)-
+			(safe_frame_bounds->x0+safe_frame_bounds->x1))/2);
+		short dy = (short)(((pixel_bounds->y0+pixel_bounds->y1)-
+			(safe_frame_bounds->y0+safe_frame_bounds->y1))/2);
+
+		safe_frame_bounds->x0 += dx;
+		safe_frame_bounds->x1 += dx;
+		safe_frame_bounds->y0 += dy;
+		safe_frame_bounds->y1 += dy;
+	}
 
 	return;
 }
@@ -2090,6 +2181,17 @@ static void main_change_map_name(
 
 	if (main_globals.frame_start_milliseconds >= main_globals.map_change_load_timer)
 	{
+		/* port: a movie still playing is stopped before the map under it is
+		let go, without going back to the main menu (the map being loaded is
+		where the player goes). The menus stop the attract movie with any
+		button, but a map_name typed at the console during it changed the map
+		under the movie: the map was unloaded while the movie played
+		(scenario_unload's assert), and the next map's load found the texture
+		cache's memory still the movie's. A map that has to be copied into the
+		cache first stopped it already (game_precache_new_map); one that was
+		there, or an MCC map, did not (#1284) */
+		if (bink_playback_stop_for_texture_cache())
+			error(_error_silent, "map change: stopped the movie that was playing");
 		/* port: the map copied into the cache before anything of this game
 		is left, as the main menu's map is (main_load_ui_scenario): a map
 		whose copy fails (its file cut short or damaged) is refused and the
@@ -4738,8 +4840,18 @@ void main_loop(
 #endif
 					render_frame &= !game_engine_running() || game_time_get()>=3;
 
+					/* port: a structure bsp switch that failed left no bsp and
+					the main menu on its way (scenario_switch_structure_bsp):
+					nothing is drawn, and the camera and Forge's monitor don't
+					move, in a bsp that isn't there (game_time_update runs no
+					tick either) */
+					if (!global_structure_bsp_try_and_get())
+						render_frame = FALSE;
+
 					MAIN_STAGE("collision_log_continue_period");
 					collision_log_continue_period(1);
+					if (global_structure_bsp_try_and_get())
+					{
 					MAIN_STAGE("director_update");
 					director_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
 					MAIN_STAGE("observer_update");
@@ -4754,6 +4866,7 @@ void main_loop(
 						forge_update();
 					}
 #endif
+					}
 					MAIN_STAGE("collision_log_end_period");
 					collision_log_end_period();
 					MAIN_STAGE("game_engine_update_non_deterministic");

@@ -1166,6 +1166,50 @@ def test_long_ogg_sounds_split(built, tmp_path):
             assert split in result.stderr, (frames, result.stderr[-4000:])
 
 
+def test_long_pcm_sounds_split(built, tmp_path):
+    """a 16-bit PCM permutation of more samples than the sound cache holds
+    (#1516), whether its samples are in the map, in sounds.map, or the sound
+    has samples in both (copied whole into the decoded sounds' file), is
+    split where its samples lie into permutations played one after another,
+    as a long Ogg Vorbis one is; one the cache holds is left whole, and an
+    Xbox ADPCM one as it was"""
+    binaries, _ = built
+    pcm, adpcm, external = 0, 1, 1
+    long_size, short_size = 6000000, 100000
+    # (each map's samples after its tags, at the same place in every case)
+    samples_at = 0x2000
+    assert len(ce_map(sound=[(pcm, long_size, 0, 0), (pcm, short_size, 0, 0)])) < samples_at
+    resources = tmp_path / "resources"
+    resources.mkdir()
+    # (a resource map of sounds whose samples lie past the test maps' ends)
+    in_sounds_map = samples_at + long_size + 0x1000
+    (resources / "sounds.map").write_bytes(struct.pack("<IIII", 2, 16, 16, 0) +
+                                           bytes(in_sounds_map + long_size + 0x1000))
+    split = "6000000 bytes of samples played as 16 permutations of 393216 bytes"
+    cases = (
+        ("in_map", [(pcm, long_size, 0, samples_at)], split),
+        ("in_sounds_map", [(pcm, long_size, external, in_sounds_map)], split),
+        ("both", [(pcm, long_size, 0, samples_at), (pcm, short_size, external, in_sounds_map)], split),
+        ("short", [(pcm, short_size, 0, samples_at)], None),
+        ("adpcm", [(adpcm, long_size - long_size % 36, 0, samples_at)], None),
+    )
+    for name, permutations, expected in cases:
+        data = bytearray(ce_map(sound=permutations))
+        data += bytes(samples_at - len(data)) + bytes(long_size)
+        struct.pack_into("<i", data, 8, len(data))
+        path = tmp_path / f"pcm_{name}.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1",
+                                                          "MAP_FUZZ_CE_RESOURCES": str(resources)})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "the map loaded" in result.stderr, (name, result.stderr[-4000:])
+        assert (expected is not None) == ("bytes of samples played as" in result.stderr), (name, result.stderr[-4000:])
+        if expected:
+            assert expected in result.stderr, (name, result.stderr[-4000:])
+            # (not cut to the sound cache's size by the tag checks, as it was)
+            assert "more than the game's 4194304" not in result.stderr, (name, result.stderr[-4000:])
+
+
 def test_long_ogg_sound_short_read_doubled(built, tmp_path):
     """a long 11 kHz Ogg Vorbis permutation of a 22 kHz sound, whose decoder
     gives a short piece before the stream's end (stb_vorbis does where it
@@ -1222,6 +1266,55 @@ def test_xbox_string_over_another_tags_root_refused(built, tmp_path):
     result = run(binaries["xbox"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
     assert result.returncode == 0, result.stderr[-4000:]
     assert "reads them as another structure, and a correction changed them" in result.stderr, result.stderr[-4000:]
+
+
+def xbox_map_particle_system(rotational, sprite_counts, sequence_index=0):
+    """an Xbox map of a particle system of one type and one particle state,
+    drawn from a bitmap of sequences of sprite_counts sprites"""
+    pctl_size, bitm_size = 0x68 + 0x80 + 0x178, 0x6C + 0x40 * len(sprite_counts) + 0x20
+    tags, base, (pctl, bitm) = xbox_map_of_tags([(b"pctl", pctl_size), (b"bitm", bitm_size)])
+    bitmap_id = ((0xE174 + 2) << 16) | 2
+    type_, state = pctl + 0x68, pctl + 0x68 + 0x80
+    struct.pack_into("<i", tags, pctl + 0x44, -1)
+    struct.pack_into("<iII", tags, pctl + 0x5C, 1, base + type_, 0)
+    struct.pack_into("<h", tags, type_ + 0x28, 1 if rotational else 0)
+    struct.pack_into("<iII", tags, type_ + 0x74, 1, base + state, 0)
+    struct.pack_into("<4sIII", tags, state + 0x30, b"mtib", 0, 0, bitmap_id)
+    struct.pack_into("<h", tags, state + 0x40, sequence_index)
+    struct.pack_into("<i", tags, state + 0x84 + 0xC, -1)
+    struct.pack_into("<i", tags, state + 0xB8 + 0x4C + 0xC, -1)
+    sequences, sprites = bitm + 0x6C, bitm + 0x6C + 0x40 * len(sprite_counts)
+    struct.pack_into("<iII", tags, bitm + 0x54, len(sprite_counts), base + sequences, 0)
+    for index, count in enumerate(sprite_counts):
+        struct.pack_into("<iII", tags, sequences + 0x40 * index + 0x34, count, base + sprites if count else 0, 0)
+    return header(5, 0x800 + len(tags), 0x800, len(tags)) + bytes(tags)
+
+
+def test_rotational_particles_without_an_edge_on_sequence_kept(built, tmp_path):
+    """a rotational particle state draws its edge-on sprites from the
+    sequence after its own. Halo PC's burning flame bitmap (the Custom
+    Edition flamethrower's flames) has no such sequence: drawn face-on from
+    its own then, the particle system is kept. One whose own sequence is
+    missing or has no sprites, or whose edge-on sequence is there with none,
+    is still disabled"""
+    binaries, _ = built
+    disabled = "which has no sprites: disabled"
+    for name, rotational, sprite_counts, sequence_index, expected in (
+            ("rotational_one_sequence", True, [1], 0, False),
+            ("rotational_two_sequences", True, [1, 1], 0, False),
+            ("simple_one_sequence", False, [1], 0, False),
+            ("rotational_no_sprites", True, [0], 0, True),
+            ("rotational_edge_on_no_sprites", True, [1, 0], 0, True),
+            ("rotational_past_the_sequences", True, [1], 1, True),
+            ("rotational_negative_sequence", True, [1], -1, True),
+            ("simple_past_the_sequences", False, [1], 1, True),
+            ("rotational_no_sequences", True, [], 0, True)):
+        path = tmp_path / f"{name}.map"
+        path.write_bytes(xbox_map_particle_system(rotational, sprite_counts, sequence_index))
+        result = run(binaries["xbox"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, (name, result.stderr[-4000:])
+        assert "refused" not in result.stderr, (name, result.stderr[-4000:])
+        assert (disabled in result.stderr) == expected, (name, result.stderr[-4000:])
 
 
 def test_pc_copies_the_same_whatever_the_room(built, tmp_path):

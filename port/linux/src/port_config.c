@@ -437,8 +437,7 @@ static const struct config_setting config_settings[] =
 	{ "display.crosshair_position", _config_string, "\"retail\"", "HALO_CROSSHAIR_POSITION", _environment_value,
 		_platform_all,
 		"Where the crosshair and your aim sit: \"retail\" (the middle of the\n"
-		"title-safe frame, as on the Xbox), \"centered\" (the middle of your\n"
-		"view; only different in split screen) or \"lowered\" (a tenth of the\n"
+		"title-safe frame, as on the Xbox) or \"lowered\" (a tenth of the\n"
 		"view's height below the middle). The view moves with it, so shots\n"
 		"still go where the crosshair is. Zoomed, it's in the middle." },
 	{ "display.hud_safe_zone", _config_string, DEFAULT_HUD_SAFE_ZONE, "HALO_HUD_SAFE_ZONE", _environment_value,
@@ -446,7 +445,9 @@ static const struct config_setting config_settings[] =
 		"How far the HUD sits from the screen's edges: \"xbox\" (48 and 36\n"
 		"in, as on the Xbox), \"pc\" (8 in, as Halo PC), \"auto\" (the Xbox's\n"
 		"alone, Halo PC's in split screen) or two numbers, \"24 18\" (8 to\n"
-		"48 across, 8 to 36 down). As Chimera's chimera_safe_zones." },
+		"48 across, 8 to 36 down). As Chimera's chimera_safe_zones. Other\n"
+		"than \"xbox\", each split screen view's crosshair and aim are in\n"
+		"its middle." },
 	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
 		_platform_all,
 		"Draw your weapon and arms. false hides them." },
@@ -658,11 +659,14 @@ static const struct config_setting config_settings[] =
 		"In the game lobby of a game you host: \"button\" (the default) holds\n"
 		"the countdown until you choose START GAME; \"auto\" lets it run by\n"
 		"itself once enough players are in, as the Xbox's lobby does." },
-#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+/* (the join screen is the game list's: browser_screen.c) */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 	{ "display.join_screen", _config_boolean, "true", "HALO_JOIN_SCREEN", _environment_value, _platform_all,
 		"Show the loading screen while a game is joined or its map downloads,\n"
 		"with what is going on and B to cancel. false: a small panel over the\n"
 		"game list." },
+#endif
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
 	{ "display.xbox_loading_picture", _config_boolean, "true", "HALO_XBOX_LOADING_PICTURE", _environment_value,
 		_platform_all,
 		"true: the loading screen shows the Xbox's own picture, xbox_loading.tga\n"
@@ -752,8 +756,11 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_PORT_RAGDOLLS
 	/* (port/linux/game/ragdolls.c; Video Setup's RAGDOLLS. Live) */
 	{ "display.ragdolls", _config_boolean, "false", "HALO_RAGDOLLS", _environment_value, _platform_desktop,
-		"true: a character killed falls limp, thrown by the blow that killed\n"
-		"it, and comes to rest where it lands (Jolt Physics). false (the\n"
+		"true: a character killed plays its death animation and falls limp\n"
+		"partway through it, as in Halo 2 and 3 (one thrown into the air by an\n"
+		"explosion, a melee blow or a vehicle's hit flies in its airborne\n"
+		"death animation and goes limp where it lands), and comes to rest\n"
+		"where it lands (Jolt Physics). false (the\n"
 		"default): its death animation, as on the Xbox. Drawing only: the\n"
 		"body, hit boxes, saved games and the network are as before. The idea\n"
 		"is from jojoxdk's Halo 1 MCC Box3D Physics Mod." },
@@ -864,6 +871,14 @@ static const struct config_setting config_settings[] =
 		"Vulkan anyway. Read when Chupathingy starts." },
 #endif
 #endif
+#if !defined(HALO_GL_ES) && !defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_CONSOLE) && !defined(HALO_SWITCH_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_SERVER)
+	{ "display.gl_buffer_ring", _config_boolean, "false", "HALO_GL_BUFFER_RING", _environment_value, _platform_desktop,
+		"OpenGL: stream the frame's vertices and indices through a ring of three\n"
+		"buffers, each reused once the GPU is done with it, instead of asking\n"
+		"the driver for a new 32 MB buffer every frame. Try it if OpenGL crashes\n"
+		"or stutters on Linux with Mesa. Off by default while it is tested.\n"
+		"Read when Chupathingy starts." },
+#endif
 
 	/* ---- tuning: performance knobs that change only what is drawn
 	(config_tuning_apply). The preset fills in the [display] limits it
@@ -880,9 +895,9 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"With V-Sync on: \"vblank\" waits for the display before every frame.\n"
 		"\"adaptive\" shows a frame that missed the display at once, with a tear,\n"
-		"instead of waiting for the next. OpenGL on Windows, Linux and Android,\n"
-		"and the original Xbox; elsewhere it waits. Takes effect at the next\n"
-		"start." },
+		"instead of waiting for the next. OpenGL and Vulkan on Windows, Linux\n"
+		"and Android, and the original Xbox. Direct3D 11 and the Mac wait, as\n"
+		"the log says. Takes effect at the next start." },
 	/* (the drawing's knobs: render.c's render_tuning, which holds them in
 	network games) */
 	{ "tuning.particle_thinning", _config_integer, "1", "HALO_PARTICLE_THINNING", _environment_value,
@@ -923,6 +938,10 @@ static const struct config_setting config_settings[] =
 		"The music's volume, from 0.0 to 1.0." },
 	{ "audio.effects_volume", _config_real, "1.0", "HALO_EFFECTS_VOLUME", _environment_value, _platform_all | _platform_xbox,
 		"The volume of effects and speech, from 0.0 to 1.0." },
+	/* (the original Xbox plays its own DirectSound: dsound_sdl.c's) */
+	{ "audio.loudness", _config_string, "\"xbox\"", "HALO_AUDIO_LOUDNESS", _environment_value, _platform_all,
+		"\"xbox\" plays sound at the original Xbox's level. \"louder\" plays it\n"
+		"6 dB louder, as Chupathingy did before 0.9.2." },
 	{ "audio.enabled", _config_boolean, "true", "HALO_NO_AUDIO", _environment_set_is_false, _platform_all,
 		"Play sound." },
 	/* (audio.voice_device is kept for a voice output of its own, later:
@@ -1193,6 +1212,14 @@ static const struct config_setting config_settings[] =
 		"Open the Delta Guide with the controller's Guide button, where\n"
 		"Chupathingy can read it (Steam and the Xbox Game Bar may keep it for\n"
 		"themselves)." },
+	{ "delta.confirm_button", _config_string, "\"bottom\"", "HALO_DELTA_CONFIRM_BUTTON", _environment_value,
+		_platform_all,
+		"The button that picks in the Delta Guide: \"bottom\", the Xbox's A,\n"
+		"or \"right\", as Nintendo's pads have it (the bottom one goes back).\n"
+		"The game's own menus keep the Xbox's." },
+	{ "delta.rumble", _config_boolean, "false", "HALO_DELTA_RUMBLE", _environment_value, _platform_all,
+		"A short buzz on the controller when a press in the Delta Guide can do\n"
+		"nothing there. Off by default, as the game's own menus have none." },
 	{ "delta.hold_back", _config_boolean, "false", "HALO_DELTA_HOLD_BACK", _environment_value, _platform_all,
 		"Open the Delta Guide by holding Back for about half a second in the\n"
 		"menus. While on, the menus get a Back tap once it is let go, never a\n"
@@ -1369,6 +1396,11 @@ static const struct config_setting config_settings[] =
 	{ "network.host_public", _config_boolean, "true", "HALO_NET_HOST_PUBLIC", _environment_value, _platform_all,
 		"New internet games you host start as PUBLIC. false starts them as\n"
 		"PRIVATE." },
+	{ "network.direct_ip_host", _config_boolean, "false", "HALO_NET_DIRECT_IP_HOST", _environment_value,
+		_platform_all | _platform_server,
+		"Games you host answer game searches from internet addresses (no\n"
+		"more than four answers a second). Off, only your local network's and\n"
+		"internet play's searches are answered." },
 	{ "network.coop_public", _config_boolean, "false", "HALO_NET_COOP_PUBLIC", _environment_value, _platform_all,
 		"New online co-op games start as PUBLIC. false starts them as PRIVATE." },
 	{ "network.host_cheats", _config_boolean, "false", "HALO_NET_HOST_CHEATS", _environment_value,
@@ -2101,6 +2133,10 @@ static const struct config_setting config_settings[] =
 		"at a time, separated by ; (up, down, left, right, a, b, x, y, lb, rb,\n"
 		"start, back, lt, rt), for tests.\n"
 		"Debug builds only: a release build ignores it." },
+	{ "debug.battery", _config_string, "\"\"", "HALO_BATTERY", _environment_value, _platform_all,
+		"A battery for the Delta Guide's card to show, for screenshots: its\n"
+		"percent, with c after it while charging (\"40\", \"40c\"). Leave it\n"
+		"empty for the real one." },
 	{ "debug.delta_sample", _config_boolean, "false", "HALO_DELTA_SAMPLE", _environment_set_is_true, _platform_all,
 		"The Delta Guide signed in with made-up friends and a party, nothing\n"
 		"asked of the site, for screenshots. Debug builds only: a release build\n"
@@ -2212,6 +2248,9 @@ static const struct config_setting config_settings[] =
 		"them on the CPU except on NVIDIA. cpu or buffer forces one." },
 	{ "debug.door_portals_log", _config_boolean, "false", "HALO_DOOR_PORTALS_LOG", _environment_set_is_true, _platform_all,
 		"Log which level portals each door covers, as it is paired with them." },
+	{ "debug.time_code", _config_boolean, "false", "HALO_TIME_CODE", _environment_set_is_true, _platform_all,
+		"Draw the cutscene scripts' time code (time_code_show): the ticks since\n"
+		"it started, in the top-left corner, as Bungie's tools showed it." },
 #ifdef HALO_SHADER_PREP
 	{ "debug.draw_every_shader", _config_boolean, "false", "HALO_DRAW_EVERY_SHADER", _environment_set_is_true,
 		_platform_all,
@@ -2955,9 +2994,10 @@ ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
 starting alone (game.start_with_one_player); 4, Headphone 3D on; 5, the
 Xbox's multiplayer by default (v0.9.0: no names above heads, no follow
 camera, no team changes in games you host); 6, the Xbox's own resampler
-(v0.9.1a); 7, the original Xbox's 4:3 picture (v0.9.2). A file answered for
-an earlier generation is asked about the later ones only */
-#define CONFIG_DEFAULTS_GENERATION 7
+(v0.9.1a); 7, the original Xbox's 4:3 picture (v0.9.2); 8, the Xbox's sound
+level (audio.loudness, v0.9.2). A file answered for an earlier generation is
+asked about the later ones only */
+#define CONFIG_DEFAULTS_GENERATION 8
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# Chupathingy uses this line to update the file. Leave it as it is.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -3725,6 +3765,9 @@ static const struct
 	file that names "dashboard" keeps it; one that left it commented out
 	follows "off" (config_find_new_defaults: the Xbox asks nothing) */
 	{ "display.widescreen", "\"dashboard\"", 0, "The 4:3 picture, as the original game had", 7 },
+	/* the whole sum, 6 dB over the Xbox's level, the only one until 0.9.2
+	(a file from before the setting is asked; "louder" keeps it) */
+	{ "audio.loudness", "\"louder\"", 0, "Sound at the original Xbox's level, 6 dB quieter", 8 },
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -4585,6 +4628,41 @@ static char *config_drop_retired_sections(const char *text)
 	return result;
 }
 
+/* display.crosshair_position "centered" (before) put a split screen
+view's crosshair and aim in the view's middle; display.hud_safe_zone does
+that now ("pc", and "auto" in split screen: compute_window_bounds). A file
+with "centered" gets "retail" in its place, and a display.hud_safe_zone
+of "xbox" (written, or the consoles' default) "auto", so that the player's
+split screen stays as it was and a game alone as the Xbox's. Said in the
+log. Returns the new text, or NULL if there was nothing to change */
+static char *config_retire_centered_crosshair(const char *text, toml_datum_t table)
+{
+	toml_datum_t position = toml_seek(table, "display.crosshair_position");
+	toml_datum_t safe_zone = toml_seek(table, "display.hud_safe_zone");
+	int xbox_safe_zone;
+	char *result;
+
+	if (position.type != TOML_STRING || strcmp(position.u.s, "centered"))
+		return NULL;
+	xbox_safe_zone = safe_zone.type == TOML_STRING ? !strcmp(safe_zone.u.s, "xbox") :
+		!strcmp(DEFAULT_HUD_SAFE_ZONE, "\"xbox\"");
+	result = config_text_with_line(text, "display.crosshair_position", "crosshair_position = \"retail\"\n");
+	if (result && xbox_safe_zone)
+	{
+		char *both = config_text_with_line(result, "display.hud_safe_zone", "hud_safe_zone = \"auto\"\n");
+
+		free(result);
+		result = both;
+	}
+	if (result)
+	{
+		platform_log("settings: display.crosshair_position = \"centered\" is retired; it is \"retail\" now%s "
+			"(display.hud_safe_zone puts each split screen view's crosshair in its middle)",
+			xbox_safe_zone ? ", and display.hud_safe_zone = \"auto\"" : "");
+	}
+	return result;
+}
+
 /* a file that holds a setting under its older name (config_renamed): that
 name's lines are taken out of it (its value, and its line commented out at
 the default with its help text of that day, each with the comment above it
@@ -4774,6 +4852,7 @@ static const struct
 	{ "display.theme", { "blue", "red", "green", "orange", "live", NULL }, "\"blue\"" },
 	{ "delta.guide_background", { "auto", "plain", "cellwall", NULL }, "\"auto\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
+	{ "delta.confirm_button", { "bottom", "right", NULL }, "\"bottom\"" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.vrr", { "off", "on", "auto", NULL }, "\"off\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
@@ -4795,7 +4874,8 @@ static const struct
 	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
-	{ "display.crosshair_position", { "retail", "centered", "lowered", NULL }, "\"retail\"" },
+	/* ("centered" is retired: config_retire_centered_crosshair) */
+	{ "display.crosshair_position", { "retail", "lowered", NULL }, "\"retail\"" },
 	/* (two numbers, "24 18", are taken too: the log line for anything else
 	is hud_draw.c's hud_safe_zone_margins) */
 	{ "display.hud_safe_zone", { "xbox", "pc", "auto", NULL }, NULL },
@@ -4804,6 +4884,7 @@ static const struct
 	{ "tuning.present_mode", { "vblank", "adaptive", NULL }, NULL },
 	{ "tuning.effects", { "full", "reduced", "minimal", NULL }, NULL },
 	{ "audio.resampling", { "xbox", "sinc", "linear", NULL }, "\"xbox\"" },
+	{ "audio.loudness", { "xbox", "louder", NULL }, "\"xbox\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
 	{ "game.console_log", { "important", "all", "none", NULL }, "\"important\"" },
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },
@@ -5610,6 +5691,29 @@ static void config_load(void)
 					{
 						toml_free(forwarded_result);
 						free(forwarded);
+					}
+				}
+			}
+			{
+				/* (display.crosshair_position "centered", retired) */
+				char *retired = config_retire_centered_crosshair(text, result.toptab);
+				toml_result_t retired_result;
+
+				if (retired)
+				{
+					retired_result = toml_parse(retired, (int)strlen(retired));
+					if (retired_result.ok)
+					{
+						toml_free(result);
+						free(text);
+						result = retired_result;
+						text = retired;
+						updated = text;
+					}
+					else
+					{
+						toml_free(retired_result);
+						free(retired);
 					}
 				}
 			}

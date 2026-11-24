@@ -8,16 +8,25 @@ menus' items, glow on the selected row and the edges, the prompt bar), its
 data social.c's.
 
 The panel: the player's card (their name and what they're doing), then
-the sections, switched with LB and RB (Q and E, or a click): FRIENDS,
-PARTY, PLAYERS HERE, RECENT, SERVICE RECORD and SETTINGS.
-- PLAYERS HERE lists the game's players: their Delta Tag when they share
+the sections down the left (FRIENDS, PARTY, CLAN, PLAYERS HERE, RECENT,
+WORKSHOP, SERVICE RECORD and SETTINGS) beside the one shown; B closes
+the Guide from them (the prompt bar's B CLOSE). LB and RB (Q and E) switch them from anywhere, a
+click opens one, and Left goes to them from a section when nothing there
+takes it (a setting's value does): there up and down show each, and A or
+Right goes back in.
+- PLAYERS HERE, listed only in a game (local, hosted or joined; not in
+  the menus), lists the game's players: their Delta Tag when they share
   their profile (else their game name), their platform's logo when the game
   is on Delta, and a local Mute (the chat log's, chat.c). A player verified
   in this game (the identity capability's roster, delta_peer.h) also gets
   ADD FRIEND (Y); a name alone never does. No address is ever shown.
 - SETTINGS has the Guide's own settings (settings_rows.c's rows, which the
-  setup screen's Settings shares), then ABOUT: the About screen (about.c),
-  which the menus' ABOUT rows open too (guide_about_open).
+  setup screen's Settings shares) in pages, DISPLAY, SOUND, GAME, GUIDE
+  and ABOUT (LT and RT), each in blocks under a caption; ABOUT's has the
+  logs' rows, ADVANCED SETUP on the computers outside a game (the setup
+  screen, as the menus' row of it: launcher.menu_entry) and ABOUT: the
+  About screen (about.c), which the menus' ABOUT rows open too
+  (guide_about_open).
 - FRIENDS is the site's friends (browser.c polls them, social.h): the
   invites, the friends online, the offline ones (a row that shows them),
   the friend requests. A on a row opens its options: a friend's JOIN (the
@@ -111,6 +120,7 @@ DELTA counts what waits ("DELTA 2": invites and requests).
 #include "../src/guide_input.h"
 #include "../src/social.h"
 #include "../src/settings_rows.h"
+#include "../src/launcher.h"
 #include "../src/ui_overlay.h"
 #include "delta.h"
 #ifdef HALO_CAPTURE
@@ -134,6 +144,7 @@ DELTA counts what waits ("DELTA 2": invites and requests).
 #include "guide_logs.h"
 #include "report_player.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -167,6 +178,10 @@ long pc_menu_pause_guide_label(void);
 void ui_widgets_port_pause_game(boolean pause);
 /* the platform layer's clipboard (sdl_platform.c) */
 int platform_clipboard_get(char *text, int size);
+/* (xinput_sdl.c's: the first player's pads buzz briefly) */
+void platform_guide_buzz(void);
+/* (sdl_platform.c's: 1 on the battery, 2 charging, 0 none; its percent, -1 not known) */
+int platform_power_state(int *percent);
 void platform_clipboard_set(char const *text);
 /* delta_peer.c's and delta_peer_game.c's: a platform's registry name, and
 this machine's party tag told to its game's host (party_teams) */
@@ -189,20 +204,26 @@ int delta_peer_game_player_identity(int machine_index, int local_player, struct 
 /* the panel's place, in the menus' 640x480 */
 enum
 {
-	PANEL_X = 48, PANEL_Y = 38, PANEL_WIDTH = 544, PANEL_HEIGHT = 398,
+	PANEL_X = 16, PANEL_Y = 38, PANEL_WIDTH = 608, PANEL_HEIGHT = 398,
 	PANEL_RIGHT = PANEL_X + PANEL_WIDTH,
 	INSET = 16,
-	CONTENT_LEFT = PANEL_X + INSET,
+	/* the card across the top */
+	CARD_LEFT = PANEL_X + INSET,
 	CONTENT_RIGHT = PANEL_RIGHT - INSET,
 	HEADER_Y = PANEL_Y + 12,
 	RULE_Y = PANEL_Y + 54,
-	TABS_Y = PANEL_Y + 62,
-	TABS_HEIGHT = 22,
-	BODY_Y = PANEL_Y + 96,
+	/* the sections down the left, under the card (guide_layout_sidebar) */
+	SIDEBAR_LEFT = CARD_LEFT,
+	SIDEBAR_WIDTH = 112,
+	SIDEBAR_ITEM_HEIGHT = 24,
+	/* the section shown, right of them */
+	CONTENT_LEFT = SIDEBAR_LEFT + SIDEBAR_WIDTH + 14,
+	BODY_Y = PANEL_Y + 66,
 	PROMPTS_Y = PANEL_Y + PANEL_HEIGHT - 30,
 	BODY_BOTTOM = PROMPTS_Y - 8,
-	LIST_WIDTH = 262,
-	DETAIL_LEFT = CONTENT_LEFT + LIST_WIDTH + 12,
+	/* a list beside its detail: the list's share, the detail's least */
+	LIST_GAP = 12,
+	DETAIL_LEAST = 190,
 	ROW_HEIGHT = 30,
 	ROW_GAP = 4,
 	SETTING_HEIGHT = 26,
@@ -214,6 +235,8 @@ enum
 	MESSAGE_TIME = 6000,
 	/* (as Delta Profile's dialogs: DIALOG_SETTLE) */
 	CONFIRM_SETTLE = 400,
+	/* the battery asked about this often (the card's) */
+	BATTERY_INTERVAL = 30000,
 	/* the browser thread told where the player is this often */
 	WHERE_INTERVAL = 1000,
 	/* the game's verified players looked at for RECENT this often */
@@ -244,6 +267,13 @@ enum
 	CLAN_LOOK_CLOSED = 2000,
 	EMBLEM_PIXELS = 64,
 };
+
+/* a list's width beside its detail pane, and the pane's left
+(guide_layout_columns: the body right of the sections) */
+static float list_width(void);
+#define LIST_WIDTH list_width()
+#define DETAIL_LEFT (CONTENT_LEFT + LIST_WIDTH + LIST_GAP)
+#define LIST_SHARE 0.53f
 
 /* the colors: the theme's (ui_style_color: Halo Blue, Chupathingy Red or
 Dashboard Green), and those the same in all */
@@ -329,6 +359,8 @@ enum
 	_target_modal,
 	/* SEND MY LOGS' window's buttons (index 0 the left one) */
 	_target_logs,
+	/* SETTINGS' page tabs (index: the page) */
+	_target_settings_page,
 };
 
 /* RECENT's options on a player */
@@ -503,6 +535,11 @@ static struct
 	/* the first row shown of a long list, and of SETTINGS */
 	short first_row;
 	short settings_first;
+	/* the sections down the left have the d-pad (Left from a section,
+	until A or Right goes back into it) */
+	boolean sidebar;
+	/* SETTINGS' page shown (settings_rows.h's SETTINGS_PAGE_*) */
+	short settings_page;
 	/* SETTINGS' scroll bar, as last drawn, for the mouse */
 	struct guide_scroll_bar settings_bar;
 	unsigned int held;
@@ -1243,6 +1280,10 @@ static void setting_change(short setting, short direction)
 	if (row)
 	{
 		settings_row_change(row, direction < 0 ? -1 : 1);
+		/* (CONFIRM BUTTON: the button still down may be the other one now;
+		neither counts until let go) */
+		if (!strcmp(settings_row_key(row), "delta.confirm_button"))
+			guide.held |= GUIDE_INPUT_A | GUIDE_INPUT_B;
 		/* (the menus' DELTA rows, and the Multiplayer menu's FORGE, are put in
 		as the menus load) */
 		if (!strcmp(settings_row_key(row), "delta.menu_item") || !strcmp(settings_row_key(row), "display.menus") ||
@@ -1251,12 +1292,27 @@ static void setting_change(short setting, short direction)
 	}
 }
 
+/* ADVANCED SETUP's row: 1 where it is, else 0. The setup screen, which
+starts Chupathingy again on it (launcher.c): the computers', as the menus'
+settings have it (launcher.menu_entry), and only outside a game, which it
+would end */
+static short setup_rows(void)
+{
+#ifdef HALO_LAUNCHER
+	extern boolean pc_menu_setup_offered(void);
+
+	return (short)(pc_menu_setup_offered() && !in_game());
+#else
+	return 0;
+#endif
+}
+
 /* SETTINGS' rows: the settings, then the devices' rows when signed in,
-then the logs' (guide_logs.c), then ABOUT */
+then the logs' (guide_logs.c), then ADVANCED SETUP, then ABOUT */
 static short settings_rows(void)
 {
 	return (short)(settings_count() + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0) +
-		guide_logs_rows() + 1);
+		guide_logs_rows() + setup_rows() + 1);
 }
 
 /* ABOUT's row, the last */
@@ -1265,10 +1321,22 @@ static short about_row(void)
 	return (short)(settings_rows() - 1);
 }
 
+/* ADVANCED SETUP's row, ABOUT's before it (when setup_rows has one) */
+static short setup_row(void)
+{
+	return (short)(about_row() - 1);
+}
+
+/* whether row is ADVANCED SETUP's */
+static boolean is_setup_row(short row)
+{
+	return setup_rows() && row == setup_row();
+}
+
 /* SEND MY LOGS' row, the first of the logs' */
 static short logs_row(void)
 {
-	return (short)(about_row() - guide_logs_rows());
+	return (short)(about_row() - setup_rows() - guide_logs_rows());
 }
 
 /* a row after the settings: its label */
@@ -1276,9 +1344,33 @@ static char const *extra_row_label(short row)
 {
 	if (row == about_row())
 		return "ABOUT";
+	if (is_setup_row(row))
+		return "ADVANCED SETUP";
 	if (row >= logs_row())
 		return guide_logs_row_label((short)(row - logs_row()));
 	return device_row_labels[row - settings_count()];
+}
+
+/* a row after the settings that opens something (a chevron, OPEN): ABOUT,
+ADVANCED SETUP, the devices' rows; not the logs' (SEND MY LOGS asks, OPEN
+LOGS FOLDER opens the system's file manager) */
+static boolean extra_row_opens(short row)
+{
+	return row == about_row() || is_setup_row(row) || row < logs_row();
+}
+
+/* A's word on a SETTINGS row */
+static char const *settings_a_word(short row)
+{
+	struct settings_row const *setting = row < settings_count() ? settings_row_at(SETTINGS_GROUP_GUIDE, row) : NULL;
+
+	if (setting)
+		return settings_row_arrows(setting) ? "CHANGE" : "OPEN";
+	if (row < settings_count())
+		return "CHANGE";
+	if (row >= logs_row() && row < logs_row() + guide_logs_rows())
+		return guide_logs_row_word((short)(row - logs_row()));
+	return "OPEN";
 }
 
 /* a device row's A: Delta Profile's dialog, over what was under DELTA */
@@ -1302,6 +1394,14 @@ static void extra_row_activate(short row)
 		guide.about_from_settings = TRUE;
 		about_reset(&guide.about_view);
 	}
+#ifdef HALO_LAUNCHER
+	else if (is_setup_row(row))
+	{
+		/* (Chupathingy starts again on the setup screen, and this one quits) */
+		if (!launcher_restart_to_setup())
+			message_set("The setup screen didn't start.");
+	}
+#endif
 	else if (row >= logs_row())
 	{
 		char const *said = guide_logs_row_activate((short)(row - logs_row()));
@@ -1311,6 +1411,242 @@ static void extra_row_activate(short row)
 	}
 	else
 		device_row_activate((short)(row - settings_count()));
+}
+
+/* ---------- SETTINGS' pages: its rows in pages (LT and RT), each page's
+rows in blocks under a caption */
+
+enum
+{
+	MAXIMUM_SETTINGS_LINES = 72,
+	SETTINGS_CAPTION_HEIGHT = 18,
+	SETTINGS_PAGE_TABS_HEIGHT = 20,
+	SETTINGS_INFO_HEIGHT = 22,
+};
+
+/* (the pages and their lines are settings_rows.c's, which the setup
+screen's Settings follows too: settings_page_lines) */
+
+/* a setting's label as SETTINGS shows it: GUIDE BUTTON named as the pad
+names it (PS BUTTON, HOME BUTTON) */
+static char const *settings_label(struct settings_row const *row)
+{
+	if (!strcmp(settings_row_key(row), "controls.delta_button"))
+		return delta_pad_guide_label(ui_overlay_prompt_scheme());
+	return settings_row_label(row);
+}
+
+/* a SETTINGS line: a caption (its words), a line of information (its
+key, "version"), or a row (its index in SETTINGS' rows) */
+struct settings_line
+{
+	short kind;
+	short row;
+	char const *caption;
+};
+
+/* a line of information: its label and value */
+static void settings_info(char const *key, char const **label, char *value, int size)
+{
+	if (!strcmp(key, "version"))
+	{
+		*label = "VERSION";
+		about_version(value, size);
+	}
+	else
+	{
+		*label = "PLATFORM";
+		about_platform(value, size);
+	}
+}
+
+/* a SETTINGS row's key, as the pages name it */
+static char const *settings_row_name(short row, char *text, int size)
+{
+	struct settings_row const *setting = row < shared_settings_count() ? settings_row_at(SETTINGS_GROUP_GUIDE, row) :
+		NULL;
+
+	if (setting)
+		return settings_row_key(setting);
+#ifdef HALO_PORT_VOICE_AUDIO
+	if (voice_setting_of(row) != NONE)
+		return voice_setting_keys[voice_setting_of(row)];
+#endif
+	if (row == about_row())
+		return "@about";
+	if (is_setup_row(row))
+		return "@setup";
+	if (row >= logs_row())
+		snprintf(text, (size_t)size, "@logs%d", row - logs_row());
+	else
+		snprintf(text, (size_t)size, "%s", row - settings_count() == _device_row_devices ? "@devices" : "@link");
+	return text;
+}
+
+/* the row named key (NONE: not in this build) */
+static short settings_row_named(char const *key)
+{
+	short row, rows = settings_rows();
+	char text[16];
+
+	for (row = 0; row < rows; row++)
+	{
+		if (!strcmp(settings_row_name(row, text, sizeof(text)), key))
+			return row;
+	}
+	return NONE;
+}
+
+/* whether some page lists key */
+static boolean settings_key_listed(char const *key)
+{
+	short page;
+	char const *const *line;
+
+	for (page = 0; page < NUMBER_OF_SETTINGS_PAGES; page++)
+	{
+		for (line = settings_page_lines(page); *line; line++)
+		{
+			if (!strcmp(*line, key))
+				return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* a page's lines, top to bottom: their count */
+static short settings_lines(short page, struct settings_line *lines)
+{
+	char const *const *entry;
+	char const *caption = NULL;
+	short count = 0;
+
+	for (entry = settings_page_lines(page); *entry && count < MAXIMUM_SETTINGS_LINES - 1; entry++)
+	{
+		short row;
+
+		if ((*entry)[0] == '#')
+		{
+			caption = *entry + 1;
+			continue;
+		}
+		row = (*entry)[0] == '=' ? NONE : settings_row_named(*entry);
+		if (row == NONE && (*entry)[0] != '=')
+			continue;
+		if (caption)
+		{
+			lines[count].kind = GUIDE_LINE_CAPTION;
+			lines[count].row = NONE;
+			lines[count++].caption = caption;
+			caption = NULL;
+		}
+		lines[count].kind = (*entry)[0] == '=' ? GUIDE_LINE_INFO : GUIDE_LINE_ACTION;
+		lines[count].row = row;
+		lines[count++].caption = (*entry)[0] == '=' ? *entry + 1 : NULL;
+	}
+	if (page == SETTINGS_PAGE_OTHER)
+	{
+		short row, rows = settings_rows();
+		char text[16];
+
+		for (row = 0; row < rows && count < MAXIMUM_SETTINGS_LINES; row++)
+		{
+			if (settings_key_listed(settings_row_name(row, text, sizeof(text))))
+				continue;
+			lines[count].kind = GUIDE_LINE_ACTION;
+			lines[count].row = row;
+			lines[count++].caption = NULL;
+		}
+	}
+	return count;
+}
+
+/* the page a row is on */
+static short settings_row_page(short row)
+{
+	char text[16];
+	char const *key = settings_row_name(row, text, sizeof(text));
+	short page;
+	char const *const *line;
+
+	for (page = 0; page < NUMBER_OF_SETTINGS_PAGES; page++)
+	{
+		for (line = settings_page_lines(page); *line; line++)
+		{
+			if (!strcmp(*line, key))
+				return page;
+		}
+	}
+	return SETTINGS_PAGE_OTHER;
+}
+
+/* a page's lines' kinds, for guide_layout's lines; the line of row (NONE:
+not on it) */
+static short settings_line_kinds(struct settings_line const *lines, short count, int *kinds, short row)
+{
+	short line, at = NONE;
+
+	for (line = 0; line < count; line++)
+	{
+		kinds[line] = lines[line].kind;
+		if (lines[line].row == row && lines[line].kind == GUIDE_LINE_ACTION)
+			at = line;
+	}
+	return at;
+}
+
+/* the chosen row kept on the page shown: its first row when it isn't */
+static void settings_keep_on_page(void)
+{
+	struct settings_line lines[MAXIMUM_SETTINGS_LINES];
+	int kinds[MAXIMUM_SETTINGS_LINES];
+	short count = settings_lines(guide.settings_page, lines);
+	short at = settings_line_kinds(lines, count, kinds, guide.row[SOCIAL_SECTION_SETTINGS]);
+
+	short row = guide.row[SOCIAL_SECTION_SETTINGS];
+
+	if (at != NONE)
+		return;
+	/* (a row chosen from elsewhere, guide_open_setting's: its page) */
+	if (row >= 0 && row < settings_rows())
+	{
+		guide.settings_page = settings_row_page(row);
+		guide.settings_first = 0;
+		return;
+	}
+	at = (short)guide_lines_snap(kinds, count, 0, 1);
+	if (at != NONE)
+		guide.row[SOCIAL_SECTION_SETTINGS] = lines[at].row;
+}
+
+/* another page (step -1 or 1, LT or RT; it wraps), on its first row */
+static void settings_page_go(short page)
+{
+	guide.settings_page = (short)((page + NUMBER_OF_SETTINGS_PAGES) % NUMBER_OF_SETTINGS_PAGES);
+	guide.settings_first = 0;
+	guide.row[SOCIAL_SECTION_SETTINGS] = NONE;
+	settings_keep_on_page();
+	guide.message[0] = 0;
+}
+
+/* a row chosen, on its page */
+static void settings_choose(short row)
+{
+	guide.settings_page = settings_row_page(row);
+	guide.row[SOCIAL_SECTION_SETTINGS] = row;
+}
+
+/* up or down SETTINGS' page, past its captions */
+static void settings_move(short step)
+{
+	struct settings_line lines[MAXIMUM_SETTINGS_LINES];
+	int kinds[MAXIMUM_SETTINGS_LINES];
+	short count = settings_lines(guide.settings_page, lines);
+	short at = settings_line_kinds(lines, count, kinds, guide.row[SOCIAL_SECTION_SETTINGS]);
+
+	at = (short)guide_lines_move(kinds, count, at == NONE ? 0 : at, step);
+	if (at != NONE)
+		guide.row[SOCIAL_SECTION_SETTINGS] = lines[at].row;
 }
 
 /* ---------- SIGN IN: Quick Connect's code, shown here */
@@ -1618,6 +1954,23 @@ static char const *option_label(short option, boolean armed)
 	case _option_cancel: return "CANCEL REQUEST";
 	case _option_unblock: return "UNBLOCK";
 	default: return "DISMISS";
+	}
+}
+
+/* A's word on an option: what it does, short ("INVITE" for INVITE TO MY
+GAME); CONFIRM for one waiting for its second press */
+static char const *option_word(short option, boolean armed)
+{
+	if (armed)
+		return "CONFIRM";
+	switch (option)
+	{
+	case _option_invite:
+	case _option_party_invite:
+	case _option_clan_invite: return "INVITE";
+	case _option_clan_join: return "JOIN";
+	case _option_cancel: return "CANCEL";
+	default: return option_label(option, FALSE);
 	}
 }
 
@@ -2170,6 +2523,13 @@ static char const *recent_option_label(short option, boolean armed)
 	}
 }
 
+static char const *recent_option_word(short option, boolean armed)
+{
+	if (armed)
+		return "CONFIRM";
+	return option == _recent_view ? "VIEW" : recent_option_label(option, FALSE);
+}
+
 /* the site's page of a profile (/u/HANDLE), in the system's browser */
 static void profile_page_open(char const *handle)
 {
@@ -2571,6 +2931,32 @@ static char const *party_action_label(short action)
 	case _party_action_make_leader: return party_has_leader() ? "MAKE LEADER" : "CHOOSE AS LEADER";
 	default: return guide.party_armed == _party_action_kick ? "CONFIRM KICK" : "KICK";
 	}
+}
+
+/* A's word on a PARTY button (NULL: A does nothing on it now) */
+static char const *party_action_word(short action)
+{
+	switch (action)
+	{
+	case _party_action_invite_friends:
+	case _party_action_join_code: return "OPEN";
+	case _party_action_copy_link: return "COPY";
+	case _party_action_who: return guide.party.leader ? "CHANGE" : NULL;
+	case _party_action_bring:
+	case _party_action_follow: return "CHANGE";
+	case _party_action_new_code: return "NEW CODE";
+	case _party_action_leave: return guide.party_armed == _party_action_leave ? "CONFIRM" : "LEAVE";
+	case _party_action_start: return "START";
+	case _party_action_make_leader: return party_has_leader() ? "MAKE LEADER" : "CHOOSE";
+	default: return guide.party_armed == _party_action_kick ? "CONFIRM" : "KICK";
+	}
+}
+
+/* a PARTY button that opens something (a chevron): INVITE FRIENDS (FRIENDS)
+and JOIN WITH A CODE (the code's letters) */
+static boolean party_action_opens(short action)
+{
+	return action == _party_action_invite_friends || action == _party_action_join_code;
 }
 
 /* the party's line on a member (LEADER, YOU); a member with no Delta
@@ -3310,11 +3696,11 @@ static void hint_update(boolean menu_open)
 		guide_key_shown(key, sizeof(key));
 #ifdef __APPLE__
 		/* (macOS often keeps the controller's Home button) */
-		delta_hint_text_for(title, sizeof(title), !ui_overlay_keyboard(), key, config_boolean("controls.delta_button"),
-			config_boolean("delta.hold_back"), 1);
+		delta_hint_text_for(title, sizeof(title), ui_overlay_prompt_scheme(), key,
+			config_boolean("controls.delta_button"), config_boolean("delta.hold_back"), 1);
 #else
-		delta_hint_text_for(title, sizeof(title), !ui_overlay_keyboard(), key, config_boolean("controls.delta_button"),
-			config_boolean("delta.hold_back"), 0);
+		delta_hint_text_for(title, sizeof(title), ui_overlay_prompt_scheme(), key,
+			config_boolean("controls.delta_button"), config_boolean("delta.hold_back"), 0);
 #endif
 		/* (counted once it is drawn: render_toast) */
 		social_toast_push(&guide.toasts, _toast_hint, "hint", title, "Friends, party and settings", "");
@@ -3406,20 +3792,28 @@ static short section_rows(short section)
 	}
 }
 
-/* whether a section's tab shows (WORKSHOP only with MCC on this computer) */
+/* whether a section is listed (WORKSHOP only with MCC on this computer,
+PLAYERS HERE only in a game: local, hosted or joined) */
 static boolean section_shown(short section)
 {
-	return section != SOCIAL_SECTION_WORKSHOP || guide_workshop_shown();
+	if (section == SOCIAL_SECTION_WORKSHOP)
+		return guide_workshop_shown();
+	if (section == SOCIAL_SECTION_PLAYERS_HERE)
+		return in_game();
+	return TRUE;
 }
 
 static void section_go(short section)
 {
-	/* (a section not shown is passed, the way the bumper went) */
-	short step = section < guide.section ? -1 : 1;
+	/* (a section not listed is passed, the way the bumper went) */
+	int shown[NUMBER_OF_SOCIAL_SECTIONS];
+	short index;
 
-	section = (short)((section + NUMBER_OF_SOCIAL_SECTIONS) % NUMBER_OF_SOCIAL_SECTIONS);
-	while (!section_shown(section))
-		section = (short)((section + step + NUMBER_OF_SOCIAL_SECTIONS) % NUMBER_OF_SOCIAL_SECTIONS);
+	for (index = 0; index < NUMBER_OF_SOCIAL_SECTIONS; index++)
+		shown[index] = section_shown(index);
+	section = (short)guide_sections_go(shown, NUMBER_OF_SOCIAL_SECTIONS, guide.section, section);
+	if (section < 0)
+		section = SOCIAL_SECTION_FRIENDS;
 	guide.section = section;
 	guide.first_row = 0;
 	guide.options = FALSE;
@@ -3531,6 +3925,11 @@ static void move(short step)
 		clan_move(step);
 		return;
 	}
+	if (guide.section == SOCIAL_SECTION_SETTINGS)
+	{
+		settings_move(step);
+		return;
+	}
 	*row = (short)PIN(*row + step, 0, rows - 1);
 	guide.party_armed = NONE;
 }
@@ -3627,56 +4026,173 @@ static void logs_target(float x0, float y0, float x1, float y1, short index)
 	target_add(x0, y0, x1, y1, _target_logs, index);
 }
 
+/* the battery on the card: only running on one or charging (a desktop,
+or a laptop plugged in and full, shows nothing); the system asked every
+BATTERY_INTERVAL, not every frame. Its percent and a small battery,
+left of right */
+static void render_battery(float right, float y)
+{
+	static unsigned long asked;
+	static int state, percent;
+	unsigned long now = system_milliseconds();
+	char text[32];
+	float width = 15, height = 7, x;
+	unsigned int color = COLOR_LABEL;
+	int level;
+
+	if (!asked || now - asked >= BATTERY_INTERVAL)
+	{
+		asked = now ? now : 1;
+		state = platform_power_state(&percent);
+	}
+	if (!state)
+		return;
+	if (percent < 0)
+		snprintf(text, sizeof(text), "%s", state == 2 ? "Charging" : "Battery");
+	else
+		snprintf(text, sizeof(text), state == 2 ? "%d%% \xC2\xB7 Charging" : "%d%%", percent);
+	x = right - ui_overlay_text_width(UI_FONT_MENU_SMALL, 9.0f, text);
+	ui_overlay_text(UI_FONT_MENU_SMALL, 9.0f, right, y, UI_ALIGN_RIGHT, color, text);
+	/* (low, on the battery: the warning's color) */
+	level = percent < 0 ? 100 : percent > 100 ? 100 : percent;
+	if (state == 1 && level <= 15)
+		color = ui_style_color(UI_COLOR_WARNING);
+	x -= width + 8;
+	ui_overlay_outline(x, y + 1, width, height + 1, 1.5f, 1.0f, color);
+	ui_overlay_rect(x + width, y + 3, 2, height - 3, 0, color);
+	ui_overlay_rect(x + 2, y + 3, (width - 4) * (float)level / 100.0f, height - 3, 0.5f, color);
+}
+
 static void render_card(void)
 {
-	ui_style_card(CONTENT_LEFT, CONTENT_RIGHT, HEADER_Y, guide.name, guide.status, guide.color, "DELTA");
+	ui_style_card(CARD_LEFT, CONTENT_RIGHT, HEADER_Y, guide.name, guide.status, guide.color, "DELTA");
+	/* (left of the title) */
+	render_battery(CONTENT_RIGHT - ui_overlay_text_width(UI_FONT_TITLE, 17.0f, "DELTA") - 16, HEADER_Y + 12);
 }
 
-static void render_tabs(void)
+/* the sections shown, in order (WORKSHOP only with MCC): their count */
+static short sections_shown(short *sections)
 {
-	char const *names[NUMBER_OF_SOCIAL_SECTIONS];
-	float starts[NUMBER_OF_SOCIAL_SECTIONS], ends[NUMBER_OF_SOCIAL_SECTIONS];
-	short sections[NUMBER_OF_SOCIAL_SECTIONS];
-	short section, count = 0, selected = 0;
+	short section, count = 0;
 
-	/* (the tabs shown: WORKSHOP only with MCC) */
 	for (section = 0; section < NUMBER_OF_SOCIAL_SECTIONS; section++)
 	{
-		if (!section_shown(section))
-			continue;
-		if (section == guide.section)
-			selected = count;
-		sections[count] = section;
-		names[count++] = social_section_name(section);
+		if (section_shown(section))
+			sections[count++] = section;
 	}
-	ui_style_tabs(CONTENT_LEFT, CONTENT_RIGHT, TABS_Y, TABS_HEIGHT, names, count, selected,
-		"Q", "E", starts, ends);
-	for (section = 0; section < count; section++)
-		target_add(starts[section], TABS_Y, ends[section], TABS_Y + TABS_HEIGHT, _target_tab, sections[section]);
+	return count;
 }
 
-/* a player's row: their dot, tag, status line and platform's logo */
-static void render_row(struct social_row const *row, float x, float y, float width, boolean on, short index)
+/* text's width in the menus' font (guide_layout's measure) */
+static float measure_menu_font(void *context, float size, char const *text)
 {
-	char tag[SOCIAL_TAG_SIZE + 4];
+	(void)context;
+	return ui_overlay_text_width(UI_FONT_MENU, size, text);
+}
+
+static float list_width(void)
+{
+	struct guide_rect body = { CONTENT_LEFT, BODY_Y, CONTENT_RIGHT - CONTENT_LEFT, BODY_BOTTOM - BODY_Y };
+	struct guide_rect list, detail;
+
+	guide_layout_columns(body, LIST_GAP, LIST_SHARE, DETAIL_LEAST, &list, &detail);
+	return list.width;
+}
+
+/* the sections down the left, the one shown lit (with the plasma while
+they have the d-pad) */
+static void render_sidebar(void)
+{
+	struct guide_rect area = { SIDEBAR_LEFT, BODY_Y, SIDEBAR_WIDTH, BODY_BOTTOM - BODY_Y };
+	struct guide_sidebar_layout layout;
+	short sections[NUMBER_OF_SOCIAL_SECTIONS], count = sections_shown(sections), index;
+	float size = 9.5f;
+
+	guide_layout_sidebar(area, count, SIDEBAR_ITEM_HEIGHT, &layout);
+	for (index = 0; index < layout.count; index++)
+	{
+		struct guide_rect const *item = &layout.items[index];
+		boolean shown = sections[index] == guide.section;
+		char const *name = social_section_name(sections[index]);
+		char fitted[48];
+
+		if (shown && guide.sidebar)
+			ui_style_row(item->x, item->y, item->width, item->height, TRUE);
+		else if (shown)
+			ui_style_row_chosen(item->x, item->y, item->width, item->height);
+		/* (a long name in a narrow sidebar: smaller, never past its edge) */
+		guide_layout_fit(name, item->width - 20, size, measure_menu_font, NULL, 0, fitted, sizeof(fitted));
+		if (shown)
+		{
+			ui_overlay_text_glow(UI_FONT_MENU, size, item->x + 10, item->y + (item->height - size) * 0.5f, UI_ALIGN_LEFT,
+				0xFFFFFFFF, COLOR_PROMPT_GLOW, fitted);
+		}
+		else
+		{
+			ui_overlay_text(UI_FONT_MENU, size, item->x + 10, item->y + (item->height - size) * 0.5f, UI_ALIGN_LEFT,
+				ui_style_color(UI_COLOR_TAB), fitted);
+		}
+		target_add(item->x, item->y, item->x + item->width, item->y + item->height, _target_tab, sections[index]);
+	}
+	/* (a faint line between them and the section) */
+	ui_overlay_rect(CONTENT_LEFT - 8, BODY_Y, 1, BODY_BOTTOM - BODY_Y, 0, ui_style_color(UI_COLOR_RULE));
+}
+
+/* the width of text in a kind's font (guide_layout's measure: context is
+the kind) */
+static float measure_kind(void *context, float size, char const *text)
+{
+	return ui_overlay_text_width(ui_style_text_font((int)(intptr_t)context), size, text);
+}
+
+/* a player's row: their dot, tag, status line and platform's logo, and a
+mark at its right (FRIENDS' IN PARTY, INVITED; NULL: none). The tag and
+the status are cut short of what is at the right (the chosen row's detail
+pane has them whole) */
+static void render_row_marked(struct social_row const *row, float x, float y, float width, boolean on, short index,
+	char const *mark)
+{
+	char tag[SOCIAL_TAG_SIZE + 4], fitted[SOCIAL_STATUS_SIZE + 4];
+	float right = x + width - (row->platform > 0 ? 24 : 10), room;
+	int status_kind = row->muted ? UI_TEXT_WARNING : UI_TEXT_STATUS;
 
 	/* (a name of letters the menus' fonts lack: its ASCII letters, or
 	"Player", never a blank row) */
 	ui_overlay_name_shown(ui_style_text_font(UI_TEXT_NAME), row->tag, tag, sizeof(tag));
 	ui_style_row(x, y, width, ROW_HEIGHT, on);
+	if (mark)
+	{
+		ui_overlay_text(UI_FONT_MENU, 9.5f, x + width - 14, y + (ROW_HEIGHT - 9.5f) * 0.5f, UI_ALIGN_RIGHT,
+			ui_style_color(UI_COLOR_NAME), mark);
+		right = x + width - 14 - ui_overlay_text_width(UI_FONT_MENU, 9.5f, mark) - 8;
+	}
+	room = right - (x + 22);
 	if (row->state >= 0)
 		dot_draw(x + 9, y + ROW_HEIGHT * 0.5f - 3, row->state);
 	if (row->status[0])
 	{
-		ui_style_text(UI_TEXT_NAME, x + 22, y + 3, UI_ALIGN_LEFT, tag);
-		ui_style_text(row->muted ? UI_TEXT_WARNING : UI_TEXT_STATUS, x + 22, y + 17, UI_ALIGN_LEFT, row->status);
+		guide_layout_fit(tag, room, ui_style_text_size(UI_TEXT_NAME), measure_kind, (void *)(intptr_t)UI_TEXT_NAME, 0,
+			fitted, sizeof(fitted));
+		ui_style_text(UI_TEXT_NAME, x + 22, y + 3, UI_ALIGN_LEFT, fitted);
+		guide_layout_fit(row->status, room, ui_style_text_size(status_kind), measure_kind, (void *)(intptr_t)status_kind,
+			0, fitted, sizeof(fitted));
+		ui_style_text(status_kind, x + 22, y + 17, UI_ALIGN_LEFT, fitted);
 	}
 	else
+	{
+		guide_layout_fit(tag, room, ui_style_text_size(UI_TEXT_NAME), measure_kind, (void *)(intptr_t)UI_TEXT_NAME, 0,
+			fitted, sizeof(fitted));
 		ui_style_text(UI_TEXT_NAME, x + 22, y + (ROW_HEIGHT - ui_style_text_size(UI_TEXT_NAME)) * 0.5f, UI_ALIGN_LEFT,
-			tag);
+			fitted);
+	}
 	if (row->platform > 0)
 		ui_overlay_platform(row->platform, 11.0f, x + width - 14, y + (ROW_HEIGHT - 11.0f) * 0.5f, COLOR_LABEL, 0);
 	target_add(x, y, x + width, y + ROW_HEIGHT, _target_row, index);
+}
+
+static void render_row(struct social_row const *row, float x, float y, float width, boolean on, short index)
+{
+	render_row_marked(row, x, y, width, on, index, NULL);
 }
 
 /* a button of the detail pane (an action) */
@@ -3695,6 +4211,7 @@ static void render_players(void)
 	char heading[48];
 	float y = BODY_Y + 16;
 
+	/* (a game with nobody listed yet; in the menus the section isn't) */
 	if (!count)
 		return;
 	snprintf(heading, sizeof(heading), "PLAYERS (%d)", count);
@@ -3898,19 +4415,14 @@ static void render_friend_detail(struct friend_item const *item)
 }
 
 /* a friend's row's mark, at its right: IN PARTY, else INVITED while an
-invite of this player's waits for them */
-static void render_friend_mark(char const *handle, float y)
+invite of this player's waits for them (NULL: none) */
+static char const *friend_mark(char const *handle)
 {
 	unsigned long now = system_milliseconds();
-	char const *mark = party_has_handle(handle) ? "IN PARTY" :
+
+	return party_has_handle(handle) ? "IN PARTY" :
 		social_sent_has(&guide.sent, handle, SOCIAL_SENT_PARTY, now) ||
 		social_sent_has(&guide.sent, handle, SOCIAL_SENT_GAME, now) ? "INVITED" : NULL;
-
-	if (mark)
-	{
-		ui_overlay_text(UI_FONT_MENU, 9.5f, CONTENT_LEFT + LIST_WIDTH - 14, y + (ROW_HEIGHT - 9.5f) * 0.5f, UI_ALIGN_RIGHT,
-			ui_style_color(UI_COLOR_NAME), mark);
-	}
 }
 
 static void render_friends(void)
@@ -3963,9 +4475,8 @@ static void render_friends(void)
 			struct social_row row;
 
 			item_row(item, &row);
-			render_row(&row, CONTENT_LEFT, y, LIST_WIDTH, index == chosen && !guide.options, index);
-			if (item->kind == _item_friend)
-				render_friend_mark(friends_state.friends[item->index].handle, y);
+			render_row_marked(&row, CONTENT_LEFT, y, LIST_WIDTH, index == chosen && !guide.options, index,
+				item->kind == _item_friend ? friend_mark(friends_state.friends[item->index].handle) : NULL);
 		}
 		y += height;
 	}
@@ -4204,6 +4715,9 @@ static void render_clan(void)
 			ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_LEFT + 12, y + (ROW_HEIGHT - 10.0f) * 0.5f, UI_ALIGN_LEFT,
 				leave && guide.armed == ARMED_LEAVE ? COLOR_MUTED : COLOR_VALUE,
 				!leave ? "INVITE FRIENDS" : guide.armed == ARMED_LEAVE ? "CONFIRM LEAVE" : "LEAVE CLAN");
+			/* (INVITE FRIENDS opens FRIENDS) */
+			if (!leave)
+				ui_style_row_chevron(CONTENT_LEFT, y, LIST_WIDTH, ROW_HEIGHT, 10.0f);
 			target_add(CONTENT_LEFT, y, CONTENT_LEFT + LIST_WIDTH, y + ROW_HEIGHT, _target_row, index);
 		}
 		else
@@ -4296,36 +4810,72 @@ static void render_recent(void)
 
 static void render_settings(void)
 {
-	short setting, chosen = guide.row[SOCIAL_SECTION_SETTINGS];
-	float y = BODY_Y;
-	/* (the rows that fit above the help line, scrolled to the chosen one) */
-	short shown = (short)((BODY_BOTTOM - BODY_Y - 18) / (SETTING_HEIGHT + ROW_GAP));
-	short rows = settings_rows();
-	short first = guide.settings_first;
+	struct settings_line lines[MAXIMUM_SETTINGS_LINES];
+	int kinds[MAXIMUM_SETTINGS_LINES];
+	float heights[MAXIMUM_SETTINGS_LINES];
+	float starts[NUMBER_OF_SETTINGS_PAGES], ends[NUMBER_OF_SETTINGS_PAGES];
+	short count, line, chosen_line, shown, first;
+	short chosen;
+	float top = BODY_Y + SETTINGS_PAGE_TABS_HEIGHT + 8, y;
+	/* (the lines that fit above the help line) */
+	float room = BODY_BOTTOM - top - 18 + ROW_GAP;
 
-	/* (the window moves only when the chosen row leaves it) */
-	if (chosen < first)
-		first = chosen;
-	else if (chosen >= first + shown)
-		first = (short)(chosen - shown + 1);
-	if (first > rows - shown)
-		first = (short)(rows - shown);
-	if (first < 0)
-		first = 0;
-	guide.settings_first = first;
-	for (setting = first; setting < rows && setting < first + shown; setting++)
+	/* (its pages, LT and RT) */
+	ui_style_tabs_buttons(UI_BUTTON_LEFT_TRIGGER, UI_BUTTON_RIGHT_TRIGGER);
+	ui_style_tabs(CONTENT_LEFT, CONTENT_RIGHT, BODY_Y, SETTINGS_PAGE_TABS_HEIGHT, settings_page_names(),
+		NUMBER_OF_SETTINGS_PAGES, guide.settings_page, "PGUP", "PGDN", starts, ends);
+	for (line = 0; line < NUMBER_OF_SETTINGS_PAGES; line++)
+		target_add(starts[line], BODY_Y, ends[line], BODY_Y + SETTINGS_PAGE_TABS_HEIGHT, _target_settings_page, line);
+	settings_keep_on_page();
+	chosen = guide.row[SOCIAL_SECTION_SETTINGS];
+	count = settings_lines(guide.settings_page, lines);
+	chosen_line = settings_line_kinds(lines, count, kinds, chosen);
+	for (line = 0; line < count; line++)
 	{
-		struct settings_row const *row = settings_row_at(SETTINGS_GROUP_GUIDE, setting);
+		heights[line] = kinds[line] == GUIDE_LINE_CAPTION ? SETTINGS_CAPTION_HEIGHT : kinds[line] == GUIDE_LINE_INFO ?
+			SETTINGS_INFO_HEIGHT : SETTING_HEIGHT + ROW_GAP;
+	}
+	/* (the window moves only when the chosen row leaves it, its block's
+	caption with it) */
+	first = (short)guide_lines_scroll(kinds, heights, count, chosen_line, guide.settings_first, room);
+	shown = (short)guide_lines_shown(kinds, heights, count, first, room);
+	guide.settings_first = first;
+	y = top;
+	for (line = first; line < count && line < first + shown; line++)
+	{
+		short setting = lines[line].row;
+		struct settings_row const *row;
 		boolean on = setting == chosen;
 
+		if (lines[line].kind == GUIDE_LINE_CAPTION)
+		{
+			ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT + 2, y + (line == first ? 2 : 6), UI_ALIGN_LEFT,
+				lines[line].caption);
+			y += heights[line];
+			continue;
+		}
+		/* (information: a line, not a button) */
+		if (lines[line].kind == GUIDE_LINE_INFO)
+		{
+			char value[160];
+			char const *label;
+
+			settings_info(lines[line].caption, &label, value, sizeof(value));
+			ui_style_info(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTINGS_INFO_HEIGHT - 2, label, value,
+				line + 1 < first + shown && kinds[line + 1] == GUIDE_LINE_INFO);
+			y += heights[line];
+			continue;
+		}
+		row = setting < shared_settings_count() ? settings_row_at(SETTINGS_GROUP_GUIDE, setting) : NULL;
 		if (row)
 		{
 			char value[96];
 
 			settings_row_value(row, value, sizeof(value));
+			/* (STEAM ACCOUNT and WORKSHOP FOLDER open something: a chevron) */
 			if (!settings_row_arrows(row))
-				ui_style_setting_plain();
-			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, settings_row_label(row),
+				ui_style_setting_opens();
+			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, settings_label(row),
 				NULL, value, on);
 		}
 #ifdef HALO_PORT_VOICE_AUDIO
@@ -4334,23 +4884,25 @@ static void render_settings(void)
 #endif
 		else
 		{
+			if (extra_row_opens(setting))
+				ui_style_setting_opens();
 			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f,
 				extra_row_label(setting), NULL, NULL, on);
 		}
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
-		y += SETTING_HEIGHT + ROW_GAP;
+		y += heights[line];
 	}
 	/* (more rows than show: a slim bar in the panel's edge beside them, where
 	no row's value is) */
 	guide.settings_bar.thumb.height = 0;
-	if (shown < rows)
+	if (shown < count)
 	{
 		struct guide_scroll_bar *bar = &guide.settings_bar;
-		struct guide_rect track = { CONTENT_RIGHT + 6, BODY_Y, 3, shown * (SETTING_HEIGHT + ROW_GAP) - ROW_GAP };
+		struct guide_rect track = { CONTENT_RIGHT + 6, top, 3, room - ROW_GAP };
 
-		guide_layout_scroll_thumb(track, rows, shown, first, 12.0f, &bar->thumb);
+		guide_layout_scroll_thumb(track, count, shown, first, 12.0f, &bar->thumb);
 		bar->track = track;
-		bar->count = rows;
+		bar->count = count;
 		bar->shown = shown;
 		ui_overlay_rect(track.x, track.y, track.width, track.height, 1.5f, 0xFFFFFF1A);
 		/* (under the pointer or dragged: wider and brighter) */
@@ -4611,6 +5163,8 @@ static void render_party(void)
 				color = fade(color, 0.5f);
 			ui_style_row(x, action_y, width, OPTION_HEIGHT, on);
 			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 10, action_y + 7, UI_ALIGN_LEFT, color, label);
+			if (items[index].kind == _party_item_action && party_action_opens(action))
+				ui_style_row_chevron(x, action_y, width, OPTION_HEIGHT, 10.0f);
 			if (value)
 				ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 10, action_y + 7, UI_ALIGN_RIGHT, value_color, value);
 			target_add(x, action_y, x + width, action_y + OPTION_HEIGHT, _target_row, index);
@@ -4764,13 +5318,22 @@ static void prompt_add(struct ui_style_prompt *prompts, short *count, int button
 	prompts[(*count)++].word = word;
 }
 
-static void render_prompts(void)
+/* the prompt bar's prompts now (at most MAXIMUM_PROMPTS): their count */
+enum { MAXIMUM_PROMPTS = 6 };
+
+static short prompts_build(struct ui_style_prompt *prompts)
 {
-	struct ui_style_prompt prompts[6];
-	float starts[6], ends[6];
 	char const *word = NULL;
-	short count = 0, index;
+	short count = 0;
 	boolean back = FALSE, add_friend = FALSE;
+
+	/* (the sections down the left: into one, or close the Guide) */
+	if (guide.sidebar && !guide.about)
+	{
+		prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", "OPEN");
+		prompt_add(prompts, &count, UI_BUTTON_B, "ESC", "CLOSE");
+		return count;
+	}
 
 	if (guide.about)
 	{
@@ -4779,29 +5342,44 @@ static void render_prompts(void)
 			prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", word);
 		prompt_add(prompts, &count, UI_BUTTON_B, "ESC",
 			about_b_word(&guide.about_view, guide.about_from_settings ? "BACK" : "CLOSE"));
-		ui_style_prompts(CONTENT_RIGHT, PROMPTS_Y, 15.0f, prompts, count, starts, ends);
-		for (index = 0; index < count; index++)
-			target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19, _target_prompt,
-				(short)prompts[index].button);
-		return;
+		return count;
 	}
 	switch (guide.section)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
-		if (guide.row[guide.section] < guide.players.count &&
-			(guide.players.rows[guide.row[guide.section]].actions & SOCIAL_ACTION_MUTE))
-		{
-			word = "SELECT";
-		}
+	{
+		short row = guide.row[guide.section], kinds[MAXIMUM_PLAYER_OPTIONS];
+		static char labels[MAXIMUM_PLAYER_OPTIONS][REPORT_PLAYER_CHOICE_SIZE];
+		short choices = player_choices(row, kinds, labels);
+
+		/* (a report's step: its reason or clip picked; the options: the
+		one chosen, MUTE, ADD FRIEND, REPORT; the row: its options) */
+		if (report_player_step() != _report_step_none)
+			word = choices > 0 ? "CHOOSE" : NULL;
+		else if (guide.options && guide.option >= 0 && guide.option < choices)
+			word = labels[guide.option];
+		else if (choices > 0)
+			word = "OPTIONS";
 		add_friend = guide.row[guide.section] < guide.players.count &&
 			(guide.players.rows[guide.row[guide.section]].actions & SOCIAL_ACTION_ADD_FRIEND);
 		back = guide.options;
 		break;
+	}
 	case SOCIAL_SECTION_RECENT:
 		if (friends_signed_in())
 		{
-			if (guide.friends_loaded && recent_chosen())
-				word = "SELECT";
+			struct social_recent const *player = guide.friends_loaded ? recent_chosen() : NULL;
+
+			if (player && guide.recent_options)
+			{
+				short options[MAXIMUM_RECENT_OPTIONS], option_count = recent_option_list(player, options);
+
+				if (guide.recent_option >= 0 && guide.recent_option < option_count)
+					word = recent_option_word(options[guide.recent_option],
+						guide.recent_armed == options[guide.recent_option]);
+			}
+			else if (player)
+				word = "OPTIONS";
 			add_friend = recent_can_add();
 			back = guide.recent_options;
 			break;
@@ -4810,7 +5388,7 @@ static void render_prompts(void)
 			word = "SIGN IN";
 		break;
 	case SOCIAL_SECTION_SETTINGS:
-		word = guide.row[guide.section] >= settings_count() ? "OPEN" : "CHANGE";
+		word = settings_a_word(guide.row[guide.section]);
 		break;
 	case SOCIAL_SECTION_SERVICE_RECORD:
 		word = guide_record_prompt();
@@ -4831,12 +5409,17 @@ static void render_prompts(void)
 			struct friend_item const *item = guide.friends_loaded ? chosen_item() : NULL;
 			short options[MAXIMUM_OPTIONS];
 
+			short count = item ? item_options(item, options) : 0;
+
 			if (item && guide.options)
-				word = "SELECT";
+			{
+				if (guide.option >= 0 && guide.option < count)
+					word = option_word(options[guide.option], guide.armed == options[guide.option]);
+			}
 			else if (item && item->kind == _item_offline)
 				word = guide.offline_open ? "HIDE" : "SHOW";
-			else if (item && item_options(item, options) > 0)
-				word = "SELECT";
+			else if (count > 0)
+				word = "OPTIONS";
 			back = guide.options;
 			break;
 		}
@@ -4849,13 +5432,18 @@ static void render_prompts(void)
 			struct friend_item const *item = guide.clan_loaded ? clan_chosen_item() : NULL;
 			short options[MAXIMUM_OPTIONS];
 
+			short count = item ? clan_item_options(item, options) : 0;
+
 			if (item && guide.options)
-				word = "SELECT";
+			{
+				if (guide.option >= 0 && guide.option < count)
+					word = option_word(options[guide.option], guide.armed == options[guide.option]);
+			}
 			else if (item && item->kind == _clan_action)
-				word = item->index == _clan_action_invite ? "INVITE" : guide.armed == ARMED_LEAVE ?
+				word = item->index == _clan_action_invite ? "OPEN" : guide.armed == ARMED_LEAVE ?
 					"CONFIRM" : "LEAVE";
-			else if (item && clan_item_options(item, options) > 0)
-				word = "SELECT";
+			else if (count > 0)
+				word = "OPTIONS";
 			back = guide.options;
 			break;
 		}
@@ -4881,11 +5469,10 @@ static void render_prompts(void)
 			}
 			else if (item.kind == _party_item_voice)
 				word = "CHANGE";
-			else if (item.kind == _party_item_action || !party_has_leader() ||
-				(guide.party.leader && !guide.party.members[item.index].you))
-			{
-				word = "SELECT";
-			}
+			else if (item.kind == _party_item_action)
+				word = party_action_word(item.index);
+			else if (!party_has_leader() || (guide.party.leader && !guide.party.members[item.index].you))
+				word = "OPTIONS";
 		}
 		back = back || guide.party_member != NONE || guide.party_armed != NONE;
 		break;
@@ -4905,9 +5492,32 @@ static void render_prompts(void)
 		prompt_add(prompts, &count, UI_BUTTON_X, "M", "INVITE");
 	prompt_add(prompts, &count, UI_BUTTON_B, "ESC", guide.signing_in && signing_in_here() &&
 		guide.connect.state == BROWSER_CONNECT_CONFIRM && !guide.connect.answered ? "NO" : back ? "BACK" : "CLOSE");
+	return count;
+}
+
+static void render_prompts(void)
+{
+	struct ui_style_prompt prompts[MAXIMUM_PROMPTS];
+	float starts[MAXIMUM_PROMPTS], ends[MAXIMUM_PROMPTS];
+	short count = prompts_build(prompts), index;
+
 	ui_style_prompts(CONTENT_RIGHT, PROMPTS_Y, 15.0f, prompts, count, starts, ends);
 	for (index = 0; index < count; index++)
 		target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19, _target_prompt, (short)prompts[index].button);
+}
+
+/* whether A does something now: its prompt shows */
+static boolean a_offered(void)
+{
+	struct ui_style_prompt prompts[MAXIMUM_PROMPTS];
+	short count = prompts_build(prompts), index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (prompts[index].button == UI_BUTTON_A)
+			return TRUE;
+	}
+	return FALSE;
 }
 
 /* the key DELTA's prompts show (controls.delta's; on a Mac one that isn't
@@ -5144,6 +5754,12 @@ void guide_open(void)
 		follow_end(FALSE);
 	guide.open = TRUE;
 	guide.opened_time = system_milliseconds();
+	/* (the section has the d-pad, as it had) */
+	guide.sidebar = FALSE;
+	/* (the section last open, unless it isn't listed now: PLAYERS HERE
+	from a game since ended) */
+	if (!section_shown(guide.section))
+		section_go((short)(guide.section + 1));
 	/* (what is held as it opens is not pressed in it) */
 	guide.held = 0xFFFFFFFF;
 	guide.repeat_held = 0;
@@ -5193,7 +5809,7 @@ void guide_open_setting(char const *key)
 	{
 		if (!strcmp(settings_row_key(row), key))
 		{
-			guide.row[SOCIAL_SECTION_SETTINGS] = index;
+			settings_choose(index);
 			break;
 		}
 	}
@@ -5314,6 +5930,8 @@ void guide_update(boolean menu_open)
 	guide_logs_update();
 	/* (WORKSHOP's folders watched while it shows, or an item waits on Steam) */
 	guide_workshop_update(guide.open && guide.section == SOCIAL_SECTION_WORKSHOP);
+	/* (a section no longer listed, PLAYERS HERE as a game ends: the next
+	one; the sidebar lists what is shown each frame) */
 	if (guide.open && !section_shown(guide.section))
 		section_go((short)(guide.section + 1));
 	/* (a toast waits out the intro's video, a map's loading and the join
@@ -5505,6 +6123,98 @@ static void handle(unsigned int pressed)
 		party_selection_remember();
 }
 
+/* the sections down the left given the d-pad (Left from a section) */
+static void sidebar_enter(void)
+{
+	guide.sidebar = TRUE;
+}
+
+/* the sections' d-pad: up and down the sections (each shown as the cursor
+reaches it), A or Right into the section, B closes the Guide */
+static void sidebar_handle(unsigned int pressed)
+{
+	short sections[NUMBER_OF_SOCIAL_SECTIONS], count = sections_shown(sections), at = 0, index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (sections[index] == guide.section)
+			at = index;
+	}
+	if (pressed & GUIDE_INPUT_B)
+	{
+		guide_close();
+		return;
+	}
+	if (pressed & (GUIDE_INPUT_A | GUIDE_INPUT_RIGHT))
+	{
+		guide.sidebar = FALSE;
+		return;
+	}
+	if (pressed & (GUIDE_INPUT_LEFT_BUMPER | GUIDE_INPUT_RIGHT_BUMPER))
+	{
+		section_go((short)(guide.section + ((pressed & GUIDE_INPUT_RIGHT_BUMPER) ? 1 : -1)));
+		return;
+	}
+	if ((pressed & GUIDE_INPUT_UP) && at > 0)
+		section_go(sections[at - 1]);
+	else if ((pressed & GUIDE_INPUT_DOWN) && at + 1 < count)
+		section_go(sections[at + 1]);
+}
+
+/* whether Left goes to the sections: nothing in the section takes it now
+(a setting's value, PARTY's buttons back to its list, the Workshop's
+SHOW, SORT and PAGE) */
+static boolean left_leaves(void)
+{
+	short row = guide.row[guide.section];
+
+	switch (guide.section)
+	{
+	case SOCIAL_SECTION_SETTINGS:
+	{
+		struct settings_row const *setting = row >= 0 && row < shared_settings_count() ?
+			settings_row_at(SETTINGS_GROUP_GUIDE, row) : NULL;
+
+		if (setting)
+			return !settings_row_arrows(setting);
+		/* (voice's rows step their values) */
+		return row >= settings_count();
+	}
+	case SOCIAL_SECTION_PARTY:
+	{
+		struct party_item items[MAXIMUM_PARTY_ITEMS], item;
+		short count = party_items(items), first = party_first_action(items, count);
+
+		if (guide.code_entry)
+			return FALSE;
+		if (!party_chosen(&item))
+			return TRUE;
+		return !party_item_button(&item) || first == 0 || first >= count;
+	}
+	case SOCIAL_SECTION_WORKSHOP:
+		return !guide_workshop_side_offered();
+	default:
+		return TRUE;
+	}
+}
+
+/* whether Left goes back a step instead, as B does: out of a row's
+options to its list */
+static boolean left_backs(void)
+{
+	switch (guide.section)
+	{
+	case SOCIAL_SECTION_FRIENDS:
+	case SOCIAL_SECTION_CLAN:
+	case SOCIAL_SECTION_PLAYERS_HERE:
+		return guide.options;
+	case SOCIAL_SECTION_RECENT:
+		return guide.recent_options;
+	default:
+		return FALSE;
+	}
+}
+
 static void handle_pressed(unsigned int pressed)
 {
 	short option;
@@ -5559,15 +6269,36 @@ static void handle_pressed(unsigned int pressed)
 			guide_workshop_link_modal_move((pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 		return;
 	}
+	/* (SETTINGS: LT and RT, Page Up and Page Down, its pages) */
+	if (guide.section == SOCIAL_SECTION_SETTINGS && (pressed & (GUIDE_INPUT_LEFT_TRIGGER | GUIDE_INPUT_RIGHT_TRIGGER)))
+		settings_page_go((short)(guide.settings_page + ((pressed & GUIDE_INPUT_RIGHT_TRIGGER) ? 1 : -1)));
 	/* (WORKSHOP: LT and RT, Page Up and Page Down, a page of Steam's list on or back) */
 	if (guide.section == SOCIAL_SECTION_WORKSHOP && (pressed & (GUIDE_INPUT_LEFT_TRIGGER | GUIDE_INPUT_RIGHT_TRIGGER)))
 		guide_workshop_page_step((pressed & GUIDE_INPUT_RIGHT_TRIGGER) ? 1 : -1);
+	/* (the sections down the left: theirs, until A or Right) */
+	if (guide.sidebar)
+	{
+		sidebar_handle(pressed);
+		return;
+	}
 	/* (PARTY's code being picked: the d-pad is its letters) */
 	if (guide.section == SOCIAL_SECTION_PARTY && guide.code_entry &&
 		!(pressed & (GUIDE_INPUT_LEFT_BUMPER | GUIDE_INPUT_RIGHT_BUMPER)))
 	{
 		code_entry_handle(pressed);
 		return;
+	}
+	/* (Left: out of a row's options, else to the sections when nothing
+	here takes it) */
+	if ((pressed & GUIDE_INPUT_LEFT) && !(pressed & GUIDE_INPUT_RIGHT))
+	{
+		if (left_backs())
+			pressed = (pressed & ~(unsigned int)GUIDE_INPUT_LEFT) | GUIDE_INPUT_B;
+		else if (left_leaves())
+		{
+			sidebar_enter();
+			return;
+		}
 	}
 	if (pressed & GUIDE_INPUT_B)
 	{
@@ -5631,7 +6362,12 @@ static void handle_pressed(unsigned int pressed)
 	if (guide.section == SOCIAL_SECTION_WORKSHOP && (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
 		guide_workshop_side((pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 	if (pressed & GUIDE_INPUT_A)
+	{
+		/* (A with nothing to do: a short buzz on the pad, delta.rumble) */
+		if (!a_offered() && config_boolean("delta.rumble"))
+			platform_guide_buzz();
 		activate();
+	}
 	else if ((pressed & GUIDE_INPUT_X) && guide.section == SOCIAL_SECTION_PLAYERS_HERE)
 		player_mute_toggle(guide.row[guide.section]);
 	else if ((pressed & GUIDE_INPUT_Y) && guide.section == SOCIAL_SECTION_PLAYERS_HERE)
@@ -5646,6 +6382,10 @@ static void handle_pressed(unsigned int pressed)
 
 void guide_process(void)
 {
+	/* (CONFIRM BUTTON: RIGHT swaps the pads' A and B for the Guide alone,
+	while it has the input) */
+	platform_guide_confirm_swap((guide.open || guide.follow_active) &&
+		!strcmp(config_string("delta.confirm_button"), "right"));
 	if (!guide.open && !guide.follow_active)
 		return;
 	if (guide.signing_in)
@@ -5689,9 +6429,20 @@ static boolean scroll_bars_pointer(struct halo_ui_pointer const *pointer)
 		pointer->left_down, pointer->left_clicks > 0, pointer->click_x, pointer->click_y, &taken);
 	if (scroll >= 0)
 	{
+		struct settings_line lines[MAXIMUM_SETTINGS_LINES];
+		int kinds[MAXIMUM_SETTINGS_LINES];
+		short count = settings_lines(guide.settings_page, lines);
+		short at = settings_line_kinds(lines, count, kinds, guide.row[SOCIAL_SECTION_SETTINGS]);
+		short last = (short)(scroll + guide.settings_bar.shown - 1);
+
 		guide.settings_first = (short)scroll;
-		guide.row[SOCIAL_SECTION_SETTINGS] = (short)PIN(guide.row[SOCIAL_SECTION_SETTINGS], scroll,
-			scroll + guide.settings_bar.shown - 1);
+		/* (the chosen row kept among those shown: the nearest one in them) */
+		if (at < scroll || at > last)
+		{
+			at = (short)guide_lines_snap(kinds, count, at < scroll ? scroll : last, at < scroll ? 1 : -1);
+			if (at != NONE)
+				guide.row[SOCIAL_SECTION_SETTINGS] = lines[at].row;
+		}
 	}
 	return taken != 0;
 }
@@ -5758,6 +6509,7 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		{
 		case _target_tab:
 			section_go(target->index);
+			guide.sidebar = FALSE;
 			break;
 		case _target_row:
 			if (guide.section == SOCIAL_SECTION_WORKSHOP)
@@ -5832,6 +6584,9 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			if (guide.row[guide.section] == target->index && pointer->touch)
 				activate();
 			guide.row[guide.section] = target->index;
+			break;
+		case _target_settings_page:
+			settings_page_go(target->index);
 			break;
 		case _target_setting:
 			guide.row[guide.section] = target->index;
@@ -5913,7 +6668,18 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 	}
 }
 
+static void guide_render_frame(void);
+
 void guide_render(void)
+{
+	/* (CONFIRM BUTTON: RIGHT, delta.confirm_button: its A and B drawn as
+	the buttons that press them, the Guide's prompts alone) */
+	ui_overlay_set_confirm_swap(!strcmp(config_string("delta.confirm_button"), "right"));
+	guide_render_frame();
+	ui_overlay_set_confirm_swap(0);
+}
+
+static void guide_render_frame(void)
 {
 	if (!ui_overlay_available())
 		return;
@@ -5961,14 +6727,16 @@ void guide_render(void)
 	ui_style_panel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 1.0f);
 	if (guide.about)
 	{
-		ui_style_card(CONTENT_LEFT, CONTENT_RIGHT, HEADER_Y, NULL, NULL, 0, "ABOUT");
-		about_render(&guide.about_view, CONTENT_LEFT, RULE_Y + 12, CONTENT_RIGHT, BODY_BOTTOM);
+		ui_style_card(CARD_LEFT, CONTENT_RIGHT, HEADER_Y, NULL, NULL, 0, "ABOUT");
+		about_render(&guide.about_view, CARD_LEFT, RULE_Y + 12, CONTENT_RIGHT, BODY_BOTTOM);
 		render_prompts();
 		ui_overlay_layer(0);
 		return;
 	}
 	render_card();
-	render_tabs();
+	render_sidebar();
+	/* (the sections have the d-pad: the section's chosen row rests) */
+	ui_style_selection_rest(guide.sidebar);
 	switch (guide.section)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
@@ -6008,6 +6776,7 @@ void guide_render(void)
 		render_coming();
 		break;
 	}
+	ui_style_selection_rest(0);
 	render_prompts();
 	/* (Steam's sign-in window over it all: only its button takes a click) */
 	if (guide_workshop_link_modal())

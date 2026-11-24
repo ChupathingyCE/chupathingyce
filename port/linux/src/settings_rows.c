@@ -145,8 +145,8 @@ static const char *const hud_buttons_choices[] = { "classic", "hd", NULL };
 static const char *const reticle_size_choices[] = { "0.5", "0.75", "1", "1.25", "1.5", "2", NULL };
 static const char *const reticle_size_names[] = { "50%", "75%", "100%", "125%", "150%", "200%", NULL };
 /* the crosshair's place (display.crosshair_position) */
-static const char *const crosshair_position_choices[] = { "retail", "centered", "lowered", NULL };
-static const char *const crosshair_position_names[] = { "XBOX", "CENTERED", "LOWERED", NULL };
+static const char *const crosshair_position_choices[] = { "retail", "lowered", NULL };
+static const char *const crosshair_position_names[] = { "XBOX", "LOWERED", NULL };
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -203,6 +203,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
 #endif
 	{ _in_audio, "SPEAKERS", "audio.channels", _kind_choices, channels_choices, NULL, 1, 0 },
+	{ _in_audio | _in_guide, "LOUDNESS", "audio.loudness", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_audio, "HEADPHONE 3D", "audio.hrtf", _kind_choices, hrtf_choices, NULL, 0, 0 },
 	{ _in_audio, "REVERB", "audio.reverb", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "DOPPLER", "audio.doppler", _kind_toggle, NULL, NULL, 0, 0 },
@@ -233,6 +234,8 @@ static const struct settings_row settings_rows[] =
 	{ _in_guide, "MISSION ORDER", "game.mcc_campaigns", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FORGE", "game.forge", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "CONFIRM BUTTON", "delta.confirm_button", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_guide, "RUMBLE", "delta.rumble", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "SHOW IN MENUS", "delta.menu_item", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "NOTIFICATIONS IN GAME", "delta.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FRIEND ONLINE ALERTS", "delta.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
@@ -467,35 +470,132 @@ static int display_windowed(void)
 	return same(mode, "windowed");
 }
 
+/* whether a row shows in this build now: its key this build's, and the
+rows that depend on something only where it is */
+static int row_shown(int row)
+{
+	if (config_setting_kind(settings_rows[row].key) < 0)
+		return 0;
+	/* (Steam's link: where the built-in Steam download is, and something opens it) */
+	if ((settings_rows[row].kind == _kind_steam_link || settings_rows[row].kind == _kind_folder) &&
+		(!steam_link_available() || !steam_link_action))
+	{
+		return 0;
+	}
+	/* (Workshop maps: where the Guide has WORKSHOP, MCC on this computer) */
+	if (!workshop_offered && !strcmp(settings_rows[row].key, "game.workshop_maps"))
+		return 0;
+	/* (Resolution and Window Size in one place, as Video Setup has them:
+	Window Size in a window, where Resolution does nothing, and
+	Resolution otherwise) */
+	if ((settings_rows[row].kind == _kind_window_sizes && !display_windowed()) ||
+		(settings_rows[row].kind == _kind_resolutions && display_windowed()))
+	{
+		return 0;
+	}
+	return 1;
+}
+
 const struct settings_row *settings_row_at(int group, int index)
 {
 	int row;
 
 	for (row = 0; row < NUMBER_OF_SETTINGS_ROWS; row++)
 	{
-		if (!(settings_rows[row].groups & (1u << group)) || config_setting_kind(settings_rows[row].key) < 0)
+		if (!(settings_rows[row].groups & (1u << group)) || !row_shown(row))
 			continue;
-		/* (Steam's link: where the built-in Steam download is, and something opens it) */
-		if ((settings_rows[row].kind == _kind_steam_link || settings_rows[row].kind == _kind_folder) &&
-			(!steam_link_available() || !steam_link_action))
-		{
-			continue;
-		}
-		/* (Workshop maps: where the Guide has WORKSHOP, MCC on this computer) */
-		if (!workshop_offered && !strcmp(settings_rows[row].key, "game.workshop_maps"))
-			continue;
-		/* (Resolution and Window Size in one place, as Video Setup has them:
-		Window Size in a window, where Resolution does nothing, and
-		Resolution otherwise) */
-		if ((settings_rows[row].kind == _kind_window_sizes && !display_windowed()) ||
-			(settings_rows[row].kind == _kind_resolutions && display_windowed()))
-		{
-			continue;
-		}
 		if (!index--)
 			return &settings_rows[row];
 	}
 	return NULL;
+}
+
+const struct settings_row *settings_row_for_key(const char *key)
+{
+	int row;
+
+	for (row = 0; row < NUMBER_OF_SETTINGS_ROWS; row++)
+	{
+		if (!strcmp(settings_rows[row].key, key) && row_shown(row))
+			return &settings_rows[row];
+	}
+	return NULL;
+}
+
+/* ---------- the Guide's SETTINGS pages (settings_rows.h) */
+
+static const char *const page_names[NUMBER_OF_SETTINGS_PAGES] =
+{
+	"DISPLAY", "SOUND", "GAME", "GUIDE", "ABOUT",
+};
+
+static const char *const display_lines[] =
+{
+	"#MENUS", "display.menus", "display.theme", "delta.guide_background",
+	"#BUTTONS", "input.button_style", "input.button_look", "input.hud_buttons",
+	"#HUD", "display.reticle_scale", "display.crosshair_position", "display.ping_meter", "display.scoreboard_icons",
+	"#EFFECTS", "display.first_person_weapon", "display.camo_weapon_fix", "display.plasma_sparks", "display.ragdolls",
+	NULL
+};
+static const char *const sound_lines[] =
+{
+	"audio.hit_sounds",
+	"#VOICE", "audio.voice_chat", "audio.voice_channel", "audio.voice_positional", "display.voice_speakers",
+	"#VOLUME", "audio.voice_volume", "audio.voice_volume_party", "audio.voice_volume_team",
+	"audio.voice_volume_proximity", "audio.voice_volume_everyone",
+	NULL
+};
+static const char *const game_lines[] =
+{
+	"game.forge", "game.mods",
+	"#WORKSHOP", "game.workshop_steam", "paths.steam_downloads", "game.workshop_maps", "network.workshop_downloads",
+	"game.mcc_campaigns",
+	NULL
+};
+static const char *const guide_lines[] =
+{
+	"#OPENING", "controls.delta", "controls.delta_button", "delta.menu_item",
+	"#CONTROLLER", "delta.confirm_button", "delta.rumble",
+	"#NOTIFICATIONS", "delta.notify_in_game", "delta.notify_online",
+	"#PRIVACY", "network.share_presence",
+	"#DEVICES", "@devices", "@link",
+	NULL
+};
+static const char *const about_lines[] =
+{
+	"#CHUPATHINGY", "=version", "=platform", "@setup", "@about",
+	"#LOGS", "@logs0", "@logs1",
+	NULL
+};
+static const char *const *const page_lines[NUMBER_OF_SETTINGS_PAGES] =
+{
+	display_lines, sound_lines, game_lines, guide_lines, about_lines,
+};
+
+const char *const *settings_page_names(void)
+{
+	return page_names;
+}
+
+const char *const *settings_page_lines(int page)
+{
+	return page >= 0 && page < NUMBER_OF_SETTINGS_PAGES ? page_lines[page] : NULL;
+}
+
+int settings_key_page(const char *key)
+{
+	int page;
+	const char *const *line;
+
+	for (page = 0; page < NUMBER_OF_SETTINGS_PAGES; page++)
+	{
+		for (line = page_lines[page]; *line; line++)
+		{
+			if (!strcmp(*line, key))
+				return page;
+		}
+	}
+	return -1;
 }
 
 const char *settings_row_label(const struct settings_row *row)

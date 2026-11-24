@@ -358,12 +358,16 @@ static void hud_show_action_response(
 
 #ifndef HALO_CONSOLE_NO_FORGE
 	/* port: Forge's monitor (port/linux/game/forge.c): its hidden unit's
-	prompt is not its to act on */
+	prompt is not its to act on, and one shown as the monitor started (a
+	weapon at the player's feet) is taken off the screen */
 	{
 		extern boolean forge_monitor_hides_prompt(short local_player_index);
 
 		if (forge_monitor_hides_prompt(render.local_player_index))
+		{
+			hud_enable_custom_state_message(render.local_player_index, FALSE);
 			return;
+		}
 	}
 #endif
 	if (respawn_failure != _player_respawn_failure_none &&

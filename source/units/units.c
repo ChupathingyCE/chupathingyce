@@ -6249,10 +6249,16 @@ boolean unit_update(
 
 	if (used_time || unit->unit.player_index!=NONE)
 	{
-		unit_refresh_illumination(unit_index);
-
+		/* port: a unit's ambient and self illumination are read only by the
+		debug line below. Nothing in the game, the AI, the scripts or the
+		drawing reads them. Their refresh (a ray down to the lightmap, a
+		sample of its bitmap and a walk of the cluster's lights, for every
+		player's unit and every AI unit that used time, each tick) runs only
+		for that line now */
 		if (debug_unit_illumination)
 		{
+			unit_refresh_illumination(unit_index);
+
 			if (unit->unit.player_index !=NONE)
 			{
 				long current_time = game_time_get();

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 BirchWoodGod
+# SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Ragdolls (port/linux/game/ragdolls.c, display.ragdolls) and Jolt Physics
 (port/third_party/jolt, port/linux/game/physics_jolt.cpp).
 
@@ -6,7 +9,9 @@ is compiled only where Jolt is (HALO_JOLT) and never on a console or the
 dedicated server; every hook in the game's sources is behind
 HALO_PORT_RAGDOLLS; the C face between the game's ABI and Jolt's passes no
 type whose size the two disagree on; the vendored Jolt is the release its
-README names, with its license and a notices entry.
+README names, with its license and a notices entry; Jolt out of memory stops
+the ragdolls, not the game; set off, the level's mesh goes too; the render
+asks for no ragdoll while none is kept.
 
 With a build and the stock maps (HALO_DETERMINISM_BINARY,
 HALO_DETERMINISM_MAPS, as tools/test_determinism.py): Blood Gulch with two
@@ -68,6 +73,22 @@ def test_compiled_only_with_jolt_and_never_on_consoles_or_servers():
                    "defined(HALO_XBOX360_CONSOLE)"):
         assert switch in block, switch
     assert "#ifdef HALO_PORT_RAGDOLLS" in read("port/linux/game/ragdolls.c")
+
+
+def test_configure_can_leave_them_out():
+    # (configure.py --without-ragdolls: no Jolt in any desktop build, and
+    # Video Setup's row hidden, as the setting is compiled out with it)
+    assert '"--without-ragdolls"' in read("configure.py")
+    assert "with_ragdolls=args.with_ragdolls" in read("configure.py")
+    for path in ("tools/linux_build.py", "tools/linux64_build.py", "tools/macos_build.py", "tools/unix64_build.py",
+                 "tools/windows_build.py"):
+        text = read(path)
+        assert 'getattr(sln, "with_ragdolls", True)' in text, path
+        assert "jolt=True" not in text, path
+    assert '"--without-ragdolls"' in read("tools/ci_build.py")
+    menus = read("port/linux/game/menu_functions.c")
+    block = menus[menus.index("#ifndef HALO_PORT_RAGDOLLS"):]
+    assert '"op_ragdolls"' in block[:block.index("#endif")]
 
 
 def test_every_hook_is_behind_the_feature():
@@ -138,6 +159,71 @@ def test_console_tests_only_in_a_local_game():
     gate = body[:body.index('!strcmp(word, "boom")')]
     assert "game_connection() != _game_connection_local" in gate
     assert "_game_connection_network_client" not in gate
+
+
+def test_out_of_memory_stops_the_ragdolls_not_the_game():
+    """a Jolt allocation the C heap refuses is given from the world's
+    reserve (Jolt never sees a null), and the ragdolls stop that tick: every
+    body let go, the world and the level's mesh gone, off until the setting
+    is turned off and on. Only a refusal the reserve cannot take either
+    stops the game"""
+    face = read("port/linux/game/physics_jolt.cpp")
+    allocate = face[face.index("void *raw_allocate(size_t bytes)"):]
+    allocate = allocate[:allocate.index("\n}\n")]
+    assert "reserve.out_of_memory = true;" in allocate
+    # (the only abort: after the reserve, with no room in it either)
+    assert allocate.count("std::abort()") == 1
+    assert allocate.index("reserve.out_of_memory = true;") < allocate.index("std::abort()")
+    assert "bytes > RESERVE_SIZE - start" in allocate[:allocate.index("std::abort()")]
+    # (every free goes through raw_free, which knows the reserve's blocks)
+    frees = face[face.index("void counted_free"):face.index("/* ---------- layers")]
+    assert "std::free" not in frees and frees.count("raw_free(") == 2
+    # (nothing more added or stepped once out of memory)
+    for entry in ("int physics_jolt_add_mesh(", "int physics_jolt_add_moving_mesh(", "int physics_jolt_add_moving_hull(",
+                  "int physics_jolt_rig_create(", "void physics_jolt_step("):
+        body = face[face.index(entry):]
+        body = body[:body.index("\n}\n")]
+        assert "reserve.out_of_memory" in body, entry
+    ragdolls = read("port/linux/game/ragdolls.c")
+    tick = ragdolls[ragdolls.index("void ragdolls_tick("):]
+    tick = tick[:tick.index("\n}\n")]
+    assert tick.count("ragdolls_out_of_memory()") == 2
+    stop = ragdolls[ragdolls.index("static boolean ragdolls_out_of_memory("):]
+    stop = stop[:stop.index("\n}\n")]
+    for step in ("physics_jolt_out_of_memory()", "ragdoll_release(slot", "ragdoll_world_release()",
+                 "physics_jolt_forget_meshes()", "ragdolls_stopped = TRUE"):
+        assert step in stop, step
+    enabled = ragdolls[ragdolls.index("static boolean ragdolls_enabled("):]
+    enabled = enabled[:enabled.index("\n}\n")]
+    assert "return enabled && !ragdolls_stopped;" in enabled
+    assert "ragdolls_stopped = FALSE;" in enabled
+
+
+def test_level_mesh_let_go_when_turned_off():
+    """display.ragdolls set off: no world, and the level's mesh kept for the
+    next world let go too"""
+    ragdolls = read("port/linux/game/ragdolls.c")
+    tick = ragdolls[ragdolls.index("void ragdolls_tick("):]
+    off = tick[tick.index("if (!ragdolls_enabled())"):]
+    off = off[:off.index("return;")]
+    assert "ragdoll_world_release()" in off
+    assert "physics_jolt_forget_meshes()" in off
+
+
+def test_no_ragdoll_asked_for_while_none_is_kept():
+    """render_interpolation_object_node_matrices asks for a ragdoll's pose
+    only in a frame some ragdoll is kept in: with none, it is as before"""
+    source = read("port/linux/game/render_interpolation.c")
+    assert "frame_ragdolls = ragdolls_frame_begin();" in source
+    body = source[source.index("real_matrix4x3 *render_interpolation_object_node_matrices("):]
+    body = body[:body.index("\n}\n")]
+    assert body.count("ragdolls_drawn_pose(") == 1
+    gate = body[:body.index("ragdolls_drawn_pose(")]
+    assert "if (frame_ragdolls &&" in gate
+    ragdolls = read("port/linux/game/ragdolls.c")
+    begin = ragdolls[ragdolls.index("boolean ragdolls_frame_begin("):]
+    begin = begin[:begin.index("\n}\n")]
+    assert "return ragdoll_swapped.count > 0;" in begin
 
 
 def test_ragdolls_on_and_off_replay_alike(tmp_path):

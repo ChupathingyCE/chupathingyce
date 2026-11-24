@@ -879,6 +879,8 @@ boolean network_distributed_banned(unsigned long address, char const *hardware_i
 #ifdef HALO_GAME_BROWSER
 /* (port/linux/game/host_rules.c's: whether the host takes no new machines now) */
 boolean host_rules_joins_locked(void);
+/* (port/linux/src/p2p.c's: whether the game hosted has a password) */
+int p2p_hosting_has_password(void);
 #endif
 /* (its budget for a client machine's lobby messages, full again) */
 void network_distributed_lobby_budget_reset(long machine_index);
@@ -2642,6 +2644,21 @@ boolean network_game_server_accept_client_machine_into_game(
 			network_game_server_refusal_code = _rejection_code_game_is_closed;
 			return FALSE;
 		}
+		/* (and, in a game with a password, none that came from the
+		internet straight to the game's port, as a system link join does: the
+		password is asked for by the invite, which an internet play peer
+		came through, and a join request carries none. A LAN's machines, and
+		a game without a password, as ever: network_rules.h) */
+		if (!network_game_server_client_machine_is_local(server, machine) &&
+			address.address.long_words[0] != IPV4_LOOPBACK_ADDRESS &&
+			network_rules_join_password_refused((uint32_t)address.address.long_words[0],
+				p2p_hosting_has_password()))
+		{
+			network_event("refusing a machine @ %s: the game has a password, and the machine did not come "
+				"through its invite", transport_address_to_string(&address));
+			network_game_server_refusal_code = _rejection_code_bad_password;
+			return FALSE;
+		}
 #endif
 		/* (and none in Stubbs mode, which hosts no online games yet:
 		port/linux/game/stubbs_multiplayer.c) */
@@ -4397,12 +4414,39 @@ void network_game_server_pause_countdown(
 	struct network_game_server *server,
 	boolean pause_countdown)
 {
+	boolean was_counting;
+
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x78C, server);
 
+	was_counting = server->countdown_state.active;
 	if (pause_countdown == TRUE)
 		csmemset(&server->countdown_state, 0, sizeof(server->countdown_state));
 
 	server->countdown_state.paused = pause_countdown;
+
+	/* port: a countdown stopped here was never taken back from the clients
+	(the countdown messages only go out while it runs), so every lobby,
+	the host's own too, kept its last count: "Starting on ..." stayed up and
+	the host's lobby could not start again (#1414). The clients are told it
+	stopped with the count the game already sends when a countdown can't go
+	on (NONE, network_game_server_idle_pregame_tasks) */
+	if (pause_countdown == TRUE && was_counting &&
+		server->state == _network_game_server_state_pregame)
+	{
+		struct message_server_pregame_countdown message_packet;
+		struct network_message *message;
+
+		message_packet.seconds_to_start = NONE;
+		message = create_network_game_message(
+			_message_server_pregame_countdown,
+			&message_packet,
+			sizeof(message_packet));
+		if (message == NULL ||
+			!network_game_server_send_message_to_all_machines(server, message))
+		{
+			network_event("failed to send a message_server_pregame_countdown to all clients");
+		}
+	}
 
 	return;
 }

@@ -307,6 +307,8 @@ long object_iterator_new(void);
 long object_iterator_new(void) { return 0; }
 long object_iterator_next(void);
 long object_iterator_next(void) { return 0; }
+long p2p_hosting_has_password(void);
+long p2p_hosting_has_password(void) { return 0; }
 long p2p_set_game_listing(void);
 long p2p_set_game_listing(void) { return 0; }
 long p2p_set_game_player_counts(void);

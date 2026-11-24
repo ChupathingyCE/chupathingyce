@@ -460,9 +460,17 @@ long player_profile_new(
 			saved_game_file_generate_checksum(&block.profile, sizeof(block.profile),
 				&block.checksum);
 
+#ifdef HALO_PORT_SAFE_SAVES
+			/* port: the new file written whole (saved_game_file_write_block),
+			closed first so that it can be replaced; the blank block it was
+			made with is no backup */
+			saved_game_file_close(&profile_file, player_profile_index);
+			succeeded = saved_game_file_write_block(player_profile_index, &block, FALSE);
+#else
 			succeeded = file_set_position(&profile_file, 0) &&
 				file_write(&profile_file, sizeof(block), &block);
 			saved_game_file_close(&profile_file, player_profile_index);
+#endif
 
 			if (!succeeded)
 			{
@@ -837,6 +845,25 @@ static unsigned long __stdcall player_profile_write_thread_proc(
 		boolean failed = FALSE;
 		struct player_profile *profile = &request->profile;
 
+#ifdef HALO_PORT_SAFE_SAVES
+		/* port: written whole or not at all, the last good one kept
+		(saved_game_file_write_block); a write that fails leaves the profile
+		as it was, where the Xbox deleted it */
+		(void)file;
+		csmemcpy(&block.profile, profile, sizeof(struct player_profile));
+		saved_game_file_generate_checksum(&block.profile, sizeof(block.profile),
+			&block.checksum);
+
+		if (!saved_game_file_write_block(player_profile_index, &block, TRUE))
+		{
+			error(_error_silent, "failed to write player profile to file");
+		}
+		else if (!synchronize_metadata_display_name_with_profile_name(player_profile_index, profile->player_name))
+		{
+			error(_error_silent, "metadata name may not match game display name");
+		}
+		(void)failed;
+#else
 		if (saved_game_file_open(&file, player_profile_index))
 		{
 			csmemcpy(&block.profile, profile, sizeof(struct player_profile));
@@ -865,6 +892,7 @@ static unsigned long __stdcall player_profile_write_thread_proc(
 		{
 			delete_enumerated_saved_game_file(player_profile_index);
 		}
+#endif
 
 		saved_game_files_release_mutex();
 	}

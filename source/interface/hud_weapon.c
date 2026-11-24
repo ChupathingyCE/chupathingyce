@@ -1329,7 +1329,9 @@ static void crosshairs_draw(
 											zoomed: then the crosshairs are the scope's picture
 											(its ticks, brackets and zoom label), drawn with its
 											mask, which keeps its size, so they keep theirs too,
-											or they slide off the mask in a wide view */
+											or they slide off the mask in a wide view; the
+											zoomed world is drawn at the Xbox's width to match
+											(main.c, local_view_zoom_weight) */
 											struct hud_placement_definition placement = item->placement;
 											real reticle_scale = crosshair->states[_crosshair_state_zoom].value.reference_data > 0 ?
 												1.0f :
