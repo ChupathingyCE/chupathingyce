@@ -17,6 +17,10 @@ drawn and driven by code over the menus or the game, as the Guide is.
 
 Off with game.forge off; none of it on the consoles (HALO_CONSOLE_NO_FORGE)
 or without the Guide (HALO_GUIDE), where the calls below do nothing.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef __FORGE_MENU_H

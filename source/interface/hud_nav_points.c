@@ -853,7 +853,13 @@ void custom_render_nav_point(
 			byte alpha;
 			real fade;
 
+#ifndef HALO_CUSTOM_EDITION
 			arrow_scale *= mcc_hud_bitmap_scale(bitmap_group_index);
+#endif
+			/* port: (with Custom Edition's, the arrow's group scale is
+			hud_bitmap_group_scale's above, an MCC map's too: MCC's stock
+			arrows are twice the Xbox's with the 0.5 HUD scale. Its MCC scale
+			on top of that drew them at a quarter of their size) */
 			point.x = (short)(long)screen_position.x;
 			point.y = (short)(long)screen_position.y;
 			alpha = (byte)PIN(fast_ftol_C(arrow->opacity)*255, 0, 255);
@@ -907,6 +913,12 @@ void custom_render_nav_point(
 				numbers.placement.offset.x += render.camera.viewport_bounds.x0;
 				numbers.placement.offset.y -= render.camera.window_bounds.y0;
 				numbers.placement.offset.y += render.camera.viewport_bounds.y0;
+				/* port: a point on the screen beside the arrow, not an
+				element anchored to a corner: an MCC map's corner frame
+				(mcc_hud_anchor_point) would move it up and left */
+#if !defined(HALO_MCC) || HALO_MCC
+				numbers.placement.pad = MCC_HUD_NATIVE_FRAME;
+#endif
 
 				decimal_modulus = (real)pow(10.0, 4.0);
 				{

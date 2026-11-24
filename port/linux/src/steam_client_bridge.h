@@ -25,8 +25,12 @@ Two backends, behind the same calls, one or both in a session:
   reads item states and progress (the list itself is Steam's public
   Workshop page, the same everywhere: workshop_browser.c). Windows, and
   Linux with MCC from Steam (under Proton, Steam downloads its items
-  itself), and macOS when a library loads there (Steam.app subscribes to
-  MCC's items but doesn't download them: steamcmd does). Each call's own
+  itself), and unsigned macOS builds when a library loads there (Steam.app
+  subscribes to MCC's items but doesn't download them: steamcmd does).
+  Never in a Mac build signed with the hardened runtime
+  (steam_bridge_platform_client_blocked): another team's library won't
+  load there, so none is looked for, and subscribing opens the item's
+  page. Each call's own
   answer is waited on (manual dispatch, or ISteamUtils' call results), and
   a Steam that isn't signed on is "Steam offline".
 - STEAM_BRIDGE_BACKEND_STEAMCMD, the downloader (macOS, and Linux without
@@ -122,6 +126,9 @@ use_steamcmd, steamcmd does the downloads (macOS: Steam.app subscribes to
 MCC items but never downloads them; Linux without MCC from Steam) */
 void steam_bridge_open(int use_steamcmd);
 /* the tab closed: the worker told to stop (it shuts Steam down) */
+/* the bridge's session ended and begun again (a sign-in it waited on made
+since: the game's own download, linked, connects only as it opens) */
+void steam_bridge_restart(int use_steamcmd);
 void steam_bridge_close(void);
 /* STEAM_BRIDGE_*: READY when either backend is; FAILED once a connect has
 taken too long or neither connected */
@@ -323,6 +330,10 @@ void *steam_bridge_platform_library_symbol(void *library, const char *name);
 /* SteamAppId (and SteamGameId) in this process's environment */
 void steam_bridge_platform_set_app_id(const char *app_id);
 void steam_bridge_platform_sleep(int milliseconds);
+/* the client backend can't be used here, so it is never looked for or
+loaded: a Mac build signed with the hardened runtime, where another team's
+steam_api library won't load (library validation). 0 elsewhere */
+int steam_bridge_platform_client_blocked(void);
 #ifndef _WIN32
 /* steamcmd: its path (paths.steamcmd, PATH, the usual places); 0 if none */
 int steam_bridge_platform_find_steamcmd(char *path, int size);

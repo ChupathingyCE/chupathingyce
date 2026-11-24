@@ -7,8 +7,9 @@ FAILED, nothing asked of Steam), the app id goes only into the environment,
 Steam is shut down when the tab closes, subscribe/state/progress map to the
 tab's words, each call's own answer is waited on (Steam refusing a
 subscribe shows; manual dispatch asked for before SteamAPI_Init), a Steam
-that isn't signed on is offline and asked nothing, and steamcmd's text is
-read right. Built and run by tools/test_steam_bridge.py.
+that isn't signed on is offline and asked nothing, a signed Mac never looks
+for or loads a library and uses the downloader alone, and steamcmd's text
+is read right. Built and run by tools/test_steam_bridge.py.
 
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
@@ -87,6 +88,12 @@ static struct
 	int manual_before_init;
 	int manual_inits;
 	int next_callbacks;
+	/* a signed Mac (steam_bridge_platform_client_blocked); steamcmd there;
+	the library looked for and loaded this many times */
+	int blocked;
+	int steamcmd;
+	int path_calls;
+	int open_calls;
 } fake;
 
 static int fake_ugc_object, fake_utils_object;
@@ -210,6 +217,7 @@ static int is_missing(const char *name)
 
 void *steam_bridge_platform_library_open(const char *path)
 {
+	fake.open_calls++;
 	return fake.present && !strcmp(path, "fake_steam_api") ? &fake : NULL;
 }
 
@@ -269,9 +277,15 @@ void steam_bridge_platform_sleep(int milliseconds)
 	usleep((useconds_t)milliseconds * 1000);
 }
 
+int steam_bridge_platform_client_blocked(void)
+{
+	return fake.blocked;
+}
+
 int steam_bridge_api_library_paths(char (*paths)[STEAM_BRIDGE_PATH_SIZE], int maximum, int search)
 {
 	(void)search;
+	fake.path_calls++;
 	if (!fake.present || maximum < 1)
 		return 0;
 	snprintf(paths[0], STEAM_BRIDGE_PATH_SIZE, "fake_steam_api");
@@ -280,24 +294,21 @@ int steam_bridge_api_library_paths(char (*paths)[STEAM_BRIDGE_PATH_SIZE], int ma
 
 int steam_bridge_steam_present(void) { return 0; }
 
-/* (no steamcmd in these tests but test_cancel's: the client backend alone;
-its steamcmd's download runs until it is ended) */
+/* (no steamcmd in these tests but test_cancel's, whose download runs until
+it is ended, and the signed Mac's, found with no saved sign-in, which starts
+nothing) */
 static int fake_child_object, child_starts, child_ends;
 
 int steam_bridge_platform_find_steamcmd(char *path, int size)
 {
-	if (!steamcmd_on)
-		return 0;
-	snprintf(path, (size_t)size, "fake_steamcmd");
-	return 1;
+	return (steamcmd_on || fake.steamcmd) && snprintf(path, (size_t)size, "fake_steamcmd") < size;
 }
 int steam_bridge_platform_steamcmd_root(const char *steamcmd, char *root, int size)
 {
 	(void)steamcmd;
-	if (!steamcmd_on)
-		return 0;
-	snprintf(root, (size_t)size, "fake_steamcmd_root");
-	return 1;
+	if (steamcmd_on)
+		return snprintf(root, (size_t)size, "fake_steamcmd_root") < size;
+	return fake.steamcmd && snprintf(root, (size_t)size, "no_such_steamcmd_root") < size;
 }
 void *steam_bridge_platform_child_start(const char *const *arguments)
 {
@@ -683,6 +694,33 @@ static void test_cancel(void)
 	reset();
 }
 
+/* a signed Mac (hardened runtime): the client backend is skipped before
+any library is looked for or loaded, even when the tab asks for it, and the
+downloader works alone */
+static void test_signed_mac(void)
+{
+	reset();
+	fake.blocked = 1;
+	fake.steamcmd = 1;
+	CHECK(steam_bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD);
+	steam_bridge_open(0);
+	CHECK(settled() == STEAM_BRIDGE_READY);
+	CHECK(steam_bridge_connected() == 1 << STEAM_BRIDGE_BACKEND_STEAMCMD);
+	CHECK(steam_bridge_sign_in_needed());
+	CHECK(!steam_bridge_can_unsubscribe());
+	CHECK(fake.path_calls == 0 && fake.open_calls == 0 && fake.init_calls == 0);
+	CHECK(!getenv("SteamAppId"));
+
+	/* (no downloader either: nothing to connect, still no library) */
+	reset();
+	fake.blocked = 1;
+	CHECK(steam_bridge_backend() == STEAM_BRIDGE_BACKEND_NONE);
+	steam_bridge_open(0);
+	CHECK(settled() == STEAM_BRIDGE_FAILED);
+	CHECK(fake.path_calls == 0 && fake.open_calls == 0 && fake.init_calls == 0);
+	reset();
+}
+
 int main(void)
 {
 	test_steamcmd_text();
@@ -693,6 +731,7 @@ int main(void)
 	test_subscribe_answers(1);
 	test_many_items();
 	test_cancel();
+	test_signed_mac();
 	if (failures)
 		fprintf(stderr, "%d failed\n", failures);
 	else

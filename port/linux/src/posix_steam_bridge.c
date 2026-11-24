@@ -14,7 +14,7 @@ SPDX-License-Identifier: MIT
 #include "../include/halo_port_features.h" /* HALO_MCC: on a console it is 0 before the test below */
 #if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
-#if !defined(_WIN32) && !defined(__ANDROID__)
+#if !defined(_WIN32) && !defined(__ANDROID__) && !defined(HALO_ANDROID) /* (HALO_ANDROID: iOS and tvOS too, whose stand-ins are steam_client_bridge.c's) */
 
 #include "steam_client_bridge.h"
 
@@ -25,6 +25,7 @@ SPDX-License-Identifier: MIT
 #include <poll.h>
 #include <pwd.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +38,39 @@ SPDX-License-Identifier: MIT
 const char *config_string(const char *name);
 const char *platform_save_root(void);
 void platform_log(const char *format, ...);
+
+#ifdef __APPLE__
+/* the kernel's code signing status of a process (no public header; libSystem
+has it): CS_OPS_STATUS's flags, CS_RUNTIME the hardened runtime,
+CS_REQUIRE_LV library validation */
+int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
+enum
+{
+	CS_OPS_STATUS = 0,
+	CS_REQUIRE_LV = 0x00002000,
+	CS_RUNTIME = 0x00010000,
+};
+#endif
+
+int steam_bridge_platform_client_blocked(void)
+{
+#ifdef __APPLE__
+	/* (looked at once: a process's signature doesn't change while it runs) */
+	static int looked, blocked;
+
+	if (!looked)
+	{
+		uint32_t flags = 0;
+
+		looked = 1;
+		blocked = csops(getpid(), CS_OPS_STATUS, &flags, sizeof(flags)) == 0 &&
+			(flags & (CS_RUNTIME | CS_REQUIRE_LV)) != 0;
+	}
+	return blocked;
+#else
+	return 0;
+#endif
+}
 
 void *steam_bridge_platform_library_open(const char *path)
 {
