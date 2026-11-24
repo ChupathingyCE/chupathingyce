@@ -15,9 +15,7 @@ static int registry_steam_root(HKEY key, const char *value, REGSAM view, char *p
 	LONG result;
 
 	/* RegGetValue checks the string type, bounds and termination. Use the same
-	 * narrow encoding as win32_files.c and the runtime's file functions.
-	 * Open the registry view separately: RRF_SUBKEY_WOW64* is gated to newer
-	 * Windows SDK targets, while KEY_WOW64_* works with the Windows 7 target. */
+	 * narrow encoding as win32_files.c and the runtime's file functions. */
 	if (RegOpenKeyExA(key, "Software\\Valve\\Steam", 0, KEY_QUERY_VALUE | view, &steam_key) != ERROR_SUCCESS)
 		return 0;
 	result = RegGetValueA(steam_key, NULL, value, RRF_RT_REG_SZ, NULL, path, &size);

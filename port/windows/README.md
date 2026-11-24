@@ -15,8 +15,7 @@ You do not need the Xbox SDK.
 
 - Visual Studio or the Visual Studio Build Tools, with the C++ workload.
   The build uses the 32-bit (x86) MSVC libraries and a Windows 10 or 11
-  SDK. It does not use the MSVC compiler. The resulting build targets
-  Windows 7 SP1 or later.
+  SDK. It does not use the MSVC compiler.
 - LLVM (clang and lld), Python 3 and ninja in the `PATH`. For example,
   enter `scoop install llvm python ninja`.
 - `llvm-rc` (LLVM's resource compiler, with the LLVM above) in the `PATH`.
