@@ -482,7 +482,22 @@ static boolean profile_names_player_unmarked(
 			name[used + index] = 0;
 			return name[0] != 0;
 		}
-		fit(whole, name, size);
+		/* (a column too narrow for both: each cut, the name first to half the
+		room, so the colon and the domain's start always show: "ave...:exa...") */
+		{
+			wchar_t cut_name[24], cut_domain[NETWORKS_DOMAIN_SIZE + 1];
+			long name_room = (room - character_width(':')) / 2, letters = (size - 2) / 2;
+
+			fit_room(own, cut_name, letters + 1, name_room);
+			used = wide_length(cut_name);
+			fit_room(domain + 1, cut_domain, size - 1 - used, room - text_width(cut_name) - character_width(':'));
+			for (index = 0; index < used; index++)
+				name[index] = cut_name[index];
+			name[used++] = ':';
+			for (index = 0; cut_domain[index] && used < size - 1; index++)
+				name[used++] = cut_domain[index];
+			name[used] = 0;
+		}
 		return name[0] != 0;
 	}
 	if (clan[0])
