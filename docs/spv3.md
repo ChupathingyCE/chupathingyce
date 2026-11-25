@@ -92,8 +92,10 @@ Not working yet:
   ([#1749](https://github.com/ChupathingyCE/chupathingyce/issues/1749)).
 - SPV3's four new grenade types are missing
   ([#1751](https://github.com/ChupathingyCE/chupathingyce/issues/1751)).
-- SPV3's post-processing look isn't there yet
-  ([#1748](https://github.com/ChupathingyCE/chupathingyce/issues/1748)).
+- SPV3's post-processing works on the default renderer, but some levels
+  don't look right yet and it costs frame rate. Turn it off with
+  `display.opensauce_post_processing = false`
+  ([#1786](https://github.com/ChupathingyCE/chupathingyce/issues/1786)).
 - In online co-op Firefight, players who join don't get the loadout.
 
 The full list is in
