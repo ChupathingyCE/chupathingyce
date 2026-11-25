@@ -158,6 +158,7 @@ tag.
 | 0 | `none` |  |  | never in a tag |
 | 1 | `chupathingy` | Chupathingy | Chupathingy | in use: writes layout 1 alone |
 | 2 | `content_evolved` | Content Evolved | [Content Evolved (Watanoge)](https://github.com/Watanoge/halo-content-evolved) | in use |
+| 3 | `gulchce` | GulchCE | [GulchCE (chester)](https://github.com/chestahh/GulchCE) | in progress |
 
 The tag's layouts:
 
