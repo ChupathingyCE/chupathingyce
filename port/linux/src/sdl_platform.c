@@ -3342,7 +3342,9 @@ void platform_show_message(const char *title, const char *message)
 	pthread_mutex_unlock(&platform_message_lock);
 }
 
-#ifdef HALO_GAME_BROWSER
+/* a page to open in the web browser, from any thread: the main thread opens
+it (platform_url_requests). Every build has it: the Guide's and the
+Workshop list's links, not the game browser's alone */
 static pthread_mutex_t platform_url_lock = PTHREAD_MUTEX_INITIALIZER;
 static char platform_url[700];
 
@@ -3353,18 +3355,24 @@ void platform_open_url(const char *url)
 	pthread_mutex_unlock(&platform_url_lock);
 }
 
-/* (the main thread's: a page to open, a restored key to ask about) */
-static void platform_game_list_requests(void)
+/* (the main thread's: the page asked for opened) */
+static void platform_url_requests(void)
 {
 	char url[sizeof(platform_url)];
-	char new_id[64], old_id[64], message[512];
 
 	pthread_mutex_lock(&platform_url_lock);
 	snprintf(url, sizeof(url), "%s", platform_url);
 	platform_url[0] = 0;
 	pthread_mutex_unlock(&platform_url_lock);
 	if (url[0] && !SDL_OpenURL(url))
-		platform_log("Game list: could not open the web browser: %s", SDL_GetError());
+		platform_log("could not open the web browser: %s", SDL_GetError());
+}
+
+#ifdef HALO_GAME_BROWSER
+/* (the main thread's: a restored key to ask about) */
+static void platform_game_list_requests(void)
+{
+	char new_id[64], old_id[64], message[512];
 
 	if (browser_take_key_link(new_id, old_id, sizeof(new_id)))
 	{
@@ -3634,6 +3642,7 @@ void platform_pump_events(void)
 #endif
 	platform_show_pending_message();
 	platform_opengl_offer();
+	platform_url_requests();
 #ifdef HALO_GAME_BROWSER
 	platform_game_list_requests();
 #endif
