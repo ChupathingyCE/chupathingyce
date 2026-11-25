@@ -908,7 +908,9 @@ void capture_request_clip(void)
 
 	if (clips.state != 2)
 	{
-		capture_notice("Clips are off", "clips.enabled in config.toml");
+		/* (turned on in Settings since the game started: clips_on looks once) */
+		capture_notice("Clips are off", clips.state == 1 && config_boolean("clips.enabled") ?
+			"They start after a restart" : "Settings > Game > Clips");
 		return;
 	}
 	/* (made here, on the game's thread, as every other of platform_folder's

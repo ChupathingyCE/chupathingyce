@@ -147,6 +147,10 @@ static const char *const reticle_size_names[] = { "50%", "75%", "100%", "125%", 
 /* the crosshair's place (display.crosshair_position) */
 static const char *const crosshair_position_choices[] = { "retail", "lowered", NULL };
 static const char *const crosshair_position_names[] = { "XBOX", "LOWERED", NULL };
+/* clips.seconds' (capture_clips.c keeps 5 to 120) */
+static const char *const clip_length_choices[] = { "10", "15", "30", "60", "90", "120", NULL };
+static const char *const clip_length_names[] = { "10 SECONDS", "15 SECONDS", "30 SECONDS", "60 SECONDS", "90 SECONDS",
+	"120 SECONDS", NULL };
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -233,6 +237,10 @@ static const struct settings_row settings_rows[] =
 	folders, and named so: settings_row_label) */
 	{ _in_guide, "WORKSHOP MAPS", "game.workshop_maps", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "MAPS WHEN JOINING", "network.workshop_downloads", _kind_words, NULL, NULL, 0, 0 },
+	/* (clips start once, with the game: capture_clips.c. The setup screen
+	comes before it; a change in the Guide is for the next start) */
+	{ _in_guide, "CLIPS", "clips.enabled", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "CLIP LENGTH", "clips.seconds", _kind_choices, clip_length_choices, clip_length_names, 0, 0 },
 	{ _in_guide, "MISSION ORDER", "game.mcc_campaigns", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FORGE", "game.forge", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
@@ -553,6 +561,7 @@ static const char *const game_lines[] =
 	"game.forge", "game.mods",
 	"#WORKSHOP", "game.workshop_steam", "paths.steam_downloads", "game.workshop_maps", "network.workshop_downloads",
 	"game.mcc_campaigns",
+	"#CAPTURE", "clips.enabled", "clips.seconds",
 	NULL
 };
 static const char *const guide_lines[] =
