@@ -260,12 +260,16 @@ held. The desktop builds (and 64-bit Android) take 32 MB (8192 pages) and
 2048 sounds, its pages taken only as sounds are written (xbox_memory.c);
 Android's guest build, with less window (82 MB above the game state), 16 MB
 and 1024. Only which sounds stay loaded changes: nothing reaches the network
-or the game state. The dedicated server (no sound) and the consoles (by
-their memory class: physical_memory_map.h) keep theirs. A permutation's
+or the game state. The dedicated server (no sound) and every console
+(the Xbox, the Xbox 360, the Wii U, the Switch's guest build and any
+HALO_CONSOLE port: their own repositories size theirs, or their memory class,
+physical_memory_map.h) keep the Xbox's 4 MB and 512 sounds. A permutation's
 most samples stay the Xbox's 4 MB (tag_schema_effects.c, ce_resources.c's
 split): that decides which sounds are split, which is the content's. */
 
-#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_MEMORY_CLASS) && \
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_XBOX360_CONSOLE) && \
+	!defined(HALO_WIIU_CONSOLE) && !defined(HALO_SWITCH_CONSOLE) && !defined(HALO_CONSOLE_GL_LAYER) && \
+	!defined(HALO_CONSOLE_WINDOW_MAXIMUM) && !defined(HALO_CONSOLE_MEMORY_CLASS) && \
 	!defined(HALO_CONSOLE_XBOX_RENDER_SIZES) && !defined(HALO_SERVER)
 #if defined(HALO_ANDROID) && !defined(HALO_64BIT)
 #define HALO_PORT_SOUND_CACHE_SIZE 0x1000000 /* (0x400000) */
