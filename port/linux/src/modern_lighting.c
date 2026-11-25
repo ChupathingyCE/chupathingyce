@@ -552,7 +552,8 @@ have it */
 	"}\n"
 
 /* on a grid of blocks, the reflected view at each texel of the grid (its
-traced point's), complete: the texels traced this frame (rt_trace.comp's
+traced point's; times the fresnel there; alpha: the point's distance, 0
+none), complete: the texels traced this frame (rt_trace.comp's
 reflections_pass: one of each two, in a checkerboard that turns) from their
 own hit; the others from the four traced around them, those on the same
 surface (distance and normal), each one's hit distance along the texel's
@@ -573,15 +574,17 @@ static const char reflect_grid_source[] =
 	"\tresult = vec4(0.0);\n"
 	"\tif (G.w <= 0.0)\n"
 	"\t\treturn;\n"
+	"\tvec3 n = texelFetch(guide_normal, q, 0).xyz;\n"
+	"\tfloat fresnel = mix(0.35, 1.0, pow(1.0 - max(dot(-normalize(G.xyz), n), 0.0), 3.0));\n"
+	"\tresult = vec4(0.0, 0.0, 0.0, G.w);\n"
 	"\tivec2 k = q - ivec2(rect.xy);\n"
 	"\tif (((k.x + k.y) & 1) == int(params.z))\n"
 	"\t{\n"
 	"\t\tvec4 H = texelFetch(reflection_hits, q, 0);\n"
 	"\t\tif (H.w > 0.0)\n"
-	"\t\t\tresult = vec4(seen(H.xyz, G.xyz).rgb, 1.0);\n"
+	"\t\t\tresult.rgb = seen(H.xyz, G.xyz).rgb * fresnel;\n"
 	"\t\treturn;\n"
 	"\t}\n"
-	"\tvec3 n = texelFetch(guide_normal, q, 0).xyz;\n"
 	"\tvec3 r = reflect(normalize(G.xyz), n);\n"
 	"\tivec2 last = grid_last();\n"
 	"\tvec3 sum = vec3(0.0);\n"
@@ -604,22 +607,24 @@ static const char reflect_grid_source[] =
 	"\t\t\tsum += seen(G.xyz + r * length(H.xyz - U.xyz), G.xyz).rgb * weight;\n"
 	"\t\tweights += weight;\n"
 	"\t}\n"
-	"\tresult = weights > 0.0 ? vec4(sum / weights, 1.0) : vec4(0.0);\n"
+	"\tif (weights > 0.0)\n"
+	"\t\tresult.rgb = sum / weights * fresnel;\n"
 	"}\n";
 
 /* "full"'s reflections: where the game's shine and reflections lit a
 surface, the view before them at the traced reflected ray's hit. Every
 pixel traced: its own hit. On a grid of blocks: the grid's reflected view
 (reflect_grid_source's), from its four nearest texels, weighted by how near
-each is (bilinear) and how near its point's distance and normal are to the
-pixel's own, as the lighting is */
+each is (bilinear) and how near its point's distance is to the pixel's (one
+fetch a texel: the pass covers every shiny pixel of the view) */
 static const char reflections_source[] =
 	ML_SEEN_SOURCE
 	"uniform sampler2D scene_now;\n"
 	"uniform sampler2D normal_texture;\n"
 	"uniform sampler2D guide;\n"
 	"uniform sampler2D guide_normal;\n"
-	"/* the grid's reflected view (rgb, a 1 where known) */\n"
+	"/* the grid's reflected view (rgb, with the fresnel; a the texel's\n"
+	"distance, 0 none) */\n"
 	"uniform sampler2D reflected_grid;\n"
 	"out vec4 result;\n"
 	"void main()\n"
@@ -660,30 +665,27 @@ static const char reflections_source[] =
 	"\t\tivec2 k = ivec2(floor(f));\n"
 	"\t\tvec2 t = f - vec2(k);\n"
 	"\t\tivec2 last = grid_last();\n"
-	"\t\tvec4 sum = vec4(0.0);\n"
+	"\t\tvec3 sum = vec3(0.0);\n"
 	"\t\tfloat weights = 0.0;\n"
-	"\t\tvec3 normals = vec3(0.0);\n"
 	"\t\tfor (int j = 0; j < 2; j++)\n"
 	"\t\t{\n"
 	"\t\t\tfor (int i = 0; i < 2; i++)\n"
 	"\t\t\t{\n"
 	"\t\t\t\tivec2 q = clamp(ivec2(rect.xy) + k + ivec2(i, j), ivec2(rect.xy), last);\n"
-	"\t\t\t\tvec4 G = texelFetch(guide, q, 0);\n"
-	"\t\t\t\tif (G.w <= 0.0)\n"
+	"\t\t\t\tvec4 R = texelFetch(reflected_grid, q, 0);\n"
+	"\t\t\t\tif (R.a <= 0.0)\n"
 	"\t\t\t\t\tcontinue;\n"
-	"\t\t\t\tvec3 Gn = texelFetch(guide_normal, q, 0).xyz;\n"
 	"\t\t\t\tfloat weight = (mix(1.0 - t.x, t.x, float(i)) * mix(1.0 - t.y, t.y, float(j)) + 0.01) *\n"
-	"\t\t\t\t\tlikeness(P, G, Gn);\n"
-	"\t\t\t\tsum += texelFetch(reflected_grid, q, 0) * weight;\n"
+	"\t\t\t\t\texp(-abs(R.a - P.w) / (0.01 * P.w + 0.02));\n"
+	"\t\t\t\tsum += R.rgb * weight;\n"
 	"\t\t\t\tweights += weight;\n"
-	"\t\t\t\tnormals += Gn * weight;\n"
 	"\t\t\t}\n"
 	"\t\t}\n"
-	"\t\tif (weights < 1e-4 || sum.a <= 0.0)\n"
+	"\t\tif (weights < 1e-4)\n"
 	"\t\t\tdiscard;\n"
-	"\t\treflected = sum.rgb / weights;\n"
-	"\t\t/* (the surface's normal, for the fresnel: its texels') */\n"
-	"\t\tn = normalize(normals);\n"
+	"\t\t/* (the fresnel the grid's) */\n"
+	"\t\tresult = vec4(now + sum / weights * (m * params.x), 1.0);\n"
+	"\t\treturn;\n"
 	"\t}\n"
 	"\tfloat fresnel = mix(0.35, 1.0, pow(1.0 - max(dot(-v, n), 0.0), 3.0));\n"
 	"\tresult = vec4(now + reflected * (m * params.x * fresnel), 1.0);\n"
@@ -1446,7 +1448,7 @@ static void textures_fit(const struct halo_ml_targets *targets)
 	}
 	ml.shine = texture_make(GL_R8, (ml.width + 7) / 8, (ml.height + 7) / 8);
 	ml.shine_framebuffer = framebuffer_make(ml.shine, 0);
-	ml.reflected_grid = texture_make(ml.scene_format, ml.width, ml.height);
+	ml.reflected_grid = texture_make(GL_RGBA16F, ml.width, ml.height);
 	ml.reflected_grid_framebuffer = framebuffer_make(ml.reflected_grid, 0);
 	ml.shine_frame = -100;
 	ml.history_valid = FALSE;
