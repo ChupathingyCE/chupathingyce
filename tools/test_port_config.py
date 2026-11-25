@@ -153,7 +153,7 @@ NEW = {"display.menus": "chupathingy"}
 # the macros each kind of build is compiled with; the others are not macOS
 # (whose own defaults the native build checks on a Mac)
 DEFINES = {
-	"desktop": ["-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
+	"desktop": ["-DHALO_64BIT", "-DHALO_GAME_BROWSER", "-DHALO_BGFX"],
 	"desktop32": ["-U__APPLE__", "-DHALO_GAME_BROWSER"],
 	"android": ["-U__APPLE__", "-DHALO_ANDROID", "-DHALO_GAME_BROWSER"],
 	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
@@ -1188,6 +1188,31 @@ def test_follow_file(program, directory, defaults, kind):
 	check(float(match.group(1)) < 200.0, f"follow/{kind}: config_changes takes {match.group(1)} ns a call")
 
 
+def test_renderer_round_trip(program, directory, defaults, kind):
+	"""The renderer the setup screen chooses (display.renderer, written as
+	its RENDERER row writes it) is what the next start reads (#1665: the
+	setup screen starts the game again for it, a new process), and choosing
+	OpenGL again goes back the same way."""
+	# (the bgfx builds': DEFINES' desktop has HALO_BGFX, as the Windows,
+	# Mac and Linux 64-bit builds do)
+	if kind != "desktop":
+		return
+	case = Case(program, directory / "renderer")
+	fresh_file(case, kind)
+	values, _ = case.get("display.renderer")
+	check(values["display.renderer"] == "gl", f"renderer/{kind}: the default is {values['display.renderer']}")
+	for chosen in ("bgfx", "d3d11", "gl"):
+		case.run("write", "display.renderer", chosen)
+		values, _ = case.get("display.renderer")
+		check(values["display.renderer"] == chosen, f"renderer/{kind}: wrote {chosen}, read {values['display.renderer']}")
+		lines, _ = value_lines(case.text(), "renderer")
+		check(lines == [f'renderer = "{chosen}"'], f"renderer/{kind}: {chosen}: the file has {lines}")
+		# (and the question about new defaults leaves the player's choice)
+		case.run("answer", "new")
+		values, _ = case.get("display.renderer")
+		check(values["display.renderer"] == chosen, f"renderer/{kind}: {chosen} became {values['display.renderer']}")
+
+
 # the [tuning] lines (port_config.c's config_tuning_apply): short, stable,
 # one knob after another as "name=value" with where it came from after a
 # value that is not the default
@@ -1514,7 +1539,7 @@ def main():
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
 				test_retired_setting, test_delta_renamed, test_interrupted_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
-				test_server_file, test_follow_file, test_tuning, test_tuning_drawing_knobs):
+				test_server_file, test_follow_file, test_tuning, test_tuning_drawing_knobs, test_renderer_round_trip):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

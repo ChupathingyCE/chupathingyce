@@ -2937,6 +2937,16 @@ static int executable_path(char *path, size_t size)
 #endif
 }
 
+/* this screen closes the game on purpose: a bgfx Vulkan start that drew
+it did get going, and isn't taken for one that didn't (#1665) */
+static void closing_on_purpose(void)
+{
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+		xgpu_bgfx_start_note_clear();
+#endif
+}
+
 /* Chupathingy started again, in mode (its id) and past this screen, for
 the settings that show only after a restart; 0 if it could not be */
 static int restart_with(const char *mode)
@@ -2948,6 +2958,8 @@ static int restart_with(const char *mode)
 		platform_log("launcher: could not find the game's executable to start it again");
 		return 0;
 	}
+	/* (before the start in this same process too, which never returns) */
+	closing_on_purpose();
 	snprintf(argument, sizeof(argument), "--mode=%s", mode);
 #ifdef __linux__
 	/* (this same process, as an update's restart: Steam and gamescope keep
@@ -2996,6 +3008,7 @@ int launcher_restart_to_setup(void)
 		platform_log("launcher: could not start again on the setup screen");
 		return 0;
 	}
+	closing_on_purpose();
 #ifdef __linux__
 	/* (this same process: see restart_with) */
 	if (update_start_in_place_with(path, "--setup"))
@@ -3252,6 +3265,7 @@ static void back(void)
 	{
 	case _screen_welcome:
 		platform_log("launcher: quit from Welcome");
+		closing_on_purpose();
 		exit(EXIT_SUCCESS);
 	case _screen_map_list:
 		launcher.screen = _screen_family;
@@ -3407,6 +3421,7 @@ static void input(int button)
 				if (button == _button_a)
 				{
 					platform_log("launcher: quit");
+					closing_on_purpose();
 					exit(EXIT_SUCCESS);
 				}
 				break;
