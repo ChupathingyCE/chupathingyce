@@ -23,8 +23,12 @@ luaconf.h agrees with the library's own build) */
 #define LLONG_MAX __LONG_LONG_MAX__
 #define LLONG_MIN (-__LONG_LONG_MAX__ - 1LL)
 #endif
-#include "lua.h"
-#include "lauxlib.h"
+/* (the bundled Lua's, by its path from here: a system Lua's lua.h, of
+another version maybe, would come before -idirafter port/third_party/lua.
+The LP64 build's copy of this file, in build/<platform>/lp64, finds them
+through that -idirafter, which comes before the other folders') */
+#include "../../third_party/lua/lua.h"
+#include "../../third_party/lua/lauxlib.h"
 
 /* the Chimera Lua API version these scripts are run as (Chimera's
 CHIMERA_LUA_VERSION): a script asking for a newer one is warned */

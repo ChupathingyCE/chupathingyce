@@ -1410,6 +1410,9 @@ void guide_workshop_update(boolean showing)
 	settings_rows_set_workshop_offered(workshop_browser_offered());
 	workshop_browser_folder_follow();
 	link_follow();
+	/* (a cancelled download's part deleted once it lets go, with the Guide
+	shut too: a join's CANCEL) */
+	steam_link_discard_follow();
 	/* (the on-screen keyboard done: its words searched, the Guide back on WORKSHOP) */
 #if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
 	if (workshop_view.keyboard && !virtual_keyboard_active())

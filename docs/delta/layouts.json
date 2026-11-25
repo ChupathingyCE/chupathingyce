@@ -1,0 +1,1043 @@
+{
+ "layouts": 1,
+ "about": "Layout facts by OpenCE/legacy network version, 11 to 45: what a client must handle on the wire for a host of each. See versioning.md, 'Layout facts by network version'. Multi-byte values are little-endian unless said.",
+ "oldest": 11,
+ "newest": 44,
+ "presumed": 45,
+ "record": {
+  "about": "The game settings record at the network's 128 machines and 128 players. These fields never move; variant_options, local_data and the trailing bytes follow at the offsets each version gives.",
+  "fields": [
+   {
+    "name": "name",
+    "offset": 0,
+    "size": 32,
+    "type": "utf16[16]"
+   },
+   {
+    "name": "map.version",
+    "offset": 32,
+    "size": 4,
+    "type": "int32"
+   },
+   {
+    "name": "map.name",
+    "offset": 36,
+    "size": 128,
+    "type": "char[128]"
+   },
+   {
+    "name": "variant",
+    "offset": 164,
+    "size": 104,
+    "type": "game_variant"
+   },
+   {
+    "name": "cooperative_flags",
+    "offset": 268,
+    "size": 1,
+    "type": "uint8",
+    "from": 19
+   },
+   {
+    "name": "minimum_players",
+    "offset": 269,
+    "size": 1,
+    "type": "int8"
+   },
+   {
+    "name": "maximum_players",
+    "offset": 270,
+    "size": 1,
+    "type": "uint8"
+   },
+   {
+    "name": "maximum_teams",
+    "offset": 271,
+    "size": 1,
+    "type": "uint8"
+   },
+   {
+    "name": "difficulty",
+    "offset": 272,
+    "size": 2,
+    "type": "int16"
+   },
+   {
+    "name": "machine_count",
+    "offset": 274,
+    "size": 2,
+    "type": "int16"
+   },
+   {
+    "name": "machines",
+    "offset": 276,
+    "size": 8704,
+    "type": "machine[128]",
+    "element_size": 68
+   },
+   {
+    "name": "player_count",
+    "offset": 8980,
+    "size": 2,
+    "type": "int16"
+   },
+   {
+    "name": "players",
+    "offset": 8982,
+    "size": 4096,
+    "type": "player[128]",
+    "element_size": 32
+   },
+   {
+    "name": "unknown",
+    "offset": 13078,
+    "size": 2,
+    "type": "int16"
+   },
+   {
+    "name": "random_seed",
+    "offset": 13080,
+    "size": 4,
+    "type": "uint32"
+   },
+   {
+    "name": "number_of_games_played",
+    "offset": 13084,
+    "size": 4,
+    "type": "int32"
+   }
+  ],
+  "head_size": 13088,
+  "local_data_size": 4,
+  "cooperative_flags": [
+   {
+    "bit": 0,
+    "from": 19,
+    "meaning": "players pass through each other"
+   },
+   {
+    "bit": 1,
+    "from": 33,
+    "meaning": "players' hits spare their AI allies (host's rule)"
+   },
+   {
+    "bit": 2,
+    "from": 41,
+    "meaning": "a dedicated host (ignored)"
+   }
+  ],
+  "extended_options": {
+   "about": "variant_options bytes 0x1C to 0x2B, from 35. A reader of an older host uses the defaults; a reader takes them sanitized: out of range is the default.",
+   "bytes": [
+    {
+     "at": 28,
+     "name": "mode",
+     "default": 0,
+     "values": "0 none, 1 SWAT, 2 Infection, 3 Gun Game; past 3 is 0"
+    },
+    {
+     "at": 29,
+     "name": "hardcore",
+     "default": 0,
+     "range": [
+      0,
+      1
+     ]
+    },
+    {
+     "at": 30,
+     "name": "first_zombies",
+     "default": 1,
+     "range": [
+      1,
+      16
+     ]
+    },
+    {
+     "at": 31,
+     "name": "zombie_speed",
+     "default": 150,
+     "range": [
+      100,
+      200
+     ]
+    },
+    {
+     "at": 32,
+     "name": "skull_damage",
+     "default": 200,
+     "range": [
+      100,
+      250
+     ]
+    },
+    {
+     "at": 33,
+     "name": "zombie_respawn",
+     "default": 5,
+     "range": [
+      1,
+      30
+     ]
+    },
+    {
+     "at": 34,
+     "name": "countdown",
+     "default": 10,
+     "range": [
+      0,
+      30
+     ]
+    },
+    {
+     "at": 35,
+     "name": "zombie_shields",
+     "default": 1,
+     "range": [
+      0,
+      1
+     ]
+    },
+    {
+     "at": 36,
+     "name": "weapon_order",
+     "default": 0,
+     "range": [
+      0,
+      2
+     ]
+    },
+    {
+     "at": 37,
+     "name": "melee_demotes",
+     "default": 1,
+     "range": [
+      0,
+      1
+     ]
+    },
+    {
+     "at": 38,
+     "name": "reserved",
+     "size": 6,
+     "default": 0
+    }
+   ]
+  },
+  "trailing": {
+   "about": "From 42: 64 bytes after local_data. On an MCC map's game: the content digest, then the package metadata digest; zeros otherwise. A reader with no use for them drops them.",
+   "bytes": [
+    {
+     "at": 0,
+     "size": 32,
+     "name": "mcc_content_digest"
+    },
+    {
+     "at": 32,
+     "size": 32,
+     "name": "mcc_package_metadata_digest"
+    }
+   ]
+  }
+ },
+ "versions": {
+  "11": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "12": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "13": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "14": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "15": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "16": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "17": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "18": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "19": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "cooperative_flags bit 0: co-op players pass through each other"
+   ]
+  },
+  "20": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "21": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "22": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "map.name names a Custom Edition map as custom_maps\\<name>"
+   ]
+  },
+  "23": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "map.version is a Custom Edition map's header checksum (Xbox maps as before)"
+   ]
+  },
+  "24": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "25": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "units' integrated lights: two bits of the object state's flags (an older reader ignores them)"
+   ]
+  },
+  "26": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "27": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [
+    83,
+    84,
+    85,
+    86
+   ],
+   "rules": [
+    "Custom Edition map sharing messages 83 to 86 (a reader that doesn't share maps drops them)"
+   ]
+  },
+  "28": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "29": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "map.version is the first 32 bits of a Custom Edition map's whole-file hash, and its level name its own, with no hashed suffix (a reader of 29 also takes 28's hashed names and header checksums)"
+   ]
+  },
+  "30": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": []
+  },
+  "31": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "the pregame keep-alive's last two bytes are 0",
+    "a datagram stamped more than 450 ticks from the sender's latest is dropped"
+   ]
+  },
+  "32": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [
+    90
+   ],
+   "rules": [
+    "message 90: the host's aim assist policy for the mouse (12 bytes, reliable)",
+    "input entry byte 2: the player plays co-op without friendly fire"
+   ]
+  },
+  "33": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "cooperative_flags bit 1: players' hits spare their AI allies (the host's rule; a client takes the bit as it is)"
+   ]
+  },
+  "34": {
+   "settings_size": 13120,
+   "options_offset": 13088,
+   "options_size": 28,
+   "local_data_offset": 13116,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "shield-only scenery and devices are static targets; a client reports no damage a static target deals"
+   ]
+  },
+  "35": {
+   "settings_size": 13136,
+   "options_offset": 13088,
+   "options_size": 44,
+   "local_data_offset": 13132,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "variant_options grow from 0x1C to 0x2C bytes in front of local_data: the record is 16 bytes longer"
+   ]
+  },
+  "36": {
+   "settings_size": 13136,
+   "options_offset": 13088,
+   "options_size": 44,
+   "local_data_offset": 13132,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [
+    91
+   ],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [
+    91
+   ],
+   "rules": [
+    "message 91: the host's shield effects (12 bytes, reliable), values 0 to 5"
+   ]
+  },
+  "37": {
+   "settings_size": 13136,
+   "options_offset": 13088,
+   "options_size": 44,
+   "local_data_offset": 13132,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [
+    91
+   ],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "the advertisement's reserved byte 3 is the game's kind (low 7 bits an OpenCE game type, bit 7 Hardcore); no record change"
+   ]
+  },
+  "38": {
+   "settings_size": 13136,
+   "options_offset": 13088,
+   "options_size": 44,
+   "local_data_offset": 13132,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [
+    91
+   ],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "message 91 takes a seventh value, 6 (each machine its own player's look)"
+   ]
+  },
+  "39": {
+   "settings_size": 13136,
+   "options_offset": 13088,
+   "options_size": 44,
+   "local_data_offset": 13132,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [
+    91
+   ],
+   "join_request_extra": 0,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "the advertisement's flag 0x04 is a dedicated server; no record change"
+   ]
+  },
+  "40": {
+   "settings_size": 13136,
+   "options_offset": 13088,
+   "options_size": 44,
+   "local_data_offset": 13132,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [
+    91
+   ],
+   "join_request_extra": 234,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [],
+   "rules": [
+    "the join request carries 234 bytes of zeros after its first 0x70; a host of 40 or later drops a request of another length"
+   ]
+  },
+  "41": {
+   "settings_size": 13136,
+   "options_offset": 13088,
+   "options_size": 44,
+   "local_data_offset": 13132,
+   "trailing_size": 0,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [
+    78,
+    79,
+    91,
+    94,
+    95
+   ],
+   "join_request_extra": 234,
+   "join_request_version_at": null,
+   "header_extra": 0,
+   "epoch_kind": 0,
+   "unit_state_parts": [],
+   "rider_ejection_up": 0,
+   "messages_added": [
+    78,
+    79,
+    94,
+    95
+   ],
+   "rules": [
+    "refusal 13 (too many machines from one address)",
+    "messages 78 and 79 laid out anew, 94 and 95 new (votes): a reader that doesn't vote drops them",
+    "cooperative_flags bit 2 (a dedicated host) is ignored"
+   ]
+  },
+  "42": {
+   "settings_size": 13200,
+   "options_offset": 13088,
+   "options_size": 44,
+   "local_data_offset": 13132,
+   "trailing_size": 64,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [
+    78,
+    79,
+    91,
+    94,
+    95,
+    97,
+    98,
+    99,
+    100,
+    103,
+    104,
+    105,
+    106
+   ],
+   "join_request_extra": 236,
+   "join_request_version_at": 234,
+   "header_extra": 4,
+   "epoch_kind": 96,
+   "unit_state_parts": [
+    {
+     "bit": 6,
+     "size": 30,
+     "at": "last"
+    }
+   ],
+   "rider_ejection_up": 0,
+   "messages_added": [
+    96,
+    97,
+    98,
+    99,
+    100,
+    103,
+    104,
+    105,
+    106
+   ],
+   "rules": [
+    "the join request's extra bytes are 236, with the host's version as a big-endian 16-bit word at 234 of them",
+    "every distributed message header has 4 more bytes (the checkpoint epoch) after its 8",
+    "message 96: the host's checkpoint boundary",
+    "unit state part bit 6 (scripted pose, 30 bytes, last)",
+    "the record has 64 bytes after local_data (two MCC digests, zero otherwise)"
+   ]
+  },
+  "43": {
+   "settings_size": 13200,
+   "options_offset": 13088,
+   "options_size": 44,
+   "local_data_offset": 13132,
+   "trailing_size": 64,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [
+    78,
+    79,
+    91,
+    94,
+    95,
+    97,
+    98,
+    99,
+    100,
+    103,
+    104,
+    105,
+    106,
+    107
+   ],
+   "join_request_extra": 236,
+   "join_request_version_at": 234,
+   "header_extra": 4,
+   "epoch_kind": 96,
+   "unit_state_parts": [
+    {
+     "bit": 6,
+     "size": 30,
+     "at": "last"
+    },
+    {
+     "bit": 7,
+     "size": 28,
+     "at": "after_up"
+    }
+   ],
+   "rider_ejection_up": 200,
+   "messages_added": [
+    107
+   ],
+   "rules": [
+    "unit state part bit 7 (deck, 28 bytes, after the up)",
+    "message 107 (riding) dropped",
+    "riders leave a vehicle on the ground whose up's height is below 0.200"
+   ]
+  },
+  "44": {
+   "settings_size": 13200,
+   "options_offset": 13088,
+   "options_size": 44,
+   "local_data_offset": 13132,
+   "trailing_size": 64,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [
+    78,
+    79,
+    91,
+    94,
+    95,
+    97,
+    98,
+    99,
+    100,
+    103,
+    104,
+    105,
+    106,
+    107
+   ],
+   "join_request_extra": 236,
+   "join_request_version_at": 234,
+   "header_extra": 4,
+   "epoch_kind": 96,
+   "unit_state_parts": [
+    {
+     "bit": 6,
+     "size": 30,
+     "at": "last"
+    },
+    {
+     "bit": 7,
+     "size": 28,
+     "at": "after_up"
+    }
+   ],
+   "rider_ejection_up": 200,
+   "messages_added": [],
+   "rules": [
+    "the number alone: 43's layout and rules"
+   ]
+  },
+  "45": {
+   "settings_size": 13200,
+   "options_offset": 13088,
+   "options_size": 44,
+   "local_data_offset": 13132,
+   "trailing_size": 64,
+   "shield_effects_maximum": 6,
+   "dropped_messages": [
+    78,
+    79,
+    91,
+    94,
+    95,
+    97,
+    98,
+    99,
+    100,
+    103,
+    104,
+    105,
+    106,
+    107
+   ],
+   "join_request_extra": 236,
+   "join_request_version_at": 234,
+   "header_extra": 4,
+   "epoch_kind": 96,
+   "unit_state_parts": [
+    {
+     "bit": 6,
+     "size": 30,
+     "at": "last"
+    },
+    {
+     "bit": 7,
+     "size": 28,
+     "at": "after_up"
+    }
+   ],
+   "rider_ejection_up": 200,
+   "messages_added": [],
+   "rules": [
+    "presumed additive: 44's layout, one past the newest known (DELTA_LEGACY_PRESUMED)"
+   ],
+   "presumed": true
+  }
+ },
+ "projects": {
+  "content_evolved": {
+   "about": "Content Evolved's plain games at 44: the record of 44 with variant_options 0x58 bytes (OpenCE's 0x2C, then 0x2C of its own); option byte 0x2B is 1 Floodfection, 2 Tag Gun Game; engine 6 is Firefight; distributed kinds 160 to 167 are its own (dropped by others). Its modded games advertise 0xFF00 | mod version and are not joinable by other builds.",
+   "version": 44,
+   "options_size": 88,
+   "settings_size": 13244,
+   "dropped_messages_first": 160,
+   "dropped_messages_last": 167
+  }
+ }
+}

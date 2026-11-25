@@ -89,13 +89,19 @@ def doc_examples():
 
 
 def check_doc(goldens):
+    """golden_* examples are the game's bytes (golden.h); example_* ones are
+    bytes the game never writes (a port host's tag), which the reference
+    client's tests hold and its writer is tested against (delta_ref_test.c)"""
     examples = doc_examples()
     if not examples:
         sys.exit("capture.py: no hex examples in docs/delta/peer.md")
+    reference = golden_arrays((KIT / "delta_ref_test.c").read_text())
     for name, data in examples.items():
-        if goldens.get(name) != data:
-            sys.exit(f"capture.py: docs/delta/peer.md's example {name} is not golden.h's bytes")
-    print(f"capture.py: peer.md's {len(examples)} examples match golden.h")
+        source = reference if name.startswith("example_") else goldens
+        if source.get(name) != data:
+            sys.exit(f"capture.py: docs/delta/peer.md's example {name} is not "
+                     f"{'delta_ref_test.c' if name.startswith('example_') else 'golden.h'}'s bytes")
+    print(f"capture.py: peer.md's {len(examples)} examples match golden.h and delta_ref_test.c")
 
 
 def golden(check):

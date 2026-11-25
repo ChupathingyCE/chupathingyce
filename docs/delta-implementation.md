@@ -64,6 +64,12 @@ Slayer); `delta_compat_decide` is a client's join decision, by
 `DELTA_WIRE_COMPATIBILITY`'s ranges; `delta_compat_join_mark` and
 `delta_compat_join_marked` write and read the join mark. The consoles take
 the same path (`HALO_CONSOLE_DELTA` or `HALO_CONSOLE_ONLINE_GAMES`).
+`delta_compat_read_project` reads the tag's layout 2, a host of another
+project's code (`DELTA_PROJECTS` in `delta.h`): such a host speaks Delta, so
+the client says HELLO and marks its join, but `delta_compat_decide` leaves
+it to the network number, and the system link list shows the project's
+name (`network_game_client_advertised_game_project`). This build never
+writes layout 2.
 
 ## The protocol setting
 

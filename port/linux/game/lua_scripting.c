@@ -50,7 +50,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "lua_opensauce.h"
 #include "lua_scripting.h"
 #include "lua_twiddlings.h"
-#include "lualib.h"
+#include "../../third_party/lua/lualib.h"
 
 #include <stdarg.h>
 #include <stdio.h>

@@ -33,6 +33,9 @@ box, the prompts):
 - LAYOUTS: SAVE (under the layout's title), SAVE AS NEW, then the map's
   layouts: A loads one (pressed twice: what isn't saved is lost), Y
   deletes one (pressed twice);
+- SKY AND FOG: SKY, FOG, FOG COLOR, FOG DENSITY, FOG START, FOG END (the
+  layout's sky and fog: forge_environment.inc), A or left and right steps
+  one.
 - OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, DELETE, GRAB RANGE, HELD
   FACING, UNDO, REDO, NEW ROUND, CLEAR DEAD AI (the layout's dead AI
   characters), CLEAR ALL AI (every one, pressed twice), PLAY AS SPARTAN, and
@@ -144,8 +147,16 @@ enum
 	_game_tab_objects = 0,
 	_game_tab_properties,
 	_game_tab_layouts,
+	_game_tab_sky,
 	_game_tab_options,
 	NUMBER_OF_GAME_TABS
+};
+
+/* SKY AND FOG's rows: forge.h's _forge_environment_* (SKY, FOG, FOG COLOR,
+FOG DENSITY, FOG START, FOG END), the layout's sky and fog */
+static char const *const sky_labels[NUMBER_OF_FORGE_ENVIRONMENT_ROWS] =
+{
+	"SKY", "FOG", "FOG COLOR", "FOG DENSITY", "FOG START", "FOG END",
 };
 
 /* OPTIONS' rows */
@@ -185,7 +196,7 @@ enum
 };
 
 static char const *const lobby_tab_names[NUMBER_OF_LOBBY_TABS] = { "FORGE", "PLAY" };
-static char const *const game_tab_names[NUMBER_OF_GAME_TABS] = { "OBJECTS", "PROPERTIES", "LAYOUTS", "OPTIONS" };
+static char const *const game_tab_names[NUMBER_OF_GAME_TABS] = { "OBJECTS", "PROPERTIES", "LAYOUTS", "SKY AND FOG", "OPTIONS" };
 
 /* the game types a layout is played as (forge_play_start's words) */
 static struct
@@ -640,6 +651,8 @@ static short game_list_rows(void)
 	case _game_tab_layouts:
 		return (short)(NUMBER_OF_LAYOUTS_ACTIONS + (forge_menu.view.map_index != NONE ?
 			map_entry_count(forge_menu.view.map_index) : 0));
+	case _game_tab_sky:
+		return NUMBER_OF_FORGE_ENVIRONMENT_ROWS;
 	case _game_tab_options:
 		return forge_menu.controls_shown ? 0 : NUMBER_OF_OPTIONS;
 	}
@@ -936,6 +949,13 @@ static void game_handle(unsigned int pressed)
 			game_layouts_choose(*row, GUIDE_INPUT_A);
 		else if (pressed & GUIDE_INPUT_Y)
 			game_layouts_choose(*row, GUIDE_INPUT_Y);
+		break;
+	case _game_tab_sky:
+		if (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT | GUIDE_INPUT_A))
+		{
+			forge_menu_ask(_forge_menu_ask_environment, *row, (short)((pressed & GUIDE_INPUT_LEFT) ? -1 : 1), NULL);
+			sound(SOUND_CURSOR);
+		}
 		break;
 	case _game_tab_options:
 		if (forge_menu.controls_shown)
@@ -1604,9 +1624,29 @@ static void render_options(void)
 	}
 }
 
+static void render_sky(void)
+{
+	short chosen = forge_menu.list_row[_game_tab_sky], row, shown = side_rows_shown(), first;
+	float y = SIDE_LIST_Y;
+	char value[64];
+
+	side_heading("SKY AND FOG");
+	first = forge_menu.list_first = scrolled(forge_menu.list_first, chosen, NUMBER_OF_FORGE_ENVIRONMENT_ROWS, shown);
+	for (row = first; row < NUMBER_OF_FORGE_ENVIRONMENT_ROWS && row < first + shown; row++)
+	{
+		value[0] = 0;
+		forge_environment_text(row, value, sizeof(value));
+		side_setting(y, row == chosen, sky_labels[row], value[0] ? value : NULL, row);
+		y += SIDE_ROW_HEIGHT + SIDE_ROW_GAP;
+	}
+	value[0] = 0;
+	forge_environment_text(chosen, value, sizeof(value));
+	side_box(sky_labels[chosen], value, side_status(), NULL);
+}
+
 static void render_game(void)
 {
-	static char const *const titles[NUMBER_OF_GAME_TABS] = { "OBJECT BROWSER", "PROPERTIES", "LAYOUTS", "OPTIONS" };
+	static char const *const titles[NUMBER_OF_GAME_TABS] = { "OBJECT BROWSER", "PROPERTIES", "LAYOUTS", "SKY AND FOG", "OPTIONS" };
 	struct ui_style_prompt prompts[5];
 	float starts[5], ends[5], tab_starts[NUMBER_OF_GAME_TABS], tab_ends[NUMBER_OF_GAME_TABS];
 	short prompt_count = 0, index;
@@ -1654,6 +1694,11 @@ static void render_game(void)
 			prompt_add(prompts, &prompt_count, UI_BUTTON_A, "ENTER", armed(row, GUIDE_INPUT_A) ? "CONFIRM" : "LOAD");
 			prompt_add(prompts, &prompt_count, UI_BUTTON_Y, "TAB", armed(row, GUIDE_INPUT_Y) ? "CONFIRM" : "DELETE");
 		}
+		prompt_add(prompts, &prompt_count, UI_BUTTON_B, "ESC", "CLOSE");
+		break;
+	case _game_tab_sky:
+		render_sky();
+		prompt_add(prompts, &prompt_count, UI_BUTTON_A, "ENTER", "CHANGE");
 		prompt_add(prompts, &prompt_count, UI_BUTTON_B, "ESC", "CLOSE");
 		break;
 	case _game_tab_options:

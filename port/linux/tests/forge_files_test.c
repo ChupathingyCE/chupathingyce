@@ -162,6 +162,21 @@ static struct forge_file_record *add_marker(struct forge_file_layout *layout, in
 	return record;
 }
 
+/* (version 14) a volume: a box of half width w, half length l and height h
+(quarter world units), or a sphere of radius w (l and h 0) */
+static struct forge_file_record *add_volume(struct forge_file_layout *layout, int type, int shape, int w, int l, int h,
+	int amount)
+{
+	struct forge_file_record *record = add_marker(layout, _forge_record_volume, -1, type);
+
+	record->params[FORGE_FILE_VOLUME_PARAM_SHAPE] = (unsigned char)shape;
+	record->params[FORGE_FILE_VOLUME_PARAM_SIZE] = (unsigned char)w;
+	record->params[FORGE_FILE_VOLUME_PARAM_SIZE + 1] = (unsigned char)l;
+	record->params[FORGE_FILE_VOLUME_PARAM_SIZE + 2] = (unsigned char)h;
+	record->params[FORGE_FILE_VOLUME_PARAM_AMOUNT] = (unsigned char)amount;
+	return record;
+}
+
 /* a placement of the map's taken away (or kept, of a category taken away
 whole) */
 static void add_canvas(struct forge_file_layout *layout, int category, int kept, int index)
@@ -172,6 +187,43 @@ static void add_canvas(struct forge_file_layout *layout, int category, int kept,
 	entry->category = (unsigned char)category;
 	entry->kept = (unsigned char)kept;
 	entry->index = (unsigned short)index;
+}
+
+/* (version 15) the sky and fog: a sky's path (path_index, or NONE for the
+map's) and a fog (density 0 for none) */
+static struct forge_file_record *add_environment(struct forge_file_layout *layout, int path_index, int red, int density,
+	int start, int opaque)
+{
+	struct forge_file_record *record = &layout->records[layout->record_count++];
+
+	memset(record, 0, sizeof(*record));
+	record->kind = _forge_record_environment;
+	record->path_index = (unsigned short)(path_index >= 0 ? path_index : FORGE_FILE_NO_PATH);
+	if (path_index >= 0)
+		record->params[FORGE_FILE_ENVIRONMENT_PARAM_SETS] |= FORGE_FILE_ENVIRONMENT_SKY;
+	if (density)
+	{
+		record->params[FORGE_FILE_ENVIRONMENT_PARAM_SETS] |= FORGE_FILE_ENVIRONMENT_FOG;
+		record->params[FORGE_FILE_ENVIRONMENT_PARAM_COLOR] = (unsigned char)red;
+		record->params[FORGE_FILE_ENVIRONMENT_PARAM_COLOR + 1] = 90;
+		record->params[FORGE_FILE_ENVIRONMENT_PARAM_COLOR + 2] = 200;
+		record->params[FORGE_FILE_ENVIRONMENT_PARAM_DENSITY] = (unsigned char)density;
+		record->params[FORGE_FILE_ENVIRONMENT_PARAM_START] = (unsigned char)start;
+		record->params[FORGE_FILE_ENVIRONMENT_PARAM_OPAQUE] = (unsigned char)opaque;
+	}
+	layout->flags |= FORGE_FILE_FLAG_NETGAME_SPAWNS;
+	return record;
+}
+
+/* (version 16) an effect (repeat, seconds) or a decal (size, tenths) of
+path */
+static struct forge_file_record *add_effect(struct forge_file_layout *layout, int kind, int path, int value)
+{
+	struct forge_file_record *record = add_marker(layout, kind, 0, 0);
+
+	record->path_index = (unsigned short)path;
+	record->params[0] = (unsigned char)value;
+	return record;
 }
 
 /* Blood Gulch: a Warthog, two boulders, a rocket launcher, an overshield
@@ -196,7 +248,7 @@ static void sample_layout(struct forge_file_layout *layout)
 	snprintf(layout->date, sizeof(layout->date), "2026-01-02 12:00");
 }
 
-/* every record kind and setting versions 1 to 7 and 11 hold */
+/* every record kind and setting versions 1 to 7 and 11 to 16 hold */
 static void full_layout(struct forge_file_layout *layout)
 {
 	struct forge_file_record *record;
@@ -235,6 +287,21 @@ static void full_layout(struct forge_file_layout *layout)
 	add_canvas(layout, _forge_canvas_vehicles, 0, 0);
 	add_canvas(layout, _forge_canvas_vehicles, 0, 1);
 	add_canvas(layout, _forge_canvas_items, 0, FORGE_FILE_CANVAS_MAXIMUM_INDEX);
+	/* (volumes: a kill box, a damage sphere for red players, a gravity box) */
+	add_volume(layout, FORGE_FILE_VOLUME_KILL, FORGE_FILE_VOLUME_BOX, 40, 40, 8, 0);
+	record = add_volume(layout, FORGE_FILE_VOLUME_DAMAGE, FORGE_FILE_VOLUME_SPHERE, 20, 0, 0, 25);
+	record->team = 0;
+	record->params[FORGE_FILE_VOLUME_PARAM_TARGET] = FORGE_FILE_VOLUME_PLAYERS;
+	add_volume(layout, FORGE_FILE_VOLUME_GRAVITY, FORGE_FILE_VOLUME_BOX, 255, 1, 255, 0);
+	/* (the sky and fog: a sky of the map's, a fog) */
+	add_path(layout, FORGE_FILE_SKY_GROUP, "sky\\sky_bloodgulch\\sky_bloodgulch");
+	add_environment(layout, layout->path_count - 1, 200, 60, 10, 100);
+	/* (an effect, looping; one again every 5 s; a decal) */
+	add_path(layout, FORGE_FILE_EFFECT_GROUP, "effects\\burning\\fire");
+	add_path(layout, FORGE_FILE_DECAL_GROUP, "decals\\scorch\\scorch");
+	add_effect(layout, _forge_record_effect, layout->path_count - 2, 0);
+	add_effect(layout, _forge_record_effect, layout->path_count - 2, 5);
+	add_effect(layout, _forge_record_decal, layout->path_count - 1, 10);
 }
 
 static int encode(struct forge_file_layout const *layout, unsigned char *bytes)
@@ -287,7 +354,8 @@ static int layouts_equal(struct forge_file_layout const *a, struct forge_file_la
 			memcmp(x->position, y->position, sizeof(x->position)) || memcmp(x->angles, y->angles, sizeof(x->angles)) ||
 			x->respawn_seconds != y->respawn_seconds || x->count != y->count || x->game_types != y->game_types ||
 			x->variant != y->variant || x->flags != y->flags || x->ai_team != y->ai_team ||
-			x->ai_behavior != y->ai_behavior || x->ai_route != y->ai_route || x->ai_options != y->ai_options)
+			x->ai_behavior != y->ai_behavior || x->ai_route != y->ai_route || x->ai_options != y->ai_options ||
+			memcmp(x->params, y->params, sizeof(x->params)))
 		{
 			return 0;
 		}
@@ -413,6 +481,32 @@ static void test_versions(void)
 	layout_a.version = 9;
 	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
 
+	/* (a volume: version 14, the newest; a volume alone, on a layout of
+	plain objects, 14 still) */
+	sample_layout(&layout_a);
+	add_volume(&layout_a, FORGE_FILE_VOLUME_KILL, FORGE_FILE_VOLUME_BOX, 4, 4, 4, 0);
+	CHECK(forge_file_layout_version(&layout_a) == FORGE_FILE_VOLUMES_VERSION);
+	size = encode(&layout_a, work);
+	CHECK(size > 0 && work[AT_VERSION] == FORGE_FILE_VOLUMES_VERSION);
+	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok && layout_b.version == FORGE_FILE_VOLUMES_VERSION);
+	/* (a volume alone) */
+	sample_layout(&layout_a);
+	add_volume(&layout_a, FORGE_FILE_VOLUME_GRAVITY, FORGE_FILE_VOLUME_SPHERE, 12, 0, 0, 50);
+	CHECK(forge_file_layout_version(&layout_a) == FORGE_FILE_VOLUMES_VERSION);
+	/* (a sky and fog: version 15, the newest, read back) */
+	add_environment(&layout_a, -1, 10, 40, 0, 50);
+	CHECK(forge_file_layout_version(&layout_a) == FORGE_FILE_ENVIRONMENT_VERSION);
+	size = encode(&layout_a, work);
+	CHECK(size > 0 && work[AT_VERSION] == FORGE_FILE_ENVIRONMENT_VERSION);
+	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok && layout_b.version == FORGE_FILE_ENVIRONMENT_VERSION);
+	/* (a decal: version 16, the newest, read back) */
+	add_path(&layout_a, FORGE_FILE_DECAL_GROUP, "decals\\scorch\\scorch");
+	add_effect(&layout_a, _forge_record_decal, layout_a.path_count - 1, 10);
+	CHECK(forge_file_layout_version(&layout_a) == FORGE_FILE_EFFECTS_VERSION);
+	size = encode(&layout_a, work);
+	CHECK(size > 0 && work[AT_VERSION] == FORGE_FILE_EFFECTS_VERSION);
+	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok && layout_b.version == FORGE_FILE_EFFECTS_VERSION);
+
 	/* (a version that holds nothing of its own is not one a writer made) */
 	sample_layout(&layout_a);
 	layout_a.version = 4;
@@ -420,6 +514,16 @@ static void test_versions(void)
 	layout_a.version = 8;
 	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
 	layout_a.version = 11;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
+	layout_a.version = 12;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
+	layout_a.version = 13;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
+	layout_a.version = FORGE_FILE_VOLUMES_VERSION;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
+	layout_a.version = FORGE_FILE_ENVIRONMENT_VERSION;
+	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
+	layout_a.version = FORGE_FILE_EFFECTS_VERSION;
 	CHECK(forge_file_layout_check(&layout_a, NULL) == _forge_file_bad_version);
 	layout_a.version = 0;
 	/* (the writer refuses what the reader would) */
@@ -443,7 +547,7 @@ static void test_round_trip(void)
 	static unsigned char second[FORGE_FILE_MAXIMUM_SIZE];
 
 	full_layout(&layout_a);
-	CHECK(forge_file_layout_version(&layout_a) == 11);
+	CHECK(forge_file_layout_version(&layout_a) == FORGE_FILE_EFFECTS_VERSION);
 	size = encode(&layout_a, work);
 	CHECK(size > FORGE_FILE_HEADER_SIZE);
 	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok);
@@ -665,12 +769,24 @@ static void test_refused(void)
 	fresh();
 	put16(work, AT_VERSION, FORGE_FILE_VERSION + 1);
 	CHECK(damaged(good_size, 1) == _forge_file_newer_version);
-	/* (version 11 with nothing of its own, and 12) */
+	/* (versions 11 to 16 with nothing of their own) */
 	fresh();
 	put16(work, AT_VERSION, 11);
 	CHECK(damaged(good_size, 1) == _forge_file_bad_version);
 	fresh();
 	put16(work, AT_VERSION, 12);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_version);
+	fresh();
+	put16(work, AT_VERSION, 13);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_version);
+	fresh();
+	put16(work, AT_VERSION, FORGE_FILE_VOLUMES_VERSION);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_version);
+	fresh();
+	put16(work, AT_VERSION, FORGE_FILE_ENVIRONMENT_VERSION);
+	CHECK(damaged(good_size, 1) == _forge_file_bad_version);
+	fresh();
+	put16(work, AT_VERSION, FORGE_FILE_EFFECTS_VERSION);
 	CHECK(damaged(good_size, 1) == _forge_file_bad_version);
 	fresh();
 	put16(work, AT_VERSION, 0xFFFF);
@@ -1049,6 +1165,311 @@ static void test_canvas(void)
 	CHECK(damaged(size, 1) != _forge_file_ok);
 }
 
+/* ---------- volumes (version 14) */
+
+/* a layout of one volume (as add_volume), changed by change, checked */
+static int volume_result(int type, int shape, int w, int l, int h, int amount, int change)
+{
+	struct forge_file_record *record;
+
+	sample_layout(&layout_a);
+	record = add_volume(&layout_a, type, shape, w, l, h, amount);
+	switch (change)
+	{
+	case 1: record->team = 2; break;
+	case 2: record->angles[1] = 0.25f; break;
+	case 3: record->path_index = 0; break;
+	case 4: record->respawn_seconds = 30; break;
+	case 5: record->params[FORGE_FILE_VOLUME_PARAM_TARGET] = 2; break;
+	case 6: record->params[FORGE_FILE_VOLUME_PARAM_TARGET + 1] = 1; break;
+	case 7: record->params[FORGE_FILE_RECORD_PARAMS_SIZE - 1] = 1; break;
+	case 8: layout_a.version = 7; break;
+	case 9: layout_a.flags &= ~FORGE_FILE_FLAG_NETGAME_SPAWNS; break;
+	case 10: record->flags = FORGE_RECORD_PLACE_AT_START; break;
+	case 11: record->game_types = FORGE_FILE_GAME_TYPE_SLAYER; break;
+	case 12: record->position[2] = 6000.f; break;
+	/* (a team's volume for every unit) */
+	case 13: record->team = 0; break;
+	}
+	return forge_file_layout_check(&layout_a, "bloodgulch");
+}
+
+static void test_volumes(void)
+{
+	struct forge_file_record *record;
+	int size;
+	int index;
+	int record_index;
+
+	/* (the good ones: each type, each shape, the ranges' ends) */
+	CHECK(volume_result(FORGE_FILE_VOLUME_KILL, FORGE_FILE_VOLUME_BOX, 1, 1, 1, 0, 0) == _forge_file_ok);
+	CHECK(volume_result(FORGE_FILE_VOLUME_KILL, FORGE_FILE_VOLUME_SPHERE, 255, 0, 0, 0, 0) == _forge_file_ok);
+	CHECK(volume_result(FORGE_FILE_VOLUME_DAMAGE, FORGE_FILE_VOLUME_BOX, 8, 8, 8, 1, 0) == _forge_file_ok);
+	CHECK(volume_result(FORGE_FILE_VOLUME_DAMAGE, FORGE_FILE_VOLUME_BOX, 8, 8, 8, 100, 0) == _forge_file_ok);
+	CHECK(volume_result(FORGE_FILE_VOLUME_GRAVITY, FORGE_FILE_VOLUME_BOX, 8, 8, 8, 0, 0) == _forge_file_ok);
+	CHECK(volume_result(FORGE_FILE_VOLUME_GRAVITY, FORGE_FILE_VOLUME_BOX, 8, 8, 8, 200, 0) == _forge_file_ok);
+	/* (out of range: the type, the shape, a size, the amount for its type) */
+	CHECK(volume_result(NUMBER_OF_FORGE_FILE_VOLUME_TYPES, FORGE_FILE_VOLUME_BOX, 8, 8, 8, 0, 0) == _forge_file_bad_record);
+	CHECK(volume_result(FORGE_FILE_VOLUME_KILL, NUMBER_OF_FORGE_FILE_VOLUME_SHAPES, 8, 8, 8, 0, 0) == _forge_file_bad_record);
+	CHECK(volume_result(FORGE_FILE_VOLUME_KILL, FORGE_FILE_VOLUME_BOX, 8, 0, 8, 0, 0) == _forge_file_bad_record);
+	CHECK(volume_result(FORGE_FILE_VOLUME_KILL, FORGE_FILE_VOLUME_SPHERE, 8, 8, 0, 0, 0) == _forge_file_bad_record);
+	CHECK(volume_result(FORGE_FILE_VOLUME_KILL, FORGE_FILE_VOLUME_SPHERE, 0, 0, 0, 0, 0) == _forge_file_bad_record);
+	CHECK(volume_result(FORGE_FILE_VOLUME_KILL, FORGE_FILE_VOLUME_BOX, 8, 8, 8, 5, 0) == _forge_file_bad_record);
+	CHECK(volume_result(FORGE_FILE_VOLUME_DAMAGE, FORGE_FILE_VOLUME_BOX, 8, 8, 8, 0, 0) == _forge_file_bad_record);
+	CHECK(volume_result(FORGE_FILE_VOLUME_DAMAGE, FORGE_FILE_VOLUME_BOX, 8, 8, 8, 101, 0) == _forge_file_bad_record);
+	CHECK(volume_result(FORGE_FILE_VOLUME_GRAVITY, FORGE_FILE_VOLUME_BOX, 8, 8, 8, 201, 0) == _forge_file_bad_record);
+	/* (the rest of a record: each change refused) */
+	for (index = 1; index <= 13; index++)
+	{
+		int result = volume_result(FORGE_FILE_VOLUME_KILL, FORGE_FILE_VOLUME_BOX, 8, 8, 8, 0, index);
+
+		CHECK(result != _forge_file_ok);
+		if (result == _forge_file_ok)
+			printf("  (volume change %d passed)\n", index);
+	}
+	/* (another kind's own bytes: zeros) */
+	sample_layout(&layout_a);
+	layout_a.records[0].params[0] = 1;
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") == _forge_file_bad_record);
+	/* (the most volumes, and one more) */
+	sample_layout(&layout_a);
+	for (index = 0; index < FORGE_FILE_MAXIMUM_VOLUMES; index++)
+		add_volume(&layout_a, FORGE_FILE_VOLUME_KILL, FORGE_FILE_VOLUME_BOX, 4, 4, 4, 0);
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") == _forge_file_ok);
+	add_volume(&layout_a, FORGE_FILE_VOLUME_KILL, FORGE_FILE_VOLUME_BOX, 4, 4, 4, 0);
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") == _forge_file_too_many);
+	/* (in a file: a byte of a volume's changed is refused, resealed; a
+	plain object's own bytes too) */
+	sample_layout(&layout_a);
+	record = add_volume(&layout_a, FORGE_FILE_VOLUME_DAMAGE, FORGE_FILE_VOLUME_BOX, 8, 8, 8, 10);
+	(void)record;
+	size = encode(&layout_a, work);
+	CHECK(size > 0);
+	record_index = record_at(&layout_a, layout_a.record_count - 1);
+	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok && layouts_equal(&layout_a, &layout_b));
+	memcpy(good, work, (size_t)size);
+	good_size = size;
+	fresh();
+	work[record_index + 36] = 1;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record_index + 39 + FORGE_FILE_VOLUME_PARAM_AMOUNT] = 0;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record_index + 47] = 1;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record_at(&layout_a, 0) + 39] = 1;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	CHECK(damaged(good_size, 1) == _forge_file_ok);
+}
+
+/* ---------- the sky and fog (version 15) */
+
+/* a layout with a sky's path and one sky and fog (as add_environment),
+changed by change, checked */
+static int environment_result(int sky, int density, int start, int opaque, int change)
+{
+	struct forge_file_record *record;
+
+	sample_layout(&layout_a);
+	add_path(&layout_a, FORGE_FILE_SKY_GROUP, "sky\\sky_bloodgulch\\sky_bloodgulch");
+	record = add_environment(&layout_a, sky ? layout_a.path_count - 1 : -1, 120, density, start, opaque);
+	switch (change)
+	{
+	case 1: record->team = 1; break;
+	case 2: record->position[0] = 1.f; break;
+	case 3: record->angles[0] = 0.5f; break;
+	case 4: record->respawn_seconds = 30; break;
+	case 5: record->params[FORGE_FILE_ENVIRONMENT_PARAM_SETS] |= 4; break;
+	case 6: record->params[FORGE_FILE_ENVIRONMENT_PARAM_OPAQUE + 1] = 1; break;
+	case 7: record->params[FORGE_FILE_RECORD_PARAMS_SIZE - 1] = 1; break;
+	case 8: layout_a.version = 7; break;
+	case 9: layout_a.flags &= ~FORGE_FILE_FLAG_NETGAME_SPAWNS; break;
+	/* (the sky bit without a path, a path without the bit, a path of
+	another group) */
+	case 10: record->path_index = FORGE_FILE_NO_PATH; break;
+	case 11: record->params[FORGE_FILE_ENVIRONMENT_PARAM_SETS] &= (unsigned char)~FORGE_FILE_ENVIRONMENT_SKY; break;
+	case 12: record->path_index = 0; break;
+	/* (fog bytes without the fog bit) */
+	case 13: record->params[FORGE_FILE_ENVIRONMENT_PARAM_SETS] &= (unsigned char)~FORGE_FILE_ENVIRONMENT_FOG; break;
+	/* (two of them) */
+	case 14: layout_a.records[layout_a.record_count++] = *record; break;
+	case 15: record->variant = 1; break;
+	}
+	return forge_file_layout_check(&layout_a, "bloodgulch");
+}
+
+static void test_environment(void)
+{
+	int index;
+	int size;
+	int at;
+
+	/* (the good ones: a sky alone, a fog alone, both, the ranges' ends) */
+	CHECK(environment_result(1, 0, 0, 0, 0) == _forge_file_ok);
+	CHECK(environment_result(0, 1, 0, 1, 0) == _forge_file_ok);
+	CHECK(environment_result(1, 100, 254, 255, 0) == _forge_file_ok);
+	/* (out of range: nothing set, density, start past whole) */
+	CHECK(environment_result(0, 0, 0, 0, 0) == _forge_file_bad_record);
+	CHECK(environment_result(0, 101, 0, 10, 0) == _forge_file_bad_record);
+	CHECK(environment_result(0, 50, 20, 10, 0) == _forge_file_bad_record);
+	CHECK(environment_result(0, 50, 20, 0, 0) == _forge_file_bad_record);
+	CHECK(environment_result(0, 50, 255, 255, 0) == _forge_file_bad_record);
+	for (index = 1; index <= 15; index++)
+	{
+		int result = environment_result(1, 50, 10, 60, index);
+
+		CHECK(result != _forge_file_ok);
+		if (result == _forge_file_ok)
+			printf("  (sky and fog change %d passed)\n", index);
+	}
+	/* (a sky's path in a layout of an older version) */
+	sample_layout(&layout_a);
+	add_path(&layout_a, FORGE_FILE_SKY_GROUP, "sky\\sky_bloodgulch\\sky_bloodgulch");
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") == _forge_file_bad_group);
+	/* (a sky's path for an object) */
+	layout_a.records[0].path_index = (unsigned short)(layout_a.path_count - 1);
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") != _forge_file_ok);
+	/* (another kind's own bytes: zeros) */
+	sample_layout(&layout_a);
+	layout_a.records[0].params[0] = 1;
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") == _forge_file_bad_record);
+	/* (in a file: round trip; a byte changed, resealed, refused) */
+	sample_layout(&layout_a);
+	add_path(&layout_a, FORGE_FILE_SKY_GROUP, "sky\\sky_bloodgulch\\sky_bloodgulch");
+	add_environment(&layout_a, layout_a.path_count - 1, 30, 50, 10, 60);
+	size = encode(&layout_a, work);
+	CHECK(size > 0);
+	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok && layouts_equal(&layout_a, &layout_b));
+	memcpy(good, work, (size_t)size);
+	good_size = size;
+	at = record_at(&layout_a, layout_a.record_count - 1);
+	fresh();
+	work[at + 36] = 1;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[at + 39 + FORGE_FILE_ENVIRONMENT_PARAM_DENSITY] = 0;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[at + 47] = 1;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record_at(&layout_a, 0) + 40] = 1;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	CHECK(damaged(good_size, 1) == _forge_file_ok);
+}
+
+/* ---------- effects and decals (version 16) */
+
+/* a layout with an effect's and a decal's path and one record of kind
+(an effect's or a decal's) of value, changed by change, checked */
+static int effect_result(int kind, int value, int change)
+{
+	struct forge_file_record *record;
+	int effect_path;
+
+	sample_layout(&layout_a);
+	add_path(&layout_a, FORGE_FILE_EFFECT_GROUP, "effects\\burning\\fire");
+	effect_path = layout_a.path_count - 1;
+	add_path(&layout_a, FORGE_FILE_DECAL_GROUP, "decals\\scorch\\scorch");
+	record = add_effect(&layout_a, kind, kind == _forge_record_decal ? effect_path + 1 : effect_path, value);
+	switch (change)
+	{
+	case 1: record->team = 1; break;
+	case 2: record->angles[1] = 0.5f; break;
+	case 3: record->respawn_seconds = 30; break;
+	case 4: record->params[1] = 1; break;
+	case 5: record->params[FORGE_FILE_RECORD_PARAMS_SIZE - 1] = 1; break;
+	case 6: layout_a.version = 7; break;
+	case 7: layout_a.flags &= ~FORGE_FILE_FLAG_NETGAME_SPAWNS; break;
+	/* (no path, an object's path, the other group's path) */
+	case 8: record->path_index = FORGE_FILE_NO_PATH; break;
+	case 9: record->path_index = 0; break;
+	case 10: record->path_index = (unsigned short)(kind == _forge_record_decal ? effect_path : effect_path + 1); break;
+	case 11: record->variant = 1; break;
+	case 12: record->flags = FORGE_RECORD_PLACE_AT_START; break;
+	}
+	return forge_file_layout_check(&layout_a, "bloodgulch");
+}
+
+static void test_effects(void)
+{
+	int index;
+	int size;
+	int at;
+
+	CHECK(effect_result(_forge_record_effect, 0, 0) == _forge_file_ok);
+	CHECK(effect_result(_forge_record_effect, 60, 0) == _forge_file_ok);
+	CHECK(effect_result(_forge_record_decal, 1, 0) == _forge_file_ok);
+	CHECK(effect_result(_forge_record_decal, 40, 0) == _forge_file_ok);
+	CHECK(effect_result(_forge_record_effect, 61, 0) == _forge_file_bad_record);
+	CHECK(effect_result(_forge_record_decal, 0, 0) == _forge_file_bad_record);
+	CHECK(effect_result(_forge_record_decal, 41, 0) == _forge_file_bad_record);
+	for (index = 1; index <= 12; index++)
+	{
+		int result = effect_result(index % 2 ? _forge_record_effect : _forge_record_decal, 5, index);
+
+		CHECK(result != _forge_file_ok);
+		if (result == _forge_file_ok)
+			printf("  (effect change %d passed)\n", index);
+	}
+	/* (an effect's or decal's path in a layout of an older version, or for an
+	object) */
+	sample_layout(&layout_a);
+	add_path(&layout_a, FORGE_FILE_EFFECT_GROUP, "effects\\burning\\fire");
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") == _forge_file_bad_group);
+	sample_layout(&layout_a);
+	add_path(&layout_a, FORGE_FILE_DECAL_GROUP, "decals\\scorch\\scorch");
+	add_effect(&layout_a, _forge_record_decal, layout_a.path_count - 1, 10);
+	layout_a.records[0].path_index = (unsigned short)(layout_a.path_count - 1);
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") == _forge_file_bad_record);
+	/* (the most, and one more) */
+	sample_layout(&layout_a);
+	add_path(&layout_a, FORGE_FILE_EFFECT_GROUP, "effects\\burning\\fire");
+	add_path(&layout_a, FORGE_FILE_DECAL_GROUP, "decals\\scorch\\scorch");
+	for (index = 0; index < FORGE_FILE_MAXIMUM_EFFECTS; index++)
+		add_effect(&layout_a, _forge_record_effect, layout_a.path_count - 2, 2);
+	for (index = 0; index < FORGE_FILE_MAXIMUM_DECALS; index++)
+		add_effect(&layout_a, _forge_record_decal, layout_a.path_count - 1, 10);
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") == _forge_file_ok);
+	add_effect(&layout_a, _forge_record_effect, layout_a.path_count - 2, 2);
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") == _forge_file_too_many);
+	layout_a.record_count--;
+	add_effect(&layout_a, _forge_record_decal, layout_a.path_count - 1, 10);
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") == _forge_file_too_many);
+	/* (another kind's own bytes: zeros) */
+	sample_layout(&layout_a);
+	layout_a.records[0].params[0] = 1;
+	CHECK(forge_file_layout_check(&layout_a, "bloodgulch") == _forge_file_bad_record);
+	/* (in a file: round trip; bytes changed, resealed, refused) */
+	sample_layout(&layout_a);
+	add_path(&layout_a, FORGE_FILE_EFFECT_GROUP, "effects\\burning\\fire");
+	add_effect(&layout_a, _forge_record_effect, layout_a.path_count - 1, 3);
+	size = encode(&layout_a, work);
+	CHECK(size > 0);
+	CHECK(decode(work, size, "bloodgulch", &layout_b) == _forge_file_ok && layouts_equal(&layout_a, &layout_b));
+	memcpy(good, work, (size_t)size);
+	good_size = size;
+	at = record_at(&layout_a, layout_a.record_count - 1);
+	fresh();
+	work[at + 36] = 1;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[at + 39] = 99;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[at + 47] = 1;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	work[record_at(&layout_a, 0) + 41] = 1;
+	CHECK(damaged(good_size, 1) == _forge_file_bad_record);
+	fresh();
+	CHECK(damaged(good_size, 1) == _forge_file_ok);
+}
+
 /* ---------- the fuzz */
 
 static void test_fuzz(int iterations)
@@ -1224,6 +1645,9 @@ int main(int argc, char **argv)
 	test_ai_movement();
 	test_refused();
 	test_canvas();
+	test_volumes();
+	test_environment();
+	test_effects();
 	test_store();
 	test_fuzz(iterations);
 	printf("%d checks, %d failed\n", checks, failures);

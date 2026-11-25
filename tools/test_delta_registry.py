@@ -63,6 +63,33 @@ def test_wires_match_delta_h():
     assert wires["current"] in listed and wires["console_floor"] in listed
 
 
+def test_projects_match_delta_h():
+    """the projects a layout 2 tag names (DELTA_PROJECTS), and the tag's
+    layouts (DELTA_ADVERTISED_TAG_VERSION and _PROJECT)"""
+    projects = REGISTRY["projects"]
+    rows = projects["list"]
+    assert [row["number"] for row in rows] == list(range(len(rows)))
+    named = re.findall(r'X\(_delta_project_(\w+), (\d+), "(\w+)", "([^"]+)"\)', DELTA_H)
+    assert [(int(number), key, name) for _, number, key, name in named] == \
+        [(row["number"], row["key"], row["name"]) for row in rows if row["number"]]
+    assert all(symbol == key for symbol, _, key, _ in named)
+    assert rows[0]["key"] == "none" and not rows[0]["name"]
+    assert int(re.search(r"#define DELTA_PROJECT_OURS (\d+)", DELTA_H).group(1)) == 1 == \
+        [row["number"] for row in rows if row["key"] == "chupathingy"][0]
+    layouts = {row["name"]: row["layout"] for row in projects["tag_layouts"]}
+    assert layouts == {"wire": int(re.search(r"#define DELTA_ADVERTISED_TAG_VERSION (\d+)", DELTA_H).group(1)),
+                       "project": int(re.search(r"#define DELTA_ADVERTISED_TAG_VERSION_PROJECT (\d+)", DELTA_H).group(1))}
+    for row in rows:
+        assert row["status"]
+        assert f"| {row['number']} | `{row['key']}` |" in REGISTRY_MD, row
+    for row in projects["tag_layouts"]:
+        assert f"| {row['layout']} | `{row['name']}` |" in REGISTRY_MD, row
+    reference = (ROOT / "tools" / "delta-ref" / "delta_ref.h").read_text()
+    for name, number in re.findall(r"DREF_PROJECT_(\w+) = (\d+)", reference):
+        if name != "NONE":
+            assert [row["number"] for row in rows if row["key"] == name.lower()] == [int(number)], name
+
+
 def test_platform_floors_match_the_code():
     floors = REGISTRY["platform_floors"]
     assert floors["section"] == "platform_floors"
@@ -162,9 +189,10 @@ def values(text, pattern):
 
 def test_every_section_is_checked():
     checked = {"registry", "description", "platforms", "capabilities", "wires", "platform_floors",
-        "network_versions", "ports", "xbox_title_id", "delta_major", "platform_policy", "advertisement",
+        "projects", "network_versions", "ports", "xbox_title_id", "delta_major", "platform_policy", "advertisement",
         "platform_key_flags", "internet_listing", "messages", "map_families", "host_rules_flags", "game_modes", "permissions",
-        "device_certificate_flags", "device_capabilities", "report_reasons", "moderation_actions", "labels"}
+        "device_certificate_flags", "device_capabilities", "device_account_marks", "report_reasons", "moderation_actions",
+        "labels"}
     assert set(REGISTRY) == checked
 
 
@@ -239,6 +267,14 @@ def test_device_certificates_match_identity_h():
     assert {capability["name"]: capability["value"] for capability in REGISTRY["device_capabilities"]} == can
     for row in REGISTRY["device_certificate_flags"] + REGISTRY["device_capabilities"]:
         assert f"| 0x{row['value']:02X} | `{row['name']}` |" in REGISTRY_MD, row
+    # (account marks: the capabilities field's top byte, apart from the capabilities)
+    marks = values(identity, r"\bIDENTITY_MARK_(\w+) = (0x\w+),")
+    assert {mark["name"]: mark["value"] for mark in REGISTRY["device_account_marks"]} == marks
+    bits = int(re.search(r"#define IDENTITY_CAPABILITY_BITS (0x\w+?)UL", identity).group(1), 16)
+    for mark in REGISTRY["device_account_marks"]:
+        assert mark["value"] & bits == 0 and mark["value"] & ~0xFFFFFFFF == 0, mark
+        assert f"| 0x{mark['value']:08X} | `{mark['name']}` |" in REGISTRY_MD, mark
+    assert all(capability["value"] & ~bits == 0 for capability in REGISTRY["device_capabilities"])
 
 
 def test_report_reasons_and_moderation_actions_match_delta_wire_h():

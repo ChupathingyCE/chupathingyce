@@ -142,7 +142,11 @@ static void forge_spawn_name(
 	char const *kind;
 
 	kind = (forge_spawn_kind_names[spawn->kind % NUMBER_OF_FORGE_MARKER_KINDS]);
-	if (forge_spawn_is_teleporter(spawn))
+	if (forge_spawn_is_effect(spawn) && spawn->effect_tag_index != NONE)
+		forge_effect_name(spawn, name, size);
+	else if (forge_spawn_is_volume(spawn) || forge_spawn_is_effect(spawn))
+		snprintf(name, (size_t)size, "%s", kind);
+	else if (forge_spawn_is_teleporter(spawn))
 		snprintf(name, (size_t)size, ("%s, Channel %d"), kind, spawn->channel + 1);
 	/* (a game type object's: its team, hill, ball or order) */
 	else if (spawn->kind == _forge_spawn_flag)
@@ -168,6 +172,16 @@ static void forge_spawn_log(
 	char const *what,
 	struct forge_spawn const *spawn)
 {
+	if (forge_spawn_is_volume(spawn))
+	{
+		forge_volume_log(what, spawn);
+		return;
+	}
+	if (forge_spawn_is_effect(spawn))
+	{
+		forge_effect_log(what, spawn);
+		return;
+	}
 	if (forge_spawn_is_objective(spawn))
 	{
 		platform_log("forge: %s the %s #%ld (index %d) at %.2f %.2f %.2f facing %.2f %.2f", what,
@@ -210,6 +224,22 @@ static boolean forge_marker_kind_room(
 	{
 		if (notice)
 			forge_notice(("Teleporters full: %d. Delete one to place another."), FORGE_FILE_MAXIMUM_TELEPORTERS);
+		return FALSE;
+	}
+	if ((kind == _forge_spawn_effect && forge_effects_count(kind) >= FORGE_FILE_MAXIMUM_EFFECTS) ||
+		(kind == _forge_spawn_decal && forge_effects_count(kind) >= FORGE_FILE_MAXIMUM_DECALS))
+	{
+		if (notice)
+			forge_notice(kind == _forge_spawn_effect ? ("Effects full: %d. Delete one to place another.") :
+				("Decals full: %d. Delete one to place another."),
+				kind == _forge_spawn_effect ? FORGE_FILE_MAXIMUM_EFFECTS : FORGE_FILE_MAXIMUM_DECALS);
+		return FALSE;
+	}
+	if (kind >= _forge_spawn_volume_kill && kind <= _forge_spawn_volume_gravity &&
+		forge_volumes_count() >= FORGE_FILE_MAXIMUM_VOLUMES)
+	{
+		if (notice)
+			forge_notice(("Volumes full: %d. Delete one to place another."), FORGE_FILE_MAXIMUM_VOLUMES);
 		return FALSE;
 	}
 	if (kind == _forge_spawn_ai_route && forge_spawns_of_kind(_forge_spawn_ai_route) >= FORGE_FILE_MAXIMUM_ROUTE_POINTS)
@@ -303,6 +333,8 @@ static struct forge_spawn *forge_spawn_add(
 	boolean teleporter = kind == _forge_spawn_teleporter_sender || kind == _forge_spawn_teleporter_receiver;
 	boolean objective = kind >= _forge_spawn_flag && kind <= FORGE_LAST_OBJECTIVE_KIND;
 	boolean ai_marker = kind == _forge_spawn_ai_route || kind == _forge_spawn_ai_area;
+	boolean volume = kind >= _forge_spawn_volume_kill && kind <= _forge_spawn_volume_gravity;
+	boolean effect = kind == _forge_spawn_effect || kind == _forge_spawn_decal;
 
 	if (forge_globals.spawn_count < 0 || forge_globals.spawn_count >= FORGE_SPAWN_TABLE ||
 		forge_spawn_points() >= FORGE_MAXIMUM_SPAWNS)
@@ -324,13 +356,17 @@ static struct forge_spawn *forge_spawn_add(
 	/* (a teleporter, a game type object: no team nor game type, its channel
 	or index) */
 	spawn->team = (signed char)(!teleporter && !objective && !ai_marker && (team == 0 || team == 1) ? team : NONE);
-	spawn->game_types = (unsigned short)(teleporter || objective || ai_marker ? 0 : game_types & FORGE_FILE_SPAWN_GAME_TYPES_MASK);
+	spawn->game_types = (unsigned short)(teleporter || objective || ai_marker || volume || effect ? 0 : game_types & FORGE_FILE_SPAWN_GAME_TYPES_MASK);
+	if (effect)
+		forge_effect_set(spawn, NONE, 0);
 	spawn->channel = (short)(teleporter ? PIN(channel, 0, FORGE_TELEPORTER_CHANNELS - 1) : objective ? channel :
 		ai_marker ? PIN(channel, 0, FORGE_FILE_MAXIMUM_ROUTES - 1) : 0);
 	/* (an AI marker's stop or size: a patrol area's middle one, 8 world
 	units) */
 	spawn->option = (short)(kind == _forge_spawn_ai_area ? 2 : 0);
 	spawn->home = *home;
+	if (volume)
+		forge_volume_defaults(spawn);
 	/* (upright, facing along the ground) */
 	spawn->home.forward.k = 0.f;
 	if (normalize3d(&spawn->home.forward) < 0.0001f)
@@ -348,6 +384,9 @@ static void forge_spawn_remove(
 		return;
 	if (forge_globals.held_marker_id == spawn->id)
 		forge_globals.held_marker_id = 0;
+	/* (an effect's or a decal's: what it shows goes with it) */
+	if (forge_spawn_is_effect(spawn))
+		forge_effect_release(spawn);
 	csmemmove(&forge_globals.spawns[index], &forge_globals.spawns[index + 1],
 		(size_t)(forge_globals.spawn_count - index - 1) * sizeof(forge_globals.spawns[0]));
 	forge_globals.spawn_count--;
@@ -374,6 +413,8 @@ static void forge_spawns_from_layout(
 	short teleporters = 0;
 	short objectives = 0;
 	short ai_markers = 0;
+	short volumes = 0;
+	short effects = 0;
 
 	if (forge_file_layout_version(layout) < 4)
 		return;
@@ -426,6 +467,35 @@ static void forge_spawns_from_layout(
 			}
 			continue;
 		}
+		/* (a volume: version 14's, its type, shape, size, amount and target
+		checked in range by the validator) */
+		if (record->kind == _forge_record_volume && forge_file_layout_version(layout) >= FORGE_FILE_VOLUMES_VERSION)
+		{
+			struct forge_spawn *spawn;
+
+			home.position.x = record->position[0];
+			home.position.y = record->position[1];
+			home.position.z = record->position[2];
+			angles[0] = record->angles[0];
+			angles[1] = angles[2] = 0.f;
+			forge_facing_from_angles(angles, &home.forward, &home.up);
+			spawn = forge_spawn_add(0, (short)(_forge_spawn_volume_kill + PIN(record->variant, 0,
+				NUMBER_OF_FORGE_FILE_VOLUME_TYPES - 1)), NONE, 0, 0, &home);
+			if (spawn)
+			{
+				forge_volume_from_record(spawn, record);
+				volumes++;
+			}
+			continue;
+		}
+		/* (an effect or a decal: version 16's, its tag by path) */
+		if ((record->kind == _forge_record_effect || record->kind == _forge_record_decal) &&
+			forge_file_layout_version(layout) >= FORGE_FILE_EFFECTS_VERSION)
+		{
+			if (forge_effect_from_record(layout, record))
+				effects++;
+			continue;
+		}
 		/* (a teleporter: its channel, checked in range by the validator) */
 		if ((record->kind == _forge_record_teleporter_in || record->kind == _forge_record_teleporter_out) &&
 			forge_file_layout_version(layout) >= 5)
@@ -467,6 +537,17 @@ static void forge_spawns_from_layout(
 		platform_log("forge: layout \"%s\": %d game type objects (%d CTF flags, %d hill points, %d oddball spawns, %d race "
 			"checkpoints)", layout->title, objectives, forge_spawns_of_kind(_forge_spawn_flag), forge_spawns_of_kind(_forge_spawn_hill),
 			forge_spawns_of_kind(_forge_spawn_oddball), forge_spawns_of_kind(_forge_spawn_race));
+	}
+	if (volumes)
+	{
+		platform_log("forge: layout \"%s\": %d volumes (%d kill, %d damage, %d gravity)", layout->title, volumes,
+			forge_spawns_of_kind(_forge_spawn_volume_kill), forge_spawns_of_kind(_forge_spawn_volume_damage),
+			forge_spawns_of_kind(_forge_spawn_volume_gravity));
+	}
+	if (effects)
+	{
+		platform_log("forge: layout \"%s\": %d effects and decals (%d effects, %d decals)", layout->title, effects,
+			forge_spawns_of_kind(_forge_spawn_effect), forge_spawns_of_kind(_forge_spawn_decal));
 	}
 	if (teleporters)
 	{
@@ -521,6 +602,28 @@ static short forge_spawns_capture(
 		record = &layout->records[layout->record_count];
 		csmemset(record, 0, sizeof(*record));
 		record->path_index = FORGE_FILE_NO_PATH;
+		/* (a volume: version 14's record; an effect or a decal: version 16's) */
+		if (forge_spawn_is_volume(spawn) || forge_spawn_is_effect(spawn))
+		{
+			if (forge_spawn_is_volume(spawn))
+			{
+				forge_volume_to_record(spawn, record);
+			}
+			else if (!forge_effect_to_record(spawn, layout, record))
+			{
+				csmemset(record, 0, sizeof(*record));
+				skipped++;
+				continue;
+			}
+			record->position[0] = spawn->home.position.x;
+			record->position[1] = spawn->home.position.y;
+			record->position[2] = spawn->home.position.z;
+			forge_angles_from_facing(&spawn->home.forward, global_up3d, angles);
+			record->angles[0] = angles[0];
+			layout->record_count++;
+			layout->flags |= FORGE_FILE_FLAG_NETGAME_SPAWNS;
+			continue;
+		}
 		/* (a game type object: version 6's netgame flag record) */
 		if (forge_spawn_is_objective(spawn))
 		{
@@ -600,6 +703,12 @@ static void forge_spawn_property_apply(
 	short step,
 	boolean held)
 {
+	/* (a volume's: its own rows, its yaw as a marker's) */
+	if (forge_spawn_is_volume(spawn) && property != _forge_property_yaw)
+	{
+		forge_volume_property_apply(spawn, property, step);
+		return;
+	}
 	/* (an AI route's point or a patrol area: its route in the team's row,
 	its stop or size in the respawn's, route point or area in the place at
 	start's, its yaw) */
@@ -633,6 +742,12 @@ static void forge_spawn_property_apply(
 			return;
 		}
 		forge_spawn_log("properties of", spawn);
+		return;
+	}
+	/* (an effect's or a decal's: its own rows) */
+	if (forge_spawn_is_effect(spawn))
+	{
+		forge_effect_property_apply(spawn, property, step, held);
 		return;
 	}
 	/* (a teleporter's: its channel in the team's row, sender or receiver in
@@ -744,6 +859,13 @@ static void forge_spawn_properties_get(
 
 	forge_spawn_name(spawn, properties->name, sizeof(properties->name));
 	properties->spawn = TRUE;
+	if (forge_spawn_is_volume(spawn))
+		forge_volume_properties_get(spawn, properties);
+	if (forge_spawn_is_effect(spawn))
+	{
+		properties->effect = TRUE;
+		properties->effect_value = spawn->effect_value;
+	}
 	properties->spawn_kind = spawn->kind;
 	properties->team = spawn->team;
 	properties->channel = spawn->channel;
