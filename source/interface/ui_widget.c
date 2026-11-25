@@ -4488,6 +4488,66 @@ short ui_widget_online_games_description(
 }
 #endif
 
+/* port: an event handler's "replace with other widget", the new widget
+(loaded beside it) put in the widget's place among its parent and siblings,
+the widget unlinked to be deleted; the Xbox's did it in
+event_handler_dispatch, which still does, and ui_widget_port_replace too */
+static void widget_instance_take_place_of(
+	struct widget_instance *new_widget,
+	struct widget_instance *widget)
+{
+	struct widget_instance *parent = widget->parent;
+	struct widget_instance *next = widget->next;
+	struct widget_instance *previous = widget->previous;
+	long widget_index;
+
+	if (new_widget->previous)
+		new_widget->previous->next = NULL;
+	new_widget->previous = NULL;
+	new_widget->parent = NULL;
+	new_widget->horizontal_offset += widget->horizontal_offset;
+	new_widget->vertical_offset += widget->vertical_offset;
+	if (parent)
+	{
+		new_widget->parent = parent;
+		if (parent->child == widget)
+			parent->child = new_widget;
+		if (parent->focused_child == widget)
+			parent->focused_child = new_widget;
+	}
+	if (next)
+	{
+		match_assert(
+			"c:\\halo\\SOURCE\\interface\\ui_widget.c",
+			3721,
+			next->previous == widget);
+		next->previous = new_widget;
+	}
+	new_widget->next = next;
+	if (previous)
+	{
+		match_assert(
+			"c:\\halo\\SOURCE\\interface\\ui_widget.c",
+			3728,
+			previous->next == widget);
+		previous->next = new_widget;
+	}
+	new_widget->previous = previous;
+	for (widget_index = 0;
+		widget_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS;
+		widget_index++)
+	{
+		if (widget_globals.active_widgets[widget_index] == new_widget)
+		{
+			widget_globals.active_widgets[widget_index] = NULL;
+			break;
+		}
+	}
+	widget->previous = NULL;
+	widget->next = NULL;
+	widget->parent = NULL;
+}
+
 static void event_handler_dispatch(
 	struct widget_instance *widget,
 	struct ui_widget_definition *definition,
@@ -4766,58 +4826,11 @@ static void event_handler_dispatch(
 
 			if (new_widget)
 			{
-				struct widget_instance *parent = widget->parent;
-				struct widget_instance *next = widget->next;
-				struct widget_instance *previous = widget->previous;
-				long widget_index;
-
-				if (new_widget->previous)
-					new_widget->previous->next = NULL;
-				new_widget->previous = NULL;
-				new_widget->parent = NULL;
-				new_widget->horizontal_offset += widget->horizontal_offset;
-				new_widget->vertical_offset += widget->vertical_offset;
-				if (parent)
-				{
-					new_widget->parent = parent;
-					if (parent->child == widget)
-						parent->child = new_widget;
-					if (parent->focused_child == widget)
-						parent->focused_child = new_widget;
-				}
-				if (next)
-				{
-					match_assert(
-						"c:\\halo\\SOURCE\\interface\\ui_widget.c",
-						3721,
-						next->previous == widget);
-					next->previous = new_widget;
-				}
-				new_widget->next = next;
-				if (previous)
-				{
-					match_assert(
-						"c:\\halo\\SOURCE\\interface\\ui_widget.c",
-						3728,
-						previous->next == widget);
-					previous->next = new_widget;
-				}
-				new_widget->previous = previous;
-				for (widget_index = 0;
-					widget_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS;
-					widget_index++)
-				{
-					if (widget_globals.active_widgets[widget_index] == new_widget)
-					{
-						widget_globals.active_widgets[widget_index] = NULL;
-						break;
-					}
-				}
+				/* port: widget_instance_take_place_of, which
+				ui_widget_port_replace shares */
+				widget_instance_take_place_of(new_widget, widget);
 				if (audio_feedback == _ui_audio_feedback_none)
 					audio_feedback = _ui_audio_feedback_forward;
-				widget->previous = NULL;
-				widget->next = NULL;
-				widget->parent = NULL;
 				close_current = TRUE;
 			}
 			else
@@ -5224,44 +5237,10 @@ struct widget_instance *ui_widget_port_replace(
 {
 	struct widget_instance *new_widget = ui_widget_load_by_name_or_tag(NULL, tag_index, widget,
 		widget->local_player_index, NONE, NONE, NONE);
-	struct widget_instance *parent = widget->parent;
-	struct widget_instance *next = widget->next;
-	struct widget_instance *previous = widget->previous;
-	long widget_index;
 
 	if (!new_widget)
 		return NULL;
-	if (new_widget->previous)
-		new_widget->previous->next = NULL;
-	new_widget->previous = NULL;
-	new_widget->parent = NULL;
-	new_widget->horizontal_offset += widget->horizontal_offset;
-	new_widget->vertical_offset += widget->vertical_offset;
-	if (parent)
-	{
-		new_widget->parent = parent;
-		if (parent->child == widget)
-			parent->child = new_widget;
-		if (parent->focused_child == widget)
-			parent->focused_child = new_widget;
-	}
-	if (next)
-		next->previous = new_widget;
-	new_widget->next = next;
-	if (previous)
-		previous->next = new_widget;
-	new_widget->previous = previous;
-	for (widget_index = 0; widget_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; widget_index++)
-	{
-		if (widget_globals.active_widgets[widget_index] == new_widget)
-		{
-			widget_globals.active_widgets[widget_index] = NULL;
-			break;
-		}
-	}
-	widget->previous = NULL;
-	widget->next = NULL;
-	widget->parent = NULL;
+	widget_instance_take_place_of(new_widget, widget);
 	ui_widget_delete(widget);
 	return new_widget;
 }
