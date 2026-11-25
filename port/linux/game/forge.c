@@ -789,6 +789,7 @@ static struct
 	/* the player's unit while it waits, and what it was before */
 	long unit_index;
 	boolean unit_could_take_damage;
+	boolean unit_cast_shadow;
 	/* the object held, how far from the camera, and its facing as held */
 	long held_object_index;
 	real held_distance;
@@ -2932,8 +2933,10 @@ static void forge_unit_set_visible(
 	return;
 }
 
-/* the player's unit as the monitor leaves it: hidden, unhurt (whatever it
-was is kept for the Spartan) */
+/* the player's unit as the monitor leaves it: hidden, unhurt, and casting
+no shadow (hidden with its weapon, it would start one every frame that
+nothing draws into: "empty shadow has been cast"); whatever it was is kept
+for the Spartan */
 static void forge_unit_hide(
 	long unit_index)
 {
@@ -2944,7 +2947,24 @@ static void forge_unit_hide(
 		return;
 	forge_globals.unit_could_take_damage = !TEST_FLAG(unit->object.damage_flags, _object_cannot_take_damage_bit);
 	SET_FLAG(unit->object.damage_flags, _object_cannot_take_damage_bit, TRUE);
+	forge_globals.unit_cast_shadow = !TEST_FLAG(unit->object.flags, _object_shadowless_bit);
+	SET_FLAG(unit->object.flags, _object_shadowless_bit, TRUE);
 	forge_unit_set_visible(unit_index, FALSE);
+}
+
+/* the hidden unit as it was before the monitor */
+static void forge_unit_show(
+	void)
+{
+	struct object_datum *unit = object_try_and_get(forge_globals.unit_index);
+
+	if (!unit)
+		return;
+	forge_unit_set_visible(forge_globals.unit_index, TRUE);
+	if (forge_globals.unit_could_take_damage)
+		SET_FLAG(unit->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
+	if (forge_globals.unit_cast_shadow)
+		SET_FLAG(unit->object.flags, _object_shadowless_bit, FALSE);
 }
 
 static void forge_hud_title_update(
@@ -3001,9 +3021,7 @@ static void forge_end(
 	unit = object_try_and_get(forge_globals.unit_index);
 	if (unit)
 	{
-		forge_unit_set_visible(forge_globals.unit_index, TRUE);
-		if (forge_globals.unit_could_take_damage)
-			SET_FLAG(unit->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
+		forge_unit_show();
 		/* (the player stands where the monitor was; not one in a vehicle's
 		seat) */
 		if (unit->object.parent_object_index == NONE && forge_camera_get(&position, &forward))
@@ -5313,12 +5331,7 @@ void forge_update(
 	hidden as the last did) */
 	if (player_get(player_index)->unit_index != forge_globals.unit_index)
 	{
-		if (object_try_and_get(forge_globals.unit_index))
-		{
-			forge_unit_set_visible(forge_globals.unit_index, TRUE);
-			if (forge_globals.unit_could_take_damage)
-				SET_FLAG(object_get(forge_globals.unit_index)->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
-		}
+		forge_unit_show();
 		forge_unit_hide(player_get(player_index)->unit_index);
 	}
 	if (toggle_pressed)
