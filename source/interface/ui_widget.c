@@ -731,7 +731,8 @@ void lobby_screen_render(void);
 /* (the preview's ADD PLAYERS: System Link's SELECT PROFILE over it) */
 boolean lobby_screen_adding_players(void);
 boolean lobby_screen_add_players_finish(struct widget_instance *screen, short controller);
-boolean lobby_screen_add_players_back(struct widget_instance *screen, short controller);
+boolean lobby_screen_add_players_back(struct widget_instance *screen, short controller,
+	struct widget_instance const *widget, boolean *widget_gone);
 void lobby_screen_pointer(struct halo_ui_pointer const *pointer);
 /* the menus' pointer, while it is up (its own taps and clicks) */
 void browser_screen_pointer(struct halo_ui_pointer const *pointer);
@@ -10288,13 +10289,21 @@ static void widget_instance_process_one_event_recursive(
 			/* port: SELECT PROFILE over a game's preview (lobby_screen.c's
 			ADD PLAYERS): B with a joined quarter empties that quarter alone
 			(the screen stays); with an empty one it goes back, as the
-			Xbox's did */
-			if (!handled_by_event_handler && event->data.button.index == _widget_event_b_button &&
-				lobby_screen_add_players_back(widget_instance_get_topmost_parent(widget), event->controller_index))
+			Xbox's did; when the B came to the quarter itself or a widget
+			inside it, that widget went with it and is not used again */
+			if (!handled_by_event_handler && event->data.button.index == _widget_event_b_button)
 			{
-				audio_feedback = _ui_audio_feedback_back;
-				event_handled = TRUE;
-				handled_by_event_handler = TRUE;
+				boolean widget_gone = FALSE;
+
+				if (lobby_screen_add_players_back(widget_instance_get_topmost_parent(widget),
+					event->controller_index, widget, &widget_gone))
+				{
+					audio_feedback = _ui_audio_feedback_back;
+					event_handled = TRUE;
+					handled_by_event_handler = TRUE;
+					if (widget_gone)
+						widget_deleted = TRUE;
+				}
 			}
 #endif
 			if (!handled_by_event_handler)

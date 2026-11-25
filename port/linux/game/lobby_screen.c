@@ -1811,11 +1811,25 @@ static void add_players_fill(void)
 	}
 }
 
+/* whether the widget is the quarter or inside it (deleted with it) */
+static boolean widget_within(struct widget_instance const *widget, struct widget_instance const *quarter)
+{
+	for (; widget; widget = widget->parent)
+	{
+		if (widget == quarter)
+			return TRUE;
+	}
+	return FALSE;
+}
+
 /* (interface/ui_widget.c) B on SELECT PROFILE over the preview, which has
 no B of its own: TRUE when the controller's quarter had joined (choosing
 or picked), which is then empty again and that player won't join; FALSE
-when it was empty, and the screen goes back as the Xbox's did */
-boolean lobby_screen_add_players_back(struct widget_instance *screen, short controller)
+when it was empty, and the screen goes back as the Xbox's did. The B's
+widget is deleted with the quarter when it is the quarter or inside it
+(*widget_gone: the caller must not use it again) */
+boolean lobby_screen_add_players_back(struct widget_instance *screen, short controller,
+	struct widget_instance const *widget, boolean *widget_gone)
 {
 	long empty = tag_loaded(UI_WIDGET_DEFINITION_TAG, ADD_PLAYERS_EMPTY);
 	struct widget_instance *quarter;
@@ -1828,9 +1842,11 @@ boolean lobby_screen_add_players_back(struct widget_instance *screen, short cont
 			controller);
 	if (!quarter)
 		return FALSE;
+	*widget_gone = widget_within(widget, quarter);
 	if (!ui_widget_port_replace(quarter, empty))
 	{
 		platform_log("split screen preview: SELECT PROFILE: P%d's B: the quarter could not be emptied", controller + 1);
+		*widget_gone = FALSE;
 		return FALSE;
 	}
 	player_ui_local_player_left_multiplayer_game(controller);

@@ -166,3 +166,40 @@ def test_player_one_port_given_back():
     assert "first_port_reset();" in update
     assert "first_port_reset();" in function(LOBBY, "leave")
     assert "platform_gamepad_first_reset();" in function(LOBBY, "first_port_reset")
+
+
+WITHIN = r"""
+#include <stdio.h>
+typedef int boolean;
+#define TRUE 1
+#define FALSE 0
+struct widget_instance { struct widget_instance *parent; };
+@FUNCTIONS@
+#define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); return 1; } } while (0)
+int main(void)
+{
+	struct widget_instance screen = { NULL }, quarter = { &screen }, list = { &quarter }, item = { &list },
+		other = { &screen };
+
+	CHECK(widget_within(&quarter, &quarter));
+	CHECK(widget_within(&list, &quarter) && widget_within(&item, &quarter));
+	CHECK(!widget_within(&screen, &quarter) && !widget_within(&other, &quarter));
+	CHECK(!widget_within(NULL, &quarter));
+	printf("ok\n");
+	return 0;
+}
+"""
+
+
+def test_b_in_a_quarter_never_uses_the_deleted_widget(tmp_path):
+    # B empties a quarter by replacing it: the widget the B came to is gone
+    # with it when it is the quarter or inside it (its list), and the event
+    # code must not touch it again
+    compile_and_run(tmp_path, "within", WITHIN.replace("@FUNCTIONS@", function(LOBBY, "widget_within")))
+    back = function(LOBBY, "lobby_screen_add_players_back")
+    assert back.index("*widget_gone = widget_within(widget, quarter);") < back.index(
+        "ui_widget_port_replace(quarter, empty)")
+    widget_source = (ROOT / "source" / "interface" / "ui_widget.c").read_text(encoding="utf-8")
+    hook = widget_source[widget_source.index("event->controller_index, widget, &widget_gone))"):]
+    hook = hook[:hook.index("#endif")]
+    assert "if (widget_gone)\n\t\t\t\t\t\twidget_deleted = TRUE;" in hook
