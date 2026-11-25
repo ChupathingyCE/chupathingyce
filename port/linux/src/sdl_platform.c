@@ -709,13 +709,14 @@ BOOL platform_sdl_initialize(void)
 	controller emulation in xinput_sdl.c) */
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 	/* input.raw_hid: USB controllers read by SDL's own drivers (HIDAPI)
-	instead of through Android's input system, for their full rate and
-	the Xbox controllers' trigger rumble. SDL leaves this off on Android
-	because it asks the player for each controller and then holds it for
-	itself; with it on, SDL's Java side (HIDDeviceManager) asks for the
-	USB controllers its drivers know (Xbox, PlayStation, Switch Pro,
-	8BitDo and others) as they are opened, and Bluetooth stays as it was.
-	(before SDL_Init: the joystick subsystem reads it as it starts) */
+	instead of through Android's input system, at the controller's own
+	rate. SDL leaves this off on Android because Android asks the player
+	for each controller and the game then holds it; with it on, SDL's Java
+	side (HIDDeviceManager) asks for the USB controllers its drivers know
+	(Xbox, PlayStation, Switch Pro, 8BitDo and others) as they are opened,
+	and Bluetooth stays as it was. SDL's src/hidapi/android and
+	HIDDeviceManager.java are the reference for this path. (before
+	SDL_Init: the joystick subsystem reads it as it starts) */
 	if (config_boolean("input.raw_hid"))
 		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "1");
 #endif
