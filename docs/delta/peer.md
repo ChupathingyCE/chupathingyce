@@ -1521,8 +1521,9 @@ and show their handle until their owner picks its capitals.
   linked profile, or a guest) never has the mark.
 - **Account marks** ([link.md](link.md#device-identity)): a client may draw
   a mark the certificate carries (a developer's flame, say) on or beside a
-  verified player, only where that player shows by their verified name, and
-  lets the viewer turn it off. A mark is never a role or a ban.
+  verified player of its home network, from a bound proof, only where that
+  player shows by their verified name, and lets the viewer turn it off. A
+  mark is never a role or a ban.
 - **The same name everywhere.** The scoreboard, the postgame report, the
   lobby, the Delta Guide, chat, the kill feed, the corner score, the names
   above heads, the game types' lines (Slayer's target, Oddball, King of the

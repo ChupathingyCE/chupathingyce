@@ -125,18 +125,21 @@ the issuing network's project ([registry.md](registry.md#device-certificates)).
 - A mark grants nothing: no capability, no permission, and never a role for
   moderation or bans. It is display data, like the handle it rides with.
 - A mark means something only together with the network whose root keys
-  signed the certificate's issuer. A client trusts a mark only from a
-  certificate that passed the checks of "Verified names"
-  ([peer.md](peer.md#verified-names)) on that client and that chains to the
-  root keys of a network it knows, and only while its player shows by their
-  verified name. It ignores the marks of any other network: another
-  network's `developer` is that network's own developers.
+  signed the certificate's issuer. A client draws a mark as its own only
+  from a certificate of its home network (chained to the home network's
+  root keys) that passed the checks of "Verified names"
+  ([peer.md](peer.md#verified-names)) on that client, in a bound proof, and
+  only while its player shows by their verified name. Another network's
+  marks are ignored: its `developer` is that network's own developers, never
+  the home network's (a client could show them labeled with that network
+  instead; Chupathingy ignores them).
 - An issuer sets marks only on a certificate that has `play`. Tokens and
   scopes never carry them.
 - A certificate that carries a mark lasts 2 days on every platform, so a
-  mark the network takes away leaves every device of the account within
-  about a day. Revoking the device takes it away at the next revocation
-  list.
+  mark the network takes away is gone from every device of the account
+  within 2 days (and the 10 minutes of grace): a device that doesn't refresh
+  keeps its marked certificate until it expires. Revoking the device is the
+  fast path: it takes the mark away at the next revocation list.
 - Unknown marks are ignored, as unknown bits are. Format 1 is unchanged.
 
 A certificate checks when its issuer's key ID is a trusted CISS's, the
