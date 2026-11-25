@@ -8,7 +8,8 @@ sprite. Header only (static inline functions, no game or SDL dependency),
 so tools/test_developer_flames.py builds and tests it anywhere.
 
 Who: a player whose card this copy checked (docs/delta/peer.md, "Verified
-names") from a certificate of its own network, shown by their verified name
+names") from a bound proof (one a host can't replay from another game),
+from a certificate of its own network, shown by their verified name
 (not masked as a look-alike), whose certificate carries the developer mark
 (docs/delta/link.md, "Device identity": account marks), with the viewer's
 display.developer_flames and display.profile_names on, in a game on Delta.
@@ -41,14 +42,18 @@ struct developer_flames_card
 	another network than this build's own, its player shown by their
 	verified name, and masked as a look-alike */
 	int checked, other_network, name_shown, looks_like;
+	/* the proof was bound to the host its player connected to
+	(DELTA_WIRE_IDENTITY_BOUND): an unbound card could be another game's,
+	replayed by the host */
+	int bound;
 	unsigned long capabilities;
 };
 
 /* whether a player's helmet has the flame */
 static inline int developer_flames_card_shows(const struct developer_flames_card *card)
 {
-	return card->option_on && card->names_on && card->on_delta && card->checked && !card->other_network &&
-		card->name_shown && !card->looks_like && (card->capabilities & DEVELOPER_FLAMES_MARK) != 0;
+	return card->option_on && card->names_on && card->on_delta && card->checked && card->bound &&
+		!card->other_network && card->name_shown && !card->looks_like && (card->capabilities & DEVELOPER_FLAMES_MARK) != 0;
 }
 
 /* a wearer as the viewer sees them this frame */
@@ -91,7 +96,8 @@ static inline int developer_flames_may_spawn(int helmet_live, int all_live, long
 }
 
 /* a texel's color on the blue ramp: its luminance mapped from black, to
-deep blue, to blue, to a pale cyan white */
+deep blue, to a violet blue, to white at the core (white reads against blue
+maps too: the flame is drawn additively) */
 static inline void developer_flames_blue(unsigned int r, unsigned int g, unsigned int b, unsigned int *out_r,
 	unsigned int *out_g, unsigned int *out_b)
 {
@@ -100,8 +106,8 @@ static inline void developer_flames_blue(unsigned int r, unsigned int g, unsigne
 		/* luminance, red, green, blue */
 		{ 0, 0, 0, 0 },
 		{ 96, 4, 24, 150 },
-		{ 176, 40, 120, 255 },
-		{ 255, 205, 238, 255 },
+		{ 176, 90, 190, 255 },
+		{ 255, 255, 255, 255 },
 	};
 	unsigned int luminance = (77 * (r & 255) + 150 * (g & 255) + 29 * (b & 255)) >> 8;
 	int stop = 0;
@@ -118,8 +124,8 @@ static inline void developer_flames_blue(unsigned int r, unsigned int g, unsigne
 
 /* the tint of a flame whose sprite has no color of its own (a luminance
 format: the shader multiplies it), red, green, blue */
-#define DEVELOPER_FLAMES_TINT_R 0.35f
-#define DEVELOPER_FLAMES_TINT_G 0.65f
+#define DEVELOPER_FLAMES_TINT_R 0.5f
+#define DEVELOPER_FLAMES_TINT_G 0.8f
 #define DEVELOPER_FLAMES_TINT_B 1.0f
 
 /* the map's bitmap formats (bitmap_group.c's _bitmap_format_ numbers) */

@@ -80,7 +80,7 @@ def test_only_checked_cards():
     body = names[names.index("boolean profile_names_developer("):]
     body = body[:body.index("\n}\n")]
     for needed in ("display.developer_flames", "delta_peer_game_player_identity", "verified_name",
-                   "other_network", "developer_flames_card_shows"):
+                   "other_network", "identity.bound", "developer_flames_card_shows"):
         assert needed in body, needed
     assert "profile_names_developer(" in FLAMES.read_text()
 

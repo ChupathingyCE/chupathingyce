@@ -30,7 +30,7 @@ static struct developer_flames_card developer(void)
 	struct developer_flames_card card;
 
 	memset(&card, 0, sizeof(card));
-	card.option_on = card.names_on = card.on_delta = card.checked = card.name_shown = 1;
+	card.option_on = card.names_on = card.on_delta = card.checked = card.name_shown = card.bound = 1;
 	card.capabilities = 0x1FUL | IDENTITY_MARK_DEVELOPER;
 	return card;
 }
@@ -61,6 +61,10 @@ static void test_who(void)
 	/* (no card this copy checked: a peer's word is never taken) */
 	card = developer();
 	card.checked = 0;
+	CHECK(!developer_flames_card_shows(&card));
+	/* (an unbound card: a host could replay it from another game) */
+	card = developer();
+	card.bound = 0;
 	CHECK(!developer_flames_card_shows(&card));
 	/* (another network's developer is its own, not ours) */
 	card = developer();
@@ -128,7 +132,7 @@ static void test_ramp(void)
 	developer_flames_blue(0, 0, 0, &r, &g, &b);
 	CHECK(r == 0 && g == 0 && b == 0);
 	developer_flames_blue(255, 255, 255, &r, &g, &b);
-	CHECK(r == 205 && g == 238 && b == 255);
+	CHECK(r == 255 && g == 255 && b == 255);
 	/* (orange fire comes out blue, brighter for brighter, never orange) */
 	for (level = 0; level < 256; level += 5)
 	{

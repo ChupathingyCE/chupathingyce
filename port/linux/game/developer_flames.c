@@ -5,7 +5,7 @@ A blue flame on a verified Chupathingy developer's helmet, as the Halo 2
 flaming helmets were for Bungie's staff (display.developer_flames, on by
 default; a viewer can turn it off, and a developer can turn their own off on
 the site). Who has one is profile_names_developer's: a card this copy
-checked, of this build's own network, its player shown by their verified
+checked from a bound proof, of this build's own network, its player shown by their verified
 name, whose device certificate carries the developer mark
 (docs/delta/link.md, "Device identity": account marks). The rules are
 port/linux/src/developer_flames_rules.h.
@@ -297,7 +297,7 @@ static boolean flames_test_card(
 	memset(&card, 0, sizeof(card));
 	card.option_on = config_boolean("display.developer_flames");
 	card.names_on = config_boolean("display.profile_names");
-	card.on_delta = card.checked = card.name_shown = 1;
+	card.on_delta = card.checked = card.name_shown = card.bound = 1;
 	card.capabilities = device.capabilities;
 	known[local_player_index] = developer_flames_card_shows(&card);
 	platform_log("developer flames: local player %d's test card checks (capabilities 0x%08lx): %s",

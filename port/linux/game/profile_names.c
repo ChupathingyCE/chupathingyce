@@ -470,6 +470,9 @@ boolean profile_names_developer(
 	card.name_shown = verified_name(&identity, text, (int)sizeof(text), clan, (int)sizeof(clan), &looks_like);
 	card.looks_like = looks_like;
 	card.other_network = identity.other_network;
+	/* (bound proofs only: an unbound card could be another game's, replayed
+	by the host) */
+	card.bound = identity.bound;
 	card.capabilities = (unsigned long)identity.capabilities;
 	return developer_flames_card_shows(&card) ? TRUE : FALSE;
 }
