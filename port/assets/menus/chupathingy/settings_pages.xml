@@ -124,6 +124,7 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="145"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scale" x="54" y="169"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_first_person_weapon" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_first_person_legs" x="54" y="217"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_advanced" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_resolution_scaling" x="54" y="73" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_shadow_resolution" x="54" y="97" platform="desktop android switch"/>

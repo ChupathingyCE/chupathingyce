@@ -47,6 +47,11 @@ short lua_scripting_hs_function_find(char const *name);
 last tick (a Chimera script that poses an object, as SPV3's first-person
 legs): the frame draws them as set, not blended from the ticks' */
 boolean lua_scripting_object_posed(long object_index);
+/* whether a script posed any object since the map loaded: a map that draws
+the player's own body below the first-person view that way (SPV3's
+first-person legs), so display.first_person_legs leaves it to the map
+(port/linux/game/first_person_body.c) */
+boolean lua_scripting_map_poses_objects(void);
 
 #else
 
@@ -60,6 +65,7 @@ static __inline boolean lua_scripting_command(char const *command) { (void)comma
 #define lua_scripting_hs_function(index) ((void)sizeof(index), (struct hs_function_definition *)0)
 #define lua_scripting_hs_function_find(name) ((void)sizeof(name), (short)-1)
 #define lua_scripting_object_posed(object_index) ((void)sizeof(object_index), (boolean)0)
+#define lua_scripting_map_poses_objects() ((boolean)0)
 
 #endif
 

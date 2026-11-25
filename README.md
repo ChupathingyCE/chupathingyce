@@ -147,6 +147,7 @@ Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends
 - Controller layouts, Bumper Jumper included, with button prompts for Xbox, PlayStation and Nintendo pads
 - 5.1 and 7.1 surround, and a headphone 3D mode
 - The intro and cutscene movies from your disc
+- First-person legs, as an option: your own body below you when you look down (off by default, and off on maps that draw their own, like SPV3)
 
 <p align="center">
 <img src="docs/screenshots/danger-canyon.jpg" width="32%" alt="Danger Canyon">

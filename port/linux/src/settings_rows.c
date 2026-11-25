@@ -198,6 +198,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_display | _in_guide, "CROSSHAIR", "display.crosshair_position", _kind_choices, crosshair_position_choices,
 	  crosshair_position_names, 0, 0 },
 	{ _in_display | _in_guide, "WEAPON MODEL", "display.first_person_weapon", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display | _in_guide, "FIRST-PERSON LEGS", "display.first_person_legs", _kind_toggle, NULL, NULL, 0, 0 },
 
 #ifdef HALO_LAUNCHER
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
@@ -535,7 +536,7 @@ static const char *const display_lines[] =
 	"#MENUS", "display.menus", "display.theme", "delta.guide_background",
 	"#BUTTONS", "input.button_style", "input.button_look", "input.hud_buttons",
 	"#HUD", "display.reticle_scale", "display.crosshair_position", "display.ping_meter", "display.scoreboard_icons",
-	"#EFFECTS", "display.first_person_weapon", "display.camo_weapon_fix", "display.plasma_sparks", "display.ragdolls",
+	"#EFFECTS", "display.first_person_weapon", "display.first_person_legs", "display.camo_weapon_fix", "display.plasma_sparks", "display.ragdolls",
 	NULL
 };
 static const char *const sound_lines[] =
