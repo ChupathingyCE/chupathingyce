@@ -51,6 +51,26 @@ recorded from the reports of the Chupathingy players in them; a game only
 one player reported counts only on that player's own record. Their hosts can
 still list them on the site (Host a Game).
 
+## Split screen in a game under way
+
+Joining a game that's already being played shows its preview first. More
+players on the same computer can come along from there:
+
+1. Pick **ADD PLAYERS** on the preview, or press **START** on another
+   controller. The four-quarter profile screen opens, with you (whoever got
+   there, on a controller or the keyboard and mouse) as player 1 in the
+   top-left quarter.
+2. Each other player presses **A** in their quarter, picks a profile with
+   left and right, and presses **A**. **B** in a filled quarter takes that
+   player out again; **B** in an empty one goes back with nothing changed.
+3. **A** on a picked quarter returns to the preview, which names everyone
+   joining. **JOIN THE GAME** brings you all in.
+
+When the game has fewer spots left than you have players, the preview says
+how many are left and won't join until someone drops out. It works the same
+from an invite, Discord's **Join** or a party link. The preview, and ADD
+PLAYERS with it, belong to the Chupathingy menus' lobby (`display.lobby`).
+
 ## Join by address
 
 System Link finds the games on your own network. **DIRECT IP** joins one it
