@@ -802,7 +802,9 @@ def make(serial: int, issued: int = None, previous: dict = None, rows: dict = No
     if kept:
         keys = platform_keys()
         table["platform_floors"] = dict(sorted(kept.items(), key=lambda item: keys[item[0]]))
-    document = (json.dumps(table, indent=2) + "\n").encode()
+    # compact: a table with every layout fact must fit DOCUMENT_SIZE (the
+    # game's DELTA_LEGACY_DOCUMENT_SIZE); readers skip whitespace anyway
+    document = (json.dumps(table, separators=(",", ":")) + "\n").encode()
     parse(document, wire())
     return document
 

@@ -323,7 +323,7 @@ def test_sign_and_verify(keys, tmp_path):
     assert result.returncode == 0, result.stderr
     assert "serial 3" in result.stdout
     # (a byte changed in the document, or another key: not signed)
-    path.write_bytes(path.read_bytes().replace(b'"serial": 3', b'"serial": 4'))
+    path.write_bytes(path.read_bytes().replace(b'"serial":3', b'"serial":4'))
     result = subprocess.run([*tool, "verify", "--public-key", public.hex(), str(path)], capture_output=True,
                             text=True)
     assert result.returncode == 1 and "signature" in result.stderr

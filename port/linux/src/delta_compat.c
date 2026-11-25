@@ -176,12 +176,21 @@ void delta_compat_advertise_old(unsigned char *reserved, int size, int major, co
 	memcpy(reserved + DELTA_ADVERTISED_WIRE_OFFSET + 1, text, (size_t)length);
 }
 
+/* (another project's advertisement: a version word of 0xFF00 or more, which
+no OpenCE number or ours ever is, Content Evolved's modded games' mark; its
+reserved bytes are all its own, never read as a Delta tag, range or slot:
+port/linux/game/network_rules.h, "other projects' hosts") */
+static int another_projects(const unsigned char *reserved, int size)
+{
+	return size >= 2 && (reserved[0] | reserved[1] << 8) >= 0xFF00;
+}
+
 int delta_compat_read_tag(const unsigned char *reserved, int size, int *major, struct delta_wire_id *wire,
 	struct delta_wire_id *oldest)
 {
 	const unsigned char *tag;
 
-	if (size < DELTA_ADVERTISED_RESERVED_SIZE)
+	if (size < DELTA_ADVERTISED_RESERVED_SIZE || another_projects(reserved, size))
 		return 0;
 	tag = reserved + DELTA_ADVERTISED_TAG_OFFSET;
 	if (tag[0] != DELTA_ADVERTISED_TAG_FIRST || tag[1] != DELTA_ADVERTISED_TAG_SECOND ||
@@ -193,12 +202,41 @@ int delta_compat_read_tag(const unsigned char *reserved, int size, int *major, s
 	return 1;
 }
 
+int delta_compat_read_project(const unsigned char *reserved, int size, int *major, int *project,
+	int *project_version)
+{
+	const unsigned char *tag;
+
+	if (size < DELTA_ADVERTISED_RESERVED_SIZE || (reserved[0] | reserved[1] << 8) >= DELTA_ADVERTISED_MODDED_VERSION)
+		return 0;
+	tag = reserved + DELTA_ADVERTISED_TAG_OFFSET;
+	if (tag[0] != DELTA_ADVERTISED_TAG_FIRST || tag[1] != DELTA_ADVERTISED_TAG_SECOND ||
+		tag[3] != DELTA_ADVERTISED_TAG_VERSION_PROJECT || tag[8] != tag_check(tag) || tag[4] <= DELTA_PROJECT_OURS)
+	{
+		return 0;
+	}
+	*major = tag[2];
+	*project = tag[4];
+	*project_version = tag[5] | tag[6] << 8;
+	return 1;
+}
+
+const char *delta_compat_project_name(int project)
+{
+#define DELTA_COMPAT_PROJECT(symbol, number, key, name) \
+	if (project == (number)) \
+		return name;
+	DELTA_PROJECTS(DELTA_COMPAT_PROJECT)
+#undef DELTA_COMPAT_PROJECT
+	return 0;
+}
+
 int delta_compat_read_range(const unsigned char *reserved, int size, struct delta_wire_id *wire,
 	struct delta_wire_id *oldest)
 {
 	const unsigned char *range;
 
-	if (size < DELTA_ADVERTISED_RANGE_OFFSET + DELTA_ADVERTISED_RANGE_SIZE)
+	if (size < DELTA_ADVERTISED_RANGE_OFFSET + DELTA_ADVERTISED_RANGE_SIZE || another_projects(reserved, size))
 		return 0;
 	range = reserved + DELTA_ADVERTISED_RANGE_OFFSET;
 	if (range[0] != DELTA_ADVERTISED_RANGE_VERSION || range[5] != range_check(range))
@@ -224,7 +262,7 @@ static int read_slot(const unsigned char *reserved, int size, int major, struct 
 
 	if (text_size > 0)
 		text[0] = 0;
-	if (size < DELTA_ADVERTISED_WIRE_OFFSET + 1 + DELTA_ADVERTISED_WIRE_SIZE ||
+	if (size < DELTA_ADVERTISED_WIRE_OFFSET + 1 + DELTA_ADVERTISED_WIRE_SIZE || another_projects(reserved, size) ||
 		!(reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) ||
 		reserved[DELTA_ADVERTISED_WIRE_OFFSET] != major)
 	{
@@ -252,10 +290,15 @@ int delta_compat_speaks_delta(const unsigned char *reserved, int size)
 	struct delta_wire_id wire, oldest;
 	char text[24];
 	int major;
+	int project, project_version;
 
-	if (delta_compat_read_tag(reserved, size, &major, &wire, &oldest))
+	if (delta_compat_read_tag(reserved, size, &major, &wire, &oldest) ||
+		delta_compat_read_project(reserved, size, &major, &project, &project_version))
+	{
 		return 1;
-	if (size <= DELTA_ADVERTISED_FLAGS_OFFSET || !(reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG))
+	}
+	if (size <= DELTA_ADVERTISED_FLAGS_OFFSET || another_projects(reserved, size) ||
+		!(reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG))
 		return 0;
 	/* (the old layout: the flag alone before OpenCE took it, and from then a
 	wire in its slot, of any major) */
@@ -270,9 +313,12 @@ int delta_compat_host_wire(const unsigned char *reserved, int size, int major, s
 	struct delta_wire_id oldest, slot;
 	char text[24];
 	int tag_major;
+	int project, project_version;
 
 	if (delta_compat_read_tag(reserved, size, &tag_major, wire, &oldest))
 		return tag_major == major;
+	if (delta_compat_read_project(reserved, size, &tag_major, &project, &project_version))
+		return 0;
 	if (!read_slot(reserved, size, major, &slot, text, (int)sizeof(text)))
 		return 0;
 	if (delta_compat_read_range(reserved, size, wire, &oldest))
@@ -324,6 +370,13 @@ int delta_compat_decide(const unsigned char *reserved, int size, int major, cons
 		}
 		return 0;
 	}
+	/* (a host of another project's code: no wire, so its number decides) */
+	{
+		int project, project_version;
+
+		if (delta_compat_read_project(reserved, size, &tag_major, &project, &project_version))
+			return -1;
+	}
 	/* then the old layout, of a host before the tag */
 	if (!read_slot(reserved, size, major, &slot, slot_text, (int)sizeof(slot_text)))
 		return -1;
@@ -355,7 +408,8 @@ int delta_compat_decide(const unsigned char *reserved, int size, int major, cons
 
 int delta_compat_opence_server(const unsigned char *reserved, int size)
 {
-	if (size <= DELTA_ADVERTISED_FLAGS_OFFSET || announced(reserved) < DELTA_ADVERTISED_FLAG_TAKEN_VERSION ||
+	if (size <= DELTA_ADVERTISED_FLAGS_OFFSET || another_projects(reserved, size) ||
+		announced(reserved) < DELTA_ADVERTISED_FLAG_TAKEN_VERSION ||
 		!(reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG))
 	{
 		return 0;

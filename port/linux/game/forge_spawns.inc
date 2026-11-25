@@ -9,14 +9,14 @@ race, infection) and a facing; TELEPORTERS and OBJECTIVES place their
 markers in the same table (forge_netgame.inc).
 
 A marker is no object of the map's: it is drawn (forge_markers.inc: the
-see-through marker in its team's colour, flat on the ground: a ring, a
+see-through marker in its team's color, flat on the ground: a ring, a
 chevron where the player faces, an initial spawn's a second ring and a
-filled centre), for the monitor only, never for the Spartan or in a layout
+filled center), for the monitor only, never for the Spartan or in a layout
 played; taken (RT), carried and let go like an object, its properties
 opened from it (X while holding it: TEAM, GAME TYPE, the kind, YAW),
 deleted with Y (held or under the crosshair). It counts in the objects'
 budget, at most FORGE_MAXIMUM_SPAWNS of them. The map's own spawns are
-drawn grey beside them (read only).
+drawn gray beside them (read only).
 
 Saved in the layout as version 4's player spawn record (forge_files.h);
 read back as the map loads, before anyone spawns, so the round's first
@@ -32,6 +32,10 @@ player takes the initial spawns if any fits, else the respawn points. When
 none fits, the map's own spawns are used, as before; when some fit but
 every one is blocked (an enemy on it), the player waits, as the engine has
 one wait, for FORGE_SPAWN_WAIT_TICKS at most before the map's are used.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 /* ---------- constants */
@@ -138,7 +142,9 @@ static void forge_spawn_name(
 	char const *kind;
 
 	kind = (forge_spawn_kind_names[spawn->kind % NUMBER_OF_FORGE_MARKER_KINDS]);
-	if (forge_spawn_is_teleporter(spawn))
+	if (forge_spawn_is_volume(spawn))
+		snprintf(name, (size_t)size, "%s", kind);
+	else if (forge_spawn_is_teleporter(spawn))
 		snprintf(name, (size_t)size, ("%s, Channel %d"), kind, spawn->channel + 1);
 	/* (a game type object's: its team, hill, ball or order) */
 	else if (spawn->kind == _forge_spawn_flag)
@@ -149,6 +155,9 @@ static void forge_spawn_name(
 		snprintf(name, (size_t)size, ("%s, Ball %d"), kind, spawn->channel + 1);
 	else if (spawn->kind == _forge_spawn_race)
 		snprintf(name, (size_t)size, "%s %d", kind, spawn->channel + 1);
+	/* (an AI route's point, a patrol area: its route) */
+	else if (spawn->kind == _forge_spawn_ai_route || spawn->kind == _forge_spawn_ai_area)
+		snprintf(name, (size_t)size, ("%s, Route %d"), kind, spawn->channel + 1);
 	else if (spawn->team == 0)
 		snprintf(name, (size_t)size, ("%s, Red"), kind);
 	else if (spawn->team == 1)
@@ -161,11 +170,24 @@ static void forge_spawn_log(
 	char const *what,
 	struct forge_spawn const *spawn)
 {
+	if (forge_spawn_is_volume(spawn))
+	{
+		forge_volume_log(what, spawn);
+		return;
+	}
 	if (forge_spawn_is_objective(spawn))
 	{
 		platform_log("forge: %s the %s #%ld (index %d) at %.2f %.2f %.2f facing %.2f %.2f", what,
 			forge_spawn_kind_log_names[spawn->kind % NUMBER_OF_FORGE_MARKER_KINDS], spawn->id, spawn->channel,
 			spawn->home.position.x, spawn->home.position.y, spawn->home.position.z, spawn->home.forward.i, spawn->home.forward.j);
+		return;
+	}
+	if (spawn->kind == _forge_spawn_ai_route || spawn->kind == _forge_spawn_ai_area)
+	{
+		platform_log("forge: %s the %s #%ld (route %d, %s %d) at %.2f %.2f %.2f facing %.2f %.2f", what,
+			forge_spawn_kind_log_names[spawn->kind % NUMBER_OF_FORGE_MARKER_KINDS], spawn->id, spawn->channel + 1,
+			spawn->kind == _forge_spawn_ai_route ? "stop" : "size", spawn->option, spawn->home.position.x,
+			spawn->home.position.y, spawn->home.position.z, spawn->home.forward.i, spawn->home.forward.j);
 		return;
 	}
 	if (forge_spawn_is_teleporter(spawn))
@@ -197,7 +219,26 @@ static boolean forge_marker_kind_room(
 			forge_notice(("Teleporters full: %d. Delete one to place another."), FORGE_FILE_MAXIMUM_TELEPORTERS);
 		return FALSE;
 	}
-	if (kind >= _forge_spawn_flag && kind < NUMBER_OF_FORGE_MARKER_KINDS &&
+	if (kind >= _forge_spawn_volume_kill && kind <= _forge_spawn_volume_gravity &&
+		forge_volumes_count() >= FORGE_FILE_MAXIMUM_VOLUMES)
+	{
+		if (notice)
+			forge_notice(("Volumes full: %d. Delete one to place another."), FORGE_FILE_MAXIMUM_VOLUMES);
+		return FALSE;
+	}
+	if (kind == _forge_spawn_ai_route && forge_spawns_of_kind(_forge_spawn_ai_route) >= FORGE_FILE_MAXIMUM_ROUTE_POINTS)
+	{
+		if (notice)
+			forge_notice(("AI route points full: %d. Delete one to place another."), FORGE_FILE_MAXIMUM_ROUTE_POINTS);
+		return FALSE;
+	}
+	if (kind == _forge_spawn_ai_area && forge_spawns_of_kind(_forge_spawn_ai_area) >= FORGE_FILE_MAXIMUM_AI_AREAS)
+	{
+		if (notice)
+			forge_notice(("Patrol areas full: %d. Delete one to place another."), FORGE_FILE_MAXIMUM_AI_AREAS);
+		return FALSE;
+	}
+	if (kind >= _forge_spawn_flag && kind <= FORGE_LAST_OBJECTIVE_KIND &&
 		forge_objectives_count(NONE, NONE) >= FORGE_FILE_MAXIMUM_GAME_OBJECTS)
 	{
 		if (notice)
@@ -248,6 +289,15 @@ static short forge_marker_new_index(
 		return 0;
 	case _forge_spawn_race:
 		return (short)MIN(forge_objectives_count(_forge_spawn_race, NONE), FORGE_FILE_MAXIMUM_RACE_CHECKPOINTS - 1);
+	case _forge_spawn_ai_route:
+	case _forge_spawn_ai_area:
+		/* (the last route's: a route's points placed one after another) */
+		for (index = (short)(forge_globals.spawn_count - 1); index >= 0; index--)
+		{
+			if (forge_globals.spawns[index].kind == _forge_spawn_ai_route || forge_globals.spawns[index].kind == _forge_spawn_ai_area)
+				return forge_globals.spawns[index].channel;
+		}
+		return 0;
 	}
 	return 0;
 }
@@ -265,7 +315,9 @@ static struct forge_spawn *forge_spawn_add(
 {
 	struct forge_spawn *spawn;
 	boolean teleporter = kind == _forge_spawn_teleporter_sender || kind == _forge_spawn_teleporter_receiver;
-	boolean objective = kind >= _forge_spawn_flag && kind < NUMBER_OF_FORGE_MARKER_KINDS;
+	boolean objective = kind >= _forge_spawn_flag && kind <= FORGE_LAST_OBJECTIVE_KIND;
+	boolean ai_marker = kind == _forge_spawn_ai_route || kind == _forge_spawn_ai_area;
+	boolean volume = kind >= _forge_spawn_volume_kill && kind <= _forge_spawn_volume_gravity;
 
 	if (forge_globals.spawn_count < 0 || forge_globals.spawn_count >= FORGE_SPAWN_TABLE ||
 		forge_spawn_points() >= FORGE_MAXIMUM_SPAWNS)
@@ -286,10 +338,16 @@ static struct forge_spawn *forge_spawn_add(
 	spawn->kind = (short)(kind >= 0 && kind < NUMBER_OF_FORGE_MARKER_KINDS ? kind : _forge_spawn_respawn);
 	/* (a teleporter, a game type object: no team nor game type, its channel
 	or index) */
-	spawn->team = (signed char)(!teleporter && !objective && (team == 0 || team == 1) ? team : NONE);
-	spawn->game_types = (unsigned short)(teleporter || objective ? 0 : game_types & FORGE_FILE_SPAWN_GAME_TYPES_MASK);
-	spawn->channel = (short)(teleporter ? PIN(channel, 0, FORGE_TELEPORTER_CHANNELS - 1) : objective ? channel : 0);
+	spawn->team = (signed char)(!teleporter && !objective && !ai_marker && (team == 0 || team == 1) ? team : NONE);
+	spawn->game_types = (unsigned short)(teleporter || objective || ai_marker || volume ? 0 : game_types & FORGE_FILE_SPAWN_GAME_TYPES_MASK);
+	spawn->channel = (short)(teleporter ? PIN(channel, 0, FORGE_TELEPORTER_CHANNELS - 1) : objective ? channel :
+		ai_marker ? PIN(channel, 0, FORGE_FILE_MAXIMUM_ROUTES - 1) : 0);
+	/* (an AI marker's stop or size: a patrol area's middle one, 8 world
+	units) */
+	spawn->option = (short)(kind == _forge_spawn_ai_area ? 2 : 0);
 	spawn->home = *home;
+	if (volume)
+		forge_volume_defaults(spawn);
 	/* (upright, facing along the ground) */
 	spawn->home.forward.k = 0.f;
 	if (normalize3d(&spawn->home.forward) < 0.0001f)
@@ -332,6 +390,8 @@ static void forge_spawns_from_layout(
 	short taken = 0;
 	short teleporters = 0;
 	short objectives = 0;
+	short ai_markers = 0;
+	short volumes = 0;
 
 	if (forge_file_layout_version(layout) < 4)
 		return;
@@ -360,6 +420,49 @@ static void forge_spawns_from_layout(
 			forge_facing_from_angles(angles, &home.forward, &home.up);
 			if (forge_spawn_add(0, kind, NONE, 0, record->team, &home))
 				objectives++;
+			continue;
+		}
+		/* (an AI route's point, a patrol area: version 12, its route and stop
+		or size checked in range by the validator) */
+		if ((record->kind == _forge_record_ai_route_point || record->kind == _forge_record_ai_area) &&
+			forge_file_layout_version(layout) >= 12)
+		{
+			struct forge_spawn *marker;
+
+			home.position.x = record->position[0];
+			home.position.y = record->position[1];
+			home.position.z = record->position[2];
+			angles[0] = record->angles[0];
+			angles[1] = angles[2] = 0.f;
+			forge_facing_from_angles(angles, &home.forward, &home.up);
+			marker = forge_spawn_add(0, record->kind == _forge_record_ai_route_point ? _forge_spawn_ai_route : _forge_spawn_ai_area,
+				NONE, 0, record->team, &home);
+			if (marker)
+			{
+				marker->option = record->variant;
+				ai_markers++;
+			}
+			continue;
+		}
+		/* (a volume: version 14's, its type, shape, size, amount and target
+		checked in range by the validator) */
+		if (record->kind == _forge_record_volume && forge_file_layout_version(layout) >= 14)
+		{
+			struct forge_spawn *spawn;
+
+			home.position.x = record->position[0];
+			home.position.y = record->position[1];
+			home.position.z = record->position[2];
+			angles[0] = record->angles[0];
+			angles[1] = angles[2] = 0.f;
+			forge_facing_from_angles(angles, &home.forward, &home.up);
+			spawn = forge_spawn_add(0, (short)(_forge_spawn_volume_kill + PIN(record->variant, 0,
+				NUMBER_OF_FORGE_FILE_VOLUME_TYPES - 1)), NONE, 0, 0, &home);
+			if (spawn)
+			{
+				forge_volume_from_record(spawn, record);
+				volumes++;
+			}
 			continue;
 		}
 		/* (a teleporter: its channel, checked in range by the validator) */
@@ -404,10 +507,21 @@ static void forge_spawns_from_layout(
 			"checkpoints)", layout->title, objectives, forge_spawns_of_kind(_forge_spawn_flag), forge_spawns_of_kind(_forge_spawn_hill),
 			forge_spawns_of_kind(_forge_spawn_oddball), forge_spawns_of_kind(_forge_spawn_race));
 	}
+	if (volumes)
+	{
+		platform_log("forge: layout \"%s\": %d volumes (%d kill, %d damage, %d gravity)", layout->title, volumes,
+			forge_spawns_of_kind(_forge_spawn_volume_kill), forge_spawns_of_kind(_forge_spawn_volume_damage),
+			forge_spawns_of_kind(_forge_spawn_volume_gravity));
+	}
 	if (teleporters)
 	{
 		platform_log("forge: layout \"%s\": %d teleporters (%d senders, %d receivers)", layout->title, teleporters,
 			forge_spawns_of_kind(_forge_spawn_teleporter_sender), forge_spawns_of_kind(_forge_spawn_teleporter_receiver));
+	}
+	if (ai_markers)
+	{
+		platform_log("forge: layout \"%s\": %d AI route points, %d patrol areas", layout->title,
+			forge_spawns_of_kind(_forge_spawn_ai_route), forge_spawns_of_kind(_forge_spawn_ai_area));
 	}
 }
 
@@ -452,6 +566,19 @@ static short forge_spawns_capture(
 		record = &layout->records[layout->record_count];
 		csmemset(record, 0, sizeof(*record));
 		record->path_index = FORGE_FILE_NO_PATH;
+		/* (a volume: version 14's record) */
+		if (forge_spawn_is_volume(spawn))
+		{
+			forge_volume_to_record(spawn, record);
+			record->position[0] = spawn->home.position.x;
+			record->position[1] = spawn->home.position.y;
+			record->position[2] = spawn->home.position.z;
+			forge_angles_from_facing(&spawn->home.forward, global_up3d, angles);
+			record->angles[0] = angles[0];
+			layout->record_count++;
+			layout->flags |= FORGE_FILE_FLAG_NETGAME_SPAWNS;
+			continue;
+		}
 		/* (a game type object: version 6's netgame flag record) */
 		if (forge_spawn_is_objective(spawn))
 		{
@@ -460,6 +587,22 @@ static short forge_spawns_capture(
 				spawn->kind == _forge_spawn_hill ? FORGE_FILE_FLAG_TYPE_HILL : spawn->kind == _forge_spawn_oddball ?
 				FORGE_FILE_FLAG_TYPE_ODDBALL : FORGE_FILE_FLAG_TYPE_RACE);
 			record->team = (signed char)PIN(spawn->channel, 0, forge_file_flag_type_indices(record->variant) - 1);
+			record->position[0] = spawn->home.position.x;
+			record->position[1] = spawn->home.position.y;
+			record->position[2] = spawn->home.position.z;
+			forge_angles_from_facing(&spawn->home.forward, global_up3d, angles);
+			record->angles[0] = angles[0];
+			layout->record_count++;
+			layout->flags |= FORGE_FILE_FLAG_NETGAME_SPAWNS;
+			continue;
+		}
+		/* (an AI route's point, a patrol area: version 12's) */
+		if (spawn->kind == _forge_spawn_ai_route || spawn->kind == _forge_spawn_ai_area)
+		{
+			record->kind = spawn->kind == _forge_spawn_ai_route ? _forge_record_ai_route_point : _forge_record_ai_area;
+			record->team = (signed char)PIN(spawn->channel, 0, FORGE_FILE_MAXIMUM_ROUTES - 1);
+			record->variant = (unsigned char)PIN(spawn->option, 0, spawn->kind == _forge_spawn_ai_route ?
+				NUMBER_OF_FORGE_FILE_ROUTE_STOPS - 1 : FORGE_FILE_AI_AREA_SIZES - 1);
 			record->position[0] = spawn->home.position.x;
 			record->position[1] = spawn->home.position.y;
 			record->position[2] = spawn->home.position.z;
@@ -515,6 +658,47 @@ static void forge_spawn_property_apply(
 	short step,
 	boolean held)
 {
+	/* (a volume's: its own rows, its yaw as a marker's) */
+	if (forge_spawn_is_volume(spawn) && property != _forge_property_yaw)
+	{
+		forge_volume_property_apply(spawn, property, step);
+		return;
+	}
+	/* (an AI route's point or a patrol area: its route in the team's row,
+	its stop or size in the respawn's, route point or area in the place at
+	start's, its yaw) */
+	if (spawn->kind == _forge_spawn_ai_route || spawn->kind == _forge_spawn_ai_area)
+	{
+		short options = spawn->kind == _forge_spawn_ai_route ? NUMBER_OF_FORGE_FILE_ROUTE_STOPS : FORGE_FILE_AI_AREA_SIZES;
+
+		switch (property)
+		{
+		case _forge_property_team:
+			spawn->channel = (short)((spawn->channel + step + FORGE_FILE_MAXIMUM_ROUTES) % FORGE_FILE_MAXIMUM_ROUTES);
+			break;
+		case _forge_property_respawn:
+			spawn->option = (short)((spawn->option + step + options) % options);
+			break;
+		case _forge_property_place_at_start:
+		{
+			short kind = spawn->kind == _forge_spawn_ai_route ? _forge_spawn_ai_area : _forge_spawn_ai_route;
+
+			if (!forge_marker_kind_room(kind, NONE, TRUE))
+				return;
+			spawn->kind = kind;
+			spawn->option = (short)(kind == _forge_spawn_ai_area ? 2 : 0);
+			break;
+		}
+		case _forge_property_yaw:
+		case _forge_property_reset_rotation:
+			forge_spawn_yaw_step(spawn, property, step, held);
+			break;
+		default:
+			return;
+		}
+		forge_spawn_log("properties of", spawn);
+		return;
+	}
 	/* (a teleporter's: its channel in the team's row, sender or receiver in
 	the place at start's, its yaw; no game type) */
 	if (forge_spawn_is_teleporter(spawn) && property == _forge_property_team)
@@ -624,9 +808,12 @@ static void forge_spawn_properties_get(
 
 	forge_spawn_name(spawn, properties->name, sizeof(properties->name));
 	properties->spawn = TRUE;
+	if (forge_spawn_is_volume(spawn))
+		forge_volume_properties_get(spawn, properties);
 	properties->spawn_kind = spawn->kind;
 	properties->team = spawn->team;
 	properties->channel = spawn->channel;
+	properties->marker_option = spawn->option;
 	properties->yaw = (short)forge_round(RADIANS_TO_DEGREES(arctangent(forward->j, forward->i)));
 	/* (a game type object's: whether the game type has it whole - CTF a
 	flag of each team, King a hill of three points or more, Race two
@@ -678,7 +865,7 @@ static void forge_spawn_choose(
 
 	if (!forge_camera_get(&position, &forward))
 		return;
-	if (forge_objects_counted() >= FORGE_MAXIMUM_OBJECTS || forge_spawn_points() >= FORGE_MAXIMUM_SPAWNS ||
+	if (forge_objects_counted() >= forge_objects_budget() || forge_spawn_points() >= FORGE_MAXIMUM_SPAWNS ||
 		!forge_marker_kind_room(kind, NONE, FALSE))
 	{
 		if (!forge_marker_kind_room(kind, NONE, TRUE))
@@ -686,7 +873,7 @@ static void forge_spawn_choose(
 		else if (forge_spawn_points() >= FORGE_MAXIMUM_SPAWNS)
 			forge_notice(("Spawn points full: %d. Delete one to place another."), FORGE_MAXIMUM_SPAWNS);
 		else
-			forge_notice(("Budget full: %d objects. Delete one to place another."), FORGE_MAXIMUM_OBJECTS);
+			forge_notice(("Budget full: %d objects. Delete one to place another."), forge_objects_budget());
 		return;
 	}
 	distance = MIN(4.f, forge_structure_distance(&position, &forward) - 1.f);
@@ -780,8 +967,9 @@ short forge_spawn_location(
 	absolute = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
 	if (absolute < 0 || absolute >= FORGE_SPAWN_PLAYERS)
 		return _forge_spawn_location_map;
+	/* (none: a campaign mission's own starts, forge_ai.inc, else the map's) */
 	if (forge_globals.spawn_count <= 0)
-		return _forge_spawn_location_map;
+		return forge_campaign_spawn_location(player_index, location);
 	game_bit = forge_spawn_game_bit();
 	teams = game_engine_running() && game_engine_has_teams();
 	first = !(forge_globals.spawns_spawned & (1UL << absolute));
@@ -820,7 +1008,7 @@ short forge_spawn_location(
 			candidate.team_index = (short)(teams && spawn->team != NONE ? spawn->team : player->team_index);
 			/* (the game type the spawn fits: the one played) */
 			candidate.game_types[0] = (short)(game_engine_running() ? game_engine_get_variant()->game_engine_index : 0);
-			/* (the engine's rating, randomised as find_best_starting_location_
+			/* (the engine's rating, randomized as find_best_starting_location_
 			index does) */
 			rating = game_engine_get_starting_location_rating(player_index, &candidate) *
 				(real)pow((double)real_seed_random_range(&spawn_seed, 0.f, 1.f), 0.5);
@@ -867,5 +1055,5 @@ short forge_spawn_location(
 	}
 	forge_globals.spawns_spawned |= 1UL << absolute;
 	forge_globals.spawn_wait_since[absolute] = 0;
-	return _forge_spawn_location_map;
+	return forge_campaign_spawn_location(player_index, location);
 }

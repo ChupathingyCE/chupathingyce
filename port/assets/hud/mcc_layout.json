@@ -281,6 +281,236 @@
    "keep": []
   },
   {
+   "name": "hud_ammo_meters__0",
+   "tag": "ui\\hud\\bitmaps\\combined\\hud_ammo_meters",
+   "bitmap": 0,
+   "width": 512,
+   "height": 512,
+   "format": "a8y8",
+   "scale": 1,
+   "crc": 1391925708,
+   "cells": [
+    {
+     "mcc": [
+      0,
+      0,
+      460,
+      118
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
+     "source_scale": 1,
+     "source": [
+      0,
+      -5
+     ],
+     "clip": [
+      0,
+      0,
+      456,
+      108
+     ],
+     "kind": "meter",
+     "score": 0.796,
+     "xbox_low_ammo_offset": true
+    },
+    {
+     "mcc": [
+      0,
+      120,
+      448,
+      192
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
+     "source_scale": 1,
+     "source": [
+      449,
+      104
+     ],
+     "clip": [
+      448,
+      108,
+      884,
+      180
+     ],
+     "kind": "meter",
+     "score": 0.747,
+     "xbox_low_ammo_offset": true
+    },
+    {
+     "mcc": [
+      0,
+      192,
+      438,
+      264
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
+     "source_scale": 1,
+     "source": [
+      1,
+      178
+     ],
+     "clip": [
+      0,
+      180,
+      436,
+      248
+     ],
+     "kind": "meter",
+     "score": 0.828,
+     "xbox_low_ammo_offset": true
+    },
+    {
+     "mcc": [
+      0,
+      264,
+      448,
+      336
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
+     "source_scale": 1,
+     "source": [
+      436,
+      176
+     ],
+     "clip": [
+      436,
+      180,
+      880,
+      248
+     ],
+     "kind": "meter",
+     "score": 0.877,
+     "xbox_low_ammo_offset": true
+    },
+    {
+     "mcc": [
+      0,
+      336,
+      478,
+      408
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
+     "source_scale": 1,
+     "source": [
+      -23,
+      248
+     ],
+     "clip": [
+      0,
+      248,
+      424,
+      312
+     ],
+     "kind": "meter",
+     "score": 0.81
+    },
+    {
+     "mcc": [
+      0,
+      408,
+      432,
+      460
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
+     "source_scale": 1,
+     "source": [
+      423,
+      248
+     ],
+     "clip": [
+      424,
+      248,
+      856,
+      300
+     ],
+     "kind": "meter",
+     "score": 0.907
+    },
+    {
+     "mcc": [
+      0,
+      460,
+      432,
+      500
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
+     "source_scale": 1,
+     "source": [
+      -4,
+      312
+     ],
+     "clip": [
+      0,
+      312,
+      432,
+      352
+     ],
+     "kind": "meter",
+     "score": 0.583
+    }
+   ],
+   "keep": []
+  },
+  {
+   "name": "hud_ammo_meters__1",
+   "tag": "ui\\hud\\bitmaps\\combined\\hud_ammo_meters",
+   "bitmap": 1,
+   "width": 512,
+   "height": 256,
+   "format": "a8y8",
+   "scale": 1,
+   "crc": 3914776890,
+   "cells": [
+    {
+     "mcc": [
+      0,
+      0,
+      440,
+      90
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
+     "source_scale": 1,
+     "source": [
+      455,
+      -4
+     ],
+     "clip": [
+      456,
+      0,
+      884,
+      88
+     ],
+     "kind": "meter",
+     "score": 0.896,
+     "xbox_low_ammo_offset": true
+    },
+    {
+     "mcc": [
+      0,
+      92,
+      456,
+      164
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_ammo_meters.png",
+     "source_scale": 1,
+     "source": [
+      -3,
+      104
+     ],
+     "clip": [
+      0,
+      108,
+      448,
+      180
+     ],
+     "kind": "meter",
+     "score": 0.888,
+     "xbox_low_ammo_offset": true
+    }
+   ],
+   "keep": []
+  },
+  {
    "name": "hud_ammo_outlines__0",
    "tag": "ui\\hud\\bitmaps\\combined\\hud_ammo_outlines",
    "bitmap": 0,
@@ -2872,6 +3102,254 @@
      ],
      "kind": "grey",
      "score": 0.699
+    }
+   ],
+   "keep": []
+  },
+  {
+   "name": "hud_unit_meters__0",
+   "tag": "ui\\hud\\bitmaps\\combined\\hud_unit_meters",
+   "bitmap": 0,
+   "width": 512,
+   "height": 512,
+   "format": "a8y8",
+   "scale": 1,
+   "crc": 4034918668,
+   "cells": [
+    {
+     "mcc": [
+      0,
+      0,
+      488,
+      124
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_unit_meters.png",
+     "source_scale": 1,
+     "source": [
+      520,
+      2
+     ],
+     "clip": [
+      520,
+      0,
+      1008,
+      124
+     ],
+     "kind": "meter",
+     "score": 0.791
+    },
+    {
+     "mcc": [
+      0,
+      124,
+      488,
+      248
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_unit_meters.png",
+     "source_scale": 1,
+     "source": [
+      0,
+      136
+     ],
+     "clip": [
+      0,
+      136,
+      488,
+      260
+     ],
+     "kind": "meter",
+     "score": 0.885
+    },
+    {
+     "mcc": [
+      0,
+      248,
+      352,
+      304
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_unit_meters.png",
+     "source_scale": 1,
+     "source": [
+      489,
+      136
+     ],
+     "clip": [
+      488,
+      136,
+      840,
+      192
+     ],
+     "kind": "meter",
+     "score": 0.93,
+     "thresholds": [
+      30,
+      60,
+      90,
+      120,
+      150,
+      180,
+      210,
+      240
+     ]
+    },
+    {
+     "mcc": [
+      0,
+      304,
+      352,
+      360
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_unit_meters.png",
+     "source_scale": 1,
+     "source": [
+      1,
+      260
+     ],
+     "clip": [
+      0,
+      260,
+      352,
+      316
+     ],
+     "kind": "meter",
+     "score": 0.844
+    },
+    {
+     "mcc": [
+      0,
+      360,
+      352,
+      416
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_unit_meters.png",
+     "source_scale": 1,
+     "source": [
+      352,
+      260
+     ],
+     "clip": [
+      352,
+      260,
+      704,
+      316
+     ],
+     "kind": "meter",
+     "score": 0.852,
+     "thresholds": [
+      30,
+      60,
+      90,
+      120,
+      150,
+      180,
+      210,
+      240
+     ]
+    }
+   ],
+   "keep": []
+  },
+  {
+   "name": "hud_unit_meters__1",
+   "tag": "ui\\hud\\bitmaps\\combined\\hud_unit_meters",
+   "bitmap": 1,
+   "width": 512,
+   "height": 32,
+   "format": "a8y8",
+   "scale": 1,
+   "crc": 2311478382,
+   "cells": [
+    {
+     "mcc": [
+      0,
+      0,
+      512,
+      32
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_unit_meters.png",
+     "source_scale": 1,
+     "source": [
+      4,
+      356
+     ],
+     "clip": [
+      0,
+      356,
+      520,
+      396
+     ],
+     "kind": "meter",
+     "score": 0.988
+    }
+   ],
+   "keep": []
+  },
+  {
+   "name": "hud_unit_meters__2",
+   "tag": "ui\\hud\\bitmaps\\combined\\hud_unit_meters",
+   "bitmap": 2,
+   "width": 512,
+   "height": 32,
+   "format": "a8y8",
+   "scale": 1,
+   "crc": 3864728354,
+   "cells": [
+    {
+     "mcc": [
+      0,
+      0,
+      512,
+      32
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_unit_meters.png",
+     "source_scale": 1,
+     "source": [
+      4,
+      316
+     ],
+     "clip": [
+      0,
+      316,
+      520,
+      356
+     ],
+     "kind": "meter",
+     "score": 0.992
+    }
+   ],
+   "keep": []
+  },
+  {
+   "name": "hud_unit_meters__3",
+   "tag": "ui\\hud\\bitmaps\\combined\\hud_unit_meters",
+   "bitmap": 3,
+   "width": 512,
+   "height": 128,
+   "format": "a8y8",
+   "scale": 1,
+   "crc": 282406732,
+   "cells": [
+    {
+     "mcc": [
+      0,
+      0,
+      512,
+      128
+     ],
+     "art": "hud_xbox_order__bitmaps__combined__hud_unit_meters.png",
+     "source_scale": 1,
+     "source": [
+      5,
+      4
+     ],
+     "clip": [
+      0,
+      0,
+      520,
+      136
+     ],
+     "kind": "meter",
+     "score": 0.827
     }
    ],
    "keep": []

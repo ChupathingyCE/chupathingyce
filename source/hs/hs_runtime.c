@@ -1337,6 +1337,11 @@ void hs_runtime_port_shift_sleep_times(
 	}
 }
 
+#ifndef HALO_CONSOLE_NO_FORGE
+/* port/linux/game/forge.h's */
+boolean forge_mission_off(void);
+#endif
+
 void hs_runtime_update(
 	void)
 {
@@ -1358,6 +1363,12 @@ void hs_runtime_update(
 			/* port: a court's scripts, off in a Bomb game, which plays the
 			court's game itself (game_engine_bomb.c, bomb_courts) */
 			if (thread->type==_hs_thread_type_script && game_engine_bomb_scripts_off())
+				continue;
+#endif
+#ifndef HALO_CONSOLE_NO_FORGE
+			/* port: a campaign mission's scripts, off in a Forge game on it
+			(port/linux/game/forge_ai.inc), which places its own AI */
+			if (thread->type==_hs_thread_type_script && forge_mission_off())
 				continue;
 #endif
 			if (thread->sleep_until>=0 && thread->sleep_until<=time)
