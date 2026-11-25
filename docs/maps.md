@@ -356,3 +356,8 @@ own movies too: put them in a `bink` folder beside its `ui.map`
 the pack doesn't have plays from the game's own `bink` folder. A pack folder
 needs a name of 1 to 8 letters and digits, other than `ce`, `md`, `pc`, `de`,
 `fr`, `es` and `it`.
+
+## SPV3
+
+SPV3's maps go in `maps_spv3`, beside `maps`. It's early, and it has its
+own page: [docs/spv3.md](spv3.md).

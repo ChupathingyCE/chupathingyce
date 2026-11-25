@@ -135,6 +135,7 @@ Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends
 - Missing maps download when you join, and each one is checked before it's used
 - Community Xbox map packs, like Halo CE+
 - Stubbs the Zombie, an early work in progress, from your own Xbox maps (off by default)
+- SPV3, an early first look, from your own copy ([try it](docs/spv3.md))
 
 **Your stats**
 - A carnage report with medals for every finished game
