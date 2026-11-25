@@ -110,6 +110,12 @@ BG_VERTEX_VOLATILE_FRAMES) */
 #define BG_VERTEX_REWRITE_FRAMES 2
 #define BG_VERTEX_VOLATILE_REWRITES 4
 #define BG_VERTEX_VOLATILE_FRAMES 600
+/* the copies of a range kept for different values of the registers its
+streams leave out (one pass of a level's surfaces with one color, the next
+with another): past them, the least used is converted again (game issue
+#1801: SPV3's b30 swapped two of them each frame, which the rewrite count
+took for a range the game keeps writing, and streamed its whole level) */
+#define BG_VERTEX_VARIANTS 4
 /* Metal's uniform space a frame (bgfx built with 32 MB), less a margin:
 draws past it are skipped rather than overrun it */
 #define BG_UNIFORM_BUDGET ((32UL << 20) - (1UL << 20))
@@ -3698,6 +3704,20 @@ static void bg_vertex_cache_trim(void)
 	}
 }
 
+/* whether a kept range was made with the current values of the registers
+its streams leave out */
+static BOOL bg_vertex_attributes_match(const struct bg_vertex_entry *entry, unsigned short provided)
+{
+	unsigned long index;
+
+	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+	{
+		if (!(provided & (1U << index)) && memcmp(entry->attributes[index], device.attributes[index], 4 * sizeof(float)))
+			return FALSE;
+	}
+	return TRUE;
+}
+
 /* the draw's vertices kept on the GPU, converted again if the game wrote
 them; invalid when they are to stream (outside the contiguous window,
 rewritten often, or no room) */
@@ -3732,19 +3752,40 @@ static bgfx_vertex_buffer_handle_t bg_vertex_cache_get(const struct vertex_shade
 	for (stream = 0; stream < 16; stream++)
 		hash = hash * 33 + address[stream];
 	hash = (hash ^ (hash >> 13) ^ (hash >> 23)) % BG_VERTEX_BUCKETS;
-	for (entry = bg.vertex_buckets[hash]; entry; entry = entry->next)
 	{
-		if (entry->declaration == declaration && entry->vertex_count == vertex_count &&
-			entry->provided == provided && entry->element_count == declaration->element_count &&
-			!memcmp(entry->address, address, sizeof(address)) && !memcmp(entry->stride, stride, sizeof(stride)) &&
-			!memcmp(entry->elements, declaration->elements, declaration->element_count * sizeof(entry->elements[0])))
-			break;
+		struct bg_vertex_entry *least_used = NULL;
+		unsigned long variants = 0;
+
+		for (entry = bg.vertex_buckets[hash]; entry; entry = entry->next)
+		{
+			if (entry->declaration == declaration && entry->vertex_count == vertex_count &&
+				entry->provided == provided && entry->element_count == declaration->element_count &&
+				!memcmp(entry->address, address, sizeof(address)) && !memcmp(entry->stride, stride, sizeof(stride)) &&
+				!memcmp(entry->elements, declaration->elements, declaration->element_count * sizeof(entry->elements[0])))
+			{
+				if (bg_vertex_attributes_match(entry, provided))
+					break;
+				variants++;
+				if (!least_used || entry->used_frame < least_used->used_frame)
+					least_used = entry;
+			}
+		}
+		/* (a range already kept with as many other values as it may have: the
+		least used of them, converted again below) */
+		if (!entry && variants >= BG_VERTEX_VARIANTS)
+			entry = least_used;
 	}
 	if (!entry)
 	{
 		entry = calloc(1, sizeof(*entry));
 		if (!entry)
 			return none;
+		/* (the values it is made with: converted below, not a rewrite) */
+		for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+		{
+			if (!(provided & (1U << index)))
+				memcpy(entry->attributes[index], device.attributes[index], 4 * sizeof(float));
+		}
 		entry->declaration = declaration;
 		memcpy(entry->elements, declaration->elements, sizeof(entry->elements));
 		entry->element_count = declaration->element_count;
