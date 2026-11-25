@@ -191,7 +191,8 @@ def test_every_section_is_checked():
     checked = {"registry", "description", "platforms", "capabilities", "wires", "platform_floors",
         "projects", "network_versions", "ports", "xbox_title_id", "delta_major", "platform_policy", "advertisement",
         "platform_key_flags", "internet_listing", "messages", "map_families", "host_rules_flags", "game_modes", "permissions",
-        "device_certificate_flags", "device_capabilities", "report_reasons", "moderation_actions", "labels"}
+        "device_certificate_flags", "device_capabilities", "device_account_marks", "report_reasons", "moderation_actions",
+        "labels"}
     assert set(REGISTRY) == checked
 
 
@@ -266,6 +267,14 @@ def test_device_certificates_match_identity_h():
     assert {capability["name"]: capability["value"] for capability in REGISTRY["device_capabilities"]} == can
     for row in REGISTRY["device_certificate_flags"] + REGISTRY["device_capabilities"]:
         assert f"| 0x{row['value']:02X} | `{row['name']}` |" in REGISTRY_MD, row
+    # (account marks: the capabilities field's top byte, apart from the capabilities)
+    marks = values(identity, r"\bIDENTITY_MARK_(\w+) = (0x\w+),")
+    assert {mark["name"]: mark["value"] for mark in REGISTRY["device_account_marks"]} == marks
+    bits = int(re.search(r"#define IDENTITY_CAPABILITY_BITS (0x\w+?)UL", identity).group(1), 16)
+    for mark in REGISTRY["device_account_marks"]:
+        assert mark["value"] & bits == 0 and mark["value"] & ~0xFFFFFFFF == 0, mark
+        assert f"| 0x{mark['value']:08X} | `{mark['name']}` |" in REGISTRY_MD, mark
+    assert all(capability["value"] & ~bits == 0 for capability in REGISTRY["device_capabilities"])
 
 
 def test_report_reasons_and_moderation_actions_match_delta_wire_h():

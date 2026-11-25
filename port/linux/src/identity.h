@@ -68,6 +68,20 @@ enum
 	IDENTITY_CAN_DEVICES = 0x20,
 };
 
+/* the capabilities field's top byte: account marks, facts the issuing
+network vouches for about the account (docs/delta/link.md, "Device
+identity": account marks). A mark grants nothing, and counts only from a certificate this copy
+checked, of its own network (the card's other_network clear), while its
+player shows by their verified name. Unknown marks are ignored */
+#define IDENTITY_CAPABILITY_BITS 0x00FFFFFFUL
+#define IDENTITY_MARK_BITS 0xFF000000UL
+enum
+{
+	/* a developer of the network's project: a blue flame on the helmet
+	(port/linux/game/developer_flames.c) */
+	IDENTITY_MARK_DEVELOPER = 0x01000000,
+};
+
 /* sign-in by code (Quick Connect): the code's characters (as a console's
 Link Profile code), and the text the device shows, ABCD-EFGH and a NUL */
 enum

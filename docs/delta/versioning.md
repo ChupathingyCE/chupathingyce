@@ -220,6 +220,275 @@ breaking one is 11, so our clients join hosts of 11 and later.
 | 43 | build-344 | A unit state's deck part (bit 7) and message 107 (riding, which our machines drop), riders thrown from a vehicle on its side; with 42's changes, played by the host's number | additive |
 | 44 | build-355 | No message, record or size changed: the number alone, with 43's layout and rules. Its MCC package sharing is declined by our hosts | additive |
 
+## Layout facts by network version
+
+Everything a client has to handle differently for a host of each network
+version it plays, 11 to 45, in one place. These are the facts Chupathingy's
+own code keys on (`network_rules.h`, `network_game_layout.h`,
+`halo_port_limits.h`), written out with their sizes so that another client
+can play the same range from this page alone. The same facts are data in
+[`layouts.json`](layouts.json), and the MIT reference code reads and
+converts by them ([`reference/delta_layout.h`](../../tools/delta-ref/delta_layout.h)).
+The game's tests check `layouts.json` against its own tables.
+
+This section is the one home for layout facts from here on: a new wire, or
+another project's client, reads them here. The older sections above and
+below ("Legacy versions", "Layouts") still say what each wire learned and
+when, and stay as they are.
+
+### The game settings record
+
+The host sends the game settings record (`struct network_game`) at the
+network's 128 machines and 128 players, in pieces (`message_server_game_settings_update`:
+an offset, a length and the record's total size), in order from offset 0
+over its stream. A client takes a record whose total size is the one its
+host's version has (below), and passes over a piece of any other size. All
+multi-byte values are little-endian.
+
+The first 0x3320 (13,088) bytes never move:
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0x0 | 32 | the game's name, 16 UTF-16 characters |
+| 0x20 | 4 | `map.version` (what it means for a Custom Edition map: 23 and 29, below) |
+| 0x24 | 128 | `map.name`, the level's path |
+| 0xA4 | 104 | the game variant |
+| 0x10C | 1 | `cooperative_flags` (from 19; 0 before: the Xbox's padding byte) |
+| 0x10D | 1 | minimum players |
+| 0x10E | 1 | maximum players (unsigned: 128 fits) |
+| 0x10F | 1 | maximum teams |
+| 0x110 | 2 | difficulty |
+| 0x112 | 2 | machine count |
+| 0x114 | 128 x 0x44 | the machines: a 32-character UTF-16 name, the machine index at 0x40, 3 bytes of padding |
+| 0x2314 | 2 | player count |
+| 0x2316 | 128 x 0x20 | the players (the machine index at 0x1C, the controller at 0x1D, the team at 0x1E, the player list index at 0x1F) |
+| 0x3316 | 2 | (unknown, sent as is) |
+| 0x3318 | 4 | random seed |
+| 0x331C | 4 | games played |
+
+Then three parts whose sizes move with the version:
+
+| Part | Where | Bytes |
+| --- | --- | --- |
+| the gametype's options | 0x3320 | 0x1C (28) to 34, 0x2C (44) from 35 |
+| the local data | right after the options | 4 (`game_objects_loaded`, then 3 bytes of padding) |
+| the trailing bytes | right after the local data | none to 41, 64 from 42 |
+
+So the record is:
+
+| Versions | Record | Options | Local data at | Trailing |
+| --- | --- | --- | --- | --- |
+| 11 to 34 | 13,120 | 28 (0x1C) | 13,116 (0x333C) | 0 |
+| 35 to 41 | 13,136 | 44 (0x2C) | 13,132 (0x334C) | 0 |
+| 42 to 45 | 13,200 | 44 (0x2C) | 13,132 (0x334C) | 64 |
+
+**The further options** (35 on: the options' bytes 0x1C to 0x2B) are
+OpenCE's game types. A record of 34 or older has none, and a reader uses
+the defaults. Every reader takes them sanitized: a byte outside its range
+becomes its default, and a mode past 3 becomes none.
+
+| Byte | Name | Default | Taken as |
+| --- | --- | --- | --- |
+| 0x1C | mode | 0 | 0 none, 1 SWAT, 2 Infection, 3 Gun Game (past 3: 0) |
+| 0x1D | hardcore | 0 | 0 or 1 |
+| 0x1E | first zombies | 1 | 1 to 16 |
+| 0x1F | zombie speed | 150 | 100 to 200 |
+| 0x20 | skull damage | 200 | 100 to 250 |
+| 0x21 | zombie respawn | 5 | 1 to 30 |
+| 0x22 | countdown | 10 | 0 to 30 |
+| 0x23 | zombie shields | 1 | 0 or 1 |
+| 0x24 | weapon order | 0 | 0 to 2 (past 2: 0) |
+| 0x25 | melee demotes | 1 | 0 or 1 |
+| 0x26 to 0x2B | reserved | 0 | 0 |
+
+The mode counts only on the Slayer engine (SWAT on any team setting,
+Infection with teams alone, Gun Game free for all alone). A reader that
+doesn't play the host's mode leaves the game and says which mode it is.
+
+**The trailing bytes** (42 on): on an MCC map's game, the content digest
+(32 bytes), then the package metadata digest (32 bytes); zeros on any other
+map. On an MCC map, `map.name`'s bytes 64 to 127 carry the Workshop item.
+A reader without MCC content has no use for any of them.
+
+**Changing a record's layout.** To read a record of another version's
+layout as its own, a client copies the first 0x3320 bytes, copies the
+options' bytes as far as both layouts have them, fills options it has and
+the source lacks with the further options' defaults (0x1C to 0x2B) and zeros
+past them, moves the 4 bytes of local data to its own place, and copies the
+trailing bytes as far as both have them, zeros past. A client folding a
+longer record into an older layout keeps the further options aside, so the
+mode is still known. `delta_layout_convert` does exactly this, from one
+buffer into another: it never converts in place, and refuses buffers that
+overlap.
+
+### Version by version
+
+What changes at each version, beyond the record sizes above. "Drop" means
+a reader that doesn't play the message passes over it unread; "the
+host's" means only a host acts on it. Versions 1 to 10 aren't played: 11
+is the newest breaking one.
+
+| Version | What a client handles |
+| --- | --- |
+| 11 to 18 | the base: the record of 13,120 bytes, an 8-byte distributed message header, a join request of 0x70 bytes. 12 to 16 add network co-op's messages and rules; 17 and 18 change nothing a client reads |
+| 19 | `cooperative_flags` bit 0: co-op players pass through each other |
+| 20 | password games' internet listings use another listing layout; the game's messages are 19's |
+| 21 | killing blows and resting bodies are sent again; co-op's BSP switches by the host's crossing alone |
+| 22 | `map.name` names a Custom Edition map as `custom_maps\<name>` |
+| 23 | `map.version` is a Custom Edition map's header checksum (Xbox maps as before); a client with another version of the map leaves |
+| 24 | the gametype's PC vehicle set (0xFE): every vehicle the map places |
+| 25 | units' integrated lights: two bits of the object state's flags (an older reader ignores them) |
+| 26 | internet play's signalling version 4 (not the game's messages) |
+| 27 | map sharing's messages 83 to 86 (drop them if you don't share maps) |
+| 28 | no message changed |
+| 29 | `map.version` is the first 32 bits of the Custom Edition map's whole-file hash, and its level name is its own, with no hashed suffix (a reader of 29 also takes 28's meanings) |
+| 30 | elevator riders carried by the tick's own movement; a client discards the height of the host's correction on its elevator up to 4.0 world units |
+| 31 | the pregame keep-alive's last two bytes are 0; a datagram stamped more than 450 ticks from the sender's latest is dropped |
+| 32 | message 90 (12 bytes, reliable): the host's aim assist policy for the mouse, which the client honors; input entry byte 2: the player plays co-op without friendly fire |
+| 33 | `cooperative_flags` bit 1: players' hits spare their AI allies (the host's) |
+| 34 | shield-only scenery and devices are static targets; a client reports no damage a static target deals |
+| 35 | the options grow to 0x2C bytes: the record is 13,136. The further options above |
+| 36 | message 91 (12 bytes, reliable): the host's shield effects, 0 to 5; drop it if you have no looks for them |
+| 37 | the advertisement's reserved byte 3 is the game's kind (low 7 bits an OpenCE game type, bit 7 Hardcore); no record change |
+| 38 | message 91 takes 6 (each machine its own player's look) |
+| 39 | the advertisement's flag 0x04 is a dedicated server; no record change |
+| 40 | the join request carries 234 zero bytes after its first 0x70; a host of 40 or later drops a request of another length without a reply |
+| 41 | refusal 13 (too many machines from one address); messages 78 and 79 laid out anew and 94 and 95 new (votes): drop all four; `cooperative_flags` bit 2 (a dedicated host) is ignored |
+| 42 | the record is 13,200 (the 64 trailing bytes); the join request's extra bytes are 236, with the host's version as a big-endian 16-bit word at 234 of them (`00 2A`); every distributed message header has 4 more bytes after its 8 (the checkpoint epoch; in a batch, the batch's and each message's); message 96 is the host's checkpoint boundary; unit state part bit 6 (scripted pose, 30 bytes, last); drop MCC-only messages 97 to 100 and 103 to 106 |
+| 43 | unit state part bit 7 (deck, 28 bytes, after the up); drop message 107 (riding); riders leave a vehicle on the ground whose up's height is below 0.200 |
+| 44 | the number alone: 43's layout and rules (the version word is `00 2C`) |
+| 45 | presumed additive: 44's layout, one past the newest known (`DELTA_LEGACY_PRESUMED`) |
+
+The epoch's rules (how a host counts it and what a client takes) are in
+"Layouts" (`epoch_kind`, below). A version past 45 has no built-in facts:
+a signed table's `layouts` give them, within the limits listed there.
+
+### Other projects' rows
+
+Another project's host may announce an OpenCE number with a record of its
+own. Content Evolved's plain games at 44 send 44's record with options of
+0x58 bytes (OpenCE's 0x2C, then 0x2C of its own), so 13,244 bytes, the local
+data at 13,176 and the 64 trailing bytes after it. Option byte 0x2B is its
+take on Infection or Gun Game (1 Floodfection, 2 Tag Gun Game), its engine 6
+is Firefight, and its host sends distributed kinds 160 to 167, which other
+readers drop. A reader tells the row apart by the size alone: no OpenCE or
+Delta host of 44 sends 13,244 bytes. Its modded games (a version word of
+0xFF00 and up) aren't joinable by other builds ([peer.md](peer.md#content-evolveds-modded-games)).
+
+### layouts.json
+
+`layouts.json` says all of the above as data:
+
+- `record`: the fixed fields (name, offset, size), `cooperative_flags`'
+  bits, the further options' bytes with defaults and ranges, and the
+  trailing bytes.
+- `versions`: by version, 11 to 45, the same fields a signed table's
+  `layouts` uses (`settings_size`, `options_size`,
+  `shield_effects_maximum`, `dropped_messages`, `join_request_extra`,
+  `join_request_version_at`, `header_extra`, `epoch_kind`,
+  `unit_state_parts`, `rider_ejection_up`), with `options_offset`,
+  `local_data_offset` and `trailing_size` worked out, `messages_added`, and
+  `rules`: the behavior notes of the table above.
+- `projects`: other projects' rows (Content Evolved's at 44).
+
+A fact is the version's whole layout, not a change from the one before, so
+a reader can look up any version alone. `tools/delta-ref/conformance.py layout N`
+prints one; `record N FILE` checks a record a port read or made; `convert
+FROM TO IN OUT --expect FILE` checks a port's conversion byte for byte.
+
+## Playing a range
+
+OpenCE's clients join only a host of their own number. A client that knows
+the layout facts above can do what Chupathingy's does and join every host
+from 11 to its newest version plus one. Done right, a host of an older
+number shows in its list as a game it can join, not as an older one.
+
+**1. Know your range.** The oldest is 11 (the newest breaking version).
+Your newest is the newest version whose facts and rules you play: 44 from
+this page. Join up to one past it (45): the next number is presumed
+additive. Past that, a signed table's `layouts` give the facts for newer
+versions (step 2), or the host stays unjoinable.
+
+**2. Fetch the signed table (optional).** You don't need it to play 11 to
+45. It adds facts for versions past 44 when OpenCE raises again. Fetch
+`/v1/delta/legacy` and `/v1/delta/legacy.sig` from the list server
+(fallback: the `delta-table` branch on GitHub, "How it travels"), check the
+size (at most 16,384 bytes), then the Ed25519 signature over the
+document's exact bytes against the keys in [The key](#the-key), then parse.
+Never re-encode the document before checking or relaying it. Rows are by
+wire, and a client of another project's code has no wire: its `announce`,
+`minimum` and `maximum` are proofs for that wire's builds, not for yours.
+The `layouts` facts are facts about OpenCE's hosts, the same for every
+reader: take them from the newest wire's row (`chupa-44b` today) for
+versions past 44, within the limits in "Layouts", and set your range from
+what you play.
+
+**3. Decide which hosts you can join.** Read the host's version from its
+advertisement's reserved bytes 0 and 1 (or the internet listing). A word of
+0xFF00 and up is a Content Evolved modded game, and bit 15 is never
+joinable by number. Otherwise join when it's within your range. A host with
+a Delta tag is no different here: HELLO lowers only the settings record it
+sends you (step 4). The join request, the distributed header (and its
+epoch), the unit state parts and the messages are always those of the
+number the host announces (the game's `distributed_layout_refresh`), so
+join a Delta host only when its announced number is in your range too.
+
+**4. Say HELLO to a Delta host.** Mark your join request (the join mark,
+[peer.md](peer.md#the-join-mark)) and say HELLO with your newest version as
+its legacy number. The host sends you the record of the older of that and
+the number it announces. HELLO never raises it: a HELLO of 44 to a host
+announcing 32 gets 32's record, 13,120 bytes. A machine without Delta, or
+one whose HELLO the host didn't wait for, gets the announced number's
+record. So whichever way you join, expect the record of
+`min(your HELLO, the host's number)`, and for a host without Delta the
+host's number's. (At 44, a Content Evolved host's plain game sends its own
+row's 13,244 bytes instead: "Other projects' rows".)
+
+**5. Join by the host's layout.** Everything but the record goes by the
+host's announced number, whatever your HELLO said. Send the join request
+that number needs:
+0x70 bytes to 39, plus 234 zero bytes for 40 and 41, plus 236 bytes with the
+version word at 234 for 42 on. Use the distributed header the host's
+number needs: 8 bytes to 41, 12 from 42 (the epoch). Read a unit state with the
+parts the host's layout has: bit 6 from 42, bit 7 from 43, none before.
+
+**6. Take the record and change it to your layout.** Expect the size of
+step 4's version (or, at 44, Content Evolved's 13,244-byte row, which you
+take as its own layout: options 0x58), and pass over a piece of any other
+size. Once whole, convert
+it to your own layout ("Changing a record's layout", above). A 44 client
+reading a 32 host's 13,120 bytes gets the head and options as they are, the
+further options' defaults (no mode), the local data moved from 13,116 to
+13,132, and 64 zero trailing bytes (no MCC content). A 41 host's 13,136
+bytes keep their further options. Keep the host's version: the record says
+how to read it, and the version says how to play the game.
+
+**7. Play by the host's number.** Apply the rules of that version and those
+before it from "Version by version", and drop the messages it sends that
+you don't play. Most of a client's work is choosing by number: the aim
+assist policy only from 32, static targets from 34, shield effects from 36,
+votes dropped from 41, the epoch from 42.
+
+Send nothing the host's number doesn't have. To a host of an older number
+than your own, a client sends (from `layouts.json`'s `messages_added` and
+`rules`):
+
+| Host's number | What a client leaves out or sends as before |
+| --- | --- |
+| below 27 | map sharing's messages 83 to 86 |
+| below 32 | input entry byte 2 (no friendly fire in co-op) as 0, the padding it was |
+| below 40 | any bytes past the join request's first 0x70 |
+| below 41 | vote messages 78 and 79 (41's layout) and 94 and 95 |
+| below 42 | the header's 4 further bytes (8-byte headers, no epoch), the join request's version word (234 bytes of zeros at 40 and 41) |
+
+For a client that already plays 44 (Content Evolved, OpenCE's own), steps
+3, 5 and 6 are the whole change: the extra versions' records, join request
+lengths and header sizes.
+
+The game's own checks (`tools/test_delta_layouts.py`) hold `layouts.json`
+and the reference converter to the game's `network_rules.c`, so a change to
+the game's layout code shows up as a change to this page.
+
 ## The signed table
 
 The legacy number goes up often, mostly for changes older machines can live
@@ -421,7 +690,32 @@ the next serial, and `verify` checks the epoch against `delta_key.h`'s keys
 - A table that doesn't verify is dropped quietly (one line in the log, never
   an address); nothing is shown to the player.
 
+### Size and encoding
+
+A document is at most 16,384 bytes (`DELTA_LEGACY_DOCUMENT_SIZE`; a signed
+table, with the signature's 128 hex digits and the line feed, 16,513). Every
+build has room for that much and no more, on consoles too, so a bigger
+document is dropped whole before its signature is checked. The cap is fixed:
+raising it would leave every build already out unable to read the table.
+
+So `tools/delta_table.py` writes the document compact: JSON with no
+whitespace between tokens (`separators=(",", ":")`), then a line feed.
+Readers skip spaces, tabs, carriage returns and line feeds between tokens,
+so a compact document and a pretty-printed one read the same in every
+build; only the bytes, and so the signature, differ. Serial 13, the first
+written this way, is about 8.4 KB, where pretty-printed it was over the cap
+(17,023 bytes). Rows' `layouts` are the biggest part: a wire's row carries
+its build's own facts too.
+
+The signature covers the exact bytes, so a relay (a peer, a mirror, a cache)
+passes the document on as it came and never re-encodes it. A tool that
+shows a table may pretty-print a copy; that copy no longer verifies.
+
 ### Layouts
+
+(The facts of every version from 11 to 45, as a reader needs them, are in
+[Layout facts by network version](#layout-facts-by-network-version). This
+section is how a table's row adds facts for later versions.)
 
 The numbers say which OpenCE versions a wire plays; they can't say how. A
 raise that only adds bytes at the end of the gametype's options, a message an
@@ -443,7 +737,7 @@ sends that the build reads by number (`network_rules.h`, "layouts"):
 
 | Field | What it is | The limit |
 | --- | --- | --- |
-| `settings_size` | the game settings record's bytes at the network's 128 machines and players (13,120 to 34, 13,136 from 35); bytes past the options and the 4 of local data come after them, and a build has no use for them | at most 13,200 (`NETWORK_RULES_SETTINGS_MAXIMUM`: 35's and 64), and never fewer than the version before had, or than the options leave room for |
+| `settings_size` | the game settings record's bytes at the network's 128 machines and players (13,120 to 34, 13,136 from 35); bytes past the options and the 4 of local data come after them, and a build has no use for them | at most 13,264 (`NETWORK_RULES_SETTINGS_MAXIMUM`: 35's 13,136 and 128), and never fewer than the version before had, or than the options leave room for |
 | `options_size` | the gametype's options' bytes in it (0x1C to 34, 0x2C from 35); the record grows with them, in front of the local data; a build reads the 0x2C it knows and ignores the rest (a host sends zeros) | never shorter than before, the record within its limit |
 | `shield_effects_maximum` | the largest value the shield effects message (91) takes (6 built in); a value a build has no look for is drawn as stock | never lower than before, at most 15 |
 | `dropped_messages` | distributed message kinds a host of the version sends that a machine that doesn't know them drops (91 from 36 built in; 78, 79, 94 and 95, OpenCE's votes, from 41) | kinds 1 to 255; only kinds the build doesn't know are affected |
@@ -734,6 +1028,38 @@ following OpenCE ends there (README's "up to network version N",
 `DELTA_LEGACY_PRESUMED` to 0) rather than sending it. The same holds for
 OpenCE's master server and fleet tools: Delta List and Delta Control are
 ours, and we don't speak theirs.
+
+### Other projects' hosts
+
+Another project's build can announce an OpenCE number but write some
+bytes of its own. A client takes it by a row of facts built into
+`port/linux/game/network_rules.c` ("other projects' hosts"), kept apart
+from the table's layouts: a row's marks are ones neither an OpenCE host nor
+ours ever sends, and nothing in it changes how they are read. Today there
+is one row, Content Evolved's
+([Content Evolved (Watanoge)](https://github.com/Watanoge/halo-content-evolved)):
+
+- **Its plain games are played.** At network version 44 exactly, its host
+  may send a game settings record of 13,244 bytes: OpenCE's 44 layout with
+  0x58 bytes of game type options (OpenCE's 0x2C, then 0x2C of its own)
+  in front of the 4 bytes of local data, and the same 64 bytes after them.
+  A client of a host it joined at 44 takes that size as the row's and folds
+  it to the layout it plays, as it does a newer OpenCE record. The MCC
+  content digest is read from the record's last 64 bytes either way. A host
+  joined at another number, or not known, never gets the row.
+- **Its own message kinds are dropped quietly.** In plain games its host
+  also sends distributed kinds 160 to 167 (its third person policy, game
+  privacy and platforms among them). A client drops them unread, as any
+  unknown kind, without logging them.
+- **Its other games are refused before joining**, with a reason in the
+  player's words. A modded game advertises a version word of 0xFF00 to
+  0xFFFF ([peer.md](peer.md#content-evolveds-modded-games)); the reason
+  names what it plays: "Content Evolved's Firefight isn't playable here
+  yet.", and the same for its randomizer, skulls and Tag Injector profiles,
+  then "Ask the host for a plain game." Its engine slot 6 (Firefight, our
+  Bomb) and its own takes on Infection and Gun Game (the options' byte
+  0x2B: 1 Floodfection, 2 Tag Gun Game) are refused the same way if a plain
+  record ever carries them.
 
 ## What a table can and can't do
 
