@@ -173,6 +173,19 @@ enum
 	NUMBER_OF_FORGE_PROPERTIES
 };
 
+/* (forge_environment.inc) the sky and fog's options, SKY AND FOG's rows in
+order */
+enum
+{
+	_forge_environment_sky = 0,
+	_forge_environment_fog,
+	_forge_environment_color,
+	_forge_environment_density,
+	_forge_environment_start,
+	_forge_environment_end,
+	NUMBER_OF_FORGE_ENVIRONMENT_ROWS
+};
+
 /* ---------- structures */
 
 /* the properties of the object or marker held */
@@ -464,6 +477,9 @@ enum
 	deleted */
 	_forge_menu_ask_load,
 	_forge_menu_ask_delete,
+	/* the sky and fog's option first (_forge_environment_*) stepped by
+	second (1 or -1) */
+	_forge_menu_ask_environment,
 	/* (forge_ai.inc) the layout's dead AI characters cleared (first 0), or
 	all of them (first 1) */
 	_forge_menu_ask_clear_ai,
@@ -593,6 +609,29 @@ boolean forge_mission_off(
 Forge game's or a layout played's, a tick at a time */
 void forge_volumes_tick(
 	void);
+
+/* ---------- prototypes/FORGE_ENVIRONMENT.INC */
+
+struct sky_atmospheric_fog;
+
+/* (scenario.c) the sky a part of the map shows: the layout's in a Forge
+game or a layout played, when it has one (definition_index NONE: none, as
+ever); else definition_index */
+long forge_sky_definition_index(
+	long definition_index);
+
+/* (scenario.c) the outdoor fog drawn: the layout's in a Forge game or a
+layout played, when it has one; else fog */
+struct sky_atmospheric_fog const *forge_outdoor_fog(
+	struct sky_atmospheric_fog const *fog);
+
+/* (forge_menu.c's SKY AND FOG) a sky and fog row's value (SKY: MAP'S or the
+sky's name; FOG: MAP'S or CUSTOM; FOG COLOR; FOG DENSITY; FOG START; FOG
+END) */
+boolean forge_environment_text(
+	short row,
+	char *value,
+	int size);
 
 /* ---------- prototypes/FORGE_NETGAME.INC */
 

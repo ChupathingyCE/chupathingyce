@@ -48,7 +48,7 @@ static unsigned int const forge_file_groups[] =
 static char const *const forge_file_result_names[NUMBER_OF_FORGE_FILE_RESULTS] =
 {
 	"ok", "shorter than its header", "larger than 64 KB", "not a Forge layout (magic)", "a bad version",
-	"made by a newer build (this build reads layout versions 1 to 7 and 11 to 14)", "another header size", "unknown flags", "a bad map name", "of another map", "a count past its limit",
+	"made by a newer build (this build reads layout versions 1 to 7 and 11 to 15)", "another header size", "unknown flags", "a bad map name", "of another map", "a count past its limit",
 	"its size is not its counts'", "its checksum is wrong", "a bad pack", "a bad tag path", "a group Forge does not place",
 	"a tag path twice", "a bad record", "bad title, author, description or date", "no room to write it",
 };
@@ -159,6 +159,12 @@ int forge_file_group_allowed(
 			return 1;
 	}
 	return 0;
+}
+
+int forge_file_path_group_allowed(
+	unsigned int group_tag)
+{
+	return forge_file_group_allowed(group_tag) || group_tag == FORGE_FILE_SKY_GROUP;
 }
 
 int forge_file_path_valid(
@@ -530,6 +536,69 @@ static int forge_file_params_zero(
 	return 1;
 }
 
+/* (version 15) the sky and fog's record: its path a sky's when it sets the
+sky, else none; nothing of an object's; its own bytes what it sets (one at
+least), the fog's in range and starting before it is whole when it sets
+the fog, else zeros; then zeros */
+static int forge_file_environment_check(
+	struct forge_file_layout const *layout,
+	int version,
+	struct forge_file_record const *record)
+{
+	unsigned char const *params = record->params;
+	int sets = params[FORGE_FILE_ENVIRONMENT_PARAM_SETS];
+	int index;
+
+	if (version < FORGE_FILE_ENVIRONMENT_VERSION || record->team || record->respawn_seconds || record->count || record->game_types ||
+		record->variant || record->flags || record->ai_team || record->ai_behavior ||
+		record->ai_route || record->ai_options)
+	{
+		return 0;
+	}
+	for (index = 0; index < 3; index++)
+	{
+		if (record->position[index] != 0.f || record->angles[index] != 0.f)
+			return 0;
+	}
+	if (!sets || (sets & ~FORGE_FILE_ENVIRONMENT_KNOWN))
+		return 0;
+	if (sets & FORGE_FILE_ENVIRONMENT_SKY)
+	{
+		if (record->path_index >= layout->path_count || layout->paths[record->path_index].group_tag != FORGE_FILE_SKY_GROUP)
+			return 0;
+	}
+	else if (record->path_index != FORGE_FILE_NO_PATH)
+	{
+		return 0;
+	}
+	if (sets & FORGE_FILE_ENVIRONMENT_FOG)
+	{
+		int density = params[FORGE_FILE_ENVIRONMENT_PARAM_DENSITY];
+		int start = params[FORGE_FILE_ENVIRONMENT_PARAM_START];
+		int opaque = params[FORGE_FILE_ENVIRONMENT_PARAM_OPAQUE];
+
+		if (density < 1 || density > FORGE_FILE_MAXIMUM_FOG_DENSITY || start > FORGE_FILE_MAXIMUM_FOG_START || opaque < 1 ||
+			(float)start >= (float)opaque * FORGE_FILE_FOG_OPAQUE_UNIT)
+		{
+			return 0;
+		}
+	}
+	else
+	{
+		for (index = FORGE_FILE_ENVIRONMENT_PARAM_COLOR; index <= FORGE_FILE_ENVIRONMENT_PARAM_OPAQUE; index++)
+		{
+			if (params[index])
+				return 0;
+		}
+	}
+	for (index = FORGE_FILE_ENVIRONMENT_PARAM_OPAQUE + 1; index < FORGE_FILE_RECORD_PARAMS_SIZE; index++)
+	{
+		if (params[index])
+			return 0;
+	}
+	return 1;
+}
+
 /* (version 14) a volume's record: no path, its team -1 to 1, a type, its
 yaw alone, nothing else of an object's; its own bytes a shape, a size in
 range (a sphere's radius alone), an amount its type takes, a target, then
@@ -590,6 +659,9 @@ static int forge_file_record_check(
 	int character;
 	int spawn;
 
+	/* (version 15's sky and fog: its own checks) */
+	if (record->kind == _forge_record_environment)
+		return forge_file_environment_check(layout, version, record);
 	/* (version 14's volume: its own checks) */
 	if (record->kind == _forge_record_volume)
 		return forge_file_volume_check(version, record);
@@ -770,7 +842,9 @@ int forge_file_layout_version(
 		struct forge_file_record const *record = &layout->records[index];
 		int needs = FORGE_FILE_FIRST_VERSION;
 
-		if (record->kind == _forge_record_volume)
+		if (record->kind == _forge_record_environment)
+			needs = FORGE_FILE_ENVIRONMENT_VERSION;
+		else if (record->kind == _forge_record_volume)
 			needs = FORGE_FILE_VOLUMES_VERSION;
 		else if (forge_file_kind_ai_marker(record->kind) || record->ai_behavior || record->ai_route || record->ai_options)
 			needs = 12;
@@ -811,6 +885,7 @@ int forge_file_layout_check(
 	int route_points = 0;
 	int ai_areas = 0;
 	int volumes = 0;
+	int environments = 0;
 	unsigned char hill_points[FORGE_FILE_MAXIMUM_HILLS];
 	unsigned int sender_channels = 0;
 	unsigned int receiver_channels = 0;
@@ -852,7 +927,7 @@ int forge_file_layout_check(
 
 		if (!end || !forge_file_path_valid(path->path, (int)(end - path->path)))
 			return _forge_file_bad_path;
-		if (!forge_file_group_allowed(path->group_tag))
+		if (!forge_file_path_group_allowed(path->group_tag))
 			return _forge_file_bad_group;
 		for (other = 0; other < index; other++)
 		{
@@ -894,6 +969,12 @@ int forge_file_layout_check(
 	{
 		return _forge_file_bad_record;
 	}
+	/* (a sky's path: version 15's alone) */
+	for (index = 0; index < layout->path_count; index++)
+	{
+		if (layout->paths[index].group_tag == FORGE_FILE_SKY_GROUP && version < FORGE_FILE_ENVIRONMENT_VERSION)
+			return _forge_file_bad_group;
+	}
 	for (index = 0; index < layout->record_count; index++)
 	{
 		struct forge_file_record const *record = &layout->records[index];
@@ -921,6 +1002,8 @@ int forge_file_layout_check(
 			ai_areas++;
 		if (layout->records[index].kind == _forge_record_volume)
 			volumes++;
+		if (layout->records[index].kind == _forge_record_environment)
+			environments++;
 		/* (version 6's game type objects: a hill's points counted, its
 		number checked in range with the record) */
 		if (layout->records[index].kind == _forge_record_flag)
@@ -949,16 +1032,20 @@ int forge_file_layout_check(
 	respawning character, 4 for a player spawn, 5 for a teleporter, 6 for a
 	game type object, 7 for an object's physics, 11 for the map's own
 	objects, 12 for AI movement, 13 for more than 256 records, 14 for a
-	volume: a file of one without it is not one a writer made) */
+	volume, 15 for a sky and fog: a file of one without it is not one a
+	writer made) */
 	if ((version == 3 && !respawning) || (version == 4 && !player_spawns) || (version == 5 && !teleporters) ||
 		(version == 6 && !game_objects) || (version == 7 && !physics) ||
 		(version == 11 && !(layout->flags & FORGE_FILE_FLAG_CANVAS)) || (version == 12 && !ai_movement) ||
 		(version == FORGE_FILE_MORE_RECORDS_VERSION && layout->record_count <= FORGE_FILE_EARLIER_MAXIMUM_RECORDS) ||
-		(version == FORGE_FILE_VOLUMES_VERSION && !volumes))
+		(version == FORGE_FILE_VOLUMES_VERSION && !volumes) ||
+		(version == FORGE_FILE_ENVIRONMENT_VERSION && !environments))
 	{
 		return _forge_file_bad_version;
 	}
 	if (volumes > FORGE_FILE_MAXIMUM_VOLUMES)
+		return _forge_file_too_many;
+	if (environments > 1)
 		return _forge_file_too_many;
 	if (route_points > FORGE_FILE_MAXIMUM_ROUTE_POINTS || ai_areas > FORGE_FILE_MAXIMUM_AI_AREAS)
 		return _forge_file_too_many;
@@ -1123,7 +1210,7 @@ static int forge_file_decode_checked(
 		reader.offset += length;
 		if (!forge_file_path_valid(path->path, length))
 			return forge_file_refused(_forge_file_bad_path, why, why_size, NULL);
-		if (!forge_file_group_allowed(path->group_tag))
+		if (!forge_file_path_group_allowed(path->group_tag))
 			return forge_file_refused(_forge_file_bad_group, why, why_size, NULL);
 	}
 	/* the records */

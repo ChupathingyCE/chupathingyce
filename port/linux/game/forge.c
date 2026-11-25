@@ -125,6 +125,8 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
                            aiteam|ai|behavior|route|vehicles [-]
                            the held object's property stepped (back with -)
   forge distance <wu>      the held object that far from the camera
+  forge environment sky|fog|color|density|start|end [-]
+                           the layout's sky and fog's option stepped
   forge snap [on|off]      snapping (the grid), flipped or set
   forge delete             the held (or aimed at) object deleted
   forge deleteall <cat>    every object of a category deleted
@@ -190,6 +192,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "render/render.h"
 #include "render/render_cameras_internal.h"
 #include "scenario/scenario.h"
+#include "scenario/sky_definitions.h"
 #include "scenario/scenario_definitions.h"
 #include "structures/structure_bsp_definitions.h"
 #include "tag_files/tag_files.h"
@@ -403,6 +406,12 @@ static short const forge_ai_stop_seconds[NUMBER_OF_FORGE_FILE_ROUTE_STOPS] = { 0
 static char const *const forge_ai_behavior_names[NUMBER_OF_FORGE_FILE_AI_BEHAVIORS] = { "HOLD", "PATROL", "PURSUE" };
 static char const *const forge_ai_behavior_log_names[NUMBER_OF_FORGE_FILE_AI_BEHAVIORS] = { "hold", "patrol", "pursue" };
 static char const *const forge_ai_stop_names[NUMBER_OF_FORGE_FILE_ROUTE_STOPS] = { "NONE", "WAIT 5 S", "WAIT 15 S", "LAND" };
+/* (forge_environment.inc, the console's "forge environment <word>") the sky
+and fog's options, SKY AND FOG's rows' order (forge.h) */
+static char const *const forge_environment_row_words[NUMBER_OF_FORGE_ENVIRONMENT_ROWS] =
+{
+	"sky", "fog", "color", "density", "start", "end",
+};
 /* a markers' category's first kind and its kinds (NONE: not one) */
 static short forge_marker_category_first(
 	short category)
@@ -1008,6 +1017,11 @@ static short forge_campaign_spawn_location(long player_index, struct player_star
 static void forge_category_choose(short category, short item_index);
 static short forge_map_of_level(char const *level_name);
 static void forge_rotate_snap_text(char *text, size_t size);
+/* ---- the sky and fog (forge_environment.inc) */
+static void forge_environment_clear(void);
+static void forge_environment_from_layout(struct forge_file_layout const *layout);
+static short forge_environment_capture(struct forge_file_layout *layout);
+static void forge_environment_step(short row, short step);
 
 static char const *forge_tag_leaf(
 	long tag_index)
@@ -3834,6 +3848,7 @@ static boolean forge_variant_capture(
 	if (spawns)
 	{
 		skipped = (short)(skipped + forge_spawns_capture(layout));
+		skipped = (short)(skipped + forge_environment_capture(layout));
 		/* (the map's own objects it takes away) */
 		forge_map_objects_capture(layout);
 	}
@@ -3980,6 +3995,9 @@ static void forge_variant_apply(
 			continue;
 		}
 		if (record->kind == _forge_record_flag && forge_file_layout_version(layout) >= 6)
+			continue;
+		/* (the sky and fog: as the map loaded, forge_environment_from_layout) */
+		if (record->kind == _forge_record_environment && forge_file_layout_version(layout) >= FORGE_FILE_ENVIRONMENT_VERSION)
 			continue;
 		/* (a volume: as the map loaded, forge_spawns_from_layout) */
 		if (record->kind == _forge_record_volume && forge_file_layout_version(layout) >= FORGE_FILE_VOLUMES_VERSION)
@@ -4654,8 +4672,12 @@ void forge_map_loaded(
 	/* (the layout's markers: the layout's, before anyone spawns -
 	forge_spawns.inc; none of another map's, nor in another game) */
 	forge_spawns_clear();
+	forge_environment_clear();
 	if (forge_globals.game_active && forge_globals.variant_pending)
+	{
 		forge_spawns_from_layout(&forge_variant_layout);
+		forge_environment_from_layout(&forge_variant_layout);
+	}
 	/* (the map's own objects it takes away, before the map makes them) */
 	forge_map_objects_start(forge_globals.game_active && forge_globals.variant_pending ? &forge_variant_layout : NULL);
 	/* (its teleporters and flags the engine's netgame flags as its game
@@ -6201,6 +6223,25 @@ boolean forge_command(
 		forge_property_apply(property, (short)(!strcmp(back, "-") ? -1 : 1));
 		return TRUE;
 	}
+	if (!strcmp(word, "environment"))
+	{
+		/* (the sky and fog's option stepped, as SKY AND FOG's row: sky, fog,
+		color, density, start, end; back with -) */
+		char option[16];
+		char back[8];
+		char const *cursor = rest;
+		short row;
+
+		option[0] = back[0] = 0;
+		forge_word(&cursor, option, sizeof(option));
+		forge_word(&cursor, back, sizeof(back));
+		for (row = 0; row < NUMBER_OF_FORGE_ENVIRONMENT_ROWS && strcmp(option, forge_environment_row_words[row]); row++)
+			;
+		if (row >= NUMBER_OF_FORGE_ENVIRONMENT_ROWS)
+			return FALSE;
+		forge_environment_step(row, (short)(!strcmp(back, "-") ? -1 : 1));
+		return TRUE;
+	}
 	if (!strcmp(word, "distance"))
 	{
 		forge_globals.held_distance = PIN((real)atof(rest), FORGE_MINIMUM_HOLD_DISTANCE, FORGE_MAXIMUM_HOLD_DISTANCE);
@@ -6256,5 +6297,6 @@ with this file's) */
 #include "forge_flyable.inc"
 #include "forge_ai_move.inc"
 #include "forge_volumes.inc"
+#include "forge_environment.inc"
 #include "forge_menu_link.inc"
 #include "forge_map_objects.inc"

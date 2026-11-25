@@ -63,11 +63,22 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
 
   ![LAYOUTS](screenshots/forge-layouts.jpg)
 
+- SKY AND FOG: the layout's sky and fog (below).
+
 - OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, DELETE (PRESS deletes at a press, the default; HOLD: CONTROLLER deletes when Y is held half a second, the keyboard's key still at a press; HOLD: ALL holds both; `game.forge_hold_to_delete`), GRAB RANGE (how far the crosshair reaches to grab, copy or delete: NEAR 20 world units (about 60 m), MEDIUM 35 world units (about 105 m), FAR 60 world units (about 180 m), the default; `game.forge_grab_range`), HELD FACING (KEEP: what you hold keeps the facing you grabbed it with, the default; FOLLOW VIEW: it turns with the camera, so it keeps facing the same way from you, until you turn it by hand; `game.forge_held_facing`), UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), CLEAR DEAD AI, CLEAR ALL AI (press it twice), PLAY AS SPARTAN and CONTROLS.
 
   ![OPTIONS](screenshots/forge-options.jpg)
 
 The map's own objects (its vehicles, weapons, scenery and the rest) can be moved and deleted too, and the layout keeps that. One you delete is gone when the layout is loaded or played. One you grab or turn becomes one of the layout's objects: it counts in the budget, its properties can be set, and it is placed where you let it go. The map's file is never changed: the layout lists which of the map's objects it takes away.
+
+## Sky and fog
+
+SKY AND FOG, a tab of its own in the Forge menu, sets how the layout's outdoors looks, saved with the layout (left and right, or A, step a row):
+
+- SKY: MAP'S, or another sky the map has. The stock multiplayer maps have one sky each, so this only changes something on maps that carry more than one.
+- FOG: MAP'S or CUSTOM. FOG COLOR (grey, white, blue, teal, green, sand, orange, red, purple, black), FOG DENSITY (10 to 100 percent), FOG START and FOG END (where the fog begins and where it reaches its density) set the custom fog. Changing any of them turns the custom fog on.
+
+The custom fog replaces the map's outdoor fog. Indoors, and the map's own fog planes, stay as they are. Every player of the Forge game, or of the layout played, sees the same sky and fog. Nothing of the map file changes, and other games draw the map's own.
 
 ## Volumes
 
@@ -142,10 +153,10 @@ Layouts are saved in `forge/<map>/<name>.hmv` in the save root. The name is made
 - the map's own objects the layout takes away (version 11): each by its category and its index in the map's list;
 - the title, author, description and date, as UTF-8.
 
-All little-endian. Versions 1 to 7 and 11 to 14 are read. Each version adds what a layout may hold (AI settings, spawn points, teleporters, game type objects, physics, the map's own objects taken away, AI movement; version 13: more than 256 records, up to 512; version 14: volumes), and a layout is written as the lowest version that holds it, so a layout without the newer things stays readable by older builds, and a build from before the bigger budget reads a layout of more than 256 as one from a newer build. Versions 8 to 10 are kept for the layouts of the Vita build (game modes, boundaries, a lobby camera) and aren't read here; version 11 is the number the Halo CE Vita build uses for the same list of the map's own objects. `port/linux/game/forge_files.h` describes every byte.
+All little-endian. Versions 1 to 7 and 11 to 15 are read. Each version adds what a layout may hold (AI settings, spawn points, teleporters, game type objects, physics, the map's own objects taken away, AI movement; version 13: more than 256 records, up to 512; version 14: volumes; version 15: the sky and fog), and a layout is written as the lowest version that holds it, so a layout without the newer things stays readable by older builds, and a build from before the bigger budget reads a layout of more than 256 as one from a newer build. Versions 8 to 10 are kept for the layouts of the Vita build (game modes, boundaries, a lobby camera) and aren't read here; version 11 is the number the Halo CE Vita build uses for the same list of the map's own objects. `port/linux/game/forge_files.h` describes every byte.
 
 Every file goes through the validator before anything is read from it, whether you made it or it came from somewhere else. It checks the size, the header, the version, the map, the counts against the limits, the payload size and CRC-32, every path (characters, length, groups Forge places), every record (kind, path index, every field in range, finite floats inside the world, no unknown flags) and the texts (terminated UTF-8). A file that fails any check is refused whole and the log says why. When a layout is placed, a record whose tag the map doesn't have is skipped, and the budget and the map's bounds are checked again. `tools/test_forge_files.py` tests the validator against malformed files, and fuzzes it.
 
 ## Console commands
 
-Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race|route|area|kill|damage|gravity`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge clearai dead|all`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags`, `map [category]` (the map's own objects, and the ones the layout takes away), `ai` (and `ai move`, the characters' movement and the flown routes) to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`, `forge kill #id` (an AI character).
+Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race|route|area|kill|damage|gravity`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge environment sky|fog|color|density|start|end [-]`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge clearai dead|all`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags`, `map [category]` (the map's own objects, and the ones the layout takes away), `ai` (and `ai move`, the characters' movement and the flown routes) to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`, `forge kill #id` (an AI character).
