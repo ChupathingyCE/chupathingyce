@@ -2839,8 +2839,10 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 
 	/* a BC7 one (a Custom Edition map's bitmap in MCC's high-quality
 	compression) is sent as BC7 where the backend samples it, and decoded
-	by the OpenGL upload's decoder where it doesn't, or where its channels
-	are moved (a Halo PC HUD meter or multipurpose map) */
+	by the OpenGL upload's decoder where it doesn't. A Halo PC HUD meter or
+	multipurpose map is decoded too, so its texels are where a later move
+	of its channels can reach them; bgfx doesn't move them yet for any
+	format (OpenGL does it with the texture's swizzle) */
 	if (bc7)
 	{
 		uint16_t wanted = volume ? BGFX_CAPS_FORMAT_TEXTURE_3D : description->cube_map ? BGFX_CAPS_FORMAT_TEXTURE_CUBE :
