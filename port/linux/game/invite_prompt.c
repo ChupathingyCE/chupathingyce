@@ -10,9 +10,11 @@ map when the game list knows them (browser_screen_invite_game), drawn and
 driven by code as Online Games is (browser_screen.c).
 
 A (Enter, or a click on YES) joins it; B (Escape, a click on NO or the
-right button) leaves it. Either way that invite is not asked about again,
-in this run or the next (private/invites_answered.txt keeps the last few), so
-one left on the clipboard does not ask at every start.
+right button) leaves it, and that invite is not asked about again, in this
+run or the next (private/invites_declined.txt keeps the last few, as hashes:
+an invite's code joins its game, so it is never written), so one left on
+the clipboard does not ask at every start. A Yes is not kept: an invite
+copied again after a join that failed asks again.
 In a game with no menu up, a line at the top of the screen says the invite
 is waiting, and the question is asked once a menu (the pause menu) is up.
 
@@ -38,6 +40,8 @@ typing begins again.
 
 void platform_log(char const *format, ...);
 const char *platform_folder(enum port_folder folder);
+/* (port/third_party/monocypher, which internet play links) */
+void crypto_blake2b(unsigned char *hash, size_t hash_size, unsigned char const *message, size_t message_size);
 int platform_take_clipboard_invite(char *text, int size);
 void platform_text_field(int typing);
 int p2p_join_invite(char const *text);
@@ -63,8 +67,11 @@ enum
 	/* the dialog takes no A this soon after it opens (the A that opened
 	the pause menu, or a key still down) */
 	OPEN_SETTLE = 400,
-	/* the invites answered, kept across runs */
-	MAXIMUM_ANSWERED = 8,
+	/* the invites answered No, kept across runs */
+	MAXIMUM_DECLINED = 8,
+	/* an invite's code's hash, as it is kept, and in hex */
+	INVITE_HASH_SIZE = 32,
+	INVITE_HASH_TEXT_SIZE = INVITE_HASH_SIZE * 2 + 1,
 	INVITE_TEXT_SIZE = 256,
 	/* the invite's code as it is compared (after "halo://join/") */
 	INVITE_CODE_SIZE = 160,
@@ -125,11 +132,11 @@ static struct
 	char map[64];
 	/* the prompts' places, for the pointer (NO, then YES) */
 	float no_x0, no_x1, yes_x0, yes_x1;
-	/* the invites answered, Yes or No (private/invites_answered.txt), and
-	whether that file has been read */
-	char answered[MAXIMUM_ANSWERED][INVITE_CODE_SIZE];
-	short answered_next;
-	boolean answered_read;
+	/* the hashes of the invites answered No (private/invites_declined.txt),
+	and whether that file has been read */
+	char declined[MAXIMUM_DECLINED][INVITE_HASH_TEXT_SIZE];
+	short declined_next;
+	boolean declined_read;
 	/* asking for a locked invite's password (p2p_locked_invite_waiting): what
 	is typed, and whether the last one was wrong */
 	boolean password;
@@ -173,79 +180,100 @@ static void invite_code(
 	code[length] = 0;
 }
 
-/* the file of the invites answered, in the save root's private/; FALSE with
+/* the hash of an invite's code, in hex, as the invites declined are kept
+(the code itself joins the game, so it is never kept); empty with no code */
+static void invite_hash(
+	char const *text,
+	char *hash_text)
+{
+	/* (the code after a tag of its own, so the hash is this file's alone) */
+	static char const tag[] = "chupathingy invite declined ";
+	char tagged[sizeof(tag) + INVITE_CODE_SIZE];
+	unsigned char hash[INVITE_HASH_SIZE];
+	short index;
+
+	hash_text[0] = 0;
+	csmemcpy(tagged, tag, sizeof(tag) - 1);
+	invite_code(text, tagged + sizeof(tag) - 1, INVITE_CODE_SIZE);
+	if (!tagged[sizeof(tag) - 1])
+		return;
+	crypto_blake2b(hash, sizeof(hash), (unsigned char const *)tagged, strlen(tagged));
+	for (index = 0; index < INVITE_HASH_SIZE; index++)
+		snprintf(hash_text + index * 2, 3, "%02x", hash[index]);
+}
+
+/* the file of the invites declined, in the save root's private/; FALSE with
 none */
-static boolean invite_answered_path(
+static boolean invite_declined_path(
 	char *path,
 	long size)
 {
 	char const *folder = platform_folder(_port_folder_private);
 
-	return folder && folder[0] && snprintf(path, (size_t)size, "%s/invites_answered.txt", folder) < size;
+	return folder && folder[0] && snprintf(path, (size_t)size, "%s/invites_declined.txt", folder) < size;
 }
 
-/* the invites answered in earlier runs, read once: a code a line, oldest
+/* the invites declined in earlier runs, read once: a hash a line, oldest
 first */
-static void invite_answered_read(
+static void invite_declined_read(
 	void)
 {
 	char path[512];
-	char line[INVITE_CODE_SIZE + 2];
+	char line[INVITE_HASH_TEXT_SIZE + 2];
 	FILE *file;
 
-	if (invite_prompt.answered_read)
+	if (invite_prompt.declined_read)
 		return;
-	invite_prompt.answered_read = TRUE;
-	if (!invite_answered_path(path, sizeof(path)) || !(file = fopen(path, "r")))
+	invite_prompt.declined_read = TRUE;
+	if (!invite_declined_path(path, sizeof(path)) || !(file = fopen(path, "r")))
 		return;
 	while (fgets(line, sizeof(line), file))
 	{
 		line[strcspn(line, "\r\n")] = 0;
-		if (!line[0])
+		if (strlen(line) != INVITE_HASH_TEXT_SIZE - 1)
 			continue;
-		csstrncpy(invite_prompt.answered[invite_prompt.answered_next], line, INVITE_CODE_SIZE - 1);
-		invite_prompt.answered[invite_prompt.answered_next][INVITE_CODE_SIZE - 1] = 0;
-		invite_prompt.answered_next = (short)((invite_prompt.answered_next + 1) % MAXIMUM_ANSWERED);
+		memcpy(invite_prompt.declined[invite_prompt.declined_next], line, INVITE_HASH_TEXT_SIZE);
+		invite_prompt.declined_next = (short)((invite_prompt.declined_next + 1) % MAXIMUM_DECLINED);
 	}
 	fclose(file);
 }
 
-/* an invite answered: kept, with the others, for this run and the next */
-static void invite_answered_add(
+/* an invite answered No: kept, with the others, for this run and the next */
+static void invite_declined_add(
 	char const *text)
 {
 	char path[512];
 	FILE *file;
 	short index;
 
-	invite_answered_read();
-	invite_code(text, invite_prompt.answered[invite_prompt.answered_next], INVITE_CODE_SIZE);
-	if (!invite_prompt.answered[invite_prompt.answered_next][0])
+	invite_declined_read();
+	invite_hash(text, invite_prompt.declined[invite_prompt.declined_next]);
+	if (!invite_prompt.declined[invite_prompt.declined_next][0])
 		return;
-	invite_prompt.answered_next = (short)((invite_prompt.answered_next + 1) % MAXIMUM_ANSWERED);
-	if (!invite_answered_path(path, sizeof(path)) || !(file = fopen(path, "w")))
+	invite_prompt.declined_next = (short)((invite_prompt.declined_next + 1) % MAXIMUM_DECLINED);
+	if (!invite_declined_path(path, sizeof(path)) || !(file = fopen(path, "w")))
 		return;
-	for (index = 0; index < MAXIMUM_ANSWERED; index++)
+	for (index = 0; index < MAXIMUM_DECLINED; index++)
 	{
-		char const *code = invite_prompt.answered[(invite_prompt.answered_next + index) % MAXIMUM_ANSWERED];
+		char const *hash = invite_prompt.declined[(invite_prompt.declined_next + index) % MAXIMUM_DECLINED];
 
-		if (code[0])
-			fprintf(file, "%s\n", code);
+		if (hash[0])
+			fprintf(file, "%s\n", hash);
 	}
 	fclose(file);
 }
 
-static boolean invite_answered(
+static boolean invite_declined(
 	char const *text)
 {
-	char code[INVITE_CODE_SIZE];
+	char hash[INVITE_HASH_TEXT_SIZE];
 	short index;
 
-	invite_answered_read();
-	invite_code(text, code, sizeof(code));
-	for (index = 0; code[0] && index < MAXIMUM_ANSWERED; index++)
+	invite_declined_read();
+	invite_hash(text, hash);
+	for (index = 0; hash[0] && index < MAXIMUM_DECLINED; index++)
 	{
-		if (!strcmp(invite_prompt.answered[index], code))
+		if (!strcmp(invite_prompt.declined[index], hash))
 			return TRUE;
 	}
 	return FALSE;
@@ -266,14 +294,16 @@ static void answer(
 			ask_answer(join);
 		return;
 	}
-	invite_answered_add(invite_prompt.invite);
 	if (join)
 	{
 		platform_log("Internet play: joining the invite on the clipboard");
 		p2p_join_invite(invite_prompt.invite);
 	}
 	else
+	{
+		invite_declined_add(invite_prompt.invite);
 		platform_log("Internet play: the invite on the clipboard is not joined");
+	}
 	invite_prompt.invite[0] = 0;
 }
 
@@ -550,8 +580,8 @@ void invite_prompt_update(
 	/* (another question waits its answer first) */
 	if (!invite_prompt.asking && platform_take_clipboard_invite(text, sizeof(text)))
 	{
-		if (invite_answered(text))
-			platform_log("Internet play: the invite on the clipboard was answered before; not asked again");
+		if (invite_declined(text))
+			platform_log("Internet play: the invite on the clipboard was answered No before; not asked again");
 		else
 		{
 			csstrncpy(invite_prompt.invite, text, sizeof(invite_prompt.invite) - 1);
