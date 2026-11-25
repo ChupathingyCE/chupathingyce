@@ -2937,8 +2937,12 @@ static int executable_path(char *path, size_t size)
 #endif
 }
 
-/* this screen closes the game on purpose: a bgfx Vulkan start that drew
-it did get going, and isn't taken for one that didn't (#1665) */
+/* this screen starts the game again for a setting that needs it (#1665):
+a bgfx Vulkan start it closes that way isn't taken for one that didn't get
+going. Only these restarts clear it: Quit, Welcome's QUIT (B, Escape) and
+the window closed leave the note, since a Vulkan window that never shows a
+picture is left those ways too, and its next start must still go to OpenGL
+(#1046) */
 static void closing_on_purpose(void)
 {
 #ifdef HALO_BGFX
@@ -3265,7 +3269,6 @@ static void back(void)
 	{
 	case _screen_welcome:
 		platform_log("launcher: quit from Welcome");
-		closing_on_purpose();
 		exit(EXIT_SUCCESS);
 	case _screen_map_list:
 		launcher.screen = _screen_family;
@@ -3421,7 +3424,6 @@ static void input(int button)
 				if (button == _button_a)
 				{
 					platform_log("launcher: quit");
-					closing_on_purpose();
 					exit(EXIT_SUCCESS);
 				}
 				break;

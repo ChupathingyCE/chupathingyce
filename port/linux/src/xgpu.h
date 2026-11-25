@@ -395,8 +395,8 @@ started, the window cleared to color (0xRRGGBBAA), the overlay over it in
 the picture's place (x, y its lower left corner) and the window saved to
 screenshot (a .bmp's path, or NULL); FALSE if bgfx does not start */
 BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot);
-/* the setup screen closes the game on purpose (its restart or Quit): a
-Vulkan start's note goes (d3d8_bgfx.inl) */
+/* the setup screen starts the game again for a setting: a Vulkan start's
+note goes (d3d8_bgfx.inl) */
 void xgpu_bgfx_start_note_clear(void);
 /* the overlay's quads (ui_overlay.c) over the window's picture at Present
 (plasma_shift: the plasma's second map's place, then its threads' color;

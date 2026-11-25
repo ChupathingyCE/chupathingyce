@@ -20,8 +20,9 @@ for what is still unknown:
   frames after its first map loads remove (never the setup screen's); a note found at the next start means the last one closed before
   them, and that start draws with OpenGL and asks whether to stay there; the
   setting changes only on a yes. The setup screen's own restart (a setting
-  that needs one, such as the renderer) and its Quit take the note away: that
-  start drew the screen, and the next one tries Vulkan again (#1665).
+  that needs one, such as the renderer) takes the note away, and the next
+  start tries Vulkan again (#1665). Nothing else does: a black window left
+  with Escape, Quit or its close button still goes to OpenGL next (#1046).
 """
 from pathlib import Path
 
@@ -131,12 +132,25 @@ def test_setup_screen_restart_is_not_a_failed_start():
 	assert cleared < restart.index("update_start_in_place_with(path, argument)")
 	to_setup = function_body(launcher, "int launcher_restart_to_setup(")
 	assert to_setup.index("closing_on_purpose();") < to_setup.index('update_launch_with(path, "--setup")')
-	# (the screen's Quit, but not the window closed: a window that never
-	# showed a picture is closed too)
+	# (only those restarts: the cleared note's only callers)
+	assert launcher.count("closing_on_purpose();") == 2
+	assert "xgpu_bgfx_start_note_clear" not in launcher.replace(purpose, "")
+
+
+def test_black_window_left_still_falls_back():
+	"""#1046 against #1665: a Vulkan window that never shows a picture is
+	left blind, with Escape or B (Welcome's QUIT, back), Quit or the close
+	button; none of them may take the note away, so the next start draws with
+	OpenGL"""
+	launcher = read(ROOT / "port" / "linux" / "src" / "launcher.c")
+	back = function_body(launcher, "static void back(")
+	welcome = back.index("case _screen_welcome:")
+	assert "closing_on_purpose" not in back[welcome:back.index("exit(EXIT_SUCCESS);", welcome)]
 	quit_at = launcher.index('platform_log("launcher: quit");')
-	assert launcher.index("closing_on_purpose();", quit_at) < launcher.index("exit(EXIT_SUCCESS);", quit_at)
-	events = function_body(launcher, "static void events(")
-	assert "closing_on_purpose" not in events
+	assert "closing_on_purpose" not in launcher[quit_at:launcher.index("exit(EXIT_SUCCESS);", quit_at)]
+	assert "closing_on_purpose" not in function_body(launcher, "static void events(")
+	assert "closing_on_purpose" not in function_body(launcher, "static void input(")
+	assert "closing_on_purpose" not in function_body(launcher, "static void script_step(")
 
 
 def test_fallback_says_what_was_asked_for_and_what_draws():
