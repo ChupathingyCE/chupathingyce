@@ -456,8 +456,11 @@ and passed on after the frame (bg_present) */
 	unsigned long uniform_bytes;
 	unsigned long drawn, skipped, stat_tests, stat_seen, stat_waited;
 	/* draws left out because the frame's transient vertices or indices ran
-	out */
+	out and no buffer of their own could be made (bg_draw) */
 	unsigned long stat_starved;
+	/* draws past the frame's transient vertices or indices, drawn from
+	buffers of their own */
+	unsigned long stat_overflow;
 	/* time in bgfx_frame (waiting for the render thread and the GPU) */
 	double stat_frame_wait;
 } bg;
@@ -3869,13 +3872,14 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	bgfx_program_handle_t handle;
 	bgfx_transient_vertex_buffer_t vertices;
 	bgfx_transient_index_buffer_t generated_indices;
-	bgfx_vertex_buffer_handle_t cached = BGFX_INVALID_HANDLE;
+	bgfx_vertex_buffer_handle_t cached = BGFX_INVALID_HANDLE, own_vertices = BGFX_INVALID_HANDLE;
+	bgfx_index_buffer_handle_t own_indices = BGFX_INVALID_HANDLE;
 	float texture_scale[4][4];
 	unsigned short rect[4];
 	unsigned long generated, uniform_bytes;
 	uint32_t stencil, back_stencil, rgba;
 	uint64_t state;
-	BOOL has_depth, native, starved;
+	BOOL has_depth, native, starved = FALSE;
 	int stage;
 
 	if (!vertex_count || !program || !declaration || !program->instructions)
@@ -3963,29 +3967,66 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		return;
 	}
 #endif
-	starved = (!BGFX_HANDLE_IS_VALID(cached) &&
-			bgfx_get_avail_transient_vertex_buffer((uint32_t)(vertex_count + BG_OVERLAY_RESERVE_VERTICES), &bg.layout) <
-				vertex_count + BG_OVERLAY_RESERVE_VERTICES) ||
-		(generated && bgfx_get_avail_transient_index_buffer((uint32_t)generated, false) < generated);
-	if (starved && BGFX_HANDLE_IS_VALID(handle))
-	{
-		/* (the scene loses this draw; the picture is still presented,
-		bg_blit) */
-		static BOOL logged;
-
-		if (!logged)
-			platform_log("bgfx: a frame ran out of transient vertices or indices; its draws past them are left out");
-		logged = TRUE;
-		bg.stat_starved++;
-	}
-	if (!BGFX_HANDLE_IS_VALID(handle) || (!native && !generated) || bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET ||
-		starved)
+	if (!BGFX_HANDLE_IS_VALID(handle) || (!native && !generated) || bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET)
 	{
 		/* (drop the textures set for it) */
 		bgfx_discard(BGFX_DISCARD_ALL);
 		bg.skipped++;
 		return;
 	}
+	/* a frame whose transient vertices or indices ran out (a map as dense
+	as SPV3's b30, game issue #1801): the draw's own buffers, made for it and
+	let go after its submit (bgfx keeps them until the frame is drawn), as
+	OpenGL streams any amount. Slower than the transient ones, so only past
+	them; left out only if bgfx has no buffer left to give */
+	if (!BGFX_HANDLE_IS_VALID(cached) &&
+		bgfx_get_avail_transient_vertex_buffer((uint32_t)(vertex_count + BG_OVERLAY_RESERVE_VERTICES), &bg.layout) <
+			vertex_count + BG_OVERLAY_RESERVE_VERTICES)
+	{
+		const bgfx_memory_t *memory = bgfx_alloc((uint32_t)(vertex_count * BG_VERTEX_BYTES));
+
+		if (immediate)
+			memcpy(memory->data, device.immediate_vertices, vertex_count * BG_VERTEX_BYTES);
+		else
+			bg_vertices_convert(memory->data, declaration, first, vertex_count);
+		own_vertices = bgfx_create_vertex_buffer(memory, &bg.layout, BGFX_BUFFER_NONE);
+		starved = !BGFX_HANDLE_IS_VALID(own_vertices);
+	}
+	if (!starved && generated && bgfx_get_avail_transient_index_buffer((uint32_t)generated, false) < generated)
+	{
+		const bgfx_memory_t *memory = bgfx_alloc((uint32_t)(generated * sizeof(WORD)));
+
+		bg_indices(type, indices, indices ? index_count : vertex_count, rebase, (WORD *)memory->data);
+		own_indices = bgfx_create_index_buffer(memory, BGFX_BUFFER_NONE);
+		starved = !BGFX_HANDLE_IS_VALID(own_indices);
+	}
+	if (BGFX_HANDLE_IS_VALID(own_vertices) || BGFX_HANDLE_IS_VALID(own_indices) || starved)
+	{
+		static BOOL logged;
+
+		if (!logged)
+			platform_log("bgfx: a frame ran out of transient vertices or indices; its draws past them are drawn from "
+				"buffers of their own");
+		logged = TRUE;
+	}
+	if (starved)
+	{
+		/* (no buffer left: the scene loses this draw; the picture is still
+		presented, bg_blit) */
+		static BOOL logged;
+
+		if (!logged)
+			platform_log("bgfx: no buffer left for a draw past the frame's transient vertices or indices; it is left out");
+		logged = TRUE;
+		if (BGFX_HANDLE_IS_VALID(own_vertices))
+			bgfx_destroy_vertex_buffer(own_vertices);
+		bg.stat_starved++;
+		bgfx_discard(BGFX_DISCARD_ALL);
+		bg.skipped++;
+		return;
+	}
+	if (BGFX_HANDLE_IS_VALID(own_vertices) || BGFX_HANDLE_IS_VALID(own_indices))
+		bg.stat_overflow++;
 	bg.uniform_bytes += uniform_bytes;
 
 	/* the vertices: every input register, from the declaration's elements or
@@ -3995,6 +4036,11 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	{
 		bgfx_set_vertex_buffer(0, cached, 0, (uint32_t)vertex_count);
 		bg.stat_cached_vertices += vertex_count;
+	}
+	else if (BGFX_HANDLE_IS_VALID(own_vertices))
+	{
+		bgfx_set_vertex_buffer(0, own_vertices, 0, (uint32_t)vertex_count);
+		bg.stat_streamed_vertices += vertex_count;
 	}
 	else
 	{
@@ -4006,7 +4052,9 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		bgfx_set_transient_vertex_buffer(0, &vertices, 0, (uint32_t)vertex_count);
 		bg.stat_streamed_vertices += vertex_count;
 	}
-	if (generated)
+	if (BGFX_HANDLE_IS_VALID(own_indices))
+		bgfx_set_index_buffer(own_indices, 0, (uint32_t)generated);
+	else if (generated)
 	{
 		bgfx_alloc_transient_index_buffer(&generated_indices, (uint32_t)generated, false);
 		bg_indices(type, indices, indices ? index_count : vertex_count, rebase, (WORD *)generated_indices.data);
@@ -4032,6 +4080,11 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	{
 		bgfx_submit(bg.view, handle, 0, BGFX_DISCARD_ALL);
 	}
+	/* (bgfx lets them go once the frame that drew from them is done) */
+	if (BGFX_HANDLE_IS_VALID(own_vertices))
+		bgfx_destroy_vertex_buffer(own_vertices);
+	if (BGFX_HANDLE_IS_VALID(own_indices))
+		bgfx_destroy_index_buffer(own_indices);
 	bg.view_used = TRUE;
 	bg.drawn++;
 }
@@ -5604,15 +5657,16 @@ static void bg_present(void)
 			(double)stats->gpuTimerFreq : 0.0;
 		double cpu = stats->cpuTimerFreq ? (double)stats->cpuTimeFrame * 1000.0 / (double)stats->cpuTimerFreq : 0.0;
 
-		platform_log("bgfx frame %lu: %lu draws, %lu skipped (%lu for transient room), %u views, %lu KB uniforms; "
+		platform_log("bgfx frame %lu: %lu draws, %lu skipped (%lu for transient room), %lu past the transient room, "
+			"%u views, %lu KB uniforms; "
 			"GPU %.2f ms, frame %.2f ms; %lu visibility tests, %lu seen, %lu waited; in bgfx_frame %.2f ms; vertices %lu cached, %lu streamed, "
-			"cache %lu MB", device.frame, bg.drawn / 60, bg.skipped / 60, bg.stat_starved / 60,
+			"cache %lu MB", device.frame, bg.drawn / 60, bg.skipped / 60, bg.stat_starved / 60, bg.stat_overflow / 60,
 			(unsigned)bg.present_view + 1, bg.uniform_bytes / 1024, gpu, cpu, bg.stat_tests / 60, bg.stat_seen / 60,
 			bg.stat_waited / 60, bg.stat_frame_wait * 1000.0 / 60.0, bg.stat_cached_vertices / 60,
 			bg.stat_streamed_vertices / 60, bg.vertex_cache_bytes >> 20);
 		bg.stat_frame_wait = 0.0;
 		bg.stat_cached_vertices = bg.stat_streamed_vertices = 0;
-		bg.drawn = bg.skipped = bg.stat_starved = bg.stat_tests = bg.stat_seen = bg.stat_waited = 0;
+		bg.drawn = bg.skipped = bg.stat_starved = bg.stat_overflow = bg.stat_tests = bg.stat_seen = bg.stat_waited = 0;
 	}
 	platform_video_swap();
 	bg_window_update();
@@ -6007,6 +6061,19 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 	init.fallback = false;
 	init.limits.maxTransientVbSize = 64u << 20;
 	init.limits.maxTransientIbSize = 8u << 20;
+	/* (HALO_BGFX_TRANSIENT_MB: a smaller transient vertex buffer, in MB, for
+	a test of the draws past it on a stock map, bg_draw) */
+	{
+		const char *transient = getenv("HALO_BGFX_TRANSIENT_MB");
+
+		if (transient && atoi(transient) >= 2 && atoi(transient) < 64)
+		{
+			init.limits.maxTransientVbSize = (uint32_t)atoi(transient) << 20;
+			init.limits.maxTransientIbSize = (uint32_t)atoi(transient) << 17;
+			platform_log("bgfx: transient buffers of %d MB of vertices, %d KB of indices (HALO_BGFX_TRANSIENT_MB)",
+				atoi(transient), atoi(transient) << 7);
+		}
+	}
 	init.callback = &bg_callback;
 	if (!init.swapChain.nwh)
 	{
