@@ -314,7 +314,11 @@ static int constant_table_read(const uint32_t *words, unsigned long count, struc
 		rows_columns = reader_word_at(&reader, type_offset + 4);
 		elements = reader_word_at(&reader, type_offset + 8);
 		if (reader.failed || name_offset >= reader.size)
+		{
+			free(*constants);
+			*constants = NULL;
 			return 0;
+		}
 		copy_name(constant->name, sizeof(constant->name), (const char *)reader.base + name_offset,
 			reader.size - name_offset);
 		constant->regset = (unsigned short)(regset_reg & 0xFFFF);
@@ -330,8 +334,11 @@ static int constant_table_read(const uint32_t *words, unsigned long count, struc
 	return 1;
 }
 
-/* a shader's tokens: its version, constant table and preshader */
-static int shader_read(const unsigned char *data, unsigned long size, struct d3d9_shader *shader)
+static void shader_dispose(struct d3d9_shader *shader);
+
+/* a shader's tokens: its version, constant table and preshader (what it
+made let go if it is refused: shader_read) */
+static int shader_read_parts(const unsigned char *data, unsigned long size, struct d3d9_shader *shader)
 {
 	const uint32_t *tokens;
 	const uint32_t *words;
@@ -399,6 +406,14 @@ static int shader_read(const unsigned char *data, unsigned long size, struct d3d
 		shader->has_preshader = 1;
 	}
 	return 1;
+}
+
+static int shader_read(const unsigned char *data, unsigned long size, struct d3d9_shader *shader)
+{
+	if (shader_read_parts(data, size, shader))
+		return 1;
+	shader_dispose(shader);
+	return 0;
 }
 
 static void shader_dispose(struct d3d9_shader *shader)

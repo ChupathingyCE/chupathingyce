@@ -44,6 +44,7 @@ int main(int argc, char **argv)
 	if (!d3d9_effect_read(data, (unsigned long)size, &effect, error, sizeof(error)))
 	{
 		printf("refused: %s\n", error);
+		free(data);
 		return 0;
 	}
 	printf("parameters %lu techniques %lu shaders %lu\n", effect.parameter_count, effect.technique_count,
