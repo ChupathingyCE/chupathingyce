@@ -4878,8 +4878,10 @@ static void render_settings(void)
 			/* (STEAM ACCOUNT and WORKSHOP FOLDER open something: a chevron) */
 			if (!settings_row_arrows(row))
 				ui_style_setting_opens();
+			/* (a change that shows after a restart says so, as the setup
+			screen's rows do) */
 			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, settings_label(row),
-				NULL, value, on);
+				settings_row_restart(row) ? "NEEDS A RESTART" : NULL, value, on);
 		}
 #ifdef HALO_PORT_VOICE_AUDIO
 		else if (voice_setting_of(setting) != NONE)

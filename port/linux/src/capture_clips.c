@@ -906,11 +906,20 @@ void capture_request_clip(void)
 {
 	char name[160];
 
-	if (clips.state != 2)
+	switch (clips.state)
 	{
+	case 2:
+		break;
+	case 3:
+		capture_notice("Clip not saved", "The video encoder didn't start");
+		return;
+	case 4:
+		capture_notice("Clip not saved", "Clips are still starting");
+		return;
+	default:
 		/* (turned on in Settings since the game started: clips_on looks once) */
-		capture_notice("Clips are off", clips.state == 1 && config_boolean("clips.enabled") ?
-			"They start after a restart" : "Settings > Game > Clips");
+		capture_notice("Clips are off", config_boolean("clips.enabled") ? "They start after a restart" :
+			"Settings > Game > Clips");
 		return;
 	}
 	/* (made here, on the game's thread, as every other of platform_folder's
