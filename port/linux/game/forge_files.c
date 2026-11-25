@@ -48,7 +48,7 @@ static unsigned int const forge_file_groups[] =
 static char const *const forge_file_result_names[NUMBER_OF_FORGE_FILE_RESULTS] =
 {
 	"ok", "shorter than its header", "larger than 64 KB", "not a Forge layout (magic)", "a bad version",
-	"made by a newer build (this build reads layout versions 1 to 7 and 11 to 15)", "another header size", "unknown flags", "a bad map name", "of another map", "a count past its limit",
+	"made by a newer build (this build reads layout versions 1 to 7 and 11 to 16)", "another header size", "unknown flags", "a bad map name", "of another map", "a count past its limit",
 	"its size is not its counts'", "its checksum is wrong", "a bad pack", "a bad tag path", "a group Forge does not place",
 	"a tag path twice", "a bad record", "bad title, author, description or date", "no room to write it",
 };
@@ -164,7 +164,8 @@ int forge_file_group_allowed(
 int forge_file_path_group_allowed(
 	unsigned int group_tag)
 {
-	return forge_file_group_allowed(group_tag) || group_tag == FORGE_FILE_SKY_GROUP;
+	return forge_file_group_allowed(group_tag) || group_tag == FORGE_FILE_SKY_GROUP || group_tag == FORGE_FILE_EFFECT_GROUP ||
+		group_tag == FORGE_FILE_DECAL_GROUP;
 }
 
 int forge_file_path_valid(
@@ -536,6 +537,35 @@ static int forge_file_params_zero(
 	return 1;
 }
 
+/* (version 16) an effect's or a decal's record: its path one of its group,
+its yaw alone, nothing else of an object's; its own bytes its repeat (an
+effect's, 0 to 60) or size (a decal's, 1 to 40), then zeros */
+static int forge_file_effect_check(
+	struct forge_file_layout const *layout,
+	int version,
+	struct forge_file_record const *record)
+{
+	int decal = record->kind == _forge_record_decal;
+	int value = record->params[0];
+	int index;
+
+	if (version < FORGE_FILE_EFFECTS_VERSION || record->path_index >= layout->path_count ||
+		layout->paths[record->path_index].group_tag != (decal ? FORGE_FILE_DECAL_GROUP : FORGE_FILE_EFFECT_GROUP) ||
+		record->team || record->respawn_seconds || record->count || record->game_types || record->variant ||
+		record->flags || record->ai_team || record->ai_behavior || record->ai_route || record->ai_options)
+	{
+		return 0;
+	}
+	if (decal ? value < 1 || value > FORGE_FILE_MAXIMUM_DECAL_SIZE : value > FORGE_FILE_MAXIMUM_EFFECT_REPEAT)
+		return 0;
+	for (index = 1; index < FORGE_FILE_RECORD_PARAMS_SIZE; index++)
+	{
+		if (record->params[index])
+			return 0;
+	}
+	return forge_file_record_floats_check(record) && record->angles[1] == 0.f && record->angles[2] == 0.f;
+}
+
 /* (version 15) the sky and fog's record: its path a sky's when it sets the
 sky, else none; nothing of an object's; its own bytes what it sets (one at
 least), the fog's in range and starting before it is whole when it sets
@@ -659,6 +689,9 @@ static int forge_file_record_check(
 	int character;
 	int spawn;
 
+	/* (version 16's effects and decals: their own checks) */
+	if (record->kind == _forge_record_effect || record->kind == _forge_record_decal)
+		return forge_file_effect_check(layout, version, record);
 	/* (version 15's sky and fog: its own checks) */
 	if (record->kind == _forge_record_environment)
 		return forge_file_environment_check(layout, version, record);
@@ -842,7 +875,9 @@ int forge_file_layout_version(
 		struct forge_file_record const *record = &layout->records[index];
 		int needs = FORGE_FILE_FIRST_VERSION;
 
-		if (record->kind == _forge_record_environment)
+		if (record->kind == _forge_record_effect || record->kind == _forge_record_decal)
+			needs = FORGE_FILE_EFFECTS_VERSION;
+		else if (record->kind == _forge_record_environment)
 			needs = FORGE_FILE_ENVIRONMENT_VERSION;
 		else if (record->kind == _forge_record_volume)
 			needs = FORGE_FILE_VOLUMES_VERSION;
@@ -886,6 +921,8 @@ int forge_file_layout_check(
 	int ai_areas = 0;
 	int volumes = 0;
 	int environments = 0;
+	int effects = 0;
+	int decals = 0;
 	unsigned char hill_points[FORGE_FILE_MAXIMUM_HILLS];
 	unsigned int sender_channels = 0;
 	unsigned int receiver_channels = 0;
@@ -975,6 +1012,15 @@ int forge_file_layout_check(
 		if (layout->paths[index].group_tag == FORGE_FILE_SKY_GROUP && version < FORGE_FILE_ENVIRONMENT_VERSION)
 			return _forge_file_bad_group;
 	}
+	/* (an effect's or a decal's path: version 16's alone) */
+	for (index = 0; index < layout->path_count; index++)
+	{
+		if ((layout->paths[index].group_tag == FORGE_FILE_EFFECT_GROUP ||
+			layout->paths[index].group_tag == FORGE_FILE_DECAL_GROUP) && version < FORGE_FILE_EFFECTS_VERSION)
+		{
+			return _forge_file_bad_group;
+		}
+	}
 	for (index = 0; index < layout->record_count; index++)
 	{
 		struct forge_file_record const *record = &layout->records[index];
@@ -1004,6 +1050,10 @@ int forge_file_layout_check(
 			volumes++;
 		if (layout->records[index].kind == _forge_record_environment)
 			environments++;
+		if (layout->records[index].kind == _forge_record_effect)
+			effects++;
+		if (layout->records[index].kind == _forge_record_decal)
+			decals++;
 		/* (version 6's game type objects: a hill's points counted, its
 		number checked in range with the record) */
 		if (layout->records[index].kind == _forge_record_flag)
@@ -1032,20 +1082,23 @@ int forge_file_layout_check(
 	respawning character, 4 for a player spawn, 5 for a teleporter, 6 for a
 	game type object, 7 for an object's physics, 11 for the map's own
 	objects, 12 for AI movement, 13 for more than 256 records, 14 for a
-	volume, 15 for a sky and fog: a file of one without it is not one a
-	writer made) */
+	volume, 15 for a sky and fog, 16 for an effect or a decal: a file of
+	one without it is not one a writer made) */
 	if ((version == 3 && !respawning) || (version == 4 && !player_spawns) || (version == 5 && !teleporters) ||
 		(version == 6 && !game_objects) || (version == 7 && !physics) ||
 		(version == 11 && !(layout->flags & FORGE_FILE_FLAG_CANVAS)) || (version == 12 && !ai_movement) ||
 		(version == FORGE_FILE_MORE_RECORDS_VERSION && layout->record_count <= FORGE_FILE_EARLIER_MAXIMUM_RECORDS) ||
 		(version == FORGE_FILE_VOLUMES_VERSION && !volumes) ||
-		(version == FORGE_FILE_ENVIRONMENT_VERSION && !environments))
+		(version == FORGE_FILE_ENVIRONMENT_VERSION && !environments) ||
+		(version == FORGE_FILE_EFFECTS_VERSION && !effects && !decals))
 	{
 		return _forge_file_bad_version;
 	}
 	if (volumes > FORGE_FILE_MAXIMUM_VOLUMES)
 		return _forge_file_too_many;
 	if (environments > 1)
+		return _forge_file_too_many;
+	if (effects > FORGE_FILE_MAXIMUM_EFFECTS || decals > FORGE_FILE_MAXIMUM_DECALS)
 		return _forge_file_too_many;
 	if (route_points > FORGE_FILE_MAXIMUM_ROUTE_POINTS || ai_areas > FORGE_FILE_MAXIMUM_AI_AREAS)
 		return _forge_file_too_many;

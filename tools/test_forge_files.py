@@ -70,7 +70,7 @@ def test_forge_files(tmp_path):
 @pytest.mark.skipif(sys.platform == "win32", reason="the store's tests use POSIX file helpers")
 @pytest.mark.parametrize("original, mutated", [
     # (a newer version read as if it were known)
-    ("if (version > FORGE_FILE_VERSION ||\n", "if (version > 16 ||\n"),
+    ("if (version > FORGE_FILE_VERSION ||\n", "if (version > 17 ||\n"),
     # (the Vita build's versions 8 to 10 read as if they were this build's)
     ("if (version > FORGE_FILE_VERSION ||\n\t\t(version >= FORGE_FILE_FIRST_SKIPPED_VERSION && version <= FORGE_FILE_LAST_SKIPPED_VERSION))",
      "if (version > FORGE_FILE_VERSION)"),
@@ -82,6 +82,8 @@ def test_forge_files(tmp_path):
     ("record->variant == FORGE_FILE_VOLUME_KILL ? amount != 0 :", "0 ? 0 :"),
     # (the fog's start not checked against where it is whole)
     ("(float)start >= (float)opaque * FORGE_FILE_FOG_OPAQUE_UNIT)", "0)"),
+    # (an effect's path not checked against its group)
+    ("layout->paths[record->path_index].group_tag != (decal ? FORGE_FILE_DECAL_GROUP : FORGE_FILE_EFFECT_GROUP) ||", ""),
     # (another kind's own bytes not looked at)
     ("if (!forge_file_params_zero(record))\n\t\treturn 0;", "(void)forge_file_params_zero;"),
     # (the checksum not looked at)

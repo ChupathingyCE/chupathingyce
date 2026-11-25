@@ -95,6 +95,9 @@ enum
 	/* (volumes: KILL VOLUME, DAMAGE VOLUME, GRAVITY VOLUME, zones that act
 	on whoever is in them: forge_volumes.inc) */
 	_forge_category_volumes,
+	/* (the map's effects and decals, placed as markers: forge_effects.inc) */
+	_forge_category_effects,
+	_forge_category_decals,
 	NUMBER_OF_FORGE_CATEGORIES
 };
 
@@ -135,6 +138,9 @@ enum
 	_forge_spawn_volume_kill,
 	_forge_spawn_volume_damage,
 	_forge_spawn_volume_gravity,
+	/* (an effect or a decal of the map's: forge_effects.inc) */
+	_forge_spawn_effect,
+	_forge_spawn_decal,
 	NUMBER_OF_FORGE_MARKER_KINDS,
 	FORGE_LAST_OBJECTIVE_KIND = _forge_spawn_race
 };
@@ -239,6 +245,10 @@ struct forge_properties
 	unsigned char volume_size[3];
 	unsigned char volume_amount;
 	short volume_target_index;
+	/* (an effect's or a decal's: forge_effects.inc) its repeat (seconds, 0
+	LOOP) or size (tenths) */
+	boolean effect;
+	short effect_value;
 };
 
 /* what the monitor's controls ask of the flying camera this frame */
@@ -632,6 +642,14 @@ boolean forge_environment_text(
 	short row,
 	char *value,
 	int size);
+
+
+/* ---------- prototypes/FORGE_EFFECTS.INC */
+
+/* (game.c's game_tick) the layout's effects started when due and its decals
+laid: a Forge game's or a layout played's, a tick at a time */
+void forge_effects_tick(
+	void);
 
 /* ---------- prototypes/FORGE_NETGAME.INC */
 

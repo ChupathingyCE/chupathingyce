@@ -220,6 +220,9 @@ short forge_property_count(
 
 	if (!forge_properties_get(&properties))
 		return 0;
+	/* (an effect's or a decal's two: forge_effects.inc) */
+	if (properties.effect)
+		return forge_effect_property_count();
 	/* (a volume's eight: forge_volumes.inc) */
 	if (properties.volume)
 		return _forge_property_physics + 1;
@@ -275,6 +278,12 @@ boolean forge_property_text(
 		if (properties.volume)
 		{
 			forge_volume_property_text(&properties, row, label, label_size, value, value_size);
+			return TRUE;
+		}
+		/* (an effect's or a decal's rows: forge_effects.inc) */
+		if (properties.effect)
+		{
+			forge_effect_property_text(&properties, row, label, label_size, value, value_size);
 			return TRUE;
 		}
 
