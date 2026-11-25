@@ -725,9 +725,10 @@ struct network_rules_fork
 	unsigned modded_mask;
 	unsigned modded_mark;
 	int base_version_at;
-	/* its plain games' record: of first_version on, the gametype options
-	options_size bytes, the record otherwise the number's layout */
-	unsigned first_version;
+	/* its plain games' record: at version alone (its hosts' number; another
+	is not taken for it), the gametype options options_size bytes, the record
+	otherwise the number's layout */
+	unsigned version;
 	int options_size;
 	/* the distributed kinds its host sends that this build drops */
 	unsigned dropped_first;
@@ -750,9 +751,10 @@ char const *network_rules_fork_name(int fork);
 them) say, its OpenCE number in *base_version (may be NULL); or
 NETWORK_RULES_FORK_NONE */
 int network_rules_fork_advertised(uint8_t const *reserved, int size, unsigned *base_version);
-/* the fork whose plain game's record a host of the version (known, not
-NETWORK_RULES_VERSION_UNKNOWN) sends as total_size bytes, where the
-version's own layout has another size; or NETWORK_RULES_FORK_NONE */
+/* the fork whose plain game's record a host of the version (its row's
+version exactly, never NETWORK_RULES_VERSION_UNKNOWN) sends as total_size
+bytes, where the version's own layout has another size; or
+NETWORK_RULES_FORK_NONE */
 int network_rules_fork_settings(unsigned version, unsigned total_size);
 /* the options' bytes of that record (0 for no fork), and where in them the
 byte of its option_values is (-1 for none) */

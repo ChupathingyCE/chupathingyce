@@ -1335,9 +1335,9 @@ static boolean network_game_client_receive_game_settings_piece(
 
 				network_game_client_settings_staging_size = 0;
 				/* port: the host's MCC content digest, at the end of a 43 record
-				(mcc_identity.c) */
+				or of another project's recognized row (mcc_identity.c) */
 				mcc_identity_wire_record((unsigned char const *)&network_game_client_settings_staging,
-					(long)piece->total_size);
+					(long)piece->total_size, fork >= 0);
 				/* port: a record of 35 on made the older layout, its further
 				options kept; an older one's are the defaults. A host not
 				known that sends the newer is taken for one of 35. */

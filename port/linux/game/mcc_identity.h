@@ -24,7 +24,7 @@ tail, the content and metadata digests, the checksum left zero): 0 while
 this host has no MCC identity */
 int mcc_identity_host_admission(unsigned char identity[196]);
 /* port: (network_client_message_handler.c) a settings record received whole */
-void mcc_identity_wire_record(unsigned char const *record, long size);
+void mcc_identity_wire_record(unsigned char const *record, long size, int recognized);
 int mcc_identity_accept(struct network_game const *game);
 void mcc_identity_disconnect(void);
 char const *mcc_identity_local_name(char const *name);
@@ -52,7 +52,7 @@ the shared code calls do nothing, their arguments unevaluated */
 #define mcc_identity_host_clear() ((void)0)
 #define mcc_identity_host_overlay(a0, a1, a2, a3, a4, a5) \
 	((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)sizeof(a5))
-#define mcc_identity_wire_record(a0, a1) ((void)sizeof(a0), (void)sizeof(a1))
+#define mcc_identity_wire_record(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2))
 #define mcc_identity_host_admission(a0) ((void)sizeof(a0), (int)0)
 #endif
 

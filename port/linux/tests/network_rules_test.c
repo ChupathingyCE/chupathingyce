@@ -1653,6 +1653,7 @@ static void test_forks(void)
 	CHECK(network_rules_fork_option_at(NETWORK_RULES_FORK_CONTENT_EVOLVED) == 0x2B);
 	CHECK(network_rules_fork_settings(44, 13200) == NETWORK_RULES_FORK_NONE);
 	CHECK(network_rules_fork_settings(43, 13244) == NETWORK_RULES_FORK_NONE);
+	CHECK(network_rules_fork_settings(45, 13244) == NETWORK_RULES_FORK_NONE);
 	CHECK(network_rules_fork_settings(35, 13136 + 44) == NETWORK_RULES_FORK_NONE);
 	CHECK(network_rules_fork_settings(NETWORK_RULES_VERSION_UNKNOWN, 13244) == NETWORK_RULES_FORK_NONE);
 	CHECK(network_rules_fork_settings(44, 13245) == NETWORK_RULES_FORK_NONE);

@@ -928,7 +928,7 @@ int network_rules_fork_settings(unsigned version, unsigned total_size)
 		/* (its options grow in front of the local data, the record with them) */
 		int size = layout.settings_size + row->options_size - layout.options_size;
 
-		if (version >= row->first_version && row->options_size > layout.options_size &&
+		if (version == row->version && row->options_size > layout.options_size &&
 			size <= NETWORK_RULES_SETTINGS_MAXIMUM && total_size == (unsigned)size)
 		{
 			return fork;

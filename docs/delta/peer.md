@@ -531,6 +531,10 @@ can't play it. All 26 reserved bytes then belong to Content Evolved
 - **Another reader reads none of its own meanings from them**: no MCC flag
   or version, no game kind, no Delta tag, no old layout. It shows the game
   as one it can't play.
+- **Chupathingy's clients** refuse it before joining and say what it plays
+  ("Content Evolved's Firefight isn't playable here yet."), and play
+  Content Evolved's plain games
+  ([versioning.md](versioning.md#other-projects-hosts)).
 - **A reader that doesn't know the range** sees a network version it
   doesn't play, which comes to the same thing. Bit 15 is set, as in a GOAT
   H1 host's closed number ([registry.md](registry.md#network-versions)):
