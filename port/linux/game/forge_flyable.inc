@@ -7,9 +7,12 @@ map file is changed) and are gone with the map. In the campaign their
 pilots are AI on scripted paths; what a player needs is changed:
 - the pilot's seat takes an animation set the player's unit has (the
   Warthog driver's: its seat is invisible, the pilot not drawn) at a marker
-  a player on foot reaches ("driver enter" before the Pelican's nose, the
-  dropship's front left pod), where a player walks up, presses action and
-  holds it to get out again; the seat keeps its third person camera,
+  a player on foot reaches and that no rider's seat shares ("driver enter"
+  before the Pelican's nose, the dropship's gun under its nose: at its
+  front left pod, where its riders get in, the nearest rider's seat was
+  the one a player walking up got), where a player walks up, presses
+  action and holds it to get out again; its prompt names it the driver's
+  (the dropship's had no name); the seat keeps its third person camera,
   without its pitch limits (below), and the chase camera stands back as
   far as the hull needs (forge_flyable_camera_scale);
 - the riders' seats take the Pelican's front riders' animations of their
@@ -25,7 +28,12 @@ The flight itself is the campaign's own human plane physics (vehicles.c
 update_human_plane_physics): the stick's throttle, the aim's heading, jump
 to climb, crouch to descend, and with neither a hover; the climb, hold and
 descent a player's (forge_flyable_lift), and a craft kept in the level
-(forge_flyable_sweep). */
+(forge_flyable_sweep).
+
+On a campaign mission's Forge game (forge_ai.inc) the Pelican and the
+dropship are the mission's own tags, not brought in: the same changes are
+made to them as the mission's game starts (forge_flyable_mission_update),
+in memory too, and a map load reads them from its file again. */
 
 enum
 {
@@ -50,8 +58,51 @@ static struct
 } const forge_flyables[] =
 {
 	{ "vehicles\\pelican\\pelican", "P-driver", "driver enter", "P-rider", 0.55f, 0.03f, 1.3f },
-	{ "vehicles\\c_dropship\\c_dropship", "c_dropship driver", "cd-passengerl01", "CD-passenger", 0.45f, 0.025f, 2.6f },
+	{ "vehicles\\c_dropship\\c_dropship", "c_dropship driver", "gunseat", "CD-passenger", 0.45f, 0.025f, 2.6f },
 };
+
+/* each one's tag this map's Forge game changed (NONE: none), set again at
+every map load: the hooks below change nothing of any other tag, nor of
+any game but a Forge game's */
+static long forge_flyable_tags[NUMBEROF(forge_flyables)];
+/* whether a campaign mission's own have been looked for, this map */
+static boolean forge_flyable_mission_done;
+
+/* a vehicle tag's index of forge_flyables, if this game changed it */
+static short forge_flyable_of_tag(
+	long tag_index)
+{
+	short flyable;
+
+	for (flyable = 0; tag_index != NONE && flyable < (short)NUMBEROF(forge_flyables); flyable++)
+	{
+		if (forge_flyable_tags[flyable] == tag_index)
+			return flyable;
+	}
+	return NONE;
+}
+
+/* the index of a text of the HUD's names of things (the prompts' "driver",
+"Pelican"), NONE if it has none */
+static short forge_flyable_hud_text(
+	wchar_t const *text)
+{
+	long list_index = hud_globals ? hud_globals->messaging.alternate_icon_text.index : NONE;
+	struct string_list *list = list_index != NONE ? unicode_string_list_definition_get(list_index) : NULL;
+	short index;
+
+	for (index = 0; list && index < list->strings.count; index++)
+	{
+		wchar_t const *string = unicode_string_list_get_string(list_index, index);
+		short character;
+
+		for (character = 0; string[character] && string[character] == text[character]; character++)
+			;
+		if (!string[character] && !text[character])
+			return index;
+	}
+	return NONE;
+}
 
 static void forge_flyable_string(
 	char *field,
@@ -77,10 +128,9 @@ static boolean forge_flyable_marker(
 	return FALSE;
 }
 
-/* one of them, if this game's import has it and it is the campaign's (its
-pilot's seat and the marker there): its seats and speeds changed. The
-labels the player's unit has animations for are never a campaign seat's,
-so a tag changed is not changed again */
+/* one of them, if this game's import has it (or, in a campaign mission's
+Forge game, the mission has it) and it is the campaign's (its pilot's seat
+and the marker there): its seats and speeds changed, once */
 static void forge_flyable_tune_one(
 	short flyable)
 {
@@ -92,8 +142,11 @@ static void forge_flyable_tune_one(
 	short riders = 0;
 	size_t prefix_length = strlen(forge_flyables[flyable].rider_prefix);
 
-	if (tag_index == NONE || !forge_ai_tags_source_map(tag_index))
+	if (tag_index == NONE || forge_flyable_tags[flyable] == tag_index ||
+		!(forge_ai_tags_source_map(tag_index) || (forge_globals.campaign && forge_globals.game_active)))
+	{
 		return;
+	}
 	definition = unit_definition_get(tag_index);
 	vehicle = (byte *)definition;
 	for (seat_index = 0; seat_index < definition->unit.seats.count && seat_index < FORGE_FLYABLE_MAXIMUM_SEATS; seat_index++)
@@ -120,6 +173,10 @@ static void forge_flyable_tune_one(
 		levels as on foot) */
 		seat->camera.pitch_minimum = 0.0f;
 		seat->camera.pitch_maximum = 0.0f;
+		/* (the dropship's seats have no names: "enter <need a string entry
+		here> seat") */
+		if (seat->icon_text_index <= 0 && forge_flyable_hud_text(L"driver") != NONE)
+			seat->icon_text_index = forge_flyable_hud_text(L"driver");
 	}
 	for (seat_index = 0; seat_index < definition->unit.seats.count && seat_index < FORGE_FLYABLE_MAXIMUM_SEATS; seat_index++)
 	{
@@ -142,6 +199,7 @@ static void forge_flyable_tune_one(
 	}
 	*(real *)(vehicle + FORGE_FLYABLE_SPEED_OFFSET) = forge_flyables[flyable].speed;
 	*(real *)(vehicle + FORGE_FLYABLE_ACCELERATION_OFFSET) = forge_flyables[flyable].acceleration;
+	forge_flyable_tags[flyable] = tag_index;
 	platform_log("forge: %s flown by a player: its pilot's seat at %s, %d riders' seats, %.2f a tick at most",
 		forge_tag_leaf(tag_index), forge_flyables[flyable].pilot_marker, riders, forge_flyables[flyable].speed);
 }
@@ -152,16 +210,10 @@ real forge_flyable_camera_scale(
 	long unit_index)
 {
 	struct object_datum *object = unit_index != NONE ? object_try_and_get(unit_index) : NULL;
-	short flyable;
+	short flyable = object && object->object.type == _object_type_vehicle ?
+		forge_flyable_of_tag(object->definition_index) : NONE;
 
-	if (!object || object->object.type != _object_type_vehicle || !forge_ai_tags_source_map(object->definition_index))
-		return 1.0f;
-	for (flyable = 0; flyable < (short)NUMBEROF(forge_flyables); flyable++)
-	{
-		if (!_stricmp(tag_get_name(object->definition_index), forge_flyables[flyable].path))
-			return forge_flyables[flyable].camera_scale;
-	}
-	return 1.0f;
+	return flyable != NONE ? forge_flyables[flyable].camera_scale : 1.0f;
 }
 
 /* the hover's lift, of the craft's weight 1.3 times this (vehicles.c
@@ -180,7 +232,7 @@ real forge_flyable_lift(
 {
 	struct object_datum *vehicle = object_get(vehicle_index);
 
-	if (!forge_ai_tags_source_map(vehicle->definition_index))
+	if (forge_flyable_of_tag(vehicle->definition_index) == NONE)
 		return factor;
 	return factor >= 1.0f ? FORGE_FLYABLE_LIFT_CLIMB : factor <= 0.25f ? FORGE_FLYABLE_LIFT_DESCEND : FORGE_FLYABLE_LIFT_HOLD;
 }
@@ -210,7 +262,7 @@ void forge_flyable_sweep(
 	struct location location;
 	short spot;
 
-	if (!forge_ai_tags_source_map(vehicle->definition_index))
+	if (forge_flyable_of_tag(vehicle->definition_index) == NONE)
 		return;
 	for (spot = 0; spot < FORGE_FLYABLE_SPOTS && forge_flyable_spots[spot].object_index != vehicle_index; spot++)
 		;
@@ -237,14 +289,39 @@ void forge_flyable_sweep(
 	vehicle->object.angular_velocity.k = 0.0f;
 }
 
-/* (forge_update, as an import finishes) each of them this game has */
+/* (forge_update, as an import finishes; forge_flyable_mission_update)
+each of them this game has */
 static void forge_flyable_tune(
 	void)
 {
 	short flyable;
 
-	csmemset(forge_flyable_spots, 0xFF, sizeof(forge_flyable_spots));
-	forge_flyable_spot_next = 0;
 	for (flyable = 0; flyable < (short)NUMBEROF(forge_flyables); flyable++)
 		forge_flyable_tune_one(flyable);
+}
+
+/* (forge_map_loaded, every map load) none changed yet, and none kept in
+the level */
+static void forge_flyable_map_loaded(
+	void)
+{
+	short flyable;
+
+	for (flyable = 0; flyable < (short)NUMBEROF(forge_flyables); flyable++)
+		forge_flyable_tags[flyable] = NONE;
+	csmemset(forge_flyable_spots, 0xFF, sizeof(forge_flyable_spots));
+	forge_flyable_spot_next = 0;
+	forge_flyable_mission_done = FALSE;
+}
+
+/* (forge_update) a campaign mission's Forge game: its own changed, once,
+at its first update (the map's HUD set up by then, whose texts the prompt
+takes; a multiplayer map's are brought in later, forge_ai_tags_update) */
+static void forge_flyable_mission_update(
+	void)
+{
+	if (forge_flyable_mission_done || !forge_globals.campaign || !forge_globals.game_active)
+		return;
+	forge_flyable_mission_done = TRUE;
+	forge_flyable_tune();
 }
