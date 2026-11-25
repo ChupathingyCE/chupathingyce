@@ -16,7 +16,8 @@ It also builds each platform whose own files the pull request changes, using the
 |---|---|
 | `port/windows/`, `server/windows/`, `tools/windows_build.py` | `windows`, `windows64`, `server-windows` |
 | `port/android/`, `tools/android*` | `android64` |
-| `port/macos/`, `port/ios/`, `tools/macos_build.py` | `macos` |
+| `port/macos/`, `tools/macos_build.py` | `macos` |
+| `port/ios/` | `ios` (the iPhone and iPad app, and the Apple TV's; see below) |
 | `port/unix/`, `tools/unix64_build.py` | `freebsd64` |
 | `server/`, `tools/server_build.py` | `server` (x64 only) |
 | `tools/linux64_build.py`, `tools/linux_sysroot.py`, `tools/bgfx-patches/`, the bgfx renderer files | `linux64` |
@@ -35,9 +36,13 @@ Every platform (Linux 32/64, FreeBSD, Windows 32/64, macOS, Android, the dedicat
 
 If you change the workflow itself or a platform's build, add `ci: full` to check every platform before merging.
 
+## iOS and tvOS
+
+The iOS port isn't shipped yet, so its job (`ios`) is never part of the full matrix and can't hold up `main` or a release. It builds only for a pull request that changes `port/ios/`, where it has to pass, or one with the `ci: full` label, where a failure shows but doesn't turn `ci-ok` red. Pushes to `main`, nightlies, test builds and releases never build it.
+
 ## ci-ok
 
-`ci-ok` sums each run up in one check: it's green when every job that had to run passed. A platform job the fast check skips counts as passed. On a full run, every job must pass.
+`ci-ok` sums each run up in one check: it's green when every job that had to run passed. A platform job the fast check skips counts as passed. On a full run, every job must pass, except `ios` (above).
 
 `ci-ok` isn't required to merge. Work in progress may land with a red job, which gets fixed right after in its own pull request. The strict gate is shipping: a nightly, test build or release is published only from a run of that exact commit where every platform built and passed.
 
