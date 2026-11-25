@@ -9,7 +9,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "tools/tests/rename_stub_halo.sh"
@@ -29,6 +28,8 @@ def test_stub_rules(tmp_path):
     """Builds the C tests, warnings as errors, and runs them."""
     cc = compiler()
     if not cc:
+        # (pytest only here: the Windows build runs this file alone, without it)
+        import pytest
         pytest.skip("no C compiler")
     binary = tmp_path / ("rename_stub_test.exe" if sys.platform == "win32" else "rename_stub_test")
     build = subprocess.run([cc, "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-O1",
