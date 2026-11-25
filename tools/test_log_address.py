@@ -213,3 +213,14 @@ def test_odd_names_are_tags(program):
 def test_environment_false_values_do_not_set(program):
     values = ["1", "true", "yes", "on", "anything", "0", "false", "FALSE", "no", "Off", ""]
     assert run(program, "environment", *values) == ["1"] * 5 + ["0"] * 6
+
+
+def test_public_address_host_is_a_tag():
+    """network.public_address's host name (often a name that leads to the
+    player's own home) is never logged whole: p2p.c logs it only through
+    log_address_name."""
+    source = (SOURCE / "p2p.c").read_text()
+    calls = re.findall(r"platform_log\((.*?)\);", source, re.S)
+    for call in calls:
+        if "public_host" in call:
+            assert "log_address_name(p2p.public_host" in call, call

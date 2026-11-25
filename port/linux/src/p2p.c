@@ -1361,8 +1361,15 @@ static void public_update(void)
 	if (!address)
 	{
 		/* (the one found before stays) */
+		/* (a host name of this machine's own leads to it: a tag, as
+		log_address_name writes it) */
 		if (!p2p.public_address)
-			platform_log("Internet play: cannot look up network.public_address's host %s", p2p.public_host);
+		{
+			char tag[LOG_ADDRESS_SIZE];
+
+			platform_log("Internet play: cannot look up network.public_address's host %s",
+				log_address_name(p2p.public_host, tag, sizeof(tag)));
+		}
 		return;
 	}
 	if (!p2p.public_logged || address != p2p.public_address)
