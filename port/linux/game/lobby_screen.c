@@ -116,6 +116,7 @@ struct widget_instance *ui_widget_port_replace(struct widget_instance *widget, l
 (-1: the keyboard and mouse) */
 int halo_keyboard_prompts(void);
 void platform_gamepad_make_first(int port);
+void platform_gamepad_first_reset(void);
 struct widget_instance *ui_widget_port_top_screen(void);
 /* (interface/ui_widget.c) where B leaves to: the screen the game came from */
 void ui_widget_port_lobby_origin_set(boolean joined_from_online_games);
@@ -430,6 +431,9 @@ static struct
 	mouse (controller 1's too): the player in front of it */
 	short navigator;
 	boolean navigator_keyboard;
+	/* player 1's controller was moved to the first port (ADD PLAYERS), for
+	as long as the preview, its join or the game joined lasts */
+	boolean first_moved;
 	/* debug.lobby_preview's sample lobby */
 	boolean debug;
 	boolean debug_done;
@@ -1619,6 +1623,17 @@ boolean lobby_screen_adding_players(void)
 	return lobby.adding;
 }
 
+/* the gamepads' ports in connection order again (add_players_open moved
+player 1's controller to the first) */
+static void first_port_reset(void)
+{
+	if (!lobby.first_moved)
+		return;
+	lobby.first_moved = FALSE;
+	platform_gamepad_first_reset();
+	platform_log("split screen preview: player 1's controller goes back to its own port");
+}
+
 static void add_players_open(short controller)
 {
 	short index;
@@ -1652,6 +1667,7 @@ static void add_players_open(short controller)
 	if (lobby.added_joined[0] && !lobby.added_joined[1] && !lobby.added_joined[2] && !lobby.added_joined[3])
 	{
 		platform_gamepad_make_first(lobby.navigator_keyboard ? -1 : lobby.navigator);
+		lobby.first_moved = TRUE;
 		platform_log("split screen preview: ADD PLAYERS: player 1 is %s", lobby.navigator_keyboard ?
 			"the keyboard and mouse" : lobby.navigator ? "the gamepad that led the way (it takes port 1)" :
 			"port 1's gamepad");
@@ -1885,6 +1901,14 @@ void lobby_screen_update(boolean menu_open)
 		}
 	}
 
+	/* (the preview backed out of, its join given up, or the game joined
+	over and left: nothing joined from it any more) */
+	if (lobby.first_moved && !lobby.preview && !lobby.adding && !browser_screen_active() &&
+		!global_network_game_client_get())
+	{
+		first_port_reset();
+	}
+
 	covering = menu_open && lobby_enabled() && !browser_screen_active() && pregame_screen_up() && current_game() != NULL;
 	if (covering && !lobby.covering)
 	{
@@ -2024,6 +2048,7 @@ static void leave(short controller)
 				platform_log("split screen preview: backed out; P%d no longer joins", guest + 1);
 			}
 		}
+		first_port_reset();
 		lobby.preview_answer = -1;
 		return;
 	}

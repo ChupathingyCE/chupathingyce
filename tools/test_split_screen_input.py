@@ -12,7 +12,8 @@ drives them:
   the order controllers were connected in while one person plays, and while
   two or more do, a port kept for each controller as others are plugged in
   and out; the controller that led the way to ADD PLAYERS (or the keyboard)
-  made player 1's, whichever was connected first (platform_gamepad_make_first);
+  made player 1's, whichever was connected first (platform_gamepad_make_first),
+  until the preview or its game is over (platform_gamepad_first_reset);
   and while one person plays the game, the other ports' gamepads
   also driving their player (gamepad_shares_first_port).
 
@@ -435,7 +436,17 @@ int main(void)
 	first_asked = FALSE;
 	CHECK(port_of_pad(1, FALSE) == 1 && port_of_pad(3, FALSE) == 2 && port_of_pad(4, FALSE) == 3,
 		"the keyboard player 1's: the pads from port 2");
-	first_keyboard = FALSE;
+	/* the preview backed out of, or its game over: the connection order
+	again, once the gamepads are at rest */
+	platform_gamepad_first_reset();
+	CHECK(first_asked && !first_asked_id && !first_asked_keyboard, "player 1's port given back: asked for");
+	first_gamepad_id = first_asked_id;
+	first_keyboard = first_asked_keyboard;
+	first_asked = FALSE;
+	CHECK(port_of_pad(1, FALSE) == 0 && port_of_pad(3, FALSE) == 1 && port_of_pad(4, FALSE) == 2,
+		"player 1's port given back: the pads in connection order");
+	platform_gamepad_first_reset();
+	CHECK(!first_asked, "nothing moved: no change asked for");
 #ifdef WITH_SDL
 	printf("ports (SDL virtual gamepads): %s\n", failures ? "FAILED" : "each controller keeps its player's port");
 	SDL_Quit();

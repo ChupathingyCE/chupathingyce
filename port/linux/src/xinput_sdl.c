@@ -2138,6 +2138,18 @@ void platform_gamepad_make_first(int port)
 	}
 }
 
+/* the ports in connection order again, as before ADD PLAYERS (its preview
+backed out of, or the game it joined over): waits for the gamepads to be
+at rest, as platform_gamepad_make_first does */
+void platform_gamepad_first_reset(void)
+{
+	if (!first_gamepad_id && !first_keyboard && !first_asked)
+		return;
+	first_asked_keyboard = FALSE;
+	first_asked_id = 0;
+	first_asked = TRUE;
+}
+
 /* each listed gamepad's port (port_of; -1 for none), the gamepads listed in
 connection order; returns the number of ports in use: one past the last with
 a gamepad, or kept for one */
@@ -2321,7 +2333,7 @@ static int sdl_gamepads(SDL_Gamepad *gamepads[PORT_COUNT])
 			first_keyboard = first_asked_keyboard;
 			first_asked = FALSE;
 			platform_log("gamepads: player 1 is %s now", first_keyboard ? "the keyboard and mouse" :
-				"the gamepad that led the way");
+				first_gamepad_id ? "the gamepad that led the way" : "port 1's, in connection order");
 		}
 	}
 	ports = gamepad_ports_assign(listed_ids, found, pc_menu_split_players() != 0, port_of);
