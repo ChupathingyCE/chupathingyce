@@ -90,6 +90,7 @@ tools/test_link_register.py
 tools/test_linux_port.py
 tools/test_listen_address.py
 tools/test_lobby_budget.py
+tools/test_lobby_host_crown.py
 tools/test_lobby_layout.py
 tools/test_lobby_switch_prompt.py
 tools/test_log_paths.py
