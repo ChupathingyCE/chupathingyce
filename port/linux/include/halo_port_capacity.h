@@ -260,6 +260,38 @@ MB console), up to this */
 #define HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE 0x4000000
 #endif
 
+/* ---------- sound cache
+
+The sound cache holds the samples of the sounds playing and recently
+played, in 4 KB pages (cache/xbox_sound_cache.c): the Xbox's 4 MB, 1024
+pages. A sound that finds no run of pages free of the ones playing isn't
+played (the log's "SOUND CACHE BLOWN"). Stock maps fit it; SPV3's levels
+don't: their decoded permutations reach 900 KB each and the ones playing
+filled the run, 9 of its 22 levels blowing it with 75 of the 512 sounds
+held. The desktop builds (and 64-bit Android) take 32 MB (8192 pages) and
+2048 sounds, its pages taken only as sounds are written (xbox_memory.c);
+Android's guest build, with less window (82 MB above the game state), 16 MB
+and 1024. Only which sounds stay loaded changes: nothing reaches the network
+or the game state. The dedicated server (no sound) and every console
+(the Xbox, the Xbox 360, the Wii U, the Switch's guest build and any
+HALO_CONSOLE port: their own repositories size theirs, or their memory class,
+physical_memory_map.h) keep the Xbox's 4 MB and 512 sounds. A permutation's
+most samples stay the Xbox's 4 MB (tag_schema_effects.c, ce_resources.c's
+split): that decides which sounds are split, which is the content's. */
+
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_XBOX360_CONSOLE) && \
+	!defined(HALO_WIIU_CONSOLE) && !defined(HALO_SWITCH_CONSOLE) && !defined(HALO_CONSOLE_GL_LAYER) && \
+	!defined(HALO_CONSOLE_WINDOW_MAXIMUM) && !defined(HALO_CONSOLE_MEMORY_CLASS) && \
+	!defined(HALO_CONSOLE_XBOX_RENDER_SIZES) && !defined(HALO_SERVER)
+#if defined(HALO_ANDROID) && !defined(HALO_64BIT)
+#define HALO_PORT_SOUND_CACHE_SIZE 0x1000000 /* (0x400000) */
+#define HALO_PORT_SOUND_CACHE_SOUNDS 1024 /* (512) */
+#else
+#define HALO_PORT_SOUND_CACHE_SIZE 0x2000000 /* (0x400000) */
+#define HALO_PORT_SOUND_CACHE_SOUNDS 2048 /* (512) */
+#endif
+#endif
+
 /* ---------- structure rendering
 
 The structure BSP's surfaces (its triangles) drawn in a frame

@@ -57,7 +57,10 @@ What each side checks, since 0.7.5a:
   "opence"`, joins a host of its own major and wire whatever network number
   either one announces, and refuses a host of another wire with a message
   naming both. A host of another major, or one built before the wire was
-  advertised, is joined by its number, as before. The Online Games list
+  advertised, is joined by its number, as before. So is a host of another
+  project's code, whose tag names its project instead of a wire (layout 2,
+  [peer.md](peer.md#the-tag)): it speaks Delta Peer, so the client says
+  HELLO, but it has no wire to match. The Online Games list
   keeps a Delta host whose number is out of range, so that it can be joined
   this way.
 - **OpenCE hosts and clients are unchanged.** Our client joins an OpenCE
@@ -731,6 +734,38 @@ following OpenCE ends there (README's "up to network version N",
 `DELTA_LEGACY_PRESUMED` to 0) rather than sending it. The same holds for
 OpenCE's master server and fleet tools: Delta List and Delta Control are
 ours, and we don't speak theirs.
+
+### Other projects' hosts
+
+Another project's build can announce an OpenCE number but write some
+bytes of its own. A client takes it by a row of facts built into
+`port/linux/game/network_rules.c` ("other projects' hosts"), kept apart
+from the table's layouts: a row's marks are ones neither an OpenCE host nor
+ours ever sends, and nothing in it changes how they are read. Today there
+is one row, Content Evolved's
+([Content Evolved (Watanoge)](https://github.com/Watanoge/halo-content-evolved)):
+
+- **Its plain games are played.** At network version 44 exactly, its host
+  may send a game settings record of 13,244 bytes: OpenCE's 44 layout with
+  0x58 bytes of game type options (OpenCE's 0x2C, then 0x2C of its own)
+  in front of the 4 bytes of local data, and the same 64 bytes after them.
+  A client of a host it joined at 44 takes that size as the row's and folds
+  it to the layout it plays, as it does a newer OpenCE record. The MCC
+  content digest is read from the record's last 64 bytes either way. A host
+  joined at another number, or not known, never gets the row.
+- **Its own message kinds are dropped quietly.** In plain games its host
+  also sends distributed kinds 160 to 167 (its third person policy, game
+  privacy and platforms among them). A client drops them unread, as any
+  unknown kind, without logging them.
+- **Its other games are refused before joining**, with a reason in the
+  player's words. A modded game advertises a version word of 0xFF00 to
+  0xFFFF ([peer.md](peer.md#content-evolveds-modded-games)); the reason
+  names what it plays: "Content Evolved's Firefight isn't playable here
+  yet.", and the same for its randomizer, skulls and Tag Injector profiles,
+  then "Ask the host for a plain game." Its engine slot 6 (Firefight, our
+  Bomb) and its own takes on Infection and Gun Game (the options' byte
+  0x2B: 1 Floodfection, 2 Tag Gun Game) are refused the same way if a plain
+  record ever carries them.
 
 ## What a table can and can't do
 

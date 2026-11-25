@@ -461,6 +461,44 @@
       }
     ]
   },
+  "projects": {
+    "description": "whose game code a host runs, as a layout 2 Delta tag names it (peer.md, The tag). A host of Chupathingy's code writes layout 1 (its wire) and never layout 2, so a layout 2 tag names 2 or later; 0 and 1 there are no tag. Numbers are per project, never reused; the version after the number is the project's own",
+    "tag_layouts": [
+      {
+        "layout": 1,
+        "name": "wire",
+        "meaning": "a build of Chupathingy's game code: its wire and its oldest compatible wire (Wire IDs)"
+      },
+      {
+        "layout": 2,
+        "name": "project",
+        "meaning": "a host of another project's code: its project number, that project's own version (2 bytes, little-endian), a reserved byte (0); joined by its network version alone"
+      }
+    ],
+    "list": [
+      {
+        "number": 0,
+        "key": "none",
+        "name": "",
+        "for": "",
+        "status": "never in a tag"
+      },
+      {
+        "number": 1,
+        "key": "chupathingy",
+        "name": "Chupathingy",
+        "for": "Chupathingy",
+        "status": "in use: writes layout 1 alone"
+      },
+      {
+        "number": 2,
+        "key": "content_evolved",
+        "name": "Content Evolved",
+        "for": "Content Evolved (Watanoge)",
+        "status": "in use"
+      }
+    ]
+  },
   "platform_floors": {
     "section": "platform_floors",
     "rows_maximum": 64,
@@ -818,7 +856,7 @@
             25
           ],
           "name": "delta_tag",
-          "meaning": "the Delta tag (peer.md, The tag)",
+          "meaning": "the Delta tag (peer.md, The tag): layout 1 a build of Chupathingy's code and its wire, layout 2 another project's host (Projects)",
           "for": "Delta",
           "status": "in use"
         }
@@ -954,9 +992,10 @@
         },
         {
           "byte": 2,
-          "name": null,
-          "meaning": "none yet: a host sends 0",
-          "status": "reserved"
+          "name": "map_source",
+          "meaning": "Content Evolved's map source: where the host's map comes from, in Content Evolved's own numbering (its documentation is the reference); 0 from every other host",
+          "for": "Content Evolved (Watanoge)",
+          "status": "in use"
         },
         {
           "byte": 3,
