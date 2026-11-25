@@ -51,6 +51,12 @@ boolean network_game_client_advertised_game_in_progress(
 boolean network_game_client_advertised_game_opence_server(
 	struct network_game_client *client,
 	struct network_advertised_game const *game);
+/* port: the project's name when the advertised game's host runs another
+project's code and says so in its Delta tag (layout 2: "Content Evolved"), a
+label; NULL for none, or a project this build doesn't know */
+char const *network_game_client_advertised_game_project(
+	struct network_game_client *client,
+	struct network_advertised_game const *game);
 #endif
 boolean network_game_client_advertised_game_compatible(
 	struct network_game_client *client,

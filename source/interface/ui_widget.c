@@ -5637,6 +5637,23 @@ void draw_string_and_hack_in_icons(
 	return;
 }
 
+/* The menu music is looked up by name every frame until it starts; a ui map
+   without that tag (SPV3's ui.yelo starts its own music from its scenario
+   script) logged the miss every frame. Say it once per map. */
+static void ui_main_menu_music_missing(
+	void)
+{
+	static long logged_scenario_index = NONE;
+
+	if (logged_scenario_index != global_scenario_index)
+	{
+		logged_scenario_index = global_scenario_index;
+		error(_error_silent, "title music tag not found");
+	}
+
+	return;
+}
+
 void ui_start_main_menu_music(
 	void)
 {
@@ -5652,7 +5669,7 @@ void ui_start_main_menu_music(
 		}
 		else
 		{
-			error(_error_silent, "title music tag not found");
+			ui_main_menu_music_missing();
 		}
 	}
 
@@ -5673,7 +5690,7 @@ void ui_stop_main_menu_music(
 		}
 		else
 		{
-			error(_error_silent, "title music tag not found");
+			ui_main_menu_music_missing();
 		}
 		widget_globals.main_menu_music_active = FALSE;
 	}

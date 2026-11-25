@@ -26,7 +26,8 @@ Linux is Linux, whoever made the build; a platform has a number of its own
 only where it has a build of its own (SteamOS, 5; old Windows, Legacy PC,
 18). A fork or another project sends its platform's number and tells
 itself apart by its build name (HELLO's build text, the game list's
-`build`) and, where it has one, its wire. A web build is a platform like
+`build`) and, when it hosts with Delta, its project number
+([Projects](#projects)). A web build is a platform like
 any other: it gets its number by pull request when someone asks for it.
 The First port column names the port a number was first given for.
 
@@ -111,9 +112,9 @@ A wire ID names a revision of Chupathingy's game code
 ([versioning.md](versioning.md#wire-compatibility-ranges)). The `chupa-*`
 wire IDs are Chupathingy's own: they are listed here so others can read
 them, but Chupathingy assigns them, not this registry's process. Another
-implementation leaves the tag out ([ports.md](ports.md#the-advertisement)),
-or uses a prefix of its own once the wire rule for other implementations is
-settled. The current one
+implementation never writes one: its host leaves the tag out, or writes a
+layout 2 tag with its project number ([Projects](#projects),
+[ports.md](ports.md#if-you-host-games-from-your-port)). The current one
 is `chupa-44b`. The console floor, the oldest wire every
 newer one must still play with, is `chupa-32a`. The first
 wire hosts advertised is `chupa-29a`.
@@ -133,6 +134,37 @@ wire hosts advertised is `chupa-29a`.
 | `chupa-43a` | development builds before 0.9.1 (no release) | `chupa-28a` | 43 |
 | `chupa-44a` | 0.9.1, 0.9.1a | `chupa-28a` | 44 |
 | `chupa-44b` | 0.9.2 (in development) | `chupa-28a` | 44 |
+
+## Projects
+
+Whose game code a host runs, as a Delta tag of layout 2 names it
+([peer.md](peer.md#the-tag)). A host of Chupathingy's code writes layout 1,
+its wire, and never layout 2; a host of any other project's code that
+answers HELLO writes layout 2 with its project's number
+([ports.md](ports.md#if-you-host-games-from-your-port)). So a layout 2 tag
+names 2 or later, and one that says 0 or 1 is no tag. The two bytes after
+the number are that project's own version, which the project defines;
+another project's reader shows it and never joins by it.
+
+A number is for a project (its game code), not for a platform: a project's
+builds on every platform send the same number, and their platform keys say
+the platform. Ask for one the way you ask for a platform number
+([How to ask for a number](#how-to-ask-for-a-number)), with your project's
+name and link, before your host writes a tag. Until then, host without a
+tag.
+
+| Number | Key | Name | For | Status |
+| --- | --- | --- | --- | --- |
+| 0 | `none` |  |  | never in a tag |
+| 1 | `chupathingy` | Chupathingy | Chupathingy | in use: writes layout 1 alone |
+| 2 | `content_evolved` | Content Evolved | [Content Evolved (Watanoge)](https://github.com/Watanoge/halo-content-evolved) | in use |
+
+The tag's layouts:
+
+| Layout | Name | Meaning |
+| --- | --- | --- |
+| 1 | `wire` | a build of Chupathingy's game code: its wire and its oldest compatible wire ([Wire IDs](#wire-ids)) |
+| 2 | `project` | a host of another project's code: its project number, that project's own version (2 bytes, little-endian), a reserved byte (0); joined by its network version alone |
 
 ## Platform floors
 
@@ -188,7 +220,7 @@ A version word below 0xFF00: a network version.
 | 3 |  | `kind` | the game's kind (version 37 and later), 0 before | the game protocol | in use |
 | 4 |  | `mcc_version` | with the flag 0x08, the MCC network protocol's version | the MCC network protocol (from GulchCE) | in use, in no Chupathingy release |
 | 5 to 16 |  |  | zero, but for the old Delta layout ([peer.md](peer.md#the-old-layout)) |  | reserved |
-| 17 to 25 |  | `delta_tag` | the Delta tag ([peer.md](peer.md#the-tag)) | Delta | in use |
+| 17 to 25 |  | `delta_tag` | the Delta tag ([peer.md](peer.md#the-tag)): layout 1 a build of Chupathingy's code and its wire, layout 2 another project's host ([Projects](#projects)) | Delta | in use |
 
 ### Content Evolved's modded games
 
@@ -248,7 +280,8 @@ a browser keeps every byte as it came, including the ones it doesn't read.
 | --- | --- | --- | --- | --- |
 | 0 | `kind` | the game's kind, from network version 37: an OpenCE game type in the low seven bits and Hardcore in bit 7 ([versioning.md](versioning.md#legacy-versions)). A host that announces an older number, and a closed listing, send 0 | OpenCE | in use |
 | 1 | `mod_version` | with flag 64, Content Evolved's mod version, the low byte of its advertisement's version word; 0 otherwise | Content Evolved (Watanoge) | in use |
-| 2 to 7 |  | none yet: a host sends 0 |  | reserved |
+| 2 | `map_source` | Content Evolved's map source: where the host's map comes from, in Content Evolved's own numbering (its documentation is the reference); 0 from every other host | Content Evolved (Watanoge) | in use |
+| 3 to 7 |  | none yet: a host sends 0 |  | reserved |
 
 ### How to ask for a flag or a stamp byte
 

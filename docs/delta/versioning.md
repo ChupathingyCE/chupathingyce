@@ -57,7 +57,10 @@ What each side checks, since 0.7.5a:
   "opence"`, joins a host of its own major and wire whatever network number
   either one announces, and refuses a host of another wire with a message
   naming both. A host of another major, or one built before the wire was
-  advertised, is joined by its number, as before. The Online Games list
+  advertised, is joined by its number, as before. So is a host of another
+  project's code, whose tag names its project instead of a wire (layout 2,
+  [peer.md](peer.md#the-tag)): it speaks Delta Peer, so the client says
+  HELLO, but it has no wire to match. The Online Games list
   keeps a Delta host whose number is out of range, so that it can be joined
   this way.
 - **OpenCE hosts and clients are unchanged.** Our client joins an OpenCE
