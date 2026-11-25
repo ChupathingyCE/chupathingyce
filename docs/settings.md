@@ -307,7 +307,6 @@ OpenGL. See [Help](help.md#blank-screen-or-a-crash-at-start).
 
 What we know is different from OpenGL:
 
-- FXAA and SMAA are OpenGL only. With bgfx they become MSAA 2x. Supersampling works on both.
 - The Halo PC ammo and health meters look different.
 - The first-person weapon is a little brighter.
 - The **RENDERER** row in the display settings switches it after a restart.

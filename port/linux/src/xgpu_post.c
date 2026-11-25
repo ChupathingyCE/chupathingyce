@@ -255,7 +255,9 @@ static const char present_source[] =
 
 #ifndef HALO_GL_ES
 /* the main functions of SMAA's passes, after SMAA.hlsl; its vertex
-functions' offsets are found for each pixel */
+functions' offsets are found for each pixel (the textures passed as SMAA
+passes them: bgfx's Vulkan GLSL has a texture and a sampler for each,
+d3d8_bgfx.inl) */
 static const char *const smaa_mains[] =
 {
 	/* edges */
@@ -267,7 +269,7 @@ static const char *const smaa_mains[] =
 	"\tvec2 texcoord = gl_FragCoord.xy * metrics.xy;\n"
 	"\tvec4 offset[3];\n"
 	"\tSMAAEdgeDetectionVS(texcoord, offset);\n"
-	"\tresult = vec4(SMAALumaEdgeDetectionPS(texcoord, offset, color_texture), 0.0, 0.0);\n"
+	"\tresult = vec4(SMAALumaEdgeDetectionPS(texcoord, offset, SMAATexturePass2D(color_texture)), 0.0, 0.0);\n"
 	"}\n",
 	/* weights */
 	"uniform sampler2D edges_texture;\n"
@@ -281,8 +283,9 @@ static const char *const smaa_mains[] =
 	"\tvec2 pixcoord;\n"
 	"\tvec4 offset[3];\n"
 	"\tSMAABlendingWeightCalculationVS(texcoord, pixcoord, offset);\n"
-	"\tresult = SMAABlendingWeightCalculationPS(texcoord, pixcoord, offset, edges_texture, area_texture,\n"
-	"\t\tsearch_texture, vec4(0.0));\n"
+	"\tresult = SMAABlendingWeightCalculationPS(texcoord, pixcoord, offset,\n"
+	"\t\tSMAATexturePass2D(edges_texture), SMAATexturePass2D(area_texture), SMAATexturePass2D(search_texture),\n"
+	"\t\tvec4(0.0));\n"
 	"}\n",
 	/* blend */
 	"uniform sampler2D color_texture;\n"
@@ -294,10 +297,65 @@ static const char *const smaa_mains[] =
 	"\tvec2 texcoord = gl_FragCoord.xy * metrics.xy;\n"
 	"\tvec4 offset;\n"
 	"\tSMAANeighborhoodBlendingVS(texcoord, offset);\n"
-	"\tresult = SMAANeighborhoodBlendingPS(texcoord, offset, color_texture, weights_texture);\n"
+	"\tresult = SMAANeighborhoodBlendingPS(texcoord, offset, SMAATexturePass2D(color_texture),\n"
+	"\t\tSMAATexturePass2D(weights_texture));\n"
 	"}\n",
 };
 #endif
+
+char *xgpu_post_anti_alias_source(int pass, const char *smaa_language)
+{
+	struct xgpu_text text = { 0 };
+
+	if (pass == 0)
+	{
+		xgpu_text_append(&text, "%s", fxaa_source);
+		return text.buffer;
+	}
+#ifndef HALO_GL_ES
+	if (pass >= 1 && pass <= 3 && xgpu_smaa_shader_size)
+	{
+		xgpu_text_append(&text,
+			"%s"
+			"uniform vec4 metrics;\n"
+			"#define SMAA_RT_METRICS metrics\n"
+			"#define SMAA_PRESET_HIGH 1\n"
+			"%s\n%s",
+			smaa_language ? smaa_language : "#define SMAA_GLSL_4 1\n", (const char *)xgpu_smaa_shader,
+			smaa_mains[pass - 1]);
+		return text.buffer;
+	}
+#endif
+	return NULL;
+}
+
+unsigned char *xgpu_post_smaa_lookup(BOOL search, unsigned long *width, unsigned long *height,
+	unsigned long *texel_size)
+{
+#ifndef HALO_GL_ES
+	const unsigned int *stream = search ? xgpu_smaa_search_texture : xgpu_smaa_area_texture;
+	unsigned long stream_size = search ? xgpu_smaa_search_texture_size : xgpu_smaa_area_texture_size;
+	uLongf size;
+	unsigned char *texels;
+	int result;
+
+	*width = search ? 64 : 160;
+	*height = search ? 16 : 560;
+	*texel_size = search ? 1 : 2;
+	size = (uLongf)(*width * *height * *texel_size);
+	if (!stream_size || (texels = malloc(size)) == NULL)
+		return NULL;
+	result = uncompress(texels, &size, (const Bytef *)stream, (uLong)stream_size);
+	/* (the size says whether it is whole, as with the game's zlib 1.1,
+	which could stop short of saying the stream had ended) */
+	if ((result == Z_OK || result == Z_BUF_ERROR) && size == (uLongf)(*width * *height * *texel_size))
+		return texels;
+	free(texels);
+#else
+	(void)search, (void)width, (void)height, (void)texel_size;
+#endif
+	return NULL;
+}
 
 /* a program, its samplers given their texture units; 0 if it does not
 build */
@@ -329,11 +387,7 @@ static GLuint program_build(int which)
 		text.length = 0;
 	}
 	shader_header(&text);
-	if (which == _post_program_fxaa)
-	{
-		xgpu_text_append(&text, "%s", fxaa_source);
-	}
-	else if (which == _post_program_tone_map)
+	if (which == _post_program_tone_map)
 	{
 		xgpu_text_append(&text, "%s", tone_map_source);
 	}
@@ -341,23 +395,18 @@ static GLuint program_build(int which)
 	{
 		xgpu_text_append(&text, "%s", present_source);
 	}
-#ifndef HALO_GL_ES
-	else if (xgpu_smaa_shader_size)
-	{
-		xgpu_text_append(&text,
-			"#define SMAA_GLSL_4 1\n"
-			"uniform vec4 metrics;\n"
-			"#define SMAA_RT_METRICS metrics\n"
-			"#define SMAA_PRESET_HIGH 1\n"
-			"%s\n%s",
-			(const char *)xgpu_smaa_shader, smaa_mains[which - _post_program_smaa_edges]);
-	}
-#endif
 	else
 	{
-		platform_log("anti-aliasing: the build has no SMAA");
-		free(text.buffer);
-		return 0;
+		char *source = xgpu_post_anti_alias_source(which - _post_program_fxaa, NULL);
+
+		if (!source)
+		{
+			platform_log("anti-aliasing: the build has no SMAA");
+			free(text.buffer);
+			return 0;
+		}
+		xgpu_text_append(&text, "%s", source);
+		free(source);
 	}
 	fragment_shader = post.vertex_shader ?
 		xgpu_compile_shader(GL_FRAGMENT_SHADER, text.buffer, names[which]) :
@@ -442,22 +491,15 @@ static void textures_fit(BOOL smaa, GLenum format, unsigned long width, unsigned
 }
 
 #ifndef HALO_GL_ES
-/* a lookup texture of SMAA's from its zlib stream; 0 if it does not
+/* a lookup texture of SMAA's (xgpu_post_smaa_lookup); 0 if it does not
 inflate */
-static GLuint lookup_texture(const unsigned int *stream, unsigned long stream_size, GLenum format,
-	GLenum data_format, unsigned long width, unsigned long height, unsigned long texel_size)
+static GLuint lookup_texture(BOOL search, GLenum format, GLenum data_format)
 {
-	uLongf size = (uLongf)(width * height * texel_size);
-	unsigned char *texels = malloc(size);
+	unsigned long width, height, texel_size;
+	unsigned char *texels = xgpu_post_smaa_lookup(search, &width, &height, &texel_size);
 	GLuint texture = 0;
-	int result;
 
-	if (!texels)
-		return 0;
-	result = uncompress(texels, &size, (const Bytef *)stream, (uLong)stream_size);
-	/* (the size says whether it is whole, as with the game's zlib 1.1,
-	which could stop short of saying the stream had ended) */
-	if ((result == Z_OK || result == Z_BUF_ERROR) && size == (uLongf)(width * height * texel_size))
+	if (texels)
 	{
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 		texture = texture_new(format, width, height, data_format, texels);
@@ -574,10 +616,8 @@ BOOL xgpu_post_prepare(BOOL smaa)
 #ifndef HALO_GL_ES
 	if (smaa && !post.area)
 	{
-		post.area = lookup_texture(xgpu_smaa_area_texture, xgpu_smaa_area_texture_size, GL_RG8, GL_RG,
-			160, 560, 2);
-		post.search = lookup_texture(xgpu_smaa_search_texture, xgpu_smaa_search_texture_size, GL_R8, GL_RED,
-			64, 16, 1);
+		post.area = lookup_texture(FALSE, GL_RG8, GL_RG);
+		post.search = lookup_texture(TRUE, GL_R8, GL_RED);
 		if (!post.area || !post.search)
 		{
 			platform_log("anti-aliasing: cannot inflate SMAA's lookup textures");

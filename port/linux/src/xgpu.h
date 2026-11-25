@@ -425,6 +425,23 @@ GL_RGBA16F with display.hdr); FALSE if its programs do not build */
 BOOL xgpu_post_anti_alias(BOOL smaa, GLuint framebuffer, GLenum format, unsigned long width,
 	unsigned long height, const GLint corners[4]);
 
+/* a pass's pixel shader, without its #version line (malloc'd; NULL where
+the build has no SMAA): FXAA (0), or SMAA's edge detection, blending
+weights and neighborhood blending (1 to 3). Its samplers are
+color_texture, edges_texture, area_texture, search_texture and
+weights_texture, at the units xgpu_post.c gives them; its uniforms metrics
+(1 / width, 1 / height, width, height) and FXAA's bounds. SMAA's shading
+language is smaa_language's defines (SMAA.hlsl's SMAA_CUSTOM_SL), or
+SMAA_GLSL_4 where it is NULL. bgfx's passes are made from the same text
+(d3d8_bgfx.inl) */
+char *xgpu_post_anti_alias_source(int pass, const char *smaa_language);
+
+/* SMAA's area (search FALSE: 160x560, two channels) or search (64x16, one
+channel) lookup texture's texels, rows from the top (malloc'd; NULL where
+the build has no SMAA or it does not inflate) */
+unsigned char *xgpu_post_smaa_lookup(BOOL search, unsigned long *width, unsigned long *height,
+	unsigned long *texel_size);
+
 /* ---------- high dynamic range (xgpu_tone_map.h)
 
 display.hdr (d3d8_gl.c): the back buffer is GL_RGBA16F, so that what the
