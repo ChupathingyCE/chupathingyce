@@ -94,7 +94,7 @@ Only the monitor sees volumes: each is drawn as a wireframe in its type's color 
 
 ## Effects and decals
 
-EFFECTS lists the loaded map's effects (smoke, sparks, explosions, a Banshee's glow...) and DECALS its decals (scorch marks, blood, Forerunner symbols...). A choice is placed like a marker: carried, let go, turned, deleted, its PROPERTIES opened from it.
+EFFECTS lists the loaded map's effects (smoke, sparks, explosions, a Banshee's glow...) and DECALS its decals (scorch marks, blood, Forerunner symbols...). On a multiplayer map, the effects and decals of what Forge brings in from the campaign maps (AI characters, campaign vehicles and objects) are listed too, but only those of a mission the layout already has a character, vehicle or object from, so a saved layout never names an effect that isn't there when it's played without them. A choice is placed like a marker: carried, let go, turned, deleted, its PROPERTIES opened from it.
 
 - An effect plays where it stands. REPEAT is LOOP (it starts again as soon as it ends) or a number of seconds between starts (1 to 60). Placed effects never hurt anyone: an explosion's effect shows and sounds, and deals no damage.
 - A decal is laid on the ground under it. SIZE scales it (30 to 400 percent).

@@ -987,6 +987,7 @@ static void forge_effect_log(char const *what, struct forge_spawn const *spawn);
 static void forge_effect_release(struct forge_spawn *spawn);
 static void forge_effect_set(struct forge_spawn *spawn, long tag_index, unsigned char value);
 static boolean forge_effect_from_record(struct forge_file_layout const *layout, struct forge_file_record const *record);
+static void forge_effects_from_layout_brought_in(struct forge_file_layout const *layout);
 static boolean forge_effect_to_record(struct forge_spawn const *spawn, struct forge_file_layout *layout,
 	struct forge_file_record *record);
 static short forge_effect_property_count(void);
@@ -3978,6 +3979,10 @@ static void forge_variant_apply(
 	struct structure_bsp *structure = global_structure_bsp_get();
 
 	forge_palette_ready();
+	/* (its effects and decals of the campaign maps' tags, brought in after
+	the map's load: forge_effects.inc) */
+	if (!round)
+		forge_effects_from_layout_brought_in(layout);
 	for (index = 0; index < layout->path_count && index < FORGE_FILE_MAXIMUM_PATHS; index++)
 	{
 		short entry;
@@ -4011,8 +4016,13 @@ static void forge_variant_apply(
 				tags[index] = tag_index;
 			}
 		}
-		if (tags[index] == NONE)
+		/* (an effect's or a decal's path is found by forge_effect_from_record,
+		which says so itself when it isn't on the map) */
+		if (tags[index] == NONE && layout->paths[index].group_tag != (unsigned int)EFFECT_DEFINITION_TAG &&
+			layout->paths[index].group_tag != (unsigned int)DECAL_GROUP_TAG)
+		{
 			platform_log("forge: the layout's %s is not on this map: its objects are skipped", layout->paths[index].path);
+		}
 	}
 	for (index = 0; index < layout->record_count && index < FORGE_FILE_MAXIMUM_RECORDS; index++)
 	{

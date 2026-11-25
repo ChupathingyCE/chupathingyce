@@ -18,8 +18,13 @@ harmless (effects_port_harmless: an explosion's effect hurts nobody), one
 at a time a marker; a decal laid once a round. A layout holds at most 16
 effects and 32 decals (forge_files.h), so what they cost stays small.
 
-The tags offered are the loaded map's: with other maps' content loaded
-(another feature's), theirs too, by the same path.
+The tags offered are the loaded map's own. A Forge game of a multiplayer
+map also has the tags Forge brought in from the campaign maps
+(forge_ai_tags.c: the AI characters, the campaign vehicles and objects);
+their effects and decals are offered only while the layout has a character,
+vehicle or object brought in from the same mission, so that a saved layout
+never names an effect or decal that isn't there when it is played without
+them (it would be skipped). Saved by path, either kind.
 */
 
 /* ---------- constants */
@@ -38,6 +43,9 @@ static unsigned char const forge_decal_sizes[] = { 3, 5, 8, 10, 15, 20, 30, 40 }
 #define FORGE_DECAL_MOST_PIECES 4
 /* the decals a map holds that are looked through (laid ones found) */
 #define FORGE_DECALS_MOST_SCANNED 2048
+/* the most campaign missions the brought-in tags come from (forge_ai_tags.c's
+FORGE_AI_MAXIMUM_SOURCES, with room) */
+#define FORGE_EFFECTS_MOST_SOURCES 8
 
 /* ---------- structures */
 
@@ -59,7 +67,19 @@ static struct
 	short effect_count;
 	struct forge_effect_entry decals[FORGE_DECALS_MOST_TAGS];
 	short decal_count;
+	/* the brought-in missions the layout used as it was made (the campaign
+	maps' effects and decals offered: theirs alone) */
+	char const *sources[FORGE_EFFECTS_MOST_SOURCES];
+	short source_count;
+	short brought_effects;
+	short brought_decals;
 } forge_effect_palette;
+
+/* (a layout's effects and decals, as the map loads) one of them was not
+found while the campaign maps' tags were still to be brought in
+(forge_ai_tags.c): looked for again once they are, as the layout's objects
+are placed (forge_effects_from_layout_brought_in) */
+static boolean forge_effect_records_waiting;
 
 /* ---------- private code */
 
@@ -87,24 +107,73 @@ static int forge_effect_entry_compare(
 	return strcmp(((struct forge_effect_entry const *)a)->name, ((struct forge_effect_entry const *)b)->name);
 }
 
-/* a group's tags, by name ("<name> 2" for the second of one name) */
+/* the brought-in missions (forge_ai_tags.c) the layout's objects and
+characters are from, each once, in sources: how many */
+static short forge_effect_used_sources(
+	char const **sources,
+	short most)
+{
+	short count = 0;
+	short index;
+
+	for (index = 0; index < forge_globals.placed_count && index < FORGE_MAXIMUM_OBJECTS; index++)
+	{
+		char const *source = forge_ai_tags_source_map(forge_globals.placed[index].tag_index);
+		short seen;
+
+		if (!source)
+			continue;
+		for (seen = 0; seen < count && strcmp(sources[seen], source); seen++)
+			;
+		if (seen == count && count < most)
+			sources[count++] = source;
+	}
+	return count;
+}
+
+/* whether a tag is offered: the map's own, or brought in from a mission the
+layout uses (forge_effect_palette.sources) */
+static boolean forge_effect_tag_offered(
+	long tag_index)
+{
+	char const *source = forge_ai_tags_source_map(tag_index);
+	short index;
+
+	if (!source)
+		return TRUE;
+	for (index = 0; index < forge_effect_palette.source_count; index++)
+	{
+		if (!strcmp(forge_effect_palette.sources[index], source))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* a group's tags, by name ("<name> 2" for the second of one name);
+*brought: how many of them were brought in from a campaign map */
 static short forge_effect_palette_group(
 	unsigned long group_tag,
 	struct forge_effect_entry *entries,
-	short most)
+	short most,
+	short *brought)
 {
 	struct tag_iterator iterator;
 	long tag_index;
 	short count = 0;
 	short index;
 
+	*brought = 0;
 	tag_iterator_new(&iterator, group_tag);
 	while ((tag_index = tag_iterator_next(&iterator)) != NONE && count < most)
 	{
 		char const *name = tag_get_name(tag_index);
 
-		if (tag_get_group_tag(tag_index) != group_tag || !name || !forge_file_path_valid(name, (int)strlen(name)))
+		if (tag_get_group_tag(tag_index) != group_tag || !name || !forge_file_path_valid(name, (int)strlen(name)) ||
+			!forge_effect_tag_offered(tag_index))
+		{
 			continue;
+		}
+		*brought += forge_ai_tags_source_map(tag_index) ? 1 : 0;
 		entries[count].tag_index = tag_index;
 		forge_tag_readable_name(tag_index, entries[count].name, sizeof(entries[count].name));
 		count++;
@@ -139,20 +208,33 @@ static void forge_effect_palette_reset(
 	void)
 {
 	forge_effect_palette.built = FALSE;
+	forge_effect_records_waiting = FALSE;
 }
 
+/* (each time the menu asks) the palette made again when the missions the
+layout uses have changed (a character placed, the last one of a mission's
+deleted) */
 static void forge_effect_palette_ready(
 	void)
 {
-	if (forge_effect_palette.built)
+	char const *sources[FORGE_EFFECTS_MOST_SOURCES];
+	short source_count = forge_effect_used_sources(sources, FORGE_EFFECTS_MOST_SOURCES);
+
+	if (forge_effect_palette.built && source_count == forge_effect_palette.source_count &&
+		!csmemcmp(sources, forge_effect_palette.sources, (size_t)source_count * sizeof(sources[0])))
+	{
 		return;
+	}
+	csmemcpy(forge_effect_palette.sources, sources, (size_t)source_count * sizeof(sources[0]));
+	forge_effect_palette.source_count = source_count;
 	forge_effect_palette.effect_count = forge_effect_palette_group(EFFECT_DEFINITION_TAG, forge_effect_palette.effects,
-		FORGE_EFFECTS_MOST_TAGS);
+		FORGE_EFFECTS_MOST_TAGS, &forge_effect_palette.brought_effects);
 	forge_effect_palette.decal_count = forge_effect_palette_group(DECAL_GROUP_TAG, forge_effect_palette.decals,
-		FORGE_DECALS_MOST_TAGS);
+		FORGE_DECALS_MOST_TAGS, &forge_effect_palette.brought_decals);
 	forge_effect_palette.built = TRUE;
-	platform_log("forge: %d effects and %d decals to place", forge_effect_palette.effect_count,
-		forge_effect_palette.decal_count);
+	platform_log("forge: %d effects and %d decals to place (%d and %d of them from the %d campaign maps the layout uses)",
+		forge_effect_palette.effect_count, forge_effect_palette.decal_count, forge_effect_palette.brought_effects,
+		forge_effect_palette.brought_decals, source_count);
 }
 
 /* the menu's EFFECTS or DECALS (category): its items, each one's name and
@@ -311,6 +393,13 @@ static boolean forge_effect_from_record(
 	tag_index = tag_loaded(decal ? DECAL_GROUP_TAG : EFFECT_DEFINITION_TAG, layout->paths[record->path_index].path);
 	if (tag_index == NONE || tag_get_group_tag(tag_index) != (decal ? DECAL_GROUP_TAG : EFFECT_DEFINITION_TAG))
 	{
+		/* (one of the campaign maps', maybe: looked for again once they are
+		brought in) */
+		if (forge_ai_tags_pending())
+		{
+			forge_effect_records_waiting = TRUE;
+			return FALSE;
+		}
 		platform_log("forge: the layout's %s is not on this map: skipped", layout->paths[record->path_index].path);
 		return FALSE;
 	}
@@ -325,6 +414,42 @@ static boolean forge_effect_from_record(
 		return FALSE;
 	forge_effect_set(spawn, tag_index, record->params[0]);
 	return TRUE;
+}
+
+/* (forge_variant_apply, the layout placed: the campaign maps' tags brought
+in by now) the layout's effects and decals that waited for them, the ones
+found at the map's load left as they are */
+static void forge_effects_from_layout_brought_in(
+	struct forge_file_layout const *layout)
+{
+	short index;
+	short placed = 0;
+
+	if (!forge_effect_records_waiting)
+		return;
+	forge_effect_records_waiting = FALSE;
+	if (forge_file_layout_version(layout) < FORGE_FILE_EFFECTS_VERSION)
+		return;
+	for (index = 0; index < layout->record_count && index < FORGE_FILE_MAXIMUM_RECORDS; index++)
+	{
+		struct forge_file_record const *record = &layout->records[index];
+		long tag_index;
+
+		if ((record->kind != _forge_record_effect && record->kind != _forge_record_decal) ||
+			record->path_index >= layout->path_count)
+		{
+			continue;
+		}
+		tag_index = tag_loaded(record->kind == _forge_record_decal ? DECAL_GROUP_TAG : EFFECT_DEFINITION_TAG,
+			layout->paths[record->path_index].path);
+		/* (the map's own: placed as it loaded) */
+		if (tag_index != NONE && !forge_ai_tags_source_map(tag_index))
+			continue;
+		if (forge_effect_from_record(layout, record))
+			placed++;
+	}
+	if (placed)
+		platform_log("forge: %d of the layout's effects and decals from the campaign maps placed", placed);
 }
 
 /* a marker as its version 16 record (its place and yaw the caller's); FALSE
