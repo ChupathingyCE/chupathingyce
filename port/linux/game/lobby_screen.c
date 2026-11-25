@@ -564,6 +564,35 @@ static short joining_count(void)
 	return count;
 }
 
+/* the spots left in the game previewed (LOCAL_PLAYERS when it doesn't say
+how many players it takes) */
+static short preview_spots(void)
+{
+	short spots;
+
+	if (lobby.preview_game.maximum_players <= 0)
+		return LOCAL_PLAYERS;
+	spots = (short)(lobby.preview_game.maximum_players - lobby.preview_game.players);
+	return spots > 0 ? spots : 0;
+}
+
+/* whether every player joining from here fits in the game previewed */
+static boolean preview_has_room(void)
+{
+	return joining_count() <= preview_spots();
+}
+
+/* "Only 2 spots left in this game" */
+static void room_text(char *text, int size)
+{
+	short spots = preview_spots();
+
+	if (!spots)
+		snprintf(text, (size_t)size, "No spots left in this game");
+	else
+		snprintf(text, (size_t)size, "Only %d spot%s left in this game", spots, spots == 1 ? "" : "s");
+}
+
 /* "P1 name, P2 name": the players joining from here, on their profiles */
 static void joining_text(char *text, int size)
 {
@@ -1203,7 +1232,8 @@ static void read_menu(struct network_game_server *server)
 		menu_add(_menu_invite, "INVITE FRIENDS", "", TRUE);
 		break;
 	case _lobby_preview:
-		menu_add(_menu_join, "JOIN THE GAME", lobby.preview_game.open ? "" : "Full", lobby.preview_game.open);
+		menu_add(_menu_join, "JOIN THE GAME", lobby.preview_game.open ? "" : "Full",
+			lobby.preview_game.open && preview_has_room());
 		if (joining_count() > 1)
 			snprintf(note, sizeof(note), "%d players", joining_count());
 		menu_add(_menu_add_players, "ADD PLAYERS", note, lobby.preview_game.open);
@@ -1245,7 +1275,9 @@ static void read_status(struct network_game_server *server)
 		copy_text(lobby.status, sizeof(lobby.status), "Waiting for the next game");
 		break;
 	case _lobby_preview:
-		if (joining_count() > 1)
+		if (lobby.preview_game.open && !preview_has_room())
+			room_text(lobby.status, sizeof(lobby.status));
+		else if (joining_count() > 1)
 		{
 			char joining[120];
 
@@ -1812,6 +1844,22 @@ boolean lobby_screen_add_players_finish(struct widget_instance *screen, short co
 		platform_log("split screen preview: SELECT PROFILE: P%d's A waits, a player is still picking a profile",
 			controller + 1);
 		display_error_text_deferred(L"Waiting for every player\r\nto select a profile.", controller);
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return FALSE;
+	}
+	if (!preview_has_room())
+	{
+		char text[64];
+		wchar_t wide[64];
+		int index;
+
+		room_text(text, sizeof(text));
+		for (index = 0; text[index] && index < (int)NUMBEROF(wide) - 1; index++)
+			wide[index] = (wchar_t)text[index];
+		wide[index] = 0;
+		platform_log("split screen preview: SELECT PROFILE: P%d's A waits, %d players for %d spots", controller + 1,
+			joining_count(), preview_spots());
+		display_error_text_deferred(wide, controller);
 		ui_play_audio_feedback_sound(SOUND_ERROR);
 		return FALSE;
 	}
