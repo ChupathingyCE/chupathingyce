@@ -69,6 +69,9 @@ enum join_reason
 #define JOIN_REASON_NOT_OPEN "Not taking players right now."
 #define JOIN_REASON_FULL "Game is full."
 #define JOIN_REASON_PASSWORD "Password needed."
+/* a game with a password joined by its address (Direct IP), which has no
+password to give: what the player can do */
+#define JOIN_REASON_PASSWORD_INVITE "This game has a password. Join it from its invite."
 #define JOIN_REASON_NO_ANSWER "The host didn't answer."
 #define JOIN_REASON_NO_CONNECTION "Couldn't connect to the host."
 #define JOIN_REASON_CONSOLE_FULL "This game has more players than this console can hold."

@@ -78,4 +78,9 @@ void forge_menu_draw_prompts(
 	struct forge_hud_prompt const *prompts,
 	short count);
 
+/* (forge.c's forge_draw) the delete held (game.forge_hold_to_delete): how far
+along, 0 to 1, as a fill over the crosshair */
+void forge_menu_draw_hold(
+	float fraction);
+
 #endif

@@ -498,6 +498,12 @@
     "closed_bit": {
       "value": 32768,
       "meaning": "a GOAT H1 host closed to other builds sets bit 15 of its version: closed, never joinable"
+    },
+    "modded_range": {
+      "from": 65280,
+      "to": 65535,
+      "for": "Content Evolved (Watanoge)",
+      "meaning": "a Content Evolved modded game: 0xFF00 plus the mod version (0xFF70 is mod version 112). All 26 of the advertisement's reserved bytes are then Content Evolved's (advertisement, modded). Bit 15 is set here too: never joinable by another build"
     }
   },
   "ports": {
@@ -723,6 +729,147 @@
       }
     ]
   },
+  "advertisement": {
+    "description": "the 26 reserved bytes of a host's game advertisement (peer.md, The advertisement). The version word in bytes 0 and 1 says whose layout the rest is: below 0xFF00 the stock layout, 0xFF00 to 0xFFFF Content Evolved's modded games, whose 26 bytes are all Content Evolved's",
+    "reserved_size": 26,
+    "stock": {
+      "flags_byte": 2,
+      "flags": [
+        {
+          "value": 1,
+          "name": "distributed",
+          "meaning": "the distributed netcode (always set)",
+          "for": "the game protocol",
+          "status": "in use"
+        },
+        {
+          "value": 2,
+          "name": "in_progress",
+          "meaning": "the game is under way",
+          "for": "the game protocol",
+          "status": "in use"
+        },
+        {
+          "value": 4,
+          "name": "dedicated",
+          "meaning": "a dedicated server (version 39 and later); the old Delta layout's flag before that",
+          "for": "the game protocol",
+          "status": "in use"
+        },
+        {
+          "value": 8,
+          "name": "mcc",
+          "meaning": "the host plays the MCC network protocol's join and settings record (peer.md, MCC games)",
+          "for": "the MCC network protocol (from GulchCE)",
+          "status": "in use, in no Chupathingy release"
+        }
+      ],
+      "bytes": [
+        {
+          "bytes": [
+            0,
+            1
+          ],
+          "name": "version",
+          "meaning": "the network version the host announces (little-endian)",
+          "for": "the game protocol",
+          "status": "in use"
+        },
+        {
+          "bytes": [
+            2
+          ],
+          "name": "flags",
+          "meaning": "the flags above",
+          "for": "the game protocol",
+          "status": "in use"
+        },
+        {
+          "bytes": [
+            3
+          ],
+          "name": "kind",
+          "meaning": "the game's kind (version 37 and later), 0 before",
+          "for": "the game protocol",
+          "status": "in use"
+        },
+        {
+          "bytes": [
+            4
+          ],
+          "name": "mcc_version",
+          "meaning": "with the flag 0x08, the MCC network protocol's version",
+          "for": "the MCC network protocol (from GulchCE)",
+          "status": "in use, in no Chupathingy release"
+        },
+        {
+          "bytes": [
+            5,
+            16
+          ],
+          "name": null,
+          "meaning": "zero, but for the old Delta layout (peer.md, The old layout)",
+          "for": null,
+          "status": "reserved"
+        },
+        {
+          "bytes": [
+            17,
+            25
+          ],
+          "name": "delta_tag",
+          "meaning": "the Delta tag (peer.md, The tag)",
+          "for": "Delta",
+          "status": "in use"
+        }
+      ]
+    },
+    "modded": {
+      "versions": [
+        65280,
+        65535
+      ],
+      "for": "Content Evolved (Watanoge)",
+      "meaning": "all 26 bytes are Content Evolved's; another reader reads none of its own meanings from them (no MCC flag or version, no kind, no Delta tag) and shows the game as one it can't play",
+      "layout_informative": [
+        {
+          "bytes": [
+            0,
+            1
+          ],
+          "meaning": "0xFF00 plus the mod version (little-endian)"
+        },
+        {
+          "bytes": [
+            2
+          ],
+          "meaning": "flags, among them 0x08 skulls, 0x10 skull drops, 0x20 the randomizer, 0x40 a Tag Injector share"
+        },
+        {
+          "bytes": [
+            3,
+            14
+          ],
+          "meaning": "the randomizer's setup"
+        },
+        {
+          "bytes": [
+            15,
+            22
+          ],
+          "meaning": "the skulls, a bitmask"
+        },
+        {
+          "bytes": [
+            24,
+            25
+          ],
+          "meaning": "the host's real network version"
+        }
+      ],
+      "layout_note": "for information: Content Evolved's to change, and its own documentation is the reference"
+    }
+  },
   "platform_key_flags": [
     {
       "value": 1,
@@ -776,9 +923,10 @@
       },
       {
         "value": 64,
-        "name": null,
-        "meaning": "reserved for Content Evolved",
-        "status": "reserved, pending its pull request"
+        "name": "modded",
+        "meaning": "a Content Evolved modded game: stamp byte 1 is its mod version. Content Evolved lists it in its listing format 2, which OpenCE's and Chupathingy's builds don't read; a browser that reads it without the same mod version shows it as not playable",
+        "for": "Content Evolved (Watanoge)",
+        "status": "in use"
       },
       {
         "value": 128,
@@ -794,13 +942,15 @@
           "byte": 0,
           "name": "kind",
           "meaning": "the game's kind, from network version 37: an OpenCE game type in the low seven bits and Hardcore in bit 7 (versioning.md, Legacy versions). A host that announces an older number, and a closed listing, send 0",
-          "status": "in use"
+          "status": "in use",
+          "for": "OpenCE"
         },
         {
           "byte": 1,
-          "name": null,
-          "meaning": "reserved for Content Evolved",
-          "status": "reserved, pending its pull request"
+          "name": "mod_version",
+          "meaning": "with flag 64, Content Evolved's mod version, the low byte of its advertisement's version word; 0 otherwise",
+          "for": "Content Evolved (Watanoge)",
+          "status": "in use"
         },
         {
           "byte": 2,
