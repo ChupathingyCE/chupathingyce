@@ -583,15 +583,16 @@ static boolean preview_has_room(void)
 	return joining_count() <= preview_spots();
 }
 
-/* "Only 2 spots left in this game" */
-static void room_text(char *text, int size)
+/* "Only 2 spots left in this game", broken where the break is (" ", or a
+dialog's "\r\n") */
+static void room_text(char *text, int size, char const *line_break)
 {
 	short spots = preview_spots();
 
 	if (!spots)
-		snprintf(text, (size_t)size, "No spots left in this game");
+		snprintf(text, (size_t)size, "No spots left%sin this game", line_break);
 	else
-		snprintf(text, (size_t)size, "Only %d spot%s left in this game", spots, spots == 1 ? "" : "s");
+		snprintf(text, (size_t)size, "Only %d spot%s left%sin this game", spots, spots == 1 ? "" : "s", line_break);
 }
 
 /* "P1 name, P2 name": the players joining from here, on their profiles */
@@ -1277,7 +1278,7 @@ static void read_status(struct network_game_server *server)
 		break;
 	case _lobby_preview:
 		if (lobby.preview_game.open && !preview_has_room())
-			room_text(lobby.status, sizeof(lobby.status));
+			room_text(lobby.status, sizeof(lobby.status), " ");
 		else if (joining_count() > 1)
 		{
 			char joining[120];
@@ -1854,11 +1855,12 @@ boolean lobby_screen_add_players_finish(struct widget_instance *screen, short co
 	}
 	if (!preview_has_room())
 	{
+		/* (kept: the dialog shows the text after this returns) */
+		static wchar_t wide[64];
 		char text[64];
-		wchar_t wide[64];
 		int index;
 
-		room_text(text, sizeof(text));
+		room_text(text, sizeof(text), "\r\n");
 		for (index = 0; text[index] && index < (int)NUMBEROF(wide) - 1; index++)
 			wide[index] = (wchar_t)text[index];
 		wide[index] = 0;

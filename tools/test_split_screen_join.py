@@ -60,18 +60,20 @@ int main(void)
 	/* three won't fit */
 	joining = 3;
 	CHECK(!preview_has_room());
-	room_text(text, sizeof(text));
+	room_text(text, sizeof(text), " ");
 	CHECK(!strcmp(text, "Only 2 spots left in this game"));
+	room_text(text, sizeof(text), "\r\n");
+	CHECK(!strcmp(text, "Only 2 spots left\r\nin this game"));
 	/* one spot */
 	lobby.preview_game.players = 15;
-	room_text(text, sizeof(text));
+	room_text(text, sizeof(text), " ");
 	CHECK(!strcmp(text, "Only 1 spot left in this game"));
 	joining = 1;
 	CHECK(preview_has_room());
 	/* full, or more players than it takes (a host that shrank its game) */
 	lobby.preview_game.players = 17;
 	CHECK(preview_spots() == 0 && !preview_has_room());
-	room_text(text, sizeof(text));
+	room_text(text, sizeof(text), " ");
 	CHECK(!strcmp(text, "No spots left in this game"));
 	/* a game that doesn't say how many it takes: no check */
 	lobby.preview_game.maximum_players = 0;
@@ -147,10 +149,12 @@ def test_room_check_used():
     menu = function(LOBBY, "read_menu")
     assert "lobby.preview_game.open && preview_has_room()" in menu
     status = function(LOBBY, "read_status")
-    assert "room_text(lobby.status, sizeof(lobby.status));" in status
+    assert 'room_text(lobby.status, sizeof(lobby.status), " ");' in status
     finish = function(LOBBY, "lobby_screen_add_players_finish")
     assert "if (!preview_has_room())" in finish
     assert "display_error_text_deferred(wide, controller);" in finish
+    # (the dialog keeps the pointer: the text must outlive the call)
+    assert "static wchar_t wide[64];" in finish
 
 
 def test_main_menu_keeps_the_join(tmp_path):
