@@ -3861,6 +3861,23 @@ boolean network_game_client_advertised_game_compatible(
 #endif
 	if (theirs >= (unsigned int)delta_legacy_minimum() && theirs <= (unsigned int)delta_legacy_maximum() && distributed)
 	{
+#ifdef HALO_PORT_DELTA_WIRE_JOIN
+		/* (a host of another project's code, by its tag's layout 2: Delta
+		Peer, no wire, so its number decides, docs/delta/peer.md, "The tag") */
+		int major, project, project_version;
+
+		if (delta_compat_read_project(network_game_client_advertised_versions[game_index].reserved,
+			(int)sizeof(network_game_client_advertised_versions[game_index].reserved), &major, &project,
+			&project_version))
+		{
+			char const *name = delta_compat_project_name(project);
+
+			network_event("joining a Delta host of another project, %s (project %d, version %d), by network "
+				"version %u (this machine's is %u)", name ? name : "not in this build's registry", project,
+				project_version, theirs, ours);
+			return TRUE;
+		}
+#endif
 		if (theirs > (unsigned int)ours)
 		{
 			network_event("joining a host of network version %u, presumed additive (this machine's is %u)", theirs, ours);
@@ -3907,6 +3924,9 @@ boolean network_game_client_advertised_game_in_progress(
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
 /* port/linux/src/delta_compat.c's */
 int delta_compat_opence_server(unsigned char const *reserved, int size);
+int delta_compat_read_project(unsigned char const *reserved, int size, int *major, int *project,
+	int *project_version);
+char const *delta_compat_project_name(int project);
 
 /* port: whether the advertised game is an OpenCE dedicated server's (the
 dedicated flag of its version 39 and later, and no Delta): only a neutral
@@ -3920,6 +3940,23 @@ boolean network_game_client_advertised_game_opence_server(
 	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
 		delta_compat_opence_server(network_game_client_advertised_versions[game_index].reserved,
 			(int)sizeof(network_game_client_advertised_versions[game_index].reserved));
+}
+
+char const *network_game_client_advertised_game_project(
+	struct network_game_client *client,
+	struct network_advertised_game const *game)
+{
+	long game_index = client ? game - client->available_games : NONE;
+	int major, project, project_version;
+
+	if (game_index < 0 || game_index >= MAXIMUM_NETWORK_ADVERTISED_GAMES ||
+		!delta_compat_read_project(network_game_client_advertised_versions[game_index].reserved,
+			(int)sizeof(network_game_client_advertised_versions[game_index].reserved), &major, &project,
+			&project_version))
+	{
+		return NULL;
+	}
+	return delta_compat_project_name(project);
 }
 #endif
 
