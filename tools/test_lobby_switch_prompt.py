@@ -27,7 +27,7 @@ typedef int boolean;
 #define FALSE 0
 #define INVITE_TEXT_SIZE 256
 #define INVITE_CODE_SIZE 160
-#define MAXIMUM_DECLINED 8
+#define MAXIMUM_ANSWERED 8
 #define PASSWORD_LENGTH 32
 #define csstrncpy strncpy
 static void platform_log(char const *format, ...) { (void)format; }
@@ -38,7 +38,8 @@ static int p2p_locked_invite_waiting(void) { return 0; }
 static void password_close(void) {}
 static int browser_screen_invite_game(char const *a, char *b, long c, char *d, long e)
 { (void)a; (void)b; (void)c; (void)d; (void)e; return 0; }
-static boolean invite_declined(char const *text) { (void)text; return FALSE; }
+static boolean invite_answered(char const *text) { (void)text; return FALSE; }
+static void invite_answered_add(char const *text) { (void)text; }
 static unsigned long system_milliseconds(void) { return 0; }
 static void event_manager_flush(void) {}
 struct key_stroke { int key_code; char ascii_code; };

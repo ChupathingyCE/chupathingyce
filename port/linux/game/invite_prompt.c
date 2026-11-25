@@ -10,7 +10,9 @@ map when the game list knows them (browser_screen_invite_game), drawn and
 driven by code as Online Games is (browser_screen.c).
 
 A (Enter, or a click on YES) joins it; B (Escape, a click on NO or the
-right button) leaves it, and that invite is not asked about again this run.
+right button) leaves it. Either way that invite is not asked about again,
+in this run or the next (private/invites_answered.txt keeps the last few), so
+one left on the clipboard does not ask at every start.
 In a game with no menu up, a line at the top of the screen says the invite
 is waiting, and the question is asked once a menu (the pause menu) is up.
 
@@ -30,8 +32,12 @@ typing begins again.
 #include "../src/ui_overlay.h"
 #include "halo_ui_pointer.h"
 #include "halo_join_reasons.h"
+#include "../src/port_folders.h"
+
+#include <stdio.h>
 
 void platform_log(char const *format, ...);
+const char *platform_folder(enum port_folder folder);
 int platform_take_clipboard_invite(char *text, int size);
 void platform_text_field(int typing);
 int p2p_join_invite(char const *text);
@@ -57,8 +63,8 @@ enum
 	/* the dialog takes no A this soon after it opens (the A that opened
 	the pause menu, or a key still down) */
 	OPEN_SETTLE = 400,
-	/* the invites answered No, kept for this run */
-	MAXIMUM_DECLINED = 8,
+	/* the invites answered, kept across runs */
+	MAXIMUM_ANSWERED = 8,
 	INVITE_TEXT_SIZE = 256,
 	/* the invite's code as it is compared (after "halo://join/") */
 	INVITE_CODE_SIZE = 160,
@@ -119,9 +125,11 @@ static struct
 	char map[64];
 	/* the prompts' places, for the pointer (NO, then YES) */
 	float no_x0, no_x1, yes_x0, yes_x1;
-	/* the invites answered No */
-	char declined[MAXIMUM_DECLINED][INVITE_CODE_SIZE];
-	short declined_next;
+	/* the invites answered, Yes or No (private/invites_answered.txt), and
+	whether that file has been read */
+	char answered[MAXIMUM_ANSWERED][INVITE_CODE_SIZE];
+	short answered_next;
+	boolean answered_read;
 	/* asking for a locked invite's password (p2p_locked_invite_waiting): what
 	is typed, and whether the last one was wrong */
 	boolean password;
@@ -165,16 +173,79 @@ static void invite_code(
 	code[length] = 0;
 }
 
-static boolean invite_declined(
+/* the file of the invites answered, in the save root's private/; FALSE with
+none */
+static boolean invite_answered_path(
+	char *path,
+	long size)
+{
+	char const *folder = platform_folder(_port_folder_private);
+
+	return folder && folder[0] && snprintf(path, (size_t)size, "%s/invites_answered.txt", folder) < size;
+}
+
+/* the invites answered in earlier runs, read once: a code a line, oldest
+first */
+static void invite_answered_read(
+	void)
+{
+	char path[512];
+	char line[INVITE_CODE_SIZE + 2];
+	FILE *file;
+
+	if (invite_prompt.answered_read)
+		return;
+	invite_prompt.answered_read = TRUE;
+	if (!invite_answered_path(path, sizeof(path)) || !(file = fopen(path, "r")))
+		return;
+	while (fgets(line, sizeof(line), file))
+	{
+		line[strcspn(line, "\r\n")] = 0;
+		if (!line[0])
+			continue;
+		csstrncpy(invite_prompt.answered[invite_prompt.answered_next], line, INVITE_CODE_SIZE - 1);
+		invite_prompt.answered[invite_prompt.answered_next][INVITE_CODE_SIZE - 1] = 0;
+		invite_prompt.answered_next = (short)((invite_prompt.answered_next + 1) % MAXIMUM_ANSWERED);
+	}
+	fclose(file);
+}
+
+/* an invite answered: kept, with the others, for this run and the next */
+static void invite_answered_add(
+	char const *text)
+{
+	char path[512];
+	FILE *file;
+	short index;
+
+	invite_answered_read();
+	invite_code(text, invite_prompt.answered[invite_prompt.answered_next], INVITE_CODE_SIZE);
+	if (!invite_prompt.answered[invite_prompt.answered_next][0])
+		return;
+	invite_prompt.answered_next = (short)((invite_prompt.answered_next + 1) % MAXIMUM_ANSWERED);
+	if (!invite_answered_path(path, sizeof(path)) || !(file = fopen(path, "w")))
+		return;
+	for (index = 0; index < MAXIMUM_ANSWERED; index++)
+	{
+		char const *code = invite_prompt.answered[(invite_prompt.answered_next + index) % MAXIMUM_ANSWERED];
+
+		if (code[0])
+			fprintf(file, "%s\n", code);
+	}
+	fclose(file);
+}
+
+static boolean invite_answered(
 	char const *text)
 {
 	char code[INVITE_CODE_SIZE];
 	short index;
 
+	invite_answered_read();
 	invite_code(text, code, sizeof(code));
-	for (index = 0; code[0] && index < MAXIMUM_DECLINED; index++)
+	for (index = 0; code[0] && index < MAXIMUM_ANSWERED; index++)
 	{
-		if (!strcmp(invite_prompt.declined[index], code))
+		if (!strcmp(invite_prompt.answered[index], code))
 			return TRUE;
 	}
 	return FALSE;
@@ -195,18 +266,14 @@ static void answer(
 			ask_answer(join);
 		return;
 	}
+	invite_answered_add(invite_prompt.invite);
 	if (join)
 	{
 		platform_log("Internet play: joining the invite on the clipboard");
 		p2p_join_invite(invite_prompt.invite);
 	}
 	else
-	{
-		invite_code(invite_prompt.invite, invite_prompt.declined[invite_prompt.declined_next],
-			INVITE_CODE_SIZE);
-		invite_prompt.declined_next = (short)((invite_prompt.declined_next + 1) % MAXIMUM_DECLINED);
 		platform_log("Internet play: the invite on the clipboard is not joined");
-	}
 	invite_prompt.invite[0] = 0;
 }
 
@@ -483,8 +550,8 @@ void invite_prompt_update(
 	/* (another question waits its answer first) */
 	if (!invite_prompt.asking && platform_take_clipboard_invite(text, sizeof(text)))
 	{
-		if (invite_declined(text))
-			platform_log("Internet play: the invite on the clipboard was answered No before; not asked again");
+		if (invite_answered(text))
+			platform_log("Internet play: the invite on the clipboard was answered before; not asked again");
 		else
 		{
 			csstrncpy(invite_prompt.invite, text, sizeof(invite_prompt.invite) - 1);
