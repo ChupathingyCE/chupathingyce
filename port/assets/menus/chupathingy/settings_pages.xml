@@ -487,7 +487,7 @@
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/help_strings">
 		<string text=""/>
-		<string text="Show your Delta name to Chupathingy players."/>
+		<string text="Show your verified Delta name to Chupathingy players."/>
 		<string text="Report the games you join."/>
 		<string text="Report the games you host."/>
 		<string text="Send kills, weapons and medals as host."/>
