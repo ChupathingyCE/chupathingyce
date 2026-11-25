@@ -104,10 +104,12 @@ static unsigned long reader_word(struct reader *reader)
 static void copy_name(char *destination, size_t size, const char *source, unsigned long length)
 {
 	size_t count = length < size - 1 ? (size_t)length : size - 1;
+	size_t index;
 
-	memcpy(destination, source, count);
-	destination[count] = 0;
-	destination[strnlen(destination, count)] = 0;
+	/* (up to its first NUL, or count) */
+	for (index = 0; index < count && source[index]; index++)
+		destination[index] = source[index];
+	destination[index] = 0;
 }
 
 /* a string of the effect's (a length, then its characters) */
