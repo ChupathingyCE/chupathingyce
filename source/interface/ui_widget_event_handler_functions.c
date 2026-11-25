@@ -2476,11 +2476,19 @@ static boolean main_menu_initialize(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	player_ui_clear_multiplayer_joins();
-	player_ui_clear_multiplayer_variant();
-	dispose_global_network_game_client();
-	dispose_global_network_game_server();
-	network_game_accept_remote_connections(FALSE);
+#ifdef HALO_GAME_BROWSER
+	/* port: back from the preview's SELECT PROFILE over the main menu
+	(Online Games opened by an invite, Discord's Join or a party:
+	lobby_screen.c): the players picked and the game being joined stay */
+	if (!lobby_screen_adding_players())
+#endif
+	{
+		player_ui_clear_multiplayer_joins();
+		player_ui_clear_multiplayer_variant();
+		dispose_global_network_game_client();
+		dispose_global_network_game_server();
+		network_game_accept_remote_connections(FALSE);
+	}
 	player_spawn_count = 1;
 	/* port: as multiplayer_type_menu_initialize */
 	player_ui_reset_single_player_local_player_controllers();
