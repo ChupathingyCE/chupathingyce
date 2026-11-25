@@ -7343,7 +7343,9 @@ static void widget_instance_render_spinner_list(
 				rasterizer_draw_unicode_string(&bounds, &clip, NULL, 0, item_text);
 			}
 		}
-		if (definition->text_label_string_list.index != NONE)
+		/* port: none to give back when the pool had no room for it (the
+		Xbox's code gave back the NULL: an "invalid pointer" halt, #1832) */
+		if (definition->text_label_string_list.index != NONE && item_text)
 			dispose_pointer(widget_memory_pool, item_text);
 	}
 

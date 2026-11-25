@@ -105,6 +105,23 @@ int main(int argc, char **argv)
 		}
 		CHECK(medium.pool.block_count == 2, "%lu blocks for two text boxes", medium.pool.block_count);
 	}
+	CASE("spinner")
+	{
+		/* a spinner's item text, made and given back each frame: none made
+		when the pool is full, and none given back (#1832) */
+		struct widget_instance other = { { { NULL } } };
+		wchar_t *item_text;
+
+		draw(&other, "Find and join games hosted over the internet, on the list.");
+		draw(&widget, "SYSTEM LINK");
+		item_text = pool_new_pointer(widget_memory_pool, 200, __FILE__, __LINE__);
+		CHECK(!item_text && failed_allocations, "the pool was not full");
+		spinner_item_text_dispose(item_text);
+		item_text = pool_new_pointer(widget_memory_pool, 8, __FILE__, __LINE__);
+		CHECK(item_text, "no room for a short item");
+		spinner_item_text_dispose(item_text);
+		CHECK(medium.pool.block_count == 2, "%lu blocks after the spinner's", medium.pool.block_count);
+	}
 	CASE("kept")
 	{
 		/* (the text it had, until a block can be had) */
