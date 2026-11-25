@@ -101,7 +101,7 @@ struct ppgl_effect
 	long technique;
 	/* each parameter's value (its defaults' words, as D3DX keeps them) and
 	a texture parameter's texture */
-	unsigned long **values;
+	uint32_t **values;
 	GLuint *textures;
 	GLenum *texture_targets;
 	BOOL *texture_mipmapped;
@@ -155,7 +155,7 @@ static struct
 	GLuint empty_vertex_array, quad_vertex_array, quad_buffer, quad_indices;
 	GLuint black_texture;
 	struct ppgl_sampler samplers[PPGL_SAMPLER_CACHE];
-	int sampler_count;
+	int sampler_count, sampler_evict;
 	GLuint point_sampler, linear_sampler;
 	/* the stage drawing */
 	BOOL stage_active;
@@ -671,7 +671,7 @@ integer from a float's) */
 static void ppgl_value_write(struct ppgl_effect *effect, long parameter, int type, const void *values, int count)
 {
 	const struct d3d9_parameter *description;
-	const unsigned long *words = values;
+	const uint32_t *words = values;
 	int index;
 
 	if (parameter < 0 || !effect->values[parameter])
@@ -679,13 +679,13 @@ static void ppgl_value_write(struct ppgl_effect *effect, long parameter, int typ
 	description = &effect->effect.parameters[parameter];
 	for (index = 0; index < count && (unsigned long)index < description->default_count; index++)
 	{
-		unsigned long word = words[index];
+		uint32_t word = words[index];
 		BOOL given_float = type == _opensauce_pp_value_float || type == _opensauce_pp_value_argb_color ||
 			type == _opensauce_pp_value_matrix;
 
 		if (description->type == _d3d9_type_float && !given_float)
 		{
-			float value = (float)(long)word;
+			float value = (float)(int32_t)word;
 
 			memcpy(&word, &value, sizeof(word));
 		}
@@ -694,7 +694,7 @@ static void ppgl_value_write(struct ppgl_effect *effect, long parameter, int typ
 			float value;
 
 			memcpy(&value, &word, sizeof(value));
-			word = description->type == _d3d9_type_bool ? value != 0.0f : (unsigned long)(long)value;
+			word = description->type == _d3d9_type_bool ? value != 0.0f : (uint32_t)(int32_t)value;
 		}
 		effect->values[parameter][index] = word;
 	}
@@ -706,7 +706,7 @@ static void ppgl_semantic_set(struct ppgl_effect *effect, int semantic, const fl
 }
 
 /* a parameter's word as a float, by its type */
-static float ppgl_value_float(const struct d3d9_parameter *description, unsigned long word)
+static float ppgl_value_float(const struct d3d9_parameter *description, uint32_t word)
 {
 	float value;
 
@@ -717,7 +717,7 @@ static float ppgl_value_float(const struct d3d9_parameter *description, unsigned
 	}
 	if (description->type == _d3d9_type_bool)
 		return word ? 1.0f : 0.0f;
-	return (float)(long)word;
+	return (float)(int32_t)word;
 }
 
 /* constants (a table's) filled from the parameters by name: the float
@@ -733,7 +733,7 @@ static void ppgl_constants_fill(struct ppgl_effect *effect, const struct d3d9_co
 		const struct d3d9_constant *constant = &constants[index];
 		long parameter = d3d9_effect_parameter_find(&effect->effect, constant->name);
 		const struct d3d9_parameter *description;
-		const unsigned long *words;
+		const uint32_t *words;
 		unsigned long rows, columns, elements, element, register_index = 0;
 
 		if (parameter < 0 || !effect->values[parameter])
@@ -743,9 +743,12 @@ static void ppgl_constants_fill(struct ppgl_effect *effect, const struct d3d9_co
 		rows = description->rows ? description->rows : 1;
 		columns = description->columns ? description->columns : 1;
 		elements = description->elements ? description->elements : 1;
+		/* (only as many as its value holds: a constant table may say more) */
+		if (rows * columns * elements > description->default_count)
+			elements = description->default_count / (rows * columns);
 		for (element = 0; element < elements; element++)
 		{
-			const unsigned long *element_words = words + element * rows * columns;
+			const uint32_t *element_words = words + element * rows * columns;
 			unsigned long major, minor, majors, minors;
 			BOOL by_columns = constant->klass == _d3d9_class_matrix_columns;
 
@@ -759,7 +762,7 @@ static void ppgl_constants_fill(struct ppgl_effect *effect, const struct d3d9_co
 					break;
 				for (minor = 0; minor < minors && minor < 4; minor++)
 				{
-					unsigned long word = by_columns ? element_words[minor * columns + major] :
+					uint32_t word = by_columns ? element_words[minor * columns + major] :
 						element_words[major * columns + minor];
 
 					if (constant->regset == _d3d9_regset_float4 && reg < float_registers)
@@ -767,7 +770,7 @@ static void ppgl_constants_fill(struct ppgl_effect *effect, const struct d3d9_co
 					else if (constant->regset == _d3d9_regset_int4 && reg < D3D9_SHADER_INT_REGISTERS && ints)
 					{
 						ints[reg * 4 + minor] = (int)(description->type == _d3d9_type_float ?
-							(long)ppgl_value_float(description, word) : (long)word);
+							(int32_t)ppgl_value_float(description, word) : (int32_t)word);
 						/* (a lone integer as a loop counter: start 0, step 1) */
 						if (minors == 1)
 						{
@@ -867,12 +870,17 @@ static GLuint ppgl_sampler_get(const struct d3d9_parameter *sampler, BOOL mipmap
 		color[3] = (float)((border >> 24) & 0xFF) / 255.0f;
 		glSamplerParameterfv(object, GL_TEXTURE_BORDER_COLOR, color);
 	}
+	/* (kept for the next ask; when the cache is full, the oldest let go:
+	no draw is still bound to it, as each pass binds its own) */
 	if (ppgl.sampler_count < PPGL_SAMPLER_CACHE)
+		index = ppgl.sampler_count++;
+	else
 	{
-		ppgl.samplers[ppgl.sampler_count].key = key;
-		ppgl.samplers[ppgl.sampler_count].sampler = object;
-		ppgl.sampler_count++;
+		index = ppgl.sampler_evict++ % PPGL_SAMPLER_CACHE;
+		glDeleteSamplers(1, &ppgl.samplers[index].sampler);
 	}
+	ppgl.samplers[index].key = key;
+	ppgl.samplers[index].sampler = object;
 	return object;
 }
 
@@ -1135,9 +1143,9 @@ long halo_opensauce_pp_effect_load(const void *binary, unsigned long size, const
 
 		if (description->default_count)
 		{
-			effect->values[parameter] = malloc(description->default_count * sizeof(unsigned long));
+			effect->values[parameter] = malloc(description->default_count * sizeof(uint32_t));
 			if (effect->values[parameter])
-				memcpy(effect->values[parameter], description->defaults, description->default_count * sizeof(unsigned long));
+				memcpy(effect->values[parameter], description->defaults, description->default_count * sizeof(uint32_t));
 		}
 	}
 	for (semantic = 0; semantic < NUMBER_OF_PPGL_SEMANTICS; semantic++)
@@ -1153,11 +1161,11 @@ long halo_opensauce_pp_effect_load(const void *binary, unsigned long size, const
 	}
 	{
 		/* the G-buffer's channels (GBuffer.hpp) */
-		static const unsigned long channels[] = { 0, 0, 1, 0, 1, 2, 3 };
+		static const uint32_t channels[] = { 0, 0, 1, 0, 1, 2, 3 };
 
 		for (semantic = _ppgl_semantic_depth_x; semantic <= _ppgl_semantic_index_y; semantic++)
 		{
-			unsigned long value = channels[semantic - _ppgl_semantic_depth_x];
+			uint32_t value = channels[semantic - _ppgl_semantic_depth_x];
 
 			ppgl_value_write(effect, effect->semantics[semantic], _opensauce_pp_value_integer, &value, 1);
 		}
@@ -1217,6 +1225,7 @@ int halo_opensauce_pp_stage_begin(const struct opensauce_pp_frame *frame, int st
 	(void)stage;
 	if (!halo_opensauce_pp_available() || !ppgl_prepare())
 		return FALSE;
+	ppgl_log_once(5, "a stage begun (the map has post-processing)");
 	target = render_target_get(&device.back_buffer);
 	if (!target || target->target.gl_width < 8 || target->target.gl_height < 8)
 		return FALSE;

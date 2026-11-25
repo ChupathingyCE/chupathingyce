@@ -384,7 +384,7 @@ static const struct config_setting config_settings[] =
 		"Draw the post-processing an OpenSauce map carries (SPV3's look: its\n"
 		"bloom, tone mapping, depth of field, ambient occlusion, visor and the\n"
 		"rest of its effects), with the OpenGL renderer. Only maps that have it\n"
-		"change; false draws them without it." },
+		"change; false draws them without it, for performance." },
 	{ "display.hdr_output", _config_boolean, "false", "HALO_HDR_OUTPUT", _environment_value, _platform_desktop,
 		"With display.hdr, send HDR to a display that has it (the operating\n"
 		"system's HDR must be on): the bgfx renderer's HDR10 swap chain, or\n"

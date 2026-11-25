@@ -198,6 +198,7 @@ context has the extension, never required (gl_functions.c). On ES 3.0 and
 	X(glTexParameterf) \
 	X(glTexParameterfv) \
 	X(glGenSamplers) \
+	X(glDeleteSamplers) \
 	X(glBindSampler) \
 	X(glSamplerParameteri) \
 	X(glSamplerParameterf) \
@@ -440,6 +441,7 @@ pointers, sees the declarations without these aliases */
 #define glTexParameterf halo_glTexParameterf
 #define glTexParameterfv halo_glTexParameterfv
 #define glGenSamplers halo_glGenSamplers
+#define glDeleteSamplers halo_glDeleteSamplers
 #define glBindSampler halo_glBindSampler
 #define glSamplerParameteri halo_glSamplerParameteri
 #define glSamplerParameterf halo_glSamplerParameterf

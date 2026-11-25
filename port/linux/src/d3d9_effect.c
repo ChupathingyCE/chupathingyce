@@ -58,6 +58,10 @@ enum
 	MAXIMUM_OUTPUTS = 12,
 	/* a rep or loop's most iterations, as Direct3D 9 has it */
 	MAXIMUM_LOOP_ITERATIONS = 255,
+	/* the most a translation takes: ifs and loops inside one another (fxc
+	allows 24), and the text's size (SPV3's largest is under 64 KB) */
+	MAXIMUM_NESTING = 64,
+	MAXIMUM_GLSL_SIZE = 1024 * 1024,
 };
 
 static const char *const usage_names[NUMBER_OF_USAGES] =
@@ -386,6 +390,10 @@ static int shader_read(const unsigned char *data, unsigned long size, struct d3d
 			if (end > preshader->input_components)
 				preshader->input_components = end;
 		}
+		/* (its inputs are as many as a shader's registers at most: a table
+		that says more is not one fxc wrote) */
+		if (preshader->input_components > D3D9_SHADER_FLOAT_REGISTERS * 4)
+			return 0;
 		shader->has_preshader = 1;
 	}
 	return 1;
@@ -958,8 +966,11 @@ static void text_append(struct text *text, const char *format, ...)
 	va_list arguments;
 	int needed;
 
-	if (text->failed)
+	if (text->failed || text->length > MAXIMUM_GLSL_SIZE)
+	{
+		text->failed = 1;
 		return;
+	}
 	for (;;)
 	{
 		va_start(arguments, format);
@@ -1676,12 +1687,16 @@ static void instruction_translate(struct translation *t, const uint32_t *tokens,
 		source_text(t, tokens, &cursor, end, 0, a, sizeof(a));
 		text_append(t->current, "\tif (%s%s) {\n", a, strncmp(a, "bvec4", 5) && strncmp(a, "not(", 4) ? "" : ".x");
 		t->depth++;
+		if (t->depth > MAXIMUM_NESTING)
+			translation_fail(t, "ifs and loops nested past %d", MAXIMUM_NESTING);
 		return;
 	case OP_IFC:
 		source_text(t, tokens, &cursor, end, 0, a, sizeof(a));
 		source_text(t, tokens, &cursor, end, 0, b, sizeof(b));
 		text_append(t->current, "\tif ((%s).x %s (%s).x) {\n", a, comparison_text(control), b);
 		t->depth++;
+		if (t->depth > MAXIMUM_NESTING)
+			translation_fail(t, "ifs and loops nested past %d", MAXIMUM_NESTING);
 		return;
 	case OP_ELSE:
 		text_append(t->current, "\t} else {\n");
@@ -1701,6 +1716,8 @@ static void instruction_translate(struct translation *t, const uint32_t *tokens,
 		text_append(t->current, "\tfor (int k%d = 0; k%d < min(int((%s).x), %d); k%d++) {\n", serial, serial, a,
 			MAXIMUM_LOOP_ITERATIONS, serial);
 		t->depth++;
+		if (t->depth > MAXIMUM_NESTING)
+			translation_fail(t, "ifs and loops nested past %d", MAXIMUM_NESTING);
 		return;
 	}
 	case OP_LOOP:
@@ -1713,6 +1730,8 @@ static void instruction_translate(struct translation *t, const uint32_t *tokens,
 			"\taL = int((%s).y) + k%d * int((%s).z);\n", serial, serial, a, MAXIMUM_LOOP_ITERATIONS, serial, a,
 			serial, a);
 		t->depth++;
+		if (t->depth > MAXIMUM_NESTING)
+			translation_fail(t, "ifs and loops nested past %d", MAXIMUM_NESTING);
 		return;
 	}
 	case OP_BREAK:
@@ -2063,7 +2082,7 @@ char *d3d9_shader_glsl(const struct d3d9_shader *shader, const struct d3d9_glsl_
 	if (t->failed || t->main_text.failed || t->label_text.failed)
 	{
 		if (!t->failed)
-			translation_fail(t, "out of memory");
+			translation_fail(t, "the GLSL is too long, or out of memory");
 		goto done;
 	}
 
@@ -2193,7 +2212,7 @@ char *d3d9_shader_glsl(const struct d3d9_shader *shader, const struct d3d9_glsl_
 	text_append(&out, "}\n");
 	if (out.failed)
 	{
-		translation_fail(t, "out of memory");
+		translation_fail(t, "the GLSL is too long, or out of memory");
 		free(out.buffer);
 		goto done;
 	}
