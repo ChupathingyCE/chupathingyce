@@ -708,17 +708,16 @@ BOOL platform_sdl_initialize(void)
 	/* touching the screen must not aim or fire (the mouse drives the
 	controller emulation in xinput_sdl.c) */
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
-	/* raw USB HID controller input: bypasses Android's InputReader for
-	hardware polling rates and trigger impulse rumble */
+	/* input.raw_hid: USB controllers read by SDL's own drivers (HIDAPI)
+	instead of through Android's input system, for their full rate and
+	the Xbox controllers' trigger rumble. SDL leaves this off on Android
+	because it asks the player for each controller and then holds it for
+	itself; with it on, SDL's Java side (HIDDeviceManager) asks for the
+	USB controllers its drivers know (Xbox, PlayStation, Switch Pro,
+	8BitDo and others) as they are opened, and Bluetooth stays as it was.
+	(before SDL_Init: the joystick subsystem reads it as it starts) */
 	if (config_boolean("input.raw_hid"))
-	{
 		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "1");
-		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX, "1");
-		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4, "1");
-		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "1");
-		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_SWITCH, "1");
-		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_WII, "1");
-	}
 #endif
 #ifdef HALO_GAME_BROWSER
 	/* the dedicated server and a probe play no sound and need no display
@@ -3640,18 +3639,6 @@ void platform_pump_events(void)
 	gamepad_pumps++;
 	while (SDL_PollEvent(&event))
 	{
-#ifdef HALO_ANDROID
-		if (event.type >= SDL_EVENT_GAMEPAD_AXIS_MOTION && event.type <= SDL_EVENT_GAMEPAD_BUTTON_UP)
-		{
-			static Uint64 last_log_ns;
-			Uint64 now_ns = SDL_GetTicksNS();
-			if (now_ns - last_log_ns >= 50000000ULL) /* 50ms interval samples (20 Hz) */
-			{
-				Uint64 delta_us = (now_ns > event.common.timestamp) ? (now_ns - event.common.timestamp) / 1000 : 0;
-				platform_log("[RAW-HID-LATENCY] pad=%u event=%u delta=%llu us",
-					(unsigned)event.gaxis.which, (unsigned)event.type, (unsigned long long)delta_us);
-				last_log_ns = now_ns;
-			}
 #ifndef HALO_ANDROID
 		/* (the refresh rate read again: frame_interval_ns) */
 		if (event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED ||
@@ -3919,7 +3906,7 @@ void platform_pump_events(void)
 			break;
 #endif
 		case SDL_EVENT_GAMEPAD_ADDED:
-#if defined(HALO_ANDROID) && !defined(HALO_IOS)
+#if defined(HALO_ANDROID) && !defined(HALO_IOS) && !defined(HALO_64BIT)
 			/* (the guest reaches SDL only through host_imports.list, which
 			has no SDL_GetGamepadName) */
 			SDL_OpenGamepad(event.gdevice.which);
@@ -3928,12 +3915,20 @@ void platform_pump_events(void)
 				SDL_Gamepad *gamepad = SDL_OpenGamepad(event.gdevice.which);
 
 				/* (which pads the game drives: under Steam Input, Steam's
-				virtual ones, named for the controllers behind them) */
+				virtual ones, named for the controllers behind them; on
+				Android, whether SDL reads it over USB itself, input.raw_hid,
+				which only its own drivers give a path) */
 				if (gamepad)
 				{
 					const char *name = SDL_GetGamepadName(gamepad);
 
+#if defined(HALO_ANDROID) && !defined(HALO_IOS)
+					platform_log("gamepad: %s (%04x:%04x, %s)", name ? name : "(unnamed)",
+						SDL_GetGamepadVendor(gamepad), SDL_GetGamepadProduct(gamepad),
+						SDL_GetGamepadPath(gamepad) ? "USB, SDL's driver" : "Android's input");
+#else
 					platform_log("gamepad: %s", name ? name : "(unnamed)");
+#endif
 				}
 			}
 #endif
