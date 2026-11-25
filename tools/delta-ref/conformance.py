@@ -9,8 +9,13 @@ docs/delta/ports.md. Python 3 alone, nothing to install.
         datagrams the port sent to a host's Delta port (5160): a file of hex,
         one datagram a line (spaces and "0x" allowed, # starts a comment), or
         a .bin file of one datagram
+    conformance.py check --host FILE...
+        the same, for datagrams a port's host sent its clients (WELCOME,
+        LEGACY, ROSTER, BYE)
     conformance.py advert HEX
-        a hosted game's 26 reserved advertisement bytes, as hex
+        a hosted game's 26 reserved advertisement bytes, as hex: OpenCE's
+        fields alone, or with a port host's tag (layout 2, docs/delta/ports.md "If you
+        host games from your port")
     conformance.py announce FORM
         the form a host posts to /v1/announce (or just its Delta fields)
     conformance.py listen [--port 5160] [--seconds 60]
@@ -19,6 +24,11 @@ docs/delta/ports.md. Python 3 alone, nothing to install.
         checks everything the port sends, and says at the end whether the
         port passed. It plays no game: point the port's Delta socket at it
         by hand. For the real thing, run loopback_host.sh.
+    conformance.py listen --project N [--project-version V] [--announce 44]
+        the same stand-in, as a port host of project N (docs/delta/registry.md,
+        "Projects"): it prints the advertisement bytes such a host writes,
+        to feed a client's advertisement reader, and its WELCOME names no
+        Chupathingy build.
 
 Exit status 0 when everything passed, 1 when something failed. Warnings
 (things a port may do but should know about) don't fail."""
@@ -60,6 +70,36 @@ PLATFORMS = _platform_keys()
 LEGACY_OLDEST = 11
 LEGACY_NEWEST_KNOWN = 45
 DELTA_FIELDS = ("delta", "platform_key", "arch", "build", "capabilities")
+# the tag at the advertisement's tail (docs/delta/peer.md, "The tag"): layout 1 is a
+# build of Chupathingy's code (a wire), layout 2 a port host (a project)
+TAG_OFFSET = 17
+TAG_LAYOUT_WIRE = 1
+TAG_LAYOUT_PROJECT = 2
+MODDED_VERSION = 0xFF00
+# host-to-client types a port's host sends in the minimum kit
+HOST_TYPES = {2, 3, 4, 5}
+
+
+def _projects():
+    import json, pathlib
+    path = pathlib.Path(__file__).resolve().parent.parent.parent / "docs" / "delta" / "registry.json"
+    rows = json.loads(path.read_text(encoding="utf-8"))["projects"]["list"]
+    return {int(row["number"]): row["name"] for row in rows if row["name"]}
+
+
+PROJECTS = _projects()
+
+
+def tag_check(tag):
+    check = 0xA5
+    for byte in tag[:8]:
+        check ^= byte
+    return check
+
+
+def project_tag(project, version):
+    tag = bytes([0x44, 0x4C, MAJOR, TAG_LAYOUT_PROJECT, project, version & 0xFF, version >> 8, 0])
+    return tag + bytes([tag_check(tag)])
 
 
 class Report:
@@ -209,11 +249,93 @@ def read_datagrams(path):
     return datagrams
 
 
+def check_host_datagram(report, where, data):
+    """one datagram from a port's host to a client: its header, then its
+    message (WELCOME, LEGACY, ROSTER or BYE)"""
+    if len(data) < HEADER or data[:2] != b"DP":
+        report.fail(where, "not a Delta Peer datagram (the magic, or under the 12-byte header)")
+        return
+    if len(data) > MAXIMUM_DATAGRAM:
+        report.fail(where, f"{len(data)} bytes: over the {MAXIMUM_DATAGRAM} a datagram may be")
+    major, kind, length, reserved, session = struct.unpack_from("<BBHHI", data, 2)
+    payload = data[HEADER:]
+    if length != len(payload):
+        report.fail(where, f"payload length {length}, but {len(payload)} bytes follow the header")
+        return
+    if reserved:
+        report.fail(where, f"header bytes 6 and 7 are 0x{reserved:04x}, not 0")
+    if not session:
+        report.fail(where, "session 0: a host answers with the client's own session, never 0")
+    if kind == 3:
+        if payload:
+            report.warn(where, f"LEGACY with {len(payload)} payload bytes (it has none)")
+        report.ok(where, f"LEGACY of major {major}")
+        return
+    if major != MAJOR:
+        report.fail(where, f"major {major}, not {MAJOR} (only LEGACY goes out under another major)")
+    if kind not in HOST_TYPES:
+        name = TYPES.get(kind)
+        if name:
+            report.fail(where, f"{name} is a client's to send, not a host's")
+        else:
+            report.warn(where, f"message type {kind}: not in the minimum kit (fine if you built that feature)")
+        return
+    if kind == 5:
+        report.ok(where, "BYE")
+        return
+    failed = report.failed
+    if kind == 2:
+        if len(payload) < 24:
+            report.fail(where, f"WELCOME payload of {len(payload)} bytes, under its 24 fixed ones")
+            return
+        offered, agreed, legacy, machine, size, serial = struct.unpack_from("<IIHBBI", payload)
+        if size > BUILD_MOST or len(payload) < 24 + size:
+            report.fail(where, f"build length {size}: at most {BUILD_MOST}, and the bytes must follow")
+            return
+        build = payload[24:24 + size]
+        if agreed & ~offered:
+            report.fail(where, f"agreed 0x{agreed:08x} has bits the host didn't offer (0x{offered:08x})")
+        for bit, name in NEVER_SAID.items():
+            if offered & (1 << bit):
+                report.fail(where, f"capability bit {bit}, {name}, in a WELCOME")
+        if offered & ~1:
+            report.warn(where, f"capabilities past platform (0x{offered:08x}): agree only to what you speak in full")
+        if any(byte < 0x20 or byte > 0x7E for byte in build):
+            report.fail(where, f"build text {build!r} is not printable ASCII")
+        if build.lower().startswith(b"chupa-") or b"chupathingy" in build.lower():
+            report.fail(where, f"build text {build!r} names Chupathingy: say your own project and version")
+        if legacy < LEGACY_OLDEST:
+            report.fail(where, f"network version {legacy}: our builds play {LEGACY_OLDEST} and later")
+        if serial != 0xFFFFFFFF:
+            report.warn(where, f"legacy table serial {serial}: 0xFFFFFFFF unless your host checks signed tables")
+        key_text = check_key(report, where, payload[16:24])
+        (report.ok if report.failed == failed else report.seen)(where, f"WELCOME: build "
+            f"{build.decode('ascii', 'replace')!r}, network version {legacy}, host machine {machine}, offered "
+            f"0x{offered:08x}, agreed 0x{agreed:08x}; {key_text}")
+        return
+    if len(payload) < 12:
+        report.fail(where, f"ROSTER payload of {len(payload)} bytes, under its 12 fixed ones")
+        return
+    room, players, count = struct.unpack_from("<IB3xB", payload)
+    if count > 32 or len(payload) < 12 + 36 * count:
+        report.fail(where, f"ROSTER of {count} entries in {len(payload)} bytes: at most 32, 36 bytes each")
+        return
+    for index in range(count):
+        machine, flags = payload[12 + 36 * index], payload[13 + 36 * index]
+        if flags & ~0x07:
+            report.fail(where, f"entry {index} (machine {machine}): flags 0x{flags:02x}, only 0x01 to 0x04 exist")
+    (report.ok if report.failed == failed else report.seen)(where, f"ROSTER: {count} machine(s), room "
+        f"capabilities 0x{room:08x}, room's player limit {players or 'none said'}")
+
+
 def command_check(args):
     report = Report()
     for path in args.files:
         session = None
         for number, data in enumerate(read_datagrams(path), 1):
+            if args.host:
+                check_host_datagram(report, f"{path}:{number}", data)
+                continue
             result = check_datagram(report, f"{path}:{number}", data, session)
             if result and result.get("type") == 1:
                 session = result["session"]
@@ -228,6 +350,10 @@ def command_advert(args):
         report.fail(where, f"{len(data)} bytes, not the 26 (0x1A) reserved bytes")
         return report
     version, flags, kind = struct.unpack_from("<HBB", data)
+    if version >= MODDED_VERSION:
+        report.ok(where, f"version word 0x{version:04x}: a Content Evolved modded game, whose 26 bytes are its "
+                  "own (nothing else checked)")
+        return report
     if version < LEGACY_OLDEST:
         report.fail(where, f"network version {version}: our clients join {LEGACY_OLDEST} and later")
     if flags & ~0x07:
@@ -239,12 +365,37 @@ def command_advert(args):
                     "or later sets it")
     if kind and version < 37:
         report.fail(where, f"game kind {kind} below version 37 (the byte was zero then)")
-    if any(data[17:26]):
-        report.fail(where, "bytes 17 to 25 (Delta's tag) are not zero: a port has no wire ID of its own, so it "
-                    "writes no tag")
-    if any(data[4:17]):
+    tag = data[TAG_OFFSET:]
+    said = "no Delta tag: our clients join by your number and say no HELLO"
+    if any(tag):
+        said = "the tag is not valid"
+        if tag[:2] != b"DL":
+            report.fail(where, "bytes 17 to 25 are neither zero nor a tag ('D', 'L' first)")
+        elif tag[8] != tag_check(tag):
+            report.fail(where, f"the tag's check is 0x{tag[8]:02x}, not 0x{tag_check(tag):02x} (0xA5 xor the "
+                        "eight bytes before)")
+        elif tag[3] == TAG_LAYOUT_WIRE:
+            report.fail(where, "a layout 1 tag names a wire, a revision of Chupathingy's own game code: a port "
+                        "host writes layout 2, with its project")
+        elif tag[3] != TAG_LAYOUT_PROJECT:
+            report.fail(where, f"tag layout {tag[3]}: a port host writes layout {TAG_LAYOUT_PROJECT}")
+        else:
+            project, project_version, spare = tag[4], tag[5] | tag[6] << 8, tag[7]
+            if tag[2] != MAJOR:
+                report.fail(where, f"the tag's major is {tag[2]}, not {MAJOR}: say the major you answer HELLO with")
+            if project <= 1:
+                report.fail(where, f"project {project}: {'none' if not project else 'Chupathingy, whose builds write layout 1'}; "
+                            "ask for your project's number (docs/delta/registry.md, Projects)")
+            elif project not in PROJECTS:
+                report.fail(where, f"project {project} is not in the registry: ask for a number, never pick one")
+            if spare:
+                report.fail(where, f"tag byte 7 (byte 24) is 0x{spare:02x}: reserved, write 0")
+            said = (f"a port host's tag: project {project} ({PROJECTS.get(project, 'not in the registry')}), its "
+                    f"version {project_version}; our clients say HELLO and join by your number")
+    if any(data[4:TAG_OFFSET]):
         report.warn(where, "bytes 4 to 16 are not zero (nothing is defined there for a port)")
-    report.ok(where, f"network version {version}, flags 0x{flags:02x}, kind {kind}")
+    (report.ok if not report.failed else report.seen)(where, f"network version {version}, flags 0x{flags:02x}, "
+                                                        f"kind {kind}; {said}")
     return report
 
 
@@ -278,10 +429,8 @@ def command_announce(args):
     return report
 
 
-def welcome(session, capabilities, legacy):
-    build = b"conformance host"
+def welcome(session, capabilities, legacy, build=b"conformance host", host_caps=0x03FBEDDF):
     key = bytes([3, 1, 0x02, 16, 128, 128, 12, 0])
-    host_caps = 0x03FBEDDF
     payload = struct.pack("<IIHBBI", host_caps, host_caps & capabilities & 1, legacy, 0xFF, len(build), 0xFFFFFFFF)
     payload += key + build + struct.pack("<I", 0)
     return struct.pack("<2sBBHHI", b"DP", MAJOR, 2, len(payload), 0, session) + payload
@@ -298,6 +447,20 @@ def command_listen(args):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("127.0.0.1", args.port))
     sock.settimeout(0.25)
+    build = b"conformance host"
+    offered = 0x03FBEDDF
+    if args.project is not None:
+        if args.project <= 1 or args.project > 255 or not 0 <= args.project_version <= 0xFFFF:
+            report.fail("listen", "--project is 2 to 255 (docs/delta/registry.md, Projects), --project-version 0 to 65535")
+            sock.close()
+            return report
+        name = PROJECTS.get(args.project, f"project {args.project}")
+        reserved = struct.pack("<HBB", args.announce, 0x01, 0) + bytes(13) + project_tag(args.project,
+                                                                                        args.project_version)
+        build = f"{name} test host {args.project_version}".encode("ascii", "replace")[:BUILD_MOST]
+        offered = 1
+        print(f"as a port host of {name} (project {args.project}), announcing {args.announce}; its advertisement's "
+              f"reserved bytes:\n{reserved.hex()}")
     print(f"listening on 127.0.0.1:{args.port} for {args.seconds} s (this machine only)")
     sessions = {}
     end = time.monotonic() + args.seconds
@@ -324,7 +487,7 @@ def command_listen(args):
             known = (source, result["session"]) in sessions
             sessions[(source, result["session"])] = {"machine": result["machine"], "key": key, "roster": 0.0,
                                                      "capabilities": result["capabilities"]}
-            sock.sendto(welcome(result["session"], result["capabilities"], result["legacy"]), source)
+            sock.sendto(welcome(result["session"], result["capabilities"], result["legacy"], build, offered), source)
             if not known:
                 welcomed += 1
         elif result["type"] == 5:
@@ -341,6 +504,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser("check")
+    check.add_argument("--host", action="store_true", help="the datagrams are a host's, to its clients")
     check.add_argument("files", nargs="+")
     advert = sub.add_parser("advert")
     advert.add_argument("hex")
@@ -349,6 +513,9 @@ def main():
     listen = sub.add_parser("listen")
     listen.add_argument("--port", type=int, default=5160)
     listen.add_argument("--seconds", type=float, default=60.0)
+    listen.add_argument("--project", type=int, help="act as a port host of this project (docs/delta/registry.md, Projects)")
+    listen.add_argument("--project-version", type=int, default=0)
+    listen.add_argument("--announce", type=int, default=44, help="the network version its advertisement says")
     args = parser.parse_args()
     report = {"check": command_check, "advert": command_advert, "announce": command_announce,
               "listen": command_listen}[args.command](args)

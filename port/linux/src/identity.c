@@ -260,6 +260,19 @@ int identity_check_issuer(const unsigned char *data, int size, const unsigned ch
 	return in_date(issuer->valid_from, issuer->valid_until, now);
 }
 
+int identity_issuer_signed_by(const unsigned char *data, int size, const unsigned char *root)
+{
+	struct identity_issuer issuer;
+
+	return identity_parse_issuer(data, size, &issuer) && !all_zero(root, IDENTITY_KEY_SIZE) &&
+		signed_by(root, issuer_label, data, 48, data + 48);
+}
+
+int identity_key_weak(const unsigned char *public_key)
+{
+	return small_order(public_key);
+}
+
 int identity_parse_device(const unsigned char *data, int size, struct identity_device *device)
 {
 	int length, index;

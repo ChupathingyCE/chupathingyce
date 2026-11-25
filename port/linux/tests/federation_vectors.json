@@ -1,0 +1,89 @@
+{
+  "note": "TEST keys only. Each seed is SHA-256 of its text. The chupathingy.org network here uses link.md's test root and its CISS/CDEV vectors (identity_vectors.json); none of these keys is any network's real key.",
+  "now": 1790200000,
+  "home": "chupathingy.org",
+  "chupathingy.org": {
+    "root_primary_seed_text": "chupathingy test identity root",
+    "root_recovery_seed_text": "open network test root chupathingy.org recovery",
+    "root_primary": "12762975a2781f981d53c9bfd7625f10b56137eee3235fb5f3eb92c966f023fa",
+    "root_recovery": "bd5644c3fd79b6e348885e4749c994bca61357f4dde6395da121bf68578bb8a5",
+    "roots_json": "{\n  \"open_network_roots\": 1,\n  \"domain\": \"chupathingy.org\",\n  \"roots\": [\n    {\n      \"key\": \"12762975a2781f981d53c9bfd7625f10b56137eee3235fb5f3eb92c966f023fa\",\n      \"use\": \"primary\",\n      \"until\": 0,\n      \"proof\": \"563a4d3825a2f078f8c927496e402881e0e0d72f73d8e465ca7b4499658b8d10949711f11646ef05c025eadeb0943860cb9164a58d1fbec294917762962cbd0d\"\n    },\n    {\n      \"key\": \"bd5644c3fd79b6e348885e4749c994bca61357f4dde6395da121bf68578bb8a5\",\n      \"use\": \"recovery\",\n      \"until\": 1893456000,\n      \"proof\": \"3d33dc1bd8de2c559d1b341eeed32543ef5b0c459c74cf49ba70ee90631d1b7a86e70165ce0311dd564da4eb34f161db0abd6ed2587e3391b779eff2c2972b0b\"\n    }\n  ],\n  \"revoked\": \"https://stats.chupathingy.org/v1/identity/revoked\"\n}\n",
+    "issuer_certificate": "4349535301000000803bb16a80e2276bfc284aa53690a1b91984e67b1820c0a28452dafbc58ed107d40066ad47814d9038cc84f430b86054d1ede8b53244a90bda00b6012d4df101a0e00f5d388af8193c95238b1498d9fbd9314d4226ca2e6d40332529ea8163ad127e579cc26dcc0c",
+    "device_certificate": "434445560101070120c2b26aa0fcbb6a010203040506070848810d1682965a4631ea6b25b20006a252c816cd2077ff5bf6bcb81b396cf7f3cb5519a437d3699adc4ed40f2e4d22f30c3bfecb6ffcca8e1f0000006d696c656e6b6f359728fbc634431278f9352410620d865f517ebad416d36e0c845cdc85613fb2e8867b8ff2b8fe26c1d7b5b9abb3d99c462edea4d82ad78c975c6b970f239b02"
+  },
+  "example.org": {
+    "root_primary_seed_text": "open network test root example.org primary",
+    "root_recovery_seed_text": "open network test root example.org recovery",
+    "issuer_seed_text": "open network test issuer example.org",
+    "device_seed_text": "open network test device example.org",
+    "account_text": "open network test account example.org",
+    "root_primary": "8b2f06a8475780f3e0f47305f664da217859814835b40e8bc548be9618e8f50a",
+    "root_recovery": "206cda82c7d1924ba2df99f33dd49455e0c7fb757d6a87ee1260975628fc9ac7",
+    "issuer_public": "c994e468a0f5cf4c5af13785917116fb52f828cd5a60090711822af2ec755280",
+    "device_public": "9e20e8816af54355816c94e57001567fb213513d77da48f71c6a34de6ea4b678",
+    "roots_json": "{\n  \"open_network_roots\": 1,\n  \"domain\": \"example.org\",\n  \"roots\": [\n    {\n      \"key\": \"8b2f06a8475780f3e0f47305f664da217859814835b40e8bc548be9618e8f50a\",\n      \"use\": \"primary\",\n      \"until\": 0,\n      \"proof\": \"3202a7f47aa0a73ee6c938d23d87e370c975846a4aa303aa14126c5799521aab1d01e93baba31262391611ab536f8680d8bca3b2a68b68b5cb9707adb0fbac05\"\n    },\n    {\n      \"key\": \"206cda82c7d1924ba2df99f33dd49455e0c7fb757d6a87ee1260975628fc9ac7\",\n      \"use\": \"recovery\",\n      \"until\": 1893456000,\n      \"proof\": \"79b7263730b45732344e5a144d2758fc9a2baac4743e3469d10518bdd5239f6ca2c641c24d6d8a7354771b20c59505881c725e92e7e9ad092ef7e53f69705802\"\n    }\n  ]\n}\n",
+    "issuer_certificate": "4349535301000000803bb16a80e2276bc994e468a0f5cf4c5af13785917116fb52f828cd5a60090711822af2ec75528091771b7a0cfe52aa8716738602d356b192faa091d4a9520869924adbb27bfbd404c648c57b008d35c76f0c19c1d652d1e557ebb7c230e74b6a38e44484188c0c",
+    "device_certificate": "434445560101070020c2b26aa0fcbb6a0102030405060708e37ef928f7aa307cbb21d3694880f956b7325d4f453144819e20e8816af54355816c94e57001567fb213513d77da48f71c6a34de6ea4b6781f0000006d696c656e6b6f8d88fe092566b3989c6444629759ab1d6072b640403e618fb6c8f165289de3088be37434afa82020f86b032a19b937937a61966336a6835044f1191d9cd28207"
+  },
+  "list": {
+    "key_seed_text": "open network test list key",
+    "key_public": "39efbe2698a0808e5924125b3a8d27a09ee55b985c4b755b6a1bbab492418b9f",
+    "document": "{\n  \"open_networks\": 1,\n  \"serial\": 1,\n  \"issued\": 1790000000,\n  \"networks\": {\n    \"chupathingy.org\": {\n      \"roots\": [\n        {\n          \"key\": \"12762975a2781f981d53c9bfd7625f10b56137eee3235fb5f3eb92c966f023fa\",\n          \"until\": 0\n        },\n        {\n          \"key\": \"bd5644c3fd79b6e348885e4749c994bca61357f4dde6395da121bf68578bb8a5\",\n          \"until\": 1893456000\n        }\n      ]\n    },\n    \"example.org\": {\n      \"roots\": [\n        {\n          \"key\": \"8b2f06a8475780f3e0f47305f664da217859814835b40e8bc548be9618e8f50a\",\n          \"until\": 0\n        },\n        {\n          \"key\": \"206cda82c7d1924ba2df99f33dd49455e0c7fb757d6a87ee1260975628fc9ac7\",\n          \"until\": 1893456000\n        }\n      ]\n    }\n  }\n}\n",
+    "signature": "4a74245fa78dd40080c75b991faf0d407625655f4d096340a34d625545357225b4b527b8f58d74990f6f9a1b299f10fcf8b484af8c8c0b9428a26c5de8e7de0a",
+    "signed": "4a74245fa78dd40080c75b991faf0d407625655f4d096340a34d625545357225b4b527b8f58d74990f6f9a1b299f10fcf8b484af8c8c0b9428a26c5de8e7de0a\n{\n  \"open_networks\": 1,\n  \"serial\": 1,\n  \"issued\": 1790000000,\n  \"networks\": {\n    \"chupathingy.org\": {\n      \"roots\": [\n        {\n          \"key\": \"12762975a2781f981d53c9bfd7625f10b56137eee3235fb5f3eb92c966f023fa\",\n          \"until\": 0\n        },\n        {\n          \"key\": \"bd5644c3fd79b6e348885e4749c994bca61357f4dde6395da121bf68578bb8a5\",\n          \"until\": 1893456000\n        }\n      ]\n    },\n    \"example.org\": {\n      \"roots\": [\n        {\n          \"key\": \"8b2f06a8475780f3e0f47305f664da217859814835b40e8bc548be9618e8f50a\",\n          \"until\": 0\n        },\n        {\n          \"key\": \"206cda82c7d1924ba2df99f33dd49455e0c7fb757d6a87ee1260975628fc9ac7\",\n          \"until\": 1893456000\n        }\n      ]\n    }\n  }\n}\n"
+  },
+  "checks": [
+    {
+      "networks": "home + list",
+      "issuer": "chupathingy.org",
+      "name": "milenko:chupathingy.org",
+      "account": "31ea6b25b20006a252c816cd2077ff5b"
+    },
+    {
+      "networks": "home + list",
+      "issuer": "example.org",
+      "name": "milenko:example.org",
+      "account": "bb21d3694880f956b7325d4f45314481"
+    },
+    {
+      "networks": "home only",
+      "issuer": "example.org",
+      "refused": "no network trusted"
+    }
+  ],
+  "names": {
+    "valid": [
+      "milenko:chupathingy.org",
+      "a_b-c:example.org",
+      "xyz:sub.example.co"
+    ],
+    "invalid": [
+      "mi:example.org",
+      "milenko:example",
+      "milenko:192.168.0.1",
+      "milenko:xn--exmple-cua.org",
+      "milenko:example.org:x",
+      "milenko:-bad.org",
+      "milenko:example..org",
+      "milenko:Example.org."
+    ],
+    "home_alone": {
+      "typed": "Milenko",
+      "reads_as": "milenko:chupathingy.org"
+    }
+  },
+  "shown": [
+    {
+      "name": "Milenko",
+      "domain": "chupathingy.org",
+      "viewer_home": "chupathingy.org",
+      "shows": "Milenko"
+    },
+    {
+      "name": "Milenko",
+      "domain": "example.org",
+      "viewer_home": "chupathingy.org",
+      "shows": "Milenko:example.org"
+    }
+  ]
+}

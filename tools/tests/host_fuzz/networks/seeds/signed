@@ -1,0 +1,32 @@
+4a74245fa78dd40080c75b991faf0d407625655f4d096340a34d625545357225b4b527b8f58d74990f6f9a1b299f10fcf8b484af8c8c0b9428a26c5de8e7de0a
+{
+  "open_networks": 1,
+  "serial": 1,
+  "issued": 1790000000,
+  "networks": {
+    "chupathingy.org": {
+      "roots": [
+        {
+          "key": "12762975a2781f981d53c9bfd7625f10b56137eee3235fb5f3eb92c966f023fa",
+          "until": 0
+        },
+        {
+          "key": "bd5644c3fd79b6e348885e4749c994bca61357f4dde6395da121bf68578bb8a5",
+          "until": 1893456000
+        }
+      ]
+    },
+    "example.org": {
+      "roots": [
+        {
+          "key": "8b2f06a8475780f3e0f47305f664da217859814835b40e8bc548be9618e8f50a",
+          "until": 0
+        },
+        {
+          "key": "206cda82c7d1924ba2df99f33dd49455e0c7fb757d6a87ee1260975628fc9ac7",
+          "until": 1893456000
+        }
+      ]
+    }
+  }
+}

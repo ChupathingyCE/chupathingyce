@@ -20,6 +20,13 @@ certificate must chain to one of them.)
 #ifndef IDENTITY_KEY_H
 #define IDENTITY_KEY_H
 
+/* the network these keys are (delta-spec's link.md, "Networks"): the
+domain its certificates read as, this build's home network. A fork with
+root keys of its own builds with -DIDENTITY_HOME_DOMAIN='"its.domain"' */
+#ifndef IDENTITY_HOME_DOMAIN
+#define IDENTITY_HOME_DOMAIN "chupathingy.org"
+#endif
+
 #ifndef HALO_IDENTITY_TEST_KEY
 static const unsigned char identity_root_keys[][32] =
 {

@@ -890,14 +890,17 @@ static void card_update(void)
 
 /* a player verified in this game (the identity capability's roster):
 their handle and the tag their proof says ("" if none); FALSE for anyone
-else (an OpenCE player, a name alone, or a build without it) */
+else (an OpenCE player, a name alone, or a build without it), and for
+another network's player, whose handle this network's site doesn't know
+(friends between networks are later) */
 static boolean player_verified(struct player_datum const *player, char *handle, char *display)
 {
 #ifdef DELTA_PEER_IDENTITY_CARDS
 	struct delta_peer_identity identity;
 
 	if (delta_peer_game_on_delta() && delta_peer_game_player_identity(player->network_player_data.machine_index,
-		player->network_player_data.controller_index, &identity) && social_handle_valid(identity.handle))
+		player->network_player_data.controller_index, &identity) && !identity.other_network &&
+		social_handle_valid(identity.handle))
 	{
 		social_copy_text(handle, SOCIAL_HANDLE_SIZE, identity.handle);
 		social_copy_text(display, SOCIAL_TAG_SIZE, identity.tag);
