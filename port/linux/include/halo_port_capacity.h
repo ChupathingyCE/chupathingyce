@@ -256,17 +256,24 @@ pages. A sound that finds no run of pages free of the ones playing isn't
 played (the log's "SOUND CACHE BLOWN"). Stock maps fit it; SPV3's levels
 don't: their decoded permutations reach 900 KB each and the ones playing
 filled the run, 9 of its 22 levels blowing it with 75 of the 512 sounds
-held. The desktop builds take 32 MB (8192 pages), its pages taken only as
-sounds are written (xbox_memory.c), and keep the 512 sounds (Halo PC's
-too). Only which sounds stay loaded changes: nothing reaches the network or
-the game state. Android's guest build (82 MB of window above the game
-state), the dedicated server (no sound) and the consoles (by their memory
-class: physical_memory_map.h) keep the Xbox's. */
+held. The desktop builds (and 64-bit Android) take 32 MB (8192 pages) and
+2048 sounds, its pages taken only as sounds are written (xbox_memory.c);
+Android's guest build, with less window (82 MB above the game state), 16 MB
+and 1024. Only which sounds stay loaded changes: nothing reaches the network
+or the game state. The dedicated server (no sound) and the consoles (by
+their memory class: physical_memory_map.h) keep theirs. A permutation's
+most samples stay the Xbox's 4 MB (tag_schema_effects.c, ce_resources.c's
+split): that decides which sounds are split, which is the content's. */
 
 #if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_MEMORY_CLASS) && \
-	!defined(HALO_CONSOLE_XBOX_RENDER_SIZES) && !defined(HALO_SERVER) && \
-	!(defined(HALO_ANDROID) && !defined(HALO_64BIT))
+	!defined(HALO_CONSOLE_XBOX_RENDER_SIZES) && !defined(HALO_SERVER)
+#if defined(HALO_ANDROID) && !defined(HALO_64BIT)
+#define HALO_PORT_SOUND_CACHE_SIZE 0x1000000 /* (0x400000) */
+#define HALO_PORT_SOUND_CACHE_SOUNDS 1024 /* (512) */
+#else
 #define HALO_PORT_SOUND_CACHE_SIZE 0x2000000 /* (0x400000) */
+#define HALO_PORT_SOUND_CACHE_SOUNDS 2048 /* (512) */
+#endif
 #endif
 
 /* ---------- structure rendering
