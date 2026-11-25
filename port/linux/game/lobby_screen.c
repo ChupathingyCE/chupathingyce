@@ -35,9 +35,10 @@ The preview: a game under way is shown here before it is joined, from
 what the game list and the host's advertisement say (the roster, the map,
 the game type, the players): JOIN THE GAME joins it, B goes back to the
 list (lobby_screen_preview_*: browser_screen.c's join waits for the
-answer). ADD PLAYERS, or another controller's START, opens the Xbox's
-SELECT PROFILE over it for split screen players, who join with JOIN THE
-GAME together.
+answer). Split screen players come in from the preview too: a second
+controller pressing START, or the menu's ADD PLAYERS row, brings up System
+Link's four-quarter profile screen, and JOIN THE GAME then takes everyone
+picked there into the game at once.
 
 The retail pregame mechanics stay: B leaves through the Xbox screen's own
 handler (netgame_unjoin_player), the team swap is the Xbox's, the countdown
@@ -1626,22 +1627,26 @@ static void lobby_opened(void)
 
 /* ---------- ADD PLAYERS: the preview's split screen players
 
-ADD PLAYERS, or another controller's START, opens System Link's SELECT
-PROFILE (ui.map's four quarters) in place of the Multiplayer menu the game
-list is over. The controller that led the way there (the keyboard and mouse
-too) is player 1, whichever was connected first (platform_gamepad_make_first),
-and each player already joined is shown in their quarter with their profile
-picked (add_players_fill). The others press A or START in their quarter,
-pick a profile with left and right and press A; B in a joined quarter
-empties it, that player no longer joining, and B in an empty one goes back.
+The four-quarter profile screen from ui.map (System Link's) comes up in
+place of the menu under the game list (the Multiplayer menu, or the main
+menu for a join from an invite, Discord or a party) when the menu row is
+picked or a second controller presses START. The controller that led the
+way there (the keyboard and mouse too) is player 1, whichever was
+connected first (platform_gamepad_make_first, undone by first_port_reset
+once the preview or the game joined from it is over), and each player
+already joined is shown in their quarter with their profile picked
+(add_players_fill). The others press A or START in their quarter, pick a
+profile with left and right and press A; B in a joined quarter empties it,
+that player no longer joining, and B in an empty one goes back.
 A picked quarter's A, which went on to System Link's game list, comes back
-to the preview instead (lobby_screen_add_players_finish), and JOIN THE GAME
+to the preview instead (lobby_screen_add_players_finish), once everyone
+has a profile and fits in the spots the game has left; JOIN THE GAME then
 joins with them all: the pregame screen asks the host for every joined
-player at once. While it is up, its "clear multiplayer player joins" and
-the Multiplayer menu's "mp type menu initialize" leave the game being
-joined alone (ui_widget_event_handler_functions.c). Going back puts
-everyone back as they were; its last A joins only the players in its
-quarters */
+player at once. While it is up, its "clear multiplayer player joins", the
+Multiplayer menu's "mp type menu initialize" and the main menu's "main
+menu initialize" leave the game being joined alone
+(ui_widget_event_handler_functions.c). Going back puts everyone back as
+they were; its last A joins only the players in its quarters */
 
 enum
 {
