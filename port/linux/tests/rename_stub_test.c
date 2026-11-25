@@ -2,9 +2,9 @@
 RENAME_STUB_TEST.C
 
 Tests of the halo stub's rules (port/linux/src/rename_stub.h): which old
-program the renamed game removes, how a stub is told from the old game,
-and the arguments the Windows stub passes on. Built and run by
-tools/test_rename_stub.py with port/rename_stub/halo.sh as its argument; exits
+program the renamed game removes, and how a stub is told from the old game
+or any other file. Built and run by
+tools/test_rename_stub.py with tools/tests/rename_stub_halo.sh as its argument; exits
 nonzero on a failure.
 */
 
@@ -13,7 +13,6 @@ nonzero on a failure.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <wchar.h>
 
 static int failures;
 
@@ -56,7 +55,7 @@ int main(int argc, char **argv)
 	CHECK(rename_stub_old_name("") == NULL);
 	CHECK(rename_stub_old_name(NULL) == NULL);
 
-	/* the shipped Unix stub is a stub */
+	/* the Unix stub 0.9.0 and 0.9.1 shipped is a stub */
 	file = fopen(argv[1], "rb");
 	CHECK(file != NULL);
 	if (file)
@@ -81,17 +80,6 @@ int main(int argc, char **argv)
 	CHECK(!rename_stub_is_stub(big + 40000, sizeof(RENAME_STUB_MARK) - 2, 100));
 	CHECK(!rename_stub_is_stub((const unsigned char *)"#!/bin/sh\nexec ./halo-real \"$@\"\n", 33, 33));
 	CHECK(!rename_stub_is_stub(NULL, 0, 0));
-
-	/* the Windows stub's arguments: what follows its own name */
-	CHECK(!wcscmp(rename_stub_arguments(L"\"C:\\Games\\Chupathingy\\halo.exe\" -window -connect 1.2.3.4"),
-		L"-window -connect 1.2.3.4"));
-	CHECK(!wcscmp(rename_stub_arguments(L"halo.exe   \"halo://join/abc\""), L"\"halo://join/abc\""));
-	CHECK(!wcscmp(rename_stub_arguments(L"\"C:\\a b\\halo.exe\""), L""));
-	CHECK(!wcscmp(rename_stub_arguments(L"halo.exe"), L""));
-	CHECK(!wcscmp(rename_stub_arguments(L"halo.exe\t-x"), L"-x"));
-	CHECK(!wcscmp(rename_stub_arguments(L"\"unclosed"), L""));
-	CHECK(!wcscmp(rename_stub_arguments(L""), L""));
-	CHECK(!wcscmp(rename_stub_arguments(NULL), L""));
 
 	if (failures)
 		printf("%d failure(s)\n", failures);

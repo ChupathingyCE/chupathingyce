@@ -15,9 +15,10 @@ halo, then updates itself:
   - from a zip that adds the game's executable by its later name, which
     arrives executable and is started (the list's "main"),
   - to the release that renames the game to chupathingy, with halo the
-    stub that starts it (port/rename_stub/halo.sh), from the list or
-    without one, the stub kept; and the renamed game, started beside an
-    old halo that is a game, removes it,
+    stub that starts it (as 0.9.0 and 0.9.1 shipped it:
+    tools/tests/rename_stub_halo.sh), from the list or without one, the
+    renamed game then removing the stub; and an old halo that is not the
+    stub (a game, or Halo PC's own) kept beside it,
   - never in a packaged install (a file named "packaged" beside it, or
     HALO_PACKAGED=1): the new version is only pointed out,
   - as an AppImage (APPIMAGE set, as its runtime sets it): the AppImage file
@@ -407,17 +408,18 @@ def test_new_executable_started(keys, builds, server, tmp_path):
         assert after[name][1] & 0o111, (name, oct(after[name][1]))
     assert not after["notes-new.txt"][1] & 0o111
     assert after["THIRD-PARTY-NOTICES.txt"][1] == 0o600
-    # (the zip's halo is a game, not the stub: the renamed one removes it)
-    assert has(lines, f"{NEW} chupathingy update: removing halo, the game from before its rename to chupathingy")
-    assert "halo" not in after
+    # (the zip's halo is a game, not the stub: the renamed one leaves it)
+    assert has(lines, f"{NEW} chupathingy update: leaving halo beside chupathingy: it is not the old name's stub")
+    assert "halo" in after
 
 
-STUB = (ROOT / "port/rename_stub/halo.sh").read_bytes()
+STUB = (ROOT / "tools/tests/rename_stub_halo.sh").read_bytes()
 
 
 def rename_zip(directory, builds):
     """the release of the rename: chupathingy, and halo, the stub that
-    starts it (port/rename_stub/halo.sh), as the artifacts give them: no mode"""
+    starts it (tools/tests/rename_stub_halo.sh), as the artifacts gave them:
+    no mode"""
     directory.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(directory / ASSET, "w") as archive:
         add(archive, "chupathingy", builds[NEW].read_bytes())
@@ -432,8 +434,7 @@ def test_update_to_the_renamed_game(keys, builds, server, tmp_path, listed):
     the old updater starts chupathingy (the list's main); from a release
     without the list (as an updater from before 0.8.0 does), it starts halo
     again, which is now the stub, and the stub starts chupathingy.
-    Either way the stub stays, executable, and starting halo afterwards
-    still starts the game"""
+    Either way chupathingy then removes the stub (none ships from 0.9.2)"""
     folder = install(tmp_path, builds)
     release = tmp_path / "release"
     zip_path = rename_zip(release, builds)
@@ -447,25 +448,27 @@ def test_update_to_the_renamed_game(keys, builds, server, tmp_path, listed):
     lines = run(tmp_path, folder, server, f"{NEW} chupathingy")
     assert has(lines, f"{OLD} halo update: starting version {NEW} ({'chupathingy' if listed else 'halo'})")
     assert has(lines, f"{NEW} chupathingy update: this is the latest version ({NEW})")
-    assert not has(lines, "removing halo")
+    assert has(lines, f"{NEW} chupathingy update: removing halo, the stub 0.9.0 and 0.9.1 had for the old name")
     after = snapshot(folder)
     assert after["chupathingy"][0] == hashlib.sha256(builds[NEW].read_bytes()).hexdigest()
-    assert after["chupathingy"][1] & 0o111 and after["halo"][1] & 0o111
-    assert (folder / "halo").read_bytes() == STUB
+    assert after["chupathingy"][1] & 0o111
+    assert "halo" not in after
     assert not any(name.endswith(".old") for name in after)
-    # (a shortcut to halo, later)
-    lines = run(tmp_path, folder, server, f"{NEW} chupathingy")
-    assert has(lines, f"{NEW} chupathingy update: this is the latest version ({NEW})")
-    assert (folder / "halo").read_bytes() == STUB
 
 
-def test_old_game_removed_beside_the_renamed_one(builds, server, tmp_path):
-    """(g) chupathingy started beside an old halo (a game, no stub's
-    mark) removes it; one started by another name removes nothing"""
+@pytest.mark.parametrize("stub", [True, False])
+def test_only_the_stub_removed_beside_the_renamed_one(builds, server, tmp_path, stub):
+    """(g) chupathingy started beside the old name's stub removes it; beside
+    any other halo (an old game, or Halo PC's own: no stub's mark) it leaves
+    it and says so; one started by another name looks at neither"""
     folder = tmp_path / "game"
     folder.mkdir()
     shutil.copy(builds[NEW], folder / "chupathingy")
-    shutil.copy(builds[OLD], folder / "halo")
+    if stub:
+        (folder / "halo").write_bytes(STUB)
+    else:
+        shutil.copy(builds[OLD], folder / "halo")
+    before = (folder / "halo").read_bytes()
     shutil.copy(builds[NEW], folder / "my-copy")
     for name in ("chupathingy", "halo", "my-copy"):
         os.chmod(folder / name, 0o755)
@@ -477,11 +480,16 @@ def test_old_game_removed_beside_the_renamed_one(builds, server, tmp_path):
                    "HALO_UPDATE_TEST_CA": str(server.authority), "HALO_UPDATE_TEST_LOG": str(log)}
     (tmp_path / "saves").mkdir()
     subprocess.run([str(folder / "my-copy")], cwd=folder, env=environment, timeout=120, capture_output=True)
-    assert (folder / "halo").exists()
+    assert (folder / "halo").read_bytes() == before
     subprocess.run([str(folder / "chupathingy")], cwd=folder, env=environment, timeout=120, capture_output=True)
-    assert not (folder / "halo").exists()
-    assert has(log.read_text().splitlines(), "removing halo, the game from before its rename to chupathingy")
-
+    lines = log.read_text().splitlines()
+    if stub:
+        assert not (folder / "halo").exists()
+        assert has(lines, "removing halo, the stub 0.9.0 and 0.9.1 had for the old name")
+    else:
+        assert (folder / "halo").read_bytes() == before
+        assert has(lines, "leaving halo beside chupathingy: it is not the old name's stub")
+        assert not has(lines, "removing halo")
 
 OLD_LICENSE_FILES = ("SDL3-LICENSE.txt", "mbedtls-LICENSE.txt", "miniupnpc-LICENSE.txt", "Overpass-OFL.txt",
                      "CyborgInterfaceGothic-OFL.txt", "ChupathingyTitles-OFL.txt", "NotoSans-OFL.txt",

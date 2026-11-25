@@ -30,13 +30,11 @@ whether to update:
 - No: nothing, until the next start.
 
 The game is chupathingy (chupathingy.exe) from 0.9.0, and was halo
-(halo.exe) before. A Linux or FreeBSD release's zip carries both: the game,
-which the list names as its "main", and a small halo that starts it
-(rename_stub.h), for shortcuts and for the updaters from before the list,
-which start halo again. At its start the renamed game removes an old halo
-beside it that is a game, never the stub (updater_remove_old_program). A
-Windows zip has no halo.exe since 0.9.2, and an old one, stub or game, is
-removed.
+(halo.exe) before. 0.9.0 and 0.9.1's zips also carried a small halo that
+started it (rename_stub.h); 0.9.2's have none. At its start the game removes
+that stub if it is still beside it, and nothing else of that name: a halo
+or halo.exe without the stub's mark (an old game, or Halo PC's own) stays
+(updater_remove_old_program).
 - Do not ask again: after the player confirms it, update.auto = false is
   written to config.toml.
 
@@ -1798,12 +1796,13 @@ void updater_install_restart(void)
 	updater_install_finish(1);
 }
 
-/* the game's program from before the rename, beside the renamed one: halo
-beside chupathingy, halo.exe beside chupathingy.exe (rename_stub.h), removed,
-unless it is the small stub that starts this one, which stays for the
-shortcuts and scripts that start halo. On Windows the stub goes too: the
-downloads have had none since 0.9.2 (while it runs, as it does when it
-started this one, it can't be removed, and goes at a later start) */
+/* the small stub 0.9.0 and 0.9.1 had for the old name beside the game:
+halo beside chupathingy, halo.exe beside chupathingy.exe (rename_stub.h),
+removed only if it is that stub (its mark, in a file no bigger than one).
+Any other file of that name stays, said in the log: it may be Halo
+PC's own halo.exe, or a game the player keeps. (A stub that is running, as
+when it started this one on Windows, can't be removed there: it goes at a
+later start) */
 static void updater_remove_old_program(void)
 {
 	const char *running = strrchr(updater_executable, PATH_SEPARATOR[0]);
@@ -1844,15 +1843,13 @@ static void updater_remove_old_program(void)
 		}
 	}
 	SDL_CloseIO(file);
-#ifndef _WIN32
-	if (stub)
-		return;
-#endif
-	if (stub)
-		platform_log("update: removing %s, the stub 0.9.0 and 0.9.1 had for the old name", old_name);
-	else
-		platform_log("update: removing %s, the game from before its rename to %s", old_name,
+	if (!stub)
+	{
+		platform_log("update: leaving %s beside %s: it is not the old name's stub", old_name,
 			running ? running + 1 : updater_executable);
+		return;
+	}
+	platform_log("update: removing %s, the stub 0.9.0 and 0.9.1 had for the old name", old_name);
 	update_delete_file(path);
 }
 

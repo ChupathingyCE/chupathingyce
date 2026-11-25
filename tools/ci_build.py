@@ -60,17 +60,15 @@ from tools.version import base_version, commit, release_build, version  # noqa: 
 OUTPUTS = {
     # (and the SDL3 each portable build brings, tools/linux_build.py, its
     # license in THIRD-PARTY-NOTICES.txt with the others'). The game is
-    # chupathingy (chupathingy.exe) from 0.9.0; on Linux and FreeBSD, halo
-    # beside it is the small stub that starts it, for shortcuts and scripts
-    # made for the old name (port/linux/src/rename_stub.h; TODO(after 0.9.x):
-    # remove). Windows' halo.exe stub was dropped in 0.9.2
-    "linux": ["build/linux/chupathingy", "build/linux/halo", "build/linux/libSDL3.so.0"],
+    # chupathingy (chupathingy.exe) from 0.9.0 (0.9.0 and 0.9.1 also had a
+    # small halo, halo.exe, that started it: port/linux/src/rename_stub.h)
+    "linux": ["build/linux/chupathingy", "build/linux/libSDL3.so.0"],
     # the native 64-bit build (ninja linux64; tools/linux64_build.py)
-    "linux64": ["build/linux64/chupathingy", "build/linux64/halo", "build/linux64/libSDL3.so.0"],
+    "linux64": ["build/linux64/chupathingy", "build/linux64/libSDL3.so.0"],
     # the native 64-bit FreeBSD build (ninja freebsd64; tools/unix64_build.py),
     # built on FreeBSD: SDL3 is the system's package (pkg install sdl3), not
     # brought along
-    "freebsd64": ["build/freebsd64/chupathingy", "build/freebsd64/halo"],
+    "freebsd64": ["build/freebsd64/chupathingy"],
     "windows": ["build/windows/chupathingy.exe", "build/windows/SDL3.dll"],
     # the native 64-bit build (ninja windows64; tools/windows_build.py)
     "windows64": ["build/windows64/chupathingy.exe", "build/windows64/SDL3.dll"],

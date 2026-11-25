@@ -2,25 +2,20 @@
 RENAME_STUB.H
 
 The game's program was halo (halo.exe on Windows) before 0.9.0, and is
-chupathingy (chupathingy.exe) now. The Linux and FreeBSD downloads also
-carry a small halo that starts chupathingy beside it with the same
-arguments, so shortcuts, Steam entries and scripts made for halo keep
-working, and so does an updater from before the rename, which starts halo
-again after it installs:
+chupathingy (chupathingy.exe) now. 0.9.0 and 0.9.1's desktop downloads
+also carried a small halo that started chupathingy beside it with the same
+arguments, for shortcuts, Steam entries and scripts made for halo, and for
+the updaters from before the rename, which start halo again after they
+install:
 
-- Linux and FreeBSD: halo, the shell script port/rename_stub/halo.sh;
-- Windows: none since 0.9.2 (0.9.0 and 0.9.1 carried a halo.exe stub; an
-  old halo.exe left in the folder is removed, the stub too: updater.c);
-- macOS: none (the application keeps its name; only the program inside
-  it, Contents/MacOS, is chupathingy now). An AppImage has none either.
+- Windows: halo.exe (port/rename_stub/halo_stub.c, removed in 0.9.2);
+- Linux and FreeBSD: halo, a shell script (tools/tests/rename_stub_halo.sh
+  keeps it, for the tests).
 
-Each stub carries RENAME_STUB_MARK. At its start the renamed game removes
-an old halo beside it, the game from before the rename (updater.c,
-updater_clean_up), but never a file with the mark: the stub stays (on
-Windows, where none ships any more, the mark is not looked for).
-
-TODO(after 0.9.x): stop shipping the stubs, and let the clean-up remove
-them too (drop the mark check).
+0.9.2's downloads have none. Each stub carries RENAME_STUB_MARK. At its
+start the game removes a stub still beside it (updater.c,
+updater_remove_old_program), and only a file with the mark: any other halo
+or halo.exe there (an old game, or Halo PC's own) stays.
 
 No SDL, system or game dependency: port/linux/tests/rename_stub_test.c builds
 it on its own (tools/test_rename_stub.py).
@@ -31,7 +26,6 @@ it on its own (tools/test_rename_stub.py).
 
 #include <stddef.h>
 #include <string.h>
-#include <wchar.h>
 
 /* the text every stub carries (halo.sh's second line, a string in
 0.9.0 and 0.9.1's halo.exe) */
@@ -82,34 +76,6 @@ static inline int rename_stub_is_stub(const unsigned char *data, size_t size, un
 			return 1;
 	}
 	return 0;
-}
-
-/* the arguments of a Windows command line, after its program's name (as
-the C runtime splits it: a quoted name to its closing quote, else to the
-first space or tab), and the spaces after it; the stub passes them on
-as they are */
-static inline const wchar_t *rename_stub_arguments(const wchar_t *command_line)
-{
-	const wchar_t *at = command_line;
-
-	if (!at)
-		return L"";
-	if (*at == L'"')
-	{
-		at++;
-		while (*at && *at != L'"')
-			at++;
-		if (*at == L'"')
-			at++;
-	}
-	else
-	{
-		while (*at && *at != L' ' && *at != L'\t')
-			at++;
-	}
-	while (*at == L' ' || *at == L'\t')
-		at++;
-	return at;
 }
 
 #endif
