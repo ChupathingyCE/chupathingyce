@@ -2079,8 +2079,14 @@ static char const *forge_delete_word(
 	void)
 {
 	short mode = forge_delete_mode();
+	boolean keyboard = FALSE;
 
-	if (mode == _forge_delete_hold_all || (mode == _forge_delete_hold_controller && !ui_overlay_keyboard()))
+	/* (ui_overlay.c's: the builds with the game list, HALO_GAME_BROWSER;
+	without it, a controller's word) */
+#ifdef HALO_GAME_BROWSER
+	keyboard = ui_overlay_keyboard() != 0;
+#endif
+	if (mode == _forge_delete_hold_all || (mode == _forge_delete_hold_controller && !keyboard))
 		return "HOLD DELETE";
 	return "DELETE";
 }
