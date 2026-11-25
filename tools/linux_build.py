@@ -128,6 +128,12 @@ KCP_DIR = Path("port/third_party/kcp")
 # dedicated server's
 LUA_DIR = Path("port/third_party/lua")
 LUA_DEFINES = ["-DHALO_LUA"]
+# (after everything else, so that "../../" from it finds none of the game's
+# headers (#1702's review: mcc_vorbis.c on macOS). A system Lua's lua.h,
+# which may be another version, as Lua 5.5's in /usr/include, would come
+# first that way: the game's units include the bundled headers by their
+# path, port/linux/game/lua_internal.h, lua_scripting.c)
+LUA_INCLUDE = f"-idirafter {LUA_DIR}"
 
 
 def lua_sources() -> List[Path]:
@@ -675,7 +681,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
                    + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
                    + browser_defines + CUSTOM_EDITION_DEFINES + MODS_DEFINES + COMPRESSED_MAP_DEFINES + units.extra_flags
                    + units.ffmpeg[0]
-                   + ([*LUA_DEFINES, f"-idirafter {LUA_DIR}"] if units.lua else [])
+                   + ([*LUA_DEFINES, LUA_INCLUDE] if units.lua else [])
                    + (["-DHALO_JOLT"] if units.jolt else []))
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"

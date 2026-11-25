@@ -2937,6 +2937,20 @@ static int executable_path(char *path, size_t size)
 #endif
 }
 
+/* this screen starts the game again for a setting that needs it (#1665):
+a bgfx Vulkan start it closes that way isn't taken for one that didn't get
+going. Only these restarts clear it: Quit, Welcome's QUIT (B, Escape) and
+the window closed leave the note, since a Vulkan window that never shows a
+picture is left those ways too, and its next start must still go to OpenGL
+(#1046) */
+static void closing_on_purpose(void)
+{
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+		xgpu_bgfx_start_note_clear();
+#endif
+}
+
 /* Chupathingy started again, in mode (its id) and past this screen, for
 the settings that show only after a restart; 0 if it could not be */
 static int restart_with(const char *mode)
@@ -2948,6 +2962,8 @@ static int restart_with(const char *mode)
 		platform_log("launcher: could not find the game's executable to start it again");
 		return 0;
 	}
+	/* (before the start in this same process too, which never returns) */
+	closing_on_purpose();
 	snprintf(argument, sizeof(argument), "--mode=%s", mode);
 #ifdef __linux__
 	/* (this same process, as an update's restart: Steam and gamescope keep
@@ -2996,6 +3012,7 @@ int launcher_restart_to_setup(void)
 		platform_log("launcher: could not start again on the setup screen");
 		return 0;
 	}
+	closing_on_purpose();
 #ifdef __linux__
 	/* (this same process: see restart_with) */
 	if (update_start_in_place_with(path, "--setup"))

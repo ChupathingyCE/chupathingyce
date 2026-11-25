@@ -4,6 +4,8 @@ hud_messaging.c and ui_widget.c map each game-control icon (action .. zoom)
 to an index in input_abstraction.c's game control enumeration. The keyboard
 prompt table in input_abstraction.c lists the same icons in the same order,
 so each entry must land on the control whose keyboard action that table names.
+Retail's maps and tables put zoom (icon 26) before crouch (icon 27): a10's
+crouch tutorial is "Click {icon 27} to crouch", so icon 27 must be crouch.
 """
 import re
 import sys
@@ -49,6 +51,17 @@ def main():
 	expected = [controls.index(KEYBOARD_TO_CONTROL[action]) for action in keyboard]
 
 	failures = 0
+	# (retail: zoom is icon 26 and crouch icon 27, the last game control icon)
+	if keyboard[-2:] != ["HALO_KEYBOARD_ZOOM", "HALO_KEYBOARD_CROUCH"]:
+		print(f"FAIL port_icon_keyboard_actions ends {keyboard[-2:]}, not zoom then crouch")
+		failures += 1
+	for path in ("source/interface/hud_messaging.c", "source/interface/ui_widget.c"):
+		source = strip_comments((ROOT / path).read_text())
+		icons = [entry.split("=")[0].strip() for entry in entries(
+			source[source.rindex("{", 0, source.index("_icon_a_button,")) + 1:])[:28]]
+		if icons[26:28] != ["_icon_zoom", "_icon_crouch"]:
+			print(f"FAIL {path}: icons 26 and 27 are {icons[26:28]}, not zoom and crouch")
+			failures += 1
 	for path in ("source/interface/hud_messaging.c", "source/interface/ui_widget.c"):
 		source = (ROOT / path).read_text()
 		table = braces(source, "static char button_mappings[")

@@ -158,6 +158,7 @@ tag.
 | 0 | `none` |  |  | never in a tag |
 | 1 | `chupathingy` | Chupathingy | Chupathingy | in use: writes layout 1 alone |
 | 2 | `content_evolved` | Content Evolved | [Content Evolved (Watanoge)](https://github.com/Watanoge/halo-content-evolved) | in use |
+| 3 | `gulchce` | GulchCE | [GulchCE (chester)](https://github.com/chestahh/GulchCE) | in progress |
 
 The tag's layouts:
 
@@ -418,6 +419,14 @@ Unknown bits are ignored.
 | 0x08 | `moderate` | sign in to moderation; the server still checks the role |
 | 0x10 | `social` | friends, presence, invites |
 | 0x20 | `devices` | approve another device's code, revoke another device of the account |
+
+Account marks: the top byte of the capabilities field, facts the issuing
+network vouches for about the account. A mark grants nothing and counts only
+for a certificate that chains to the root keys of the network that set it.
+
+| Mark | Name | Meaning |
+| --- | --- | --- |
+| 0x01000000 | `developer` | a developer of the issuing network's project |
 
 ## Report reasons
 

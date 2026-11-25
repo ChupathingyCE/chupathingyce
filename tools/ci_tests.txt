@@ -48,6 +48,7 @@ tools/test_delta.py
 tools/test_delta_compat.py
 tools/test_delta_docs.py
 tools/test_delta_input_rules.py
+tools/test_delta_layouts.py
 tools/test_delta_menu_art.py
 tools/test_delta_peer.py
 tools/test_delta_ref.py
@@ -173,6 +174,7 @@ tools/test_server_roles.py
 tools/test_settings_layout.py
 tools/test_settings_pages.py
 tools/test_social.py
+tools/test_sound_cache_platforms.py
 tools/test_spv3_survey.py
 tools/test_steam_bridge.py
 tools/test_steam_content.py
@@ -180,6 +182,7 @@ tools/test_steam_workshop.py
 tools/test_stubbs_regions.py
 tools/test_symbolize_crash.py
 tools/test_tag_swap_tables.py
+tools/test_texture_cache_platforms.py
 tools/test_third_party_notices.py
 tools/test_title_tool.py
 tools/test_touch_menu.py

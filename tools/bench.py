@@ -128,7 +128,7 @@ def run(binary, maps, work, name, inputs, renderer, ticks, seed, size, settings=
         "HALO_DISPLAY_MODE": "windowed",
         "HALO_WINDOW_SIZE": size,
         "HALO_RESOLUTION_SCALING": "native",
-        "HALO_ANTI_ALIASING": "msaa2x",  # (bgfx has MSAA, not FXAA or SMAA)
+        "HALO_ANTI_ALIASING": "msaa2x",
         "HALO_NO_VSYNC": "1",
         "HALO_MAX_FPS": "-1",
         "HALO_VRR": "off",

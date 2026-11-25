@@ -1,0 +1,25 @@
+{
+  "about": "a host's game message as a client handles it, the host advertised at network version 44: its settings record of 13,200 bytes and of other projects' layouts (13,244, Content Evolved's), as client_messages otherwise",
+  "harness": "tools/tests/host_fuzz/client_messages/client_messages_fuzz.c",
+  "sources": [
+    "port/linux/game/network_rules.c",
+    "tools/tests/host_fuzz/client_messages/client_stubs.c"
+  ],
+  "game_sources": [
+    "source/memory/data_packet_groups.c",
+    "source/memory/data_packets.c",
+    "source/memory/data_encoding.c",
+    "source/memory/byte_swapping.c",
+    "source/networking/network_messages.c",
+    "source/networking/network_client_message_handler.c",
+    {
+      "source": "source/networking/network_client_manager.c",
+      "append": "tools/tests/host_fuzz/client_messages/client_setup.c"
+    },
+    "source/networking/network_game_manager.c"
+  ],
+  "max_len": 16384,
+  "game_flags": [
+    "-DCLIENT_MESSAGES_FUZZ_JOINED_VERSION=44"
+  ]
+}

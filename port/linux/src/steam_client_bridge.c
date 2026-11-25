@@ -33,7 +33,7 @@ struct watched_item
 {
 	char id[STEAM_BRIDGE_ID_SIZE];
 	unsigned long long value;
-	/* the tab's ask: 1 subscribe, 2 unsubscribe, 3 remove, 4 update; taken by the thread */
+	/* the tab's ask: 1 subscribe, 2 unsubscribe, 3 remove, 4 update, 5 cancel; taken by the thread */
 	int want;
 	/* when the tab last asked about it (system_milliseconds) */
 	unsigned long seen;
@@ -62,7 +62,47 @@ static struct
 	int mcc_state;
 } bridge = { PTHREAD_MUTEX_INITIALIZER };
 
+/* the items this game subscribed to in the Steam client that weren't
+subscribed before (only the worker reads or writes these): a cancel
+unsubscribes only these, never a subscription the player made in Steam */
+static unsigned long long subscribed_here[STEAM_BRIDGE_MAXIMUM_ITEMS];
+static int subscribed_here_count;
+
 /* ---------- private code */
+
+static void subscribed_here_add(unsigned long long value)
+{
+	int index;
+
+	for (index = 0; index < subscribed_here_count; index++)
+	{
+		if (subscribed_here[index] == value)
+			return;
+	}
+	/* (full: the oldest forgotten, so at worst it stays subscribed) */
+	if (subscribed_here_count == STEAM_BRIDGE_MAXIMUM_ITEMS)
+	{
+		memmove(subscribed_here, subscribed_here + 1, sizeof(subscribed_here[0]) * (STEAM_BRIDGE_MAXIMUM_ITEMS - 1));
+		subscribed_here_count--;
+	}
+	subscribed_here[subscribed_here_count++] = value;
+}
+
+/* 1 if the game subscribed to it, and forgotten */
+static int subscribed_here_take(unsigned long long value)
+{
+	int index;
+
+	for (index = 0; index < subscribed_here_count; index++)
+	{
+		if (subscribed_here[index] == value)
+		{
+			subscribed_here[index] = subscribed_here[--subscribed_here_count];
+			return 1;
+		}
+	}
+	return 0;
+}
 
 static int id_value(const char *id, unsigned long long *value)
 {
@@ -228,30 +268,53 @@ static void session(int use_steamcmd)
 		"ready");
 	while (live)
 	{
-		int count, index, install;
+		int count, index, install, stopping;
 
 		pthread_mutex_lock(&bridge.lock);
-		if (bridge.stop)
-		{
+		/* (told to stop: a last turn for the cancels asked just before, as
+		a join's CANCEL closes the bridge right after asking) */
+		stopping = bridge.stop;
+		if (stopping)
 			bridge.stopping = 1;
-			pthread_mutex_unlock(&bridge.lock);
-			break;
-		}
 		count = bridge.count;
 		memcpy(turn, bridge.items, sizeof(turn[0]) * (size_t)count);
 		for (index = 0; index < count; index++)
-			bridge.items[index].want = 0;
-		install = bridge.install_wanted;
-		bridge.install_wanted = 0;
+		{
+			if (!stopping || bridge.items[index].want == 5)
+				bridge.items[index].want = 0;
+			else
+				turn[index].want = 0;
+		}
+		install = stopping ? 0 : bridge.install_wanted;
+		if (!stopping)
+			bridge.install_wanted = 0;
 		pthread_mutex_unlock(&bridge.lock);
 		for (index = 0; index < count; index++)
 		{
 			if (turn[index].want == 1)
 			{
 				if (client)
-					client->subscribe(turn[index].value);
+				{
+					struct steam_bridge_item before;
+					int was_subscribed = client->query(turn[index].value, &before) && before.subscribed;
+
+					if (client->subscribe(turn[index].value) && !was_subscribed)
+						subscribed_here_add(turn[index].value);
+				}
 				if (steamcmd)
 					steamcmd->subscribe(turn[index].value);
+			}
+			/* (CANCEL: the client's subscription undone if this game made it,
+			which stops Steam's download; the downloader's download stopped) */
+			else if (turn[index].want == 5)
+			{
+				if (client && subscribed_here_take(turn[index].value))
+				{
+					platform_log("Workshop: item %s cancelled: unsubscribed in Steam", turn[index].id);
+					client->unsubscribe(turn[index].value);
+				}
+				if (steamcmd && steamcmd->unsubscribe)
+					steamcmd->unsubscribe(turn[index].value);
 			}
 			else if (turn[index].want == 2 && client)
 				client->unsubscribe(turn[index].value);
@@ -267,6 +330,8 @@ static void session(int use_steamcmd)
 					holder->update(turn[index].value);
 			}
 		}
+		if (stopping)
+			break;
 		if (install && steamcmd && steamcmd->install_mcc)
 			steamcmd->install_mcc();
 		if (client)
@@ -525,6 +590,11 @@ static int ask(const char *id, int want, int needs)
 		}
 		if (want == 2)
 			item->state.subscribed = 0;
+		if (want == 5)
+		{
+			memset(&item->state, 0, sizeof(item->state));
+			item->state.state = STEAM_BRIDGE_ITEM_NONE;
+		}
 		asked = 1;
 	}
 	pthread_mutex_unlock(&bridge.lock);
@@ -577,6 +647,11 @@ int steam_bridge_remove(const char *id)
 int steam_bridge_update(const char *id)
 {
 	return ask(id, 4, CLIENT_BIT | STEAMCMD_BIT);
+}
+
+int steam_bridge_cancel(const char *id)
+{
+	return ask(id, 5, CLIENT_BIT | STEAMCMD_BIT);
 }
 
 int steam_bridge_can_unsubscribe(void)
@@ -671,6 +746,7 @@ void steam_bridge_test_reset(void)
 	bridge.count = 0;
 	bridge.install_wanted = 0;
 	bridge.mcc_state = 0;
+	subscribed_here_count = 0;
 	pthread_mutex_unlock(&bridge.lock);
 }
 

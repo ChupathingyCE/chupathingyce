@@ -686,6 +686,37 @@ static void test_join_mark(void)
 	}
 }
 
+/* another project's modded advertisement (a version word of 0xFF00 or
+more: Content Evolved's mark, network_rules.h): its bytes are its own, never
+a Delta tag, an old layout's slot or range, or an OpenCE server's flag */
+static void test_another_project(void)
+{
+	unsigned char reserved[RESERVED];
+	struct delta_wire_id wire, oldest;
+	int major;
+
+	host(reserved, "chupa-32a");
+	CHECK(delta_compat_speaks_delta(reserved, RESERVED));
+	reserved[0] = 0x70;
+	reserved[1] = 0xFF;
+	reserved[2] = 0x01 | 0x04 | 0x08;
+	CHECK(!delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest));
+	CHECK(!delta_compat_speaks_delta(reserved, RESERVED));
+	CHECK(!delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire));
+	CHECK(!delta_compat_opence_server(reserved, RESERVED));
+	CHECK(!delta_compat_read_range(reserved, RESERVED, &wire, &oldest));
+	{
+		int project, project_version;
+
+		CHECK(!delta_compat_read_project(reserved, RESERVED, &major, &project, &project_version));
+	}
+	/* (0xFEFF and under as ever: an OpenCE number's) */
+	host(reserved, "chupa-32a");
+	reserved[0] = 0xFF;
+	reserved[1] = 0xFE;
+	CHECK(delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest));
+}
+
 /* a port host's advertisement (docs/delta/peer.md, "The tag", layout 2):
 version, flags (the dedicated flag too, at 39 and later, when dedicated),
 kind, zeros, then the project's tag */
@@ -808,6 +839,7 @@ int main(void)
 	test_tag();
 	test_both_layouts();
 	test_opence_server();
+	test_another_project();
 	test_project_tag();
 	if (failures)
 	{
