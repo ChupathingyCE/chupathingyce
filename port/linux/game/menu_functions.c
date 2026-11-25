@@ -4150,6 +4150,7 @@ boolean ui_widget_port_open(struct widget_instance *widget, char const *name, bo
 boolean network_game_client_advertised_game_in_progress(void *client, struct advertised_game *game);
 #ifdef HALO_GAME_BROWSER
 boolean network_game_client_advertised_game_opence_server(void *client, struct advertised_game *game);
+char const *network_game_client_advertised_game_project(void *client, struct advertised_game *game);
 #endif
 boolean ui_widget_port_join(struct widget_instance *widget, void *advertised_game, char const *lobby_name,
 	boolean *widget_deleted);
@@ -6821,14 +6822,25 @@ static void browser_update(struct widget_instance *list)
 		text[NUMBEROF(text) - 1] = 0;
 		text_set(named(list, "ticker_player_info", 0), text);
 		/* (an OpenCE dedicated server's game, by its advertisement: the
-		lists' neutral label) */
+		lists' neutral label; or the project of a host of another project's
+		code, by its Delta tag) */
 		text[0] = 0;
 #ifdef HALO_GAME_BROWSER
-		if (multiplayer.mode != _multiplayer_mode_server_browser && multiplayer.game_count &&
-			network_game_client_advertised_game_opence_server(global_network_game_client_get(),
-				multiplayer.games[multiplayer.game_chosen]))
+		if (multiplayer.mode != _multiplayer_mode_server_browser && multiplayer.game_count)
 		{
-			usnprintf(text, NUMBEROF(text) - 1, L"%s", JOIN_WIDE(HOST_LABEL_OPENCE_SERVER));
+			struct advertised_game *chosen = multiplayer.games[multiplayer.game_chosen];
+			char const *project = network_game_client_advertised_game_project(global_network_game_client_get(), chosen);
+
+			if (network_game_client_advertised_game_opence_server(global_network_game_client_get(), chosen))
+				usnprintf(text, NUMBEROF(text) - 1, L"%s", JOIN_WIDE(HOST_LABEL_OPENCE_SERVER));
+			else if (project)
+			{
+				int index;
+
+				for (index = 0; project[index] && index < (int)NUMBEROF(text) - 1; index++)
+					text[index] = (wchar_t)(unsigned char)project[index];
+				text[index] = 0;
+			}
 		}
 #endif
 		text[NUMBEROF(text) - 1] = 0;

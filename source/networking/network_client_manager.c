@@ -3788,6 +3788,30 @@ static void network_game_client_refuse(
 	}
 }
 
+/* port/linux/game/network_rules.c's: another project's hosts on an OpenCE
+number (network_rules.h, "other projects' hosts") */
+int network_rules_fork_advertised(unsigned char const *reserved, int size, unsigned *base_version);
+char const *network_rules_fork_name(int fork);
+char const *network_rules_fork_refusal(int fork, long engine, int modded, unsigned flags, int option_value,
+	char *text, int size);
+
+/* port: a refusal of a reason in its own words (reason, one sentence),
+kept, and when tell said with what the player can do (hint) */
+static void network_game_client_refuse_text(
+	char const *reason,
+	char const *hint,
+	boolean tell)
+{
+	char message[400];
+
+	csprintf(network_game_client_refusal_text, "%s", reason);
+	if (tell)
+	{
+		csprintf(message, "%s\n\n%s", reason, hint);
+		platform_show_message(JOIN_FAILED_TITLE, message);
+	}
+}
+
 /* whether this client can join the advertised game: its host's network
 version is one this machine plays with (HALO_PORT_NETWORK_VERSION_MINIMUM
 to HALO_PORT_NETWORK_VERSION_MAXIMUM), and it plays the distributed netcode (a host of this version built before the lockstep
@@ -3812,6 +3836,30 @@ boolean network_game_client_advertised_game_compatible(
 	theirs = network_game_client_advertised_versions[game_index].version;
 	distributed = (network_game_client_advertised_versions[game_index].flags &
 		HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG) != 0;
+	/* port: another project's modded game, by its own mark in the version's
+	place (network_rules.h, "other projects' hosts"): refused before joining
+	for what it plays, its other bytes never read as a Delta tag or as
+	anything of ours */
+	{
+		unsigned int base = 0;
+		int fork = network_rules_fork_advertised(network_game_client_advertised_versions[game_index].reserved,
+			(int)sizeof(network_game_client_advertised_versions[game_index].reserved), &base);
+
+		if (fork >= 0)
+		{
+			char reason[96];
+
+			network_rules_fork_refusal(fork, game->engine_type, TRUE,
+				network_game_client_advertised_versions[game_index].flags, -1, reason, (int)sizeof(reason));
+			if (tell)
+			{
+				network_event("not joining a %s modded game (its mark 0x%04X, network version %u, engine %d): %s",
+					network_rules_fork_name(fork), theirs, base, (int)game->engine_type, reason);
+			}
+			network_game_client_refuse_text(reason, JOIN_HINT_FORK_PLAIN, tell);
+			return FALSE;
+		}
+	}
 #ifdef HALO_PORT_DELTA_WIRE_JOIN
 	{
 		char wire[24];
@@ -3861,6 +3909,23 @@ boolean network_game_client_advertised_game_compatible(
 #endif
 	if (theirs >= (unsigned int)delta_legacy_minimum() && theirs <= (unsigned int)delta_legacy_maximum() && distributed)
 	{
+#ifdef HALO_PORT_DELTA_WIRE_JOIN
+		/* (a host of another project's code, by its tag's layout 2: Delta
+		Peer, no wire, so its number decides, docs/delta/peer.md, "The tag") */
+		int major, project, project_version;
+
+		if (delta_compat_read_project(network_game_client_advertised_versions[game_index].reserved,
+			(int)sizeof(network_game_client_advertised_versions[game_index].reserved), &major, &project,
+			&project_version))
+		{
+			char const *name = delta_compat_project_name(project);
+
+			network_event("joining a Delta host of another project, %s (project %d, version %d), by network "
+				"version %u (this machine's is %u)", name ? name : "not in this build's registry", project,
+				project_version, theirs, ours);
+			return TRUE;
+		}
+#endif
 		if (theirs > (unsigned int)ours)
 		{
 			network_event("joining a host of network version %u, presumed additive (this machine's is %u)", theirs, ours);
@@ -3907,6 +3972,9 @@ boolean network_game_client_advertised_game_in_progress(
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
 /* port/linux/src/delta_compat.c's */
 int delta_compat_opence_server(unsigned char const *reserved, int size);
+int delta_compat_read_project(unsigned char const *reserved, int size, int *major, int *project,
+	int *project_version);
+char const *delta_compat_project_name(int project);
 
 /* port: whether the advertised game is an OpenCE dedicated server's (the
 dedicated flag of its version 39 and later, and no Delta): only a neutral
@@ -3920,6 +3988,23 @@ boolean network_game_client_advertised_game_opence_server(
 	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
 		delta_compat_opence_server(network_game_client_advertised_versions[game_index].reserved,
 			(int)sizeof(network_game_client_advertised_versions[game_index].reserved));
+}
+
+char const *network_game_client_advertised_game_project(
+	struct network_game_client *client,
+	struct network_advertised_game const *game)
+{
+	long game_index = client ? game - client->available_games : NONE;
+	int major, project, project_version;
+
+	if (game_index < 0 || game_index >= MAXIMUM_NETWORK_ADVERTISED_GAMES ||
+		!delta_compat_read_project(network_game_client_advertised_versions[game_index].reserved,
+			(int)sizeof(network_game_client_advertised_versions[game_index].reserved), &major, &project,
+			&project_version))
+	{
+		return NULL;
+	}
+	return delta_compat_project_name(project);
 }
 #endif
 

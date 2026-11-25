@@ -12,8 +12,9 @@ the game makes of them, and only for a map that has the header:
   and checked like any other, not passed over;
 - its project_yellow tag (the scenario's first reference, which OpenSauce
   takes from the scenario's unused one) and project_yellow_globals are read:
-  the gravity scale is honored, as OpenSauce honors it; the rest is logged,
-  once a map, with what is and is not supported yet.
+  the gravity scale is honored, as OpenSauce honors it, and the scripted
+  widget lists are kept for the scripts (opensauce_map_scripted_widget); the
+  rest is logged, once a map, with what is and is not supported yet.
 
 Whether a map's header may be read at all (its memory upgrades need the
 larger tag window) is still SPV3 mode's call (spv3_mode.c). A map without
@@ -21,9 +22,11 @@ the header is never touched here.
 
 Formats from OpenSauce's source (GPL-3.0-or-later), read as facts:
 cache_files_structures_yelo.hpp, project_yellow_scenario_definitions.hpp,
-project_yellow_global_definitions.hpp, and GameState.cpp for what of
+project_yellow_global_definitions.hpp, GameState.cpp for what of
 project_yellow it honors at run time (the gravity scale, when it is above
-0 and not 1). No code of it is here.
+0 and not 1), and UIWidgets.cpp for how a scripted widget is found (by name,
+the scenario's list before the globals', one with a definition). No code of
+it is here.
 */
 
 #ifdef HALO_CUSTOM_EDITION
@@ -64,6 +67,13 @@ enum
 	GELO_PLAYER_UNITS_OFFSET = 0xA4,
 	GELO_SCRIPTING_OFFSET = 0xC4,
 	GELO_SIZE = 0x120,
+	/* a scripted widget (struct opensauce_scripted_widget): its name, then
+	its ui_widget_definition's reference */
+	SCRIPTED_WIDGET_NAME_SIZE = 32,
+	SCRIPTED_WIDGET_DEFINITION_OFFSET = 0x20,
+	SCRIPTED_WIDGET_SIZE = 0x4C,
+	/* a ui_widget_definition's root (ui_widget.c checks its size) */
+	UI_WIDGET_DEFINITION_SIZE = 0x3EC,
 	SCRIPTING_FUNCTIONS_OFFSET = 0x00,
 	SCRIPTING_GLOBALS_OFFSET = 0x0C,
 };
@@ -104,6 +114,13 @@ static struct
 	real gravity_before;
 	/* (camouflage past 1 said once a map) */
 	boolean camouflage_logged;
+	/* the loaded map's tags, project_yellow and project_yellow_globals,
+	for the scripted widgets (opensauce_map_scripted_widget): NULL until
+	its tags are checked, and again once it unloads */
+	struct opensauce_tag_instance const *tag_instances;
+	long tag_count;
+	byte const *yelo_root;
+	byte const *gelo_root;
 } opensauce_globals;
 
 static char const *const opensauce_flag_names[NUMBER_OF_OPENSAUCE_HEADER_FLAGS] =
@@ -291,9 +308,12 @@ void opensauce_map_tags_loaded(
 		return;
 	}
 	yelo_root = xbox_pointer(yelo->address);
+	opensauce_globals.tag_instances = instances;
+	opensauce_globals.tag_count = tag_count;
+	opensauce_globals.yelo_root = yelo_root;
 	memcpy(&gravity_scale, yelo_root + YELO_GRAVITY_SCALE_OFFSET, sizeof(gravity_scale));
 	memcpy(&player_speed_scale, yelo_root + YELO_PLAYER_SPEED_SCALE_OFFSET, sizeof(player_speed_scale));
-	opensauce_log("project_yellow v%d: %ld scripted widgets (not shown yet), gameplay flags 0x%lx, "
+	opensauce_log("project_yellow v%d: %ld scripted widgets, gameplay flags 0x%lx, "
 		"game globals override %s (built into the map by OpenSauce's tools), player speed scale %.3f%s",
 		(int)*(short const *)(yelo_root + YELO_VERSION_OFFSET),
 		opensauce_block_count(yelo_root, YELO_SCRIPTED_WIDGETS_OFFSET),
@@ -320,6 +340,7 @@ void opensauce_map_tags_loaded(
 		long scripting_count;
 
 		gelo_root = xbox_pointer(gelo->address);
+		opensauce_globals.gelo_root = gelo_root;
 		scripting_count = opensauce_block_count(gelo_root, GELO_SCRIPTING_OFFSET);
 		opensauce_log("project_yellow_globals: flags 0x%04x (not honored yet), %ld scripted widgets, "
 			"%ld multiplayer player units (not used), %s OpenSauce script definitions (scripts resolve by name)",
@@ -358,10 +379,63 @@ float opensauce_map_drawn_camouflage(
 	return amount < 0.0f ? 0.0f : 1.0f;
 }
 
+/* the widget of that name in a scripted widget list (a tag block of them at
+offset in root): its definition's tag index, or NONE */
+static long opensauce_scripted_widget_in(
+	byte const *root,
+	long offset,
+	char const *name)
+{
+	long count, index;
+	byte const *elements;
+
+	if (!root)
+		return NONE;
+	count = opensauce_block_count(root, offset);
+	/* (the block's elements all within the map's tags, as a tag's root) */
+	elements = count > 0 && count < 0x10000 ?
+		ce_loaded_pointer(opensauce_read32(root, offset + 4), (unsigned long)count * SCRIPTED_WIDGET_SIZE) : NULL;
+	if (!elements)
+		return NONE;
+	for (index = 0; index < count; index++)
+	{
+		byte const *widget = elements + index * SCRIPTED_WIDGET_SIZE;
+		unsigned long tag_index;
+
+		if (strncmp((char const *)widget, name, SCRIPTED_WIDGET_NAME_SIZE) != 0)
+			continue;
+		tag_index = opensauce_reference_index(widget, SCRIPTED_WIDGET_DEFINITION_OFFSET);
+		if (opensauce_tag_get(opensauce_globals.tag_instances, opensauce_globals.tag_count, tag_index, 'DeLa',
+			UI_WIDGET_DEFINITION_SIZE))
+		{
+			return (long)tag_index;
+		}
+	}
+	return NONE;
+}
+
+long opensauce_map_scripted_widget(
+	char const *name)
+{
+	long tag_index;
+
+	if (!opensauce_globals.active || !opensauce_globals.tag_instances || !name || !name[0])
+		return NONE;
+	/* (the scenario's list first, then the globals', as OpenSauce looks) */
+	tag_index = opensauce_scripted_widget_in(opensauce_globals.yelo_root, YELO_SCRIPTED_WIDGETS_OFFSET, name);
+	if (tag_index == NONE)
+		tag_index = opensauce_scripted_widget_in(opensauce_globals.gelo_root, GELO_SCRIPTED_WIDGETS_OFFSET, name);
+	return tag_index;
+}
+
 void opensauce_map_unloaded(
 	void)
 {
 	opensauce_gravity_restore();
+	opensauce_globals.tag_instances = NULL;
+	opensauce_globals.tag_count = 0;
+	opensauce_globals.yelo_root = NULL;
+	opensauce_globals.gelo_root = NULL;
 	if (opensauce_globals.active)
 	{
 		opensauce_scripts_map_unloaded();

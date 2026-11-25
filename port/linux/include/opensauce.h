@@ -102,6 +102,13 @@ float opensauce_map_drawn_camouflage(
 	float amount);
 #endif
 
+/* the ui_widget_definition a map's scripts open by name
+(display_scripted_ui_widget): from its project_yellow's scripted widgets, or
+its project_yellow_globals', as OpenSauce finds it; NONE if neither has one
+of that name with a definition, or the map isn't OpenSauce's */
+long opensauce_map_scripted_widget(
+	char const *name);
+
 /* the map unloaded: whatever it changed put back */
 void opensauce_map_unloaded(
 	void);

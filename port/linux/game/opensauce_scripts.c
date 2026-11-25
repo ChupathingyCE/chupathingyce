@@ -26,8 +26,12 @@ back). Read as facts; the code is this game's:
     (opensauce_postprocess.c), where the map has some and the build draws
     it; elsewhere an effect instance's active flag and fade are kept, the
     fade done at once, as nothing is drawn;
+  - display_scripted_ui_widget opens the widget the map's project_yellow
+    (or project_yellow_globals) lists under the name, as OpenSauce's
+    UIWidgets.cpp does: a widget of its own, the one open closed (none on
+    the dedicated server, as OpenSauce's has none);
   - what needs a part of OpenSauce the game does not have yet answers as
-    that part would with nothing to show, and says so once: scripted UI widgets, BSP sky and lightmap
+    that part would with nothing to show, and says so once: BSP sky and lightmap
     sets, runtime vectors, bink movies, OpenSauce's third and fourth
     grenade counts.
 The globals are Halo PC's network globals (vehicle_incremental_rate and the
@@ -52,6 +56,7 @@ blur ones, of the types Halo PC's and OpenSauce's scripts give them
 #include "objects/objects.h"
 #include "objects/object_types.h"
 #include "units/units.h"
+#include "interface/ui_widget.h"
 #include "opensauce.h"
 #include "opensauce_postprocess.h"
 #include "stubbs_functions.h"
@@ -621,6 +626,25 @@ static boolean opensauce_script_data(
 		if (bit >= 0 && bit < 32)
 			*value = (arguments[2] & 0xFF) ? (arguments[0] | (1L << bit)) : (arguments[0] & ~(1L << bit));
 	}
+#ifndef HALO_SERVER
+	else if (!strcmp(name, "display_scripted_ui_widget"))
+	{
+		/* the widget the map lists under that name opened, as OpenSauce
+		opens it: on its own, over whatever was open (TRUE if it was) */
+		char const *widget_name = opensauce_string_argument(arguments[0]);
+		long tag_index = opensauce_map_scripted_widget(widget_name);
+
+		*value = FALSE;
+		if (tag_index != NONE)
+		{
+			*value = ui_widget_load_by_name_or_tag(NULL, tag_index, NULL, NONE, NONE, NONE, NONE) != NULL;
+			error(_error_silent, "OpenSauce scripts: scripted widget '%s' %s", widget_name,
+				*value ? "shown" : "could not be made");
+		}
+		else
+			error(_error_silent, "OpenSauce scripts: scripted widget '%s' isn't in the map's lists", widget_name);
+	}
+#endif
 	else if (!strcmp(name, "physics_set_gravity"))
 	{
 		real scale = opensauce_real_argument(arguments[0]);

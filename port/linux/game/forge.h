@@ -92,6 +92,9 @@ enum
 	/* (AI movement: AI GO HERE, a route's point, and PATROL AREA, no tag of
 	the map's: forge_ai_move.inc) */
 	_forge_category_ai_routes,
+	/* (volumes: KILL VOLUME, DAMAGE VOLUME, GRAVITY VOLUME, zones that act
+	on whoever is in them: forge_volumes.inc) */
+	_forge_category_volumes,
 	NUMBER_OF_FORGE_CATEGORIES
 };
 
@@ -127,6 +130,11 @@ enum
 	patrol area, its route in channel */
 	_forge_spawn_ai_route,
 	_forge_spawn_ai_area,
+	/* (a volume: its kind its type - forge_files.h FORGE_FILE_VOLUME_*'s
+	order -, forge_volumes.inc) */
+	_forge_spawn_volume_kill,
+	_forge_spawn_volume_damage,
+	_forge_spawn_volume_gravity,
 	NUMBER_OF_FORGE_MARKER_KINDS,
 	FORGE_LAST_OBJECTIVE_KIND = _forge_spawn_race
 };
@@ -134,6 +142,7 @@ enum
 #define FORGE_TELEPORTER_KINDS 2
 #define FORGE_OBJECTIVE_KINDS 4
 #define FORGE_AI_ROUTE_KINDS 2
+#define FORGE_VOLUME_KINDS 3
 /* (forge_netgame.inc) a teleporter's channels (forge_files.h's) */
 #define FORGE_TELEPORTER_CHANNELS 16
 
@@ -210,6 +219,13 @@ struct forge_properties
 	boolean ai_vehicles;
 	boolean vehicle;
 	short marker_option;
+	/* (a volume's: forge_volumes.inc) its shape, size (forge_files.h's
+	quarter world units), amount and TARGET's choice */
+	boolean volume;
+	unsigned char volume_shape;
+	unsigned char volume_size[3];
+	unsigned char volume_amount;
+	short volume_target_index;
 };
 
 /* what the monitor's controls ask of the flying camera this frame */
@@ -569,6 +585,13 @@ short forge_ai_faction_lines(
 played, on a campaign mission: the mission's scripts do not run and its
 encounters are not created (its own AI and story stay out of it) */
 boolean forge_mission_off(
+	void);
+
+/* ---------- prototypes/FORGE_VOLUMES.INC */
+
+/* (game.c's game_tick) the layout's volumes act on what is in them: a
+Forge game's or a layout played's, a tick at a time */
+void forge_volumes_tick(
 	void);
 
 /* ---------- prototypes/FORGE_NETGAME.INC */

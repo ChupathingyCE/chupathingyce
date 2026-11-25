@@ -1841,8 +1841,9 @@ static const struct config_setting config_settings[] =
 	{ "game.forge_grab_range", _config_string, "\"far\"", "HALO_FORGE_GRAB_RANGE", _environment_value,
 		_platform_desktop,
 		"How far Forge's crosshair reaches to grab, copy or delete: \"near\"\n"
-		"(about 60 m), \"medium\" (about 105 m) or \"far\" (about 180 m, the\n"
-		"default). GRAB RANGE in the Forge menu's OPTIONS. See docs/forge.md." },
+		"(20 world units, about 60 m), \"medium\" (35 world units, about 105 m)\n"
+		"or \"far\" (60 world units, about 180 m: the default). GRAB RANGE in the\n"
+		"Forge menu's OPTIONS. See docs/forge.md." },
 	{ "game.forge_held_facing", _config_string, "\"keep\"", "HALO_FORGE_HELD_FACING", _environment_value,
 		_platform_desktop,
 		"What Forge's monitor holds: \"keep\" keeps the facing it was grabbed\n"

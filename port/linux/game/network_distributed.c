@@ -130,6 +130,8 @@ boolean main_menu_is_active(void);
 int config_boolean(char const *name);
 long config_integer(char const *name);
 unsigned int network_game_client_host_network_version(void);
+/* (network_client_message_handler.c's: the project whose plain game the host plays, -1 none) */
+int network_game_client_host_fork_get(void);
 unsigned long system_milliseconds(void);
 void console_warning(const char *format, ...);
 
@@ -4124,6 +4126,11 @@ static void distributed_unknown_kind(
 		}
 		return;
 	}
+	/* (another project's host's own kinds in its plain games, a third
+	person policy, its game privacy, platforms: dropped unread and unlogged,
+	network_rules.h, "other projects' hosts") */
+	if (machine_index == NONE && network_rules_fork_drops(network_game_client_host_fork_get(), type))
+		return;
 	if (distributed_unknown_kinds_seen[type >> 3] & (1 << (type & 7)))
 		return;
 	distributed_unknown_kinds_seen[type >> 3] |= (byte)(1 << (type & 7));

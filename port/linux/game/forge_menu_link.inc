@@ -217,6 +217,9 @@ short forge_property_count(
 
 	if (!forge_properties_get(&properties))
 		return 0;
+	/* (a volume's eight: forge_volumes.inc) */
+	if (properties.volume)
+		return _forge_property_physics + 1;
 	/* (a marker's: team, game type, kind, yaw) */
 	if (properties.spawn)
 		return 4;
@@ -264,6 +267,13 @@ boolean forge_property_text(
 			properties.spawn_kind == _forge_spawn_teleporter_receiver;
 		boolean objective = properties.spawn_kind >= _forge_spawn_flag && properties.spawn_kind <= FORGE_LAST_OBJECTIVE_KIND;
 		boolean ai_marker = properties.spawn_kind == _forge_spawn_ai_route || properties.spawn_kind == _forge_spawn_ai_area;
+
+		/* (a volume's rows: forge_volumes.inc) */
+		if (properties.volume)
+		{
+			forge_volume_property_text(&properties, row, label, label_size, value, value_size);
+			return TRUE;
+		}
 
 		switch (row)
 		{
