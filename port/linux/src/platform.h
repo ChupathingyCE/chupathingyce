@@ -262,10 +262,15 @@ console's own memory (cseries/xbox_address.h) */
 #define PLATFORM_CONTIGUOUS_MAXIMUM PLATFORM_CONTIGUOUS_SIZE
 #else
 /* the desktop builds' (Linux, macOS, Windows) and the native 64-bit
-Android build's: four times a 128 MB
-development kit's, for their larger texture cache (halo_port_capacity.h);
-port/windows/src/win32_memory_watch.c has the same */
+Android build's: four times a 128 MB development kit's, for their larger
+texture cache (halo_port_capacity.h), and eight times in the 64-bit builds,
+whose window is in their own Xbox address space and backed only where it is
+written (xbox_memory.c); port/windows/src/win32_memory_watch.c has the same */
+#ifdef HALO_64BIT
+#define PLATFORM_CONTIGUOUS_SIZE 0x40000000U
+#else
 #define PLATFORM_CONTIGUOUS_SIZE 0x20000000U
+#endif
 #define PLATFORM_CONTIGUOUS_MAXIMUM PLATFORM_CONTIGUOUS_SIZE
 #endif
 #define PLATFORM_ANY_PHYSICAL_ADDRESS 0xffffffffU
