@@ -354,14 +354,17 @@ struct xgpu_render_target
 struct xgpu_render_target *xgpu_render_target_find(unsigned long data);
 
 #if defined(HALO_BGFX) || defined(HALO_CONSOLE_NATIVE_RENDERER) || defined(HALO_VULKAN)
-/* a level of a texture that is not compressed, as 32-bit ARGB words in the
-processor's order (B, G, R, A in memory on a little-endian one); FALSE
-without the memory for it */
+/* a level of a texture that is not compressed (or is BC7), as 32-bit ARGB
+words in the processor's order (B, G, R, A in memory on a little-endian
+one); FALSE without the memory for it */
 BOOL xgpu_texture_decode_level(const struct xgpu_texture_description *description, unsigned long level,
 	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination);
 /* a compressed texture's DXT kind (1, 3 or 5; 0 for any other), and the
 bytes of one of its levels */
 int xgpu_texture_dxt(const struct xgpu_texture_description *description);
+/* whether a compressed texture is BC7 (D3DFMT_PORT_BC7: a Custom Edition
+map's bitmap in MCC's high-quality compression) */
+BOOL xgpu_texture_bc7(const struct xgpu_texture_description *description);
 unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *description, unsigned long level);
 #endif
 

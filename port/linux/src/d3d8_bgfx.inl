@@ -2844,10 +2844,26 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 	int dxt = description->compressed ? xgpu_texture_dxt(description) : 0;
 	unsigned long levels = description->levels ? description->levels : 1, level, full = 1, size, face, provided;
 	BOOL volume = description->depth > 1;
+	BOOL bc7 = description->compressed && xgpu_texture_bc7(description);
 
-	if (description->compressed && !dxt)
+	/* a BC7 one (a Custom Edition map's bitmap in MCC's high-quality
+	compression) is sent as BC7 where the backend samples it, and decoded
+	by the OpenGL upload's decoder where it doesn't. A Halo PC HUD meter or
+	multipurpose map is decoded too, so its texels are where a later move
+	of its channels can reach them; bgfx doesn't move them yet for any
+	format (OpenGL does it with the texture's swizzle) */
+	if (bc7)
 	{
-		bg_log_once("compressed textures other than DXT");
+		uint16_t wanted = volume ? BGFX_CAPS_FORMAT_TEXTURE_3D : description->cube_map ? BGFX_CAPS_FORMAT_TEXTURE_CUBE :
+			BGFX_CAPS_FORMAT_TEXTURE_2D;
+
+		if (!description->pc_meter && !description->pc_multipurpose &&
+			(bgfx_get_caps()->formats[BGFX_TEXTURE_FORMAT_BC7] & wanted))
+			dxt = 7;
+	}
+	else if (description->compressed && !dxt)
+	{
+		bg_log_once("compressed textures other than DXT and BC7");
 		entry->failed = TRUE;
 		return;
 	}
@@ -2864,7 +2880,7 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 	if (!entry->created)
 	{
 		bgfx_texture_format_t format = dxt == 1 ? BGFX_TEXTURE_FORMAT_BC1 : dxt == 3 ? BGFX_TEXTURE_FORMAT_BC2 :
-			dxt == 5 ? BGFX_TEXTURE_FORMAT_BC3 : BGFX_TEXTURE_FORMAT_BGRA8;
+			dxt == 5 ? BGFX_TEXTURE_FORMAT_BC3 : dxt == 7 ? BGFX_TEXTURE_FORMAT_BC7 : BGFX_TEXTURE_FORMAT_BGRA8;
 
 		if (volume)
 			entry->texture = bgfx_create_texture_3d((uint16_t)description->width, (uint16_t)description->height,

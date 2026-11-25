@@ -854,6 +854,13 @@ static void texture_dump(GLenum target, const struct xgpu_texture_description *d
 BOOL xgpu_texture_decode_level(const struct xgpu_texture_description *description, unsigned long level,
 	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination)
 {
+	/* (a BC7 one decoded as the OpenGL upload decodes it) */
+	if (format_information(description->format).kind == _texel_bc7)
+	{
+		bc7_decode_level(source, level_dimension(description->width, level), level_dimension(description->height, level),
+			level_dimension(description->depth, level), destination);
+		return TRUE;
+	}
 	return decode_level(description, level, source, palette, destination);
 }
 
@@ -866,6 +873,11 @@ int xgpu_texture_dxt(const struct xgpu_texture_description *description)
 	case _texel_dxt5: return 5;
 	default: return 0;
 	}
+}
+
+BOOL xgpu_texture_bc7(const struct xgpu_texture_description *description)
+{
+	return format_information(description->format).kind == _texel_bc7;
 }
 
 unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *description, unsigned long level)
