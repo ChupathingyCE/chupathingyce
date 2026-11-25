@@ -712,6 +712,15 @@ leave it out with the rest of HALO_CONSOLE_NO_DELTA_IDENTITY */
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_IDENTITY)
 #define HALO_DELTA_PEER_IDENTITY 1
 #endif
+/* a verified developer's blue flame (port/linux/game/developer_flames.c,
+display.developer_flames): the builds that check verified names in games and
+draw them. The consoles don't offer verified names yet, so they have no card
+to draw one from, and leave it out with HALO_CONSOLE_NO_DELTA_IDENTITY; the
+dedicated server draws nothing */
+#if defined(HALO_DELTA_PEER_IDENTITY) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE) && \
+	!defined(HALO_CONSOLE_NO_DEVELOPER_FLAMES)
+#define HALO_DEVELOPER_FLAMES 1
+#endif
 
 /* (the Xbox 360 and the Wii U, whose maps folders often lack loading.tga,
 have Chupathingy's picture to fall back on) */

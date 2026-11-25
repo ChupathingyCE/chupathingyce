@@ -703,6 +703,9 @@ static const struct config_setting config_settings[] =
 		"In Delta games, show a small Delta mark on the scoreboard, beside the\n"
 		"names of players whose Delta profile is proven. Other players' names\n"
 		"never start with @ or a Delta then." },
+	{ "display.developer_flames", _config_boolean, "true", "HALO_DEVELOPER_FLAMES", _environment_value, _platform_all,
+		"In Delta games, a blue flame on the helmets of verified Chupathingy\n"
+		"developers. Looks only." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
 	{ "display.server_message_text_color", _config_string, "\"\"", "HALO_SERVER_MESSAGE_TEXT_COLOR",
@@ -2028,7 +2031,8 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"In an automated test game, \"<x> <y> <z> <yaw> <pitch>[@<seconds>]\" puts\n"
 		"the first local player there, facing that way (degrees), that many\n"
-		"seconds in (1 if not given), once. Empty never does. For automated\n"
+		"seconds in (1 if not given), once. More places after it, split by\n"
+		"\";\", put the next local players there. Empty never does. For automated\n"
 		"tests only: it moves a player in the game itself, so never leave it\n"
 		"set on a host." },
 	{ "debug.network_test_camouflage", _config_real, "0.0", "HALO_NETWORK_TEST_CAMOUFLAGE", _environment_value,

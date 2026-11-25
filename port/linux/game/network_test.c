@@ -260,7 +260,7 @@ static struct
 	/* debug.network_test_place: where the first local player is put, facing
 	which way (degrees), when (seconds); debug.network_test_camouflage: when
 	every player gets active camouflage, for 20 seconds */
-	char place[96];
+	char place[400];
 	boolean placed;
 	real camouflage_time;
 	real melee_interval;
@@ -1260,41 +1260,59 @@ static void network_test_fall(
 /* debug.network_test_place = "<x> <y> <z> <yaw> <pitch>[@<seconds>]": the
 first local player put there, facing that way, that many seconds in (1 if not
 given), once: pictures of one place (a camouflaged weapon against a wall,
-OpenH1 #875) */
+OpenH1 #875). More places after it, split by ";", put the next local players
+(split screen) there, at the first's time: several players posed for a
+picture (developer flames side by side) */
 static void network_test_place(
 	void)
 {
-	float x, y, z, yaw, pitch, seconds = 1.0f;
+	float seconds = 1.0f;
 	char const *at;
-	long player_index = local_player_get_player_index(0);
-	struct player_datum *player;
-	real_point3d position;
-	real_vector3d facing;
+	char const *text = network_test.place;
+	short local_player_index;
 
-	if (network_test.placed || !network_test.place[0] ||
-		sscanf(network_test.place, "%f %f %f %f %f", &x, &y, &z, &yaw, &pitch) != 5)
-	{
+	if (network_test.placed || !network_test.place[0])
 		return;
-	}
 	at = strchr(network_test.place, '@');
 	if (at)
 		seconds = (float)atof(at + 1);
-	if (game_time_get() < (long)(seconds * TICKS_PER_SECOND) || player_index == NONE)
+	if (game_time_get() < (long)(seconds * TICKS_PER_SECOND))
 		return;
-	player = player_get(player_index);
-	if (player->unit_index == NONE)
-		return;
+	for (local_player_index = 0; local_player_index < MAXIMUM_LOCAL_PLAYERS && text; local_player_index++)
+	{
+		float x, y, z, yaw, pitch;
+		long player_index = local_player_get_player_index(local_player_index);
+		struct player_datum *player;
+		real_point3d position;
+		real_vector3d facing;
+
+		if (sscanf(text, "%f %f %f %f %f", &x, &y, &z, &yaw, &pitch) != 5)
+			break;
+		text = strchr(text, ';');
+		if (text)
+			text++;
+		if (player_index == NONE)
+			continue;
+		player = player_get(player_index);
+		if (player->unit_index == NONE)
+		{
+			/* (the first not yet in the game: tried again next tick) */
+			if (!local_player_index)
+				return;
+			continue;
+		}
+		position.x = x;
+		position.y = y;
+		position.z = z;
+		object_set_position(player->unit_index, &position, NULL, NULL);
+		facing.i = cosf(yaw * 0.017453292f) * cosf(pitch * 0.017453292f);
+		facing.j = sinf(yaw * 0.017453292f) * cosf(pitch * 0.017453292f);
+		facing.k = sinf(pitch * 0.017453292f);
+		player_control_set_facing(local_player_index, &facing);
+		platform_log("network test: place: local player %d put at (%.2f %.2f %.2f), facing %.1f %.1f",
+			local_player_index, x, y, z, yaw, pitch);
+	}
 	network_test.placed = TRUE;
-	position.x = x;
-	position.y = y;
-	position.z = z;
-	object_set_position(player->unit_index, &position, NULL, NULL);
-	facing.i = cosf(yaw * 0.017453292f) * cosf(pitch * 0.017453292f);
-	facing.j = sinf(yaw * 0.017453292f) * cosf(pitch * 0.017453292f);
-	facing.k = sinf(pitch * 0.017453292f);
-	player_control_set_facing(0, &facing);
-	platform_log("network test: place: the first local player put at (%.2f %.2f %.2f), facing %.1f %.1f",
-		x, y, z, yaw, pitch);
 }
 
 /* debug.network_test_camouflage: every player keeps active camouflage from

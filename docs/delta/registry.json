@@ -1457,6 +1457,13 @@
       "meaning": "approve another device's code, revoke another device of the account"
     }
   ],
+  "device_account_marks": [
+    {
+      "value": 16777216,
+      "name": "developer",
+      "meaning": "a developer of the issuing network's project"
+    }
+  ],
   "report_reasons": [
     {
       "number": 1,

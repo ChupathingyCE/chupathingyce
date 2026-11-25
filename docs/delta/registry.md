@@ -420,6 +420,14 @@ Unknown bits are ignored.
 | 0x10 | `social` | friends, presence, invites |
 | 0x20 | `devices` | approve another device's code, revoke another device of the account |
 
+Account marks: the top byte of the capabilities field, facts the issuing
+network vouches for about the account. A mark grants nothing and counts only
+for a certificate that chains to the root keys of the network that set it.
+
+| Mark | Name | Meaning |
+| --- | --- | --- |
+| 0x01000000 | `developer` | a developer of the issuing network's project |
+
 ## Report reasons
 
 REPORT's reason ([peer.md](peer.md#reports)). A host refuses one it doesn't know.
