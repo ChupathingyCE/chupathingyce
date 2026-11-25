@@ -5,6 +5,8 @@ with the build machine's C compiler and run on the Unix stub as it shipped
 (tools/tests/rename_stub_halo.sh)."""
 import shutil
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -28,7 +30,7 @@ def test_stub_rules(tmp_path):
     cc = compiler()
     if not cc:
         pytest.skip("no C compiler")
-    binary = tmp_path / "rename_stub_test"
+    binary = tmp_path / ("rename_stub_test.exe" if sys.platform == "win32" else "rename_stub_test")
     build = subprocess.run([cc, "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-O1",
                             str(ROOT / "port/linux/tests/rename_stub_test.c"), "-o", str(binary)],
                            capture_output=True, text=True)
@@ -42,3 +44,13 @@ def test_marks():
     assert SCRIPT.read_text().splitlines()[1] == f"# {MARK}"
     assert f'#define RENAME_STUB_MARK "{MARK}"' in (ROOT / "port/linux/src/rename_stub.h").read_text()
 
+
+
+if __name__ == "__main__":
+    # (run alone, without pytest: the Windows build's check, .github/workflows/build.yml)
+    with tempfile.TemporaryDirectory() as folder:
+        if not compiler():
+            sys.exit("no C compiler")
+        test_stub_rules(Path(folder))
+    test_marks()
+    print("ok")

@@ -20,8 +20,9 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 The program is `chupathingy.exe` on Windows and `chupathingy` on Linux and
 FreeBSD. Until 0.9.0 it was `halo.exe` and `halo`. 0.9.0 and 0.9.1 also had a
 small `halo.exe` (`halo` on Linux and FreeBSD) that started `chupathingy`;
-0.9.2 has none, and removes that small one if it is still in the folder
-(never any other `halo.exe`, such as Halo PC's own). Point any shortcut,
+0.9.2 has none. It removes that small one if it is still in the folder,
+and an old game of ours left there as `halo.exe`, but never any other
+`halo.exe`, such as Halo PC's own. Point any shortcut,
 script or Steam entry that starts `halo.exe` or `halo` at `chupathingy.exe`
 or `chupathingy`. The Mac app is still ChupathingyCE.
 

@@ -17,8 +17,9 @@ halo, then updates itself:
   - to the release that renames the game to chupathingy, with halo the
     stub that starts it (as 0.9.0 and 0.9.1 shipped it:
     tools/tests/rename_stub_halo.sh), from the list or without one, the
-    renamed game then removing the stub; and an old halo that is not the
-    stub (a game, or Halo PC's own) kept beside it,
+    renamed game then removing the stub; beside it, the game from before
+    the rename removed too, and any other halo (Halo PC's own, a player's
+    script) kept,
   - never in a packaged install (a file named "packaged" beside it, or
     HALO_PACKAGED=1): the new version is only pointed out,
   - as an AppImage (APPIMAGE set, as its runtime sets it): the AppImage file
@@ -408,9 +409,9 @@ def test_new_executable_started(keys, builds, server, tmp_path):
         assert after[name][1] & 0o111, (name, oct(after[name][1]))
     assert not after["notes-new.txt"][1] & 0o111
     assert after["THIRD-PARTY-NOTICES.txt"][1] == 0o600
-    # (the zip's halo is a game, not the stub: the renamed one leaves it)
-    assert has(lines, f"{NEW} chupathingy update: leaving halo beside chupathingy: it is not the old name's stub")
-    assert "halo" in after
+    # (the zip's halo is the game from before the rename: the renamed one removes it)
+    assert has(lines, f"{NEW} chupathingy update: removed halo, the game from before its rename to chupathingy")
+    assert "halo" not in after
 
 
 STUB = (ROOT / "tools/tests/rename_stub_halo.sh").read_bytes()
@@ -448,7 +449,7 @@ def test_update_to_the_renamed_game(keys, builds, server, tmp_path, listed):
     lines = run(tmp_path, folder, server, f"{NEW} chupathingy")
     assert has(lines, f"{OLD} halo update: starting version {NEW} ({'chupathingy' if listed else 'halo'})")
     assert has(lines, f"{NEW} chupathingy update: this is the latest version ({NEW})")
-    assert has(lines, f"{NEW} chupathingy update: removing halo, the stub 0.9.0 and 0.9.1 had for the old name")
+    assert has(lines, f"{NEW} chupathingy update: removed halo, the stub 0.9.0 and 0.9.1 had for the old name")
     after = snapshot(folder)
     assert after["chupathingy"][0] == hashlib.sha256(builds[NEW].read_bytes()).hexdigest()
     assert after["chupathingy"][1] & 0o111
@@ -456,19 +457,29 @@ def test_update_to_the_renamed_game(keys, builds, server, tmp_path, listed):
     assert not any(name.endswith(".old") for name in after)
 
 
-@pytest.mark.parametrize("stub", [True, False])
-def test_only_the_stub_removed_beside_the_renamed_one(builds, server, tmp_path, stub):
-    """(g) chupathingy started beside the old name's stub removes it; beside
-    any other halo (an old game, or Halo PC's own: no stub's mark) it leaves
-    it and says so; one started by another name looks at neither"""
+def other_program(size):
+    """a program of size bytes that is not the game's (as Halo PC's halo.exe
+    is): a program's first bytes, no stub's or game's mark"""
+    return b"\x7fELF" + bytes((index * 7 + 3) % 251 for index in range(size - 4))
+
+
+@pytest.mark.parametrize("halo", ["stub", "old game", "other program", "big other program", "script"])
+def test_only_the_games_own_removed_beside_the_renamed_one(builds, server, tmp_path, halo):
+    """(g) chupathingy started beside the old name's stub or the game from
+    before the rename removes it; beside any other halo (Halo PC's own, big
+    or small, or a player's script that names the repository) it leaves it
+    and says so, once; one started by another name looks at none"""
     folder = tmp_path / "game"
     folder.mkdir()
     shutil.copy(builds[NEW], folder / "chupathingy")
-    if stub:
-        (folder / "halo").write_bytes(STUB)
-    else:
-        shutil.copy(builds[OLD], folder / "halo")
-    before = (folder / "halo").read_bytes()
+    contents = {
+        "stub": STUB,
+        "old game": builds[OLD].read_bytes(),
+        "other program": other_program(300 * 1024),
+        "big other program": other_program(24 * 1024 * 1024),
+        "script": f"#!/bin/sh\n# github.com/{REPOSITORY}\nexec ./chupathingy \"$@\"\n".encode(),
+    }[halo]
+    (folder / "halo").write_bytes(contents)
     shutil.copy(builds[NEW], folder / "my-copy")
     for name in ("chupathingy", "halo", "my-copy"):
         os.chmod(folder / name, 0o755)
@@ -480,16 +491,19 @@ def test_only_the_stub_removed_beside_the_renamed_one(builds, server, tmp_path, 
                    "HALO_UPDATE_TEST_CA": str(server.authority), "HALO_UPDATE_TEST_LOG": str(log)}
     (tmp_path / "saves").mkdir()
     subprocess.run([str(folder / "my-copy")], cwd=folder, env=environment, timeout=120, capture_output=True)
-    assert (folder / "halo").read_bytes() == before
+    assert (folder / "halo").read_bytes() == contents
     subprocess.run([str(folder / "chupathingy")], cwd=folder, env=environment, timeout=120, capture_output=True)
     lines = log.read_text().splitlines()
-    if stub:
+    if halo == "stub":
         assert not (folder / "halo").exists()
-        assert has(lines, "removing halo, the stub 0.9.0 and 0.9.1 had for the old name")
+        assert has(lines, "removed halo, the stub 0.9.0 and 0.9.1 had for the old name")
+    elif halo == "old game":
+        assert not (folder / "halo").exists()
+        assert has(lines, "removed halo, the game from before its rename to chupathingy")
     else:
-        assert (folder / "halo").read_bytes() == before
-        assert has(lines, "leaving halo beside chupathingy: it is not the old name's stub")
-        assert not has(lines, "removing halo")
+        assert (folder / "halo").read_bytes() == contents
+        assert sum("leaving halo beside chupathingy: it is not this game's" in line for line in lines) == 1
+        assert not has(lines, "removed halo")
 
 OLD_LICENSE_FILES = ("SDL3-LICENSE.txt", "mbedtls-LICENSE.txt", "miniupnpc-LICENSE.txt", "Overpass-OFL.txt",
                      "CyborgInterfaceGothic-OFL.txt", "ChupathingyTitles-OFL.txt", "NotoSans-OFL.txt",
