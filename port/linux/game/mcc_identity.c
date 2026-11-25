@@ -266,12 +266,15 @@ void const *mcc_identity_host_settings(void const *settings,long bytes,struct ne
 
 /* port: the host's content digest, as its settings carry it: our build's own
 record (HALO_MCC_NETWORK), or the 43-layout record's (13,200 bytes), the first
-of the 64 bytes that end it (mcc_identity_host_overlay); zero for none */
+of the 64 bytes that end it (mcc_identity_host_overlay); zero for none. A
+record of another project's row (network_rules.h, "other projects' hosts":
+Content Evolved's 13,244 at 44, its options longer) ends with the same 64
+bytes: taken there too when the client recognized the row (recognized) */
 static unsigned char mcc_wire_digest[32];
 
-void mcc_identity_wire_record(unsigned char const *record, long size)
+void mcc_identity_wire_record(unsigned char const *record, long size, int recognized)
 {
-    if (record && size == 13200) memcpy(mcc_wire_digest,record+size-64,32);
+    if (record && (size == 13200 || (recognized && size > 13200))) memcpy(mcc_wire_digest,record+size-64,32);
     else memset(mcc_wire_digest,0,32);
 }
 

@@ -673,6 +673,103 @@ bytes of local data, then zeros */
 void network_rules_settings_layout_copy(uint8_t const *record, uint8_t const *extended, int options_size,
 	int offset, int length, uint8_t *out);
 
+/* ---------- other projects' hosts on an OpenCE number
+
+Another project's build that announces an OpenCE number but writes some of
+its own bytes: its plain games are played (its settings record read by its
+own layout), its other games are refused before joining, with the reason in
+the player's words. Each is a row of facts, told apart by its own marks:
+its modded games' advertisement word in the version's place, and its plain
+games' record, whose options are longer than the number's at the same
+number. Nothing here reads an OpenCE host's or a Delta host's bytes any
+differently: a row's marks are ones neither ever sends.
+
+Content Evolved (halo-content-evolved, from its author's own code, by his
+permission of 2026-11-24): a modded game (randomized, a campaign with
+skulls, a Tag Injector profile's, and every Firefight game) advertises
+0xFF00 | its mod version in the version's place and the OpenCE number at
+the reserved bytes' 24 and 25; its flags 0x08 to 0x40 and bytes 3 to 23
+then are the mod's (never our MCC flag, MCC version or Delta tag). Its
+plain games advertise the OpenCE number as OpenCE does, and send a settings
+record whose gametype options are 0x58 bytes (OpenCE's 0x2C, then 0x2C of
+Firefight's), the record otherwise the number's: 13,244 bytes at 44. In
+those options, the byte at 0x2B is its take on Infection or Gun Game (1
+Floodfection, 2 Tag Gun Game); its engine 6 is Firefight (ours is Bomb).
+In plain games its host also sends distributed kinds 160 to 167 (its third
+person policy, game privacy and platforms among them), which a machine
+without them drops. */
+enum
+{
+	NETWORK_RULES_FORK_NONE = -1,
+	NETWORK_RULES_FORK_CONTENT_EVOLVED = 0,
+	NUMBER_OF_NETWORK_RULES_FORKS
+};
+
+/* a mark of a fork's game and what it is to a player */
+struct network_rules_fork_mark
+{
+	/* the advertised flag bit (flags), the engine (engines), the options'
+	byte's value (option_values); 0 ends a list */
+	unsigned value;
+	/* "Firefight", "skulls"... and whether it is said as many */
+	char const *name;
+	uint8_t plural;
+};
+
+struct network_rules_fork
+{
+	/* the project's name, as the player reads it */
+	char const *name;
+	/* its modded games' advertisement: the version word under mask is
+	mark, the OpenCE number at base_version_at (a little-endian word) */
+	unsigned modded_mask;
+	unsigned modded_mark;
+	int base_version_at;
+	/* its plain games' record: at version alone (its hosts' number; another
+	is not taken for it), the gametype options options_size bytes, the record
+	otherwise the number's layout */
+	unsigned version;
+	int options_size;
+	/* the distributed kinds its host sends that this build drops */
+	unsigned dropped_first;
+	unsigned dropped_last;
+	/* its engines, modded flags (the most telling first) and the values of
+	its options' byte (at option_at in the options) that this build does not
+	play, each with its name */
+	struct network_rules_fork_mark engines[2];
+	struct network_rules_fork_mark flags[5];
+	int option_at;
+	struct network_rules_fork_mark option_values[3];
+	/* a modded game of none of those marks */
+	char const *modded_name;
+};
+
+/* a row (NULL for none), and its name ("" for none) */
+struct network_rules_fork const *network_rules_fork_get(int fork);
+char const *network_rules_fork_name(int fork);
+/* the fork whose modded game an advertisement's reserved bytes (size of
+them) say, its OpenCE number in *base_version (may be NULL); or
+NETWORK_RULES_FORK_NONE */
+int network_rules_fork_advertised(uint8_t const *reserved, int size, unsigned *base_version);
+/* the fork whose plain game's record a host of the version (its row's
+version exactly, never NETWORK_RULES_VERSION_UNKNOWN) sends as total_size
+bytes, where the version's own layout has another size; or
+NETWORK_RULES_FORK_NONE */
+int network_rules_fork_settings(unsigned version, unsigned total_size);
+/* the options' bytes of that record (0 for no fork), and where in them the
+byte of its option_values is (-1 for none) */
+int network_rules_fork_options_size(int fork);
+int network_rules_fork_option_at(int fork);
+/* whether a fork's host sends kind in its plain games, which this build drops */
+int network_rules_fork_drops(int fork, unsigned kind);
+/* why this build does not play a fork's game, as one sentence in text (size
+bytes): its engine (-1 for not known), whether it is a modded one (its
+advertisement's mark) and its advertised flags, and its options' byte (-1:
+not read). Returns text, or NULL when it plays the game (a plain game of an
+engine and option this build has) */
+char const *network_rules_fork_refusal(int fork, long engine, int modded, unsigned flags, int option_value,
+	char *text, int size);
+
 /* ---------- a host's budget for a client machine's lobby messages */
 
 /* the lobby messages a client machine may send its host in a burst (its
