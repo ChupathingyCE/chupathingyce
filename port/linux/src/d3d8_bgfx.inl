@@ -3942,6 +3942,8 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT0] = 0;
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT1] = 0;
 	key.texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
+	/* (MCC's alternate bump flag on an environment shader: mcc_environment_shader_gl.c) */
+	key.mcc_bump_attenuation = mcc_environment_shader_active();
 	bg_bind_textures(&key, texture_scale);
 	if (!bg_bind_targets(&has_depth) ||
 		!bg_target_rect((float)device.viewport.X, (float)device.viewport.Y, (float)device.viewport.Width,
