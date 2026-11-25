@@ -87,6 +87,10 @@ long delta_compat_join_mark(void);
 long delta_compat_join_mark(void) { return 0; }
 long delta_compat_opence_server(void);
 long delta_compat_opence_server(void) { return 0; }
+long delta_compat_read_project(void);
+long delta_compat_read_project(void) { return 0; }
+long delta_compat_project_name(void);
+long delta_compat_project_name(void) { return 0; }
 long delta_legacy_maximum(void);
 long delta_legacy_maximum(void) { return 0; }
 long delta_legacy_minimum(void);

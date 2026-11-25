@@ -163,6 +163,7 @@ WIRED = {
     "load game menu delete request", "load game menu delete finish",
     "controls screen init", "controls begin binding", "controls screen change set", "controls screen defaults",
     "controls update menu", "profile manager select", "direct ip connect go", "ss edit server password",
+    "direct ip connect init", "direct ip connect update", "direct ip edit field",
     "gamespy screen update", "gamespy select item", "gamespy select button", "gamespy select header",
 }
 
