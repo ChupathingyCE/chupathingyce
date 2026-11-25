@@ -53,6 +53,17 @@ oldest not past the wire). 1 if so. */
 int delta_compat_read_tag(const unsigned char *reserved, int size, int *major, struct delta_wire_id *wire,
 	struct delta_wire_id *oldest);
 
+/* a tag of layout 2 alone (DELTA_ADVERTISED_TAG_VERSION_PROJECT): a host of
+another project's code, its major, its project (2 or later) and that
+project's own version, if the tag is right (the two tag bytes, the layout,
+the check, a project past ours) and the version word is no Content Evolved
+modded game's. 1 if so. Such a host speaks Delta Peer and has no wire. */
+int delta_compat_read_project(const unsigned char *reserved, int size, int *major, int *project,
+	int *project_version);
+/* a project's name ("Content Evolved"), from DELTA_PROJECTS; 0 for a
+number not in it */
+const char *delta_compat_project_name(int project);
+
 /* the old layout's range bytes alone (DELTA_ADVERTISED_RANGE_OFFSET, hosts
 before the tag): what they say, if they are right (the layout version, the
 check byte, IDs, oldest not past the wire). 1 if so. */
@@ -60,7 +71,8 @@ int delta_compat_read_range(const unsigned char *reserved, int size, struct delt
 	struct delta_wire_id *oldest);
 
 /* whether the host of an advertisement speaks Delta Peer, so that a client
-says HELLO: a valid tag (of any major: another major answers LEGACY), or the
+says HELLO: a valid tag of either layout (of any major: another major answers
+LEGACY), or the
 old layout's flag, which from DELTA_ADVERTISED_FLAG_TAKEN_VERSION on counts
 only with a wire in the old slot (else it is OpenCE's dedicated flag) */
 int delta_compat_speaks_delta(const unsigned char *reserved, int size);
@@ -73,8 +85,8 @@ the Delta major, by its tag, else by the old layout:
   0  refuse: the host plays a wire this one does not (theirs is that wire,
      printable, ended; the host's own wire if it says it, else its slot's);
  -1  the advertisement does not say (no tag and no old layout, another
-     major, a host older than the wire's advertisement): the OpenCE numbers
-     decide.
+     major, a host older than the wire's advertisement, a host of another
+     project's code, whose tag has no wire): the OpenCE numbers decide.
 Whether the client speaks Delta at all (network.protocol) is the caller's. */
 int delta_compat_decide(const unsigned char *reserved, int size, int major, const char *own, char *theirs,
 	int theirs_size);

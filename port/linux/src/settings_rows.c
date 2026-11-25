@@ -218,6 +218,7 @@ static const struct settings_row settings_rows[] =
 	/* (the setup screen's help line for it is the disclaimer: launcher.c) */
 	{ _in_network, "MAPS FROM HOSTS", "network.map_downloads_from_host", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "LIST MY GAMES", "network.list_hosted_games", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_network, "DIRECT IP HOST", "network.direct_ip_host", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "HOSTED GAME STATS", "network.report_hosted_games", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "JOINED GAME STATS", "network.report_joined_games", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "DELTA STATS", "network.report_events", _kind_toggle, NULL, NULL, 0, 0 },

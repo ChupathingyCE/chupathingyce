@@ -193,6 +193,104 @@ static void test_advert(void)
 	}
 }
 
+/* peer.md's example of a port host's tag (layout 2): Content Evolved (2),
+its version 3, announcing 44 */
+static const uint8_t example_advert_project[26] = {
+	0x2c, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x44, 0x4c, 0x01, 0x02, 0x02, 0x03, 0x00,
+	0x00, 0xaf
+};
+
+static void test_advert_project(void)
+{
+	struct dref_advert advert;
+	uint8_t reserved[DREF_RESERVED_SIZE];
+	int index;
+
+	CHECK(dref_advert_read(example_advert_project, (int)sizeof(example_advert_project), &advert));
+	CHECK(advert.speaks_delta && !advert.has_tag && advert.major == DREF_MAJOR && !advert.modded);
+	CHECK(advert.project == DREF_PROJECT_CONTENT_EVOLVED && advert.project_version == 3);
+	CHECK(advert.version == 44 && advert.flags == 0x01 && advert.kind == 0);
+	CHECK(advert.wire.number == 0 && advert.oldest.number == 0);
+
+	/* (the writer makes the same bytes) */
+	memset(reserved, 0xCC, sizeof(reserved));
+	CHECK(dref_advert_write_project(reserved, 44, DREF_FLAG_DISTRIBUTED, 0, DREF_PROJECT_CONTENT_EVOLVED, 3));
+	CHECK(!memcmp(reserved, example_advert_project, sizeof(reserved)));
+	CHECK(dref_advert_write_project(reserved, 44, DREF_FLAG_DISTRIBUTED, 0, 200, 0xBEEF));
+	CHECK(dref_advert_read(reserved, (int)sizeof(reserved), &advert) && advert.project == 200 &&
+		advert.project_version == 0xBEEF && advert.speaks_delta);
+
+	/* (no tag for projects 0 and 1, past 255, or a modded version word:
+	OpenCE's fields alone) */
+	CHECK(!dref_advert_write_project(reserved, 44, DREF_FLAG_DISTRIBUTED, 0, DREF_PROJECT_CHUPATHINGY, 3));
+	CHECK(dref_advert_read(reserved, (int)sizeof(reserved), &advert) && !advert.speaks_delta && !advert.project);
+	CHECK(!dref_advert_write_project(reserved, 44, DREF_FLAG_DISTRIBUTED, 0, DREF_PROJECT_NONE, 3));
+	CHECK(!dref_advert_write_project(reserved, 44, DREF_FLAG_DISTRIBUTED, 0, 256, 3));
+	CHECK(!dref_advert_write_project(reserved, 0xFF70, DREF_FLAG_DISTRIBUTED, 0, DREF_PROJECT_CONTENT_EVOLVED, 3));
+	for (index = DREF_TAG_OFFSET; index < DREF_RESERVED_SIZE; index++)
+		CHECK(reserved[index] == 0);
+
+	/* (a layout 2 tag naming project 1 or 0 is no tag; nor is a wrong
+	check, nor a layout this client doesn't know) */
+	memcpy(reserved, example_advert_project, sizeof(reserved));
+	reserved[DREF_TAG_OFFSET + 4] = DREF_PROJECT_CHUPATHINGY;
+	reserved[DREF_TAG_OFFSET + 8] ^= DREF_PROJECT_CONTENT_EVOLVED ^ DREF_PROJECT_CHUPATHINGY;
+	CHECK(dref_advert_read(reserved, (int)sizeof(reserved), &advert) && !advert.speaks_delta && !advert.project);
+	memcpy(reserved, example_advert_project, sizeof(reserved));
+	reserved[DREF_TAG_OFFSET + 8] ^= 1;
+	CHECK(dref_advert_read(reserved, (int)sizeof(reserved), &advert) && !advert.speaks_delta && !advert.project);
+	memcpy(reserved, example_advert_project, sizeof(reserved));
+	reserved[DREF_TAG_OFFSET + 3] = 3;
+	reserved[DREF_TAG_OFFSET + 8] ^= 0x01; /* (2 xor 3) */
+	CHECK(dref_advert_read(reserved, (int)sizeof(reserved), &advert) && !advert.speaks_delta && !advert.has_tag);
+	/* (the reserved byte is covered by the check and read as nothing) */
+	memcpy(reserved, example_advert_project, sizeof(reserved));
+	reserved[DREF_TAG_OFFSET + 7] = 0x5A;
+	reserved[DREF_TAG_OFFSET + 8] ^= 0x5A;
+	CHECK(dref_advert_read(reserved, (int)sizeof(reserved), &advert) && advert.speaks_delta &&
+		advert.project == DREF_PROJECT_CONTENT_EVOLVED);
+
+	/* (a reader of layout 1 alone, as every build before layout 2: no
+	tag, so no HELLO, and the game is joined by its number) */
+	CHECK(example_advert_project[DREF_TAG_OFFSET + 3] != DREF_TAG_LAYOUT_WIRE);
+
+	/* (a Content Evolved modded game's bytes are its own: a tag's bytes
+	there are not read, nor its flags or kind) */
+	memcpy(reserved, example_advert_project, sizeof(reserved));
+	reserved[0] = 0x70;
+	reserved[1] = 0xFF;
+	reserved[DREF_RESERVED_FLAGS] = 0x2D;
+	CHECK(dref_advert_read(reserved, (int)sizeof(reserved), &advert) && advert.modded && !advert.speaks_delta &&
+		!advert.project && advert.version == 0xFF70 && !advert.flags);
+	memcpy(reserved, golden_advert_tag, sizeof(reserved));
+	reserved[1] = 0xFF;
+	CHECK(dref_advert_read(reserved, (int)sizeof(reserved), &advert) && advert.modded && !advert.has_tag);
+}
+
+static void test_roster_write(void)
+{
+	struct dref_header header;
+	struct dref_roster roster;
+	struct dref_roster_entry entries[32];
+	uint8_t out[DREF_MAXIMUM_DATAGRAM];
+	const uint8_t *payload = golden_roster + DREF_HEADER_SIZE;
+	int index, size;
+
+	/* (what our host wrote, read and written again: the same bytes) */
+	CHECK(dref_header_read(golden_roster, (int)sizeof(golden_roster), &header));
+	CHECK(dref_roster_read(payload, header.length, &roster));
+	for (index = 0; index < roster.count; index++)
+		CHECK(dref_roster_entry(payload, header.length, index, &entries[index]));
+	size = dref_roster_write(out, (int)sizeof(out), header.session, &roster, entries, roster.count);
+	CHECK(size == (int)sizeof(golden_roster) && !memcmp(out, golden_roster, sizeof(golden_roster)));
+	CHECK(!dref_roster_write(out, size - 1, header.session, &roster, entries, roster.count));
+	CHECK(!dref_roster_write(out, (int)sizeof(out), header.session, &roster, entries, 33));
+	CHECK(!dref_roster_write(out, (int)sizeof(out), header.session, &roster, NULL, 1));
+	size = dref_roster_write(out, (int)sizeof(out), 7, &roster, entries, 0);
+	CHECK(size == DREF_HEADER_SIZE + 12 && dref_header_read(out, size, &header) && header.type == DREF_ROSTER);
+}
+
 static void test_join_mark(void)
 {
 	uint16_t name[32];
@@ -384,6 +482,15 @@ static void test_random(long iterations)
 		dref_roster_read(data, size, &roster);
 		dref_roster_entry(data, size, (int)(next() % 40), &entry);
 		dref_advert_read(data, size, &advert);
+		{
+			/* (a port host's tag, a byte or two changed) */
+			uint8_t reserved[DREF_RESERVED_SIZE];
+
+			memcpy(reserved, example_advert_project, sizeof(reserved));
+			for (index = (int)(next() % 3); index >= 0; index--)
+				reserved[next() % DREF_RESERVED_SIZE] = (uint8_t)next();
+			dref_advert_read(reserved, (int)sizeof(reserved), &advert);
+		}
 		sent_count = 0;
 		dref_client_start(&client, &mine, header.session, 0, capture, NULL);
 		dref_client_receive(&client, 1, data, size);
@@ -401,6 +508,8 @@ int main(int argc, char **argv)
 	test_written();
 	test_read();
 	test_advert();
+	test_advert_project();
+	test_roster_write();
 	test_join_mark();
 	test_announce();
 	test_handshake();

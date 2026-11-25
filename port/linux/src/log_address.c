@@ -134,3 +134,38 @@ const char *log_address_ipv4(unsigned long network_address, unsigned short netwo
 	memcpy(port, &network_port, 2);
 	return log_address(bytes, 4, network_port ? (port[0] << 8 | port[1]) : -1, text, size);
 }
+
+const char *log_address_name(const char *name, char *text, int size)
+{
+	unsigned char data[SALT_SIZE + 1 + 256];
+	unsigned char digest[P2P_SHA256_SIZE];
+	char tag[2 * TAG_SIZE + 1];
+	size_t length;
+
+	if (!text || size <= 0)
+		return "";
+	if (!name || !*name)
+	{
+		snprintf(text, (size_t)size, "unknown");
+		return text;
+	}
+	length = strlen(name);
+	if (!strcmp(name, "localhost") || config_boolean("debug.log_addresses"))
+	{
+		if (strcmp(name, "localhost"))
+			pthread_once(&whole_once, say_whole);
+		snprintf(text, (size_t)size, "%s", name);
+		return text;
+	}
+	if (length > 256)
+		length = 256;
+	pthread_once(&salt_once, make_salt);
+	memcpy(data, salt, SALT_SIZE);
+	/* (a name's tag apart from an address's of the same bytes) */
+	data[SALT_SIZE] = 0xFF;
+	memcpy(data + SALT_SIZE + 1, name, length);
+	p2p_sha256(data, SALT_SIZE + 1 + (int)length, digest);
+	p2p_hex(digest, TAG_SIZE, tag);
+	snprintf(text, (size_t)size, "name#%s", tag);
+	return text;
+}
