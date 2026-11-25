@@ -12,7 +12,7 @@ other (`docs/delta/` and `tools/delta-ref/`):
 | Folder | Files |
 | --- | --- |
 | `docs/delta/` | `README.md`, `peer.md`, `versioning.md`, `registry.md`, `registry.json`, `layouts.json`, `list.md`, `stats.md`, `control.md`, `link.md`, `clients.md`, `security.md`, `ports.md`, this note |
-| `tools/delta-ref/` | `delta_ref.h`, `delta_ref.c`, `delta_ref_test.c`, `golden.h`, `delta_layout.h`, `delta_layout.c`, `delta_layout_test.c`, `Makefile`, `conformance.py`, `loopback_host.sh`, `README.md` |
+| `tools/delta-ref/` | `delta_ref.h`, `delta_ref.c`, `delta_ref_test.c`, `golden.h`, `delta_layout.h`, `delta_layout.c`, `delta_layout_test.c`, `fuzz_layout.c`, `Makefile`, `conformance.py`, `loopback_host.sh`, `README.md` |
 
 The two folders link to each other with relative paths
 (`../../tools/delta-ref/...` from the spec, `../../docs/delta/...` from the

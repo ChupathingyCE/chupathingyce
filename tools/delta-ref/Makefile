@@ -25,8 +25,8 @@ $(BUILD)/delta_ref_test: delta_ref.c delta_ref.h delta_ref_test.c golden.h | $(B
 $(BUILD)/delta_layout.o: delta_layout.c delta_layout.h | $(BUILD)
 	$(CC) $(WARNINGS) $(CFLAGS) -c delta_layout.c -o $@
 
-$(BUILD)/delta_layout_test: delta_layout.c delta_layout.h delta_layout_test.c | $(BUILD)
-	$(CC) $(WARNINGS) -Wno-conversion $(CFLAGS) delta_layout.c delta_layout_test.c -o $@
+$(BUILD)/delta_layout_test: delta_layout.c delta_layout.h fuzz_layout.c delta_layout_test.c | $(BUILD)
+	$(CC) $(WARNINGS) -Wno-conversion $(CFLAGS) delta_layout.c fuzz_layout.c delta_layout_test.c -o $@
 
 test: $(BUILD)/delta_ref.o $(BUILD)/delta_ref_test $(BUILD)/delta_layout.o $(BUILD)/delta_layout_test
 	$(BUILD)/delta_ref_test

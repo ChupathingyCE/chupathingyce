@@ -270,7 +270,7 @@ def test_kit_layout_tests(tmp_path):
     result = subprocess.run([cc, *strict, "-Wconversion", "-c", str(KIT / "delta_layout.c"), "-o",
                              str(tmp_path / "delta_layout.o")], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    sources = [str(KIT / "delta_layout.c"), str(KIT / "delta_layout_test.c")]
+    sources = [str(KIT / "delta_layout.c"), str(KIT / "fuzz_layout.c"), str(KIT / "delta_layout_test.c")]
     result = subprocess.run([cc, *strict, "-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                              *sources, "-o", str(binary)], capture_output=True, text=True)
     if result.returncode:
@@ -294,9 +294,12 @@ def test_conformance_layouts(tmp_path):
     data = module.load_layouts()
     assert module.layout_of(data, 10) is None
     assert module.layout_of(data, 32)["settings_size"] == 13120
-    assert module.layout_of(data, 46)["settings_size"] == 13200
+    assert module.layout_of(data, 45)["settings_size"] == 13200
+    assert module.layout_of(data, 46) is None
     grown = module.layout_of(data, 46, [(44, {"options_size": 64}), (46, {"options_size": 48, "rider_ejection_up": 1000})])
     assert grown["options_size"] == 48 and grown["settings_size"] == 13204 and grown["refused"] == 1
+    wrapped = module.layout_of(data, 45, [(45, {"options_size": 0xFFFFFFFF, "join_request_version_at": 0xFFFFFFFE})])
+    assert wrapped["options_size"] == 0x2C and wrapped["join_request_version_at"] == 234 and wrapped["refused"] == 2
     rng = random.Random(1124)
     record = bytes(rng.randrange(256) for _ in range(13120))
     out, extended = module.convert_record(record, 0x1C, 13200, 0x2C)

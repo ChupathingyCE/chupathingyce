@@ -28,7 +28,7 @@ int delta_layout_built_in(unsigned version, struct delta_layout *layout)
 
 	for (index = 0; index < sizeof(*layout); index++)
 		bytes[index] = 0;
-	if (version < DELTA_LAYOUT_OLDEST)
+	if (version < DELTA_LAYOUT_OLDEST || version > DELTA_LAYOUT_NEWEST + DELTA_LAYOUT_PRESUMED)
 		return 0;
 	layout->version = version;
 	layout->settings_size = DELTA_LAYOUT_SETTINGS_SIZE;
@@ -89,13 +89,13 @@ int delta_layout_apply(struct delta_layout *layout, struct delta_layout_fact con
 			continue;
 		if (fact->options_size)
 		{
-			/* (the options grow in front of the local data, the record with them) */
-			unsigned settings = layout->settings_size + fact->options_size - layout->options_size;
-
-			if (fact->options_size >= layout->options_size && settings <= DELTA_LAYOUT_SETTINGS_MAXIMUM)
+			/* (the options grow in front of the local data, the record with
+			them; each bound checked before any sum) */
+			if (fact->options_size >= layout->options_size && fact->options_size <= DELTA_LAYOUT_OPTIONS_MAXIMUM &&
+				layout->settings_size + (fact->options_size - layout->options_size) <= DELTA_LAYOUT_SETTINGS_MAXIMUM)
 			{
+				layout->settings_size += fact->options_size - layout->options_size;
 				layout->options_size = fact->options_size;
-				layout->settings_size = settings;
 			}
 			else
 				refused++;
@@ -116,10 +116,13 @@ int delta_layout_apply(struct delta_layout *layout, struct delta_layout_fact con
 		}
 		if (fact->join_request_said)
 		{
-			if (fact->join_request_extra <= 1024)
+			/* (zeros alone: another fill, or past the limit, is not taken) */
+			if (fact->join_request_fill == DELTA_LAYOUT_FILL_ZEROS && fact->join_request_extra <= 1024)
 			{
 				layout->join_request_extra = fact->join_request_extra;
-				if (layout->join_request_version_at + 2 > (int)layout->join_request_extra)
+				/* (a version word no longer within it is gone) */
+				if (layout->join_request_version_at >= 0 &&
+					(unsigned)layout->join_request_version_at + 2 > layout->join_request_extra)
 					layout->join_request_version_at = -1;
 			}
 			else
@@ -127,7 +130,8 @@ int delta_layout_apply(struct delta_layout *layout, struct delta_layout_fact con
 		}
 		if (fact->join_request_version_said)
 		{
-			if (fact->join_request_version_at + 2 <= layout->join_request_extra)
+			/* (the version word within the request's bytes past 0x70) */
+			if (layout->join_request_extra >= 2 && fact->join_request_version_at <= layout->join_request_extra - 2)
 				layout->join_request_version_at = (int)fact->join_request_version_at;
 			else
 				refused++;
@@ -171,6 +175,35 @@ int delta_layout_apply(struct delta_layout *layout, struct delta_layout_fact con
 			layout->dropped[bit] = (uint8_t)(layout->dropped[bit] | (fact->dropped[bit] & (bit ? 0xFF : 0xFE)));
 	}
 	return refused;
+}
+
+int delta_layout_of(unsigned version, struct delta_layout_fact const *facts, int count, struct delta_layout *layout,
+	int *refused)
+{
+	unsigned newest = DELTA_LAYOUT_NEWEST + DELTA_LAYOUT_PRESUMED;
+	int index;
+	int taken;
+
+	if (refused)
+		*refused = 0;
+	/* (the newest a table's facts say, and one past it presumed) */
+	for (index = 0; facts && index < count; index++)
+	{
+		if (facts[index].version > DELTA_LAYOUT_NEWEST && facts[index].version < 0xFFFF &&
+			facts[index].version + DELTA_LAYOUT_PRESUMED > newest)
+			newest = facts[index].version + DELTA_LAYOUT_PRESUMED;
+	}
+	if (version < DELTA_LAYOUT_OLDEST || version > newest)
+	{
+		delta_layout_built_in(0, layout);
+		return 0;
+	}
+	delta_layout_built_in(version > DELTA_LAYOUT_NEWEST ? DELTA_LAYOUT_NEWEST : version, layout);
+	layout->version = version;
+	taken = delta_layout_apply(layout, facts, count);
+	if (refused)
+		*refused = taken;
+	return 1;
 }
 
 unsigned delta_layout_local_data_offset(struct delta_layout const *layout)
@@ -246,6 +279,9 @@ int delta_layout_convert(uint8_t const *from, size_t from_size, unsigned from_op
 	size_t index;
 
 	if (!record_fits(from_size, from_options) || !record_fits(to_size, to_options))
+		return -1;
+	/* (never in place: the parts move, so the two buffers must not overlap) */
+	if ((uintptr_t)from < (uintptr_t)to + to_size && (uintptr_t)to < (uintptr_t)from + from_size)
 		return -1;
 	from_tail = from_size - DELTA_LAYOUT_HEAD_SIZE - from_options - DELTA_LAYOUT_LOCAL_DATA_SIZE;
 	to_tail = to_size - DELTA_LAYOUT_HEAD_SIZE - to_options - DELTA_LAYOUT_LOCAL_DATA_SIZE;

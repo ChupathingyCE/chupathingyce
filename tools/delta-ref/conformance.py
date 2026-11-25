@@ -547,7 +547,8 @@ def table_facts(document, wire):
 def layout_of(layouts, version, facts=()):
     """a version's layout: layouts.json's (past its presumed, the newest's), then a table's facts past the
     newest within delta_layout.c's limits; None before the oldest"""
-    if version < layouts["oldest"]:
+    newest_fact = max([v for v, _ in facts if v > layouts["newest"]] or [0])
+    if version < layouts["oldest"] or version > max(layouts["presumed"], newest_fact + 1):
         return None
     key = str(min(version, layouts["newest"])) if version > layouts["presumed"] else str(version)
     layout = json.loads(json.dumps(layouts["versions"][key]))
@@ -566,8 +567,10 @@ def layout_of(layouts, version, facts=()):
                 layout["refused"] += 1
         if fact.get("options_size"):
             growth = fact["options_size"] - layout["options_size"]
-            take(growth >= 0 and layout["settings_size"] + growth <= LAYOUT_MAXIMUM, "options_size", fact["options_size"])
-            if growth >= 0 and layout["settings_size"] + growth <= LAYOUT_MAXIMUM:
+            ok = growth >= 0 and fact["options_size"] <= LAYOUT_OPTIONS_MAXIMUM and \
+                layout["settings_size"] + growth <= LAYOUT_MAXIMUM
+            take(ok, "options_size", fact["options_size"])
+            if ok:
                 layout["settings_size"] += growth
         if fact.get("settings_size"):
             size = fact["settings_size"]
@@ -583,7 +586,7 @@ def layout_of(layouts, version, facts=()):
                 layout["join_request_version_at"] = None
         if "join_request_version_at" in fact:
             at = fact["join_request_version_at"]
-            take(at + 2 <= layout["join_request_extra"], "join_request_version_at", at)
+            take(isinstance(at, int) and 0 <= at and at + 2 <= layout["join_request_extra"], "join_request_version_at", at)
         if fact.get("header_extra"):
             value = fact["header_extra"]
             take(value <= 8 and not (layout["epoch_kind"] and value < 4), "header_extra", value)

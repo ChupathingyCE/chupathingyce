@@ -65,6 +65,11 @@ enum
 	/* (then 6 reserved bytes, 0) */
 };
 
+/* the join request's fill (a table's "join_request_fill": "zeros", or
+any other name) */
+#define DELTA_LAYOUT_FILL_ZEROS 0
+#define DELTA_LAYOUT_FILL_UNKNOWN 1
+
 /* where a unit state's further part is */
 #define DELTA_LAYOUT_PART_AFTER_UP 1
 #define DELTA_LAYOUT_PART_LAST 2
@@ -110,6 +115,9 @@ struct delta_layout_fact
 	unsigned shield_effects_maximum;
 	unsigned join_request_extra;
 	int join_request_said;
+	/* what fills those bytes: DELTA_LAYOUT_FILL_ZEROS, the only fill a
+	reader writes; a fact of another fill is not taken */
+	unsigned join_request_fill;
 	unsigned join_request_version_at;
 	int join_request_version_said;
 	unsigned header_extra;
@@ -120,9 +128,10 @@ struct delta_layout_fact
 	uint8_t dropped[32];
 };
 
-/* the built-in facts of a version (11 on; a version past
-DELTA_LAYOUT_NEWEST has the newest's). Returns 0 for a version before 11,
-which no reader of these facts joins. */
+/* the built-in facts of a version, 11 to DELTA_LAYOUT_NEWEST +
+DELTA_LAYOUT_PRESUMED (45; 45 has 44's). Returns 0, the layout all zeros,
+for any other version: one before 11 no reader of these facts joins, and
+one past 45 has facts only from a signed table (delta_layout_of). */
 int delta_layout_built_in(unsigned version, struct delta_layout *layout);
 
 /* a table's facts (count of them, oldest first) applied to a version's
@@ -132,8 +141,18 @@ the record within DELTA_LAYOUT_SETTINGS_MAXIMUM; the shield effects' value
 only rises, to 15; the join request to 1,024 bytes; the header's further
 bytes to 8; an epoch kind from 93 with 4 header bytes; parts of bits 6 and
 7 only, to 64 bytes; the riders' ejection to 999). Returns the number of
-fields that were past a limit and not taken. */
+fields that were past a limit and not taken. Every field is bounded before
+it is used, so no value (a wrapped 32-bit one too) moves the record past its
+limits or the version word outside the request's bytes. */
 int delta_layout_apply(struct delta_layout *layout, struct delta_layout_fact const *facts, int count);
+
+/* a version's layout: built in, and a table's facts (count of them, oldest
+first; may be none) applied. A version past 45 starts from 44's facts and
+is played only up to one past the newest fact's version. Returns 0 for a
+version outside that range or before 11; *refused (may be NULL) gets how
+many fact fields were past a limit and not taken */
+int delta_layout_of(unsigned version, struct delta_layout_fact const *facts, int count, struct delta_layout *layout,
+	int *refused);
 
 /* where the local data is, and how many bytes follow it */
 unsigned delta_layout_local_data_offset(struct delta_layout const *layout);
@@ -157,7 +176,8 @@ as many as both have, zeros past them. extended (may be NULL) gets the
 source's further options, sanitized, or the defaults for a source without
 them, so that a reader folding to an older layout keeps the mode. Returns
 0, or -1 if a size is not a record of its options (shorter than the head,
-options and local data, or past the limits). */
+options and local data, or past the limits) or the two buffers overlap:
+the conversion is never in place. */
 int delta_layout_convert(uint8_t const *from, size_t from_size, unsigned from_options, uint8_t *to,
 	size_t to_size, unsigned to_options, uint8_t *extended);
 

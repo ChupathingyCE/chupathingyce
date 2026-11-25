@@ -317,7 +317,9 @@ the source lacks with the further options' defaults (0x1C to 0x2B) and zeros
 past them, moves the 4 bytes of local data to its own place, and copies the
 trailing bytes as far as both have them, zeros past. A client folding a
 longer record into an older layout keeps the further options aside, so the
-mode is still known. `delta_layout_convert` does exactly this.
+mode is still known. `delta_layout_convert` does exactly this, from one
+buffer into another: it never converts in place, and refuses buffers that
+overlap.
 
 ### Version by version
 
@@ -425,7 +427,11 @@ what you play.
 advertisement's reserved bytes 0 and 1 (or the internet listing). A word of
 0xFF00 and up is a Content Evolved modded game, and bit 15 is never
 joinable by number. Otherwise join when it's within your range. A host with
-a Delta tag can be joined whatever number it announces (step 4).
+a Delta tag is no different here: HELLO lowers only the settings record it
+sends you (step 4). The join request, the distributed header (and its
+epoch), the unit state parts and the messages are always those of the
+number the host announces (the game's `distributed_layout_refresh`), so
+join a Delta host only when its announced number is in your range too.
 
 **4. Say HELLO to a Delta host.** Mark your join request (the join mark,
 [peer.md](peer.md#the-join-mark)) and say HELLO with your newest version as
@@ -435,16 +441,21 @@ announcing 32 gets 32's record, 13,120 bytes. A machine without Delta, or
 one whose HELLO the host didn't wait for, gets the announced number's
 record. So whichever way you join, expect the record of
 `min(your HELLO, the host's number)`, and for a host without Delta the
-host's number's.
+host's number's. (At 44, a Content Evolved host's plain game sends its own
+row's 13,244 bytes instead: "Other projects' rows".)
 
-**5. Join by the host's layout.** Send the join request the version needs:
+**5. Join by the host's layout.** Everything but the record goes by the
+host's announced number, whatever your HELLO said. Send the join request
+that number needs:
 0x70 bytes to 39, plus 234 zero bytes for 40 and 41, plus 236 bytes with the
-version word at 234 for 42 on. Use the distributed header the version
-needs: 8 bytes to 41, 12 from 42 (the epoch). Read a unit state with the
+version word at 234 for 42 on. Use the distributed header the host's
+number needs: 8 bytes to 41, 12 from 42 (the epoch). Read a unit state with the
 parts the host's layout has: bit 6 from 42, bit 7 from 43, none before.
 
 **6. Take the record and change it to your layout.** Expect the size of
-step 4's version, and pass over a piece of another size. Once whole, convert
+step 4's version (or, at 44, Content Evolved's 13,244-byte row, which you
+take as its own layout: options 0x58), and pass over a piece of any other
+size. Once whole, convert
 it to your own layout ("Changing a record's layout", above). A 44 client
 reading a 32 host's 13,120 bytes gets the head and options as they are, the
 further options' defaults (no mode), the local data moved from 13,116 to
@@ -457,6 +468,18 @@ before it from "Version by version", and drop the messages it sends that
 you don't play. Most of a client's work is choosing by number: the aim
 assist policy only from 32, static targets from 34, shield effects from 36,
 votes dropped from 41, the epoch from 42.
+
+Send nothing the host's number doesn't have. To a host of an older number
+than your own, a client sends (from `layouts.json`'s `messages_added` and
+`rules`):
+
+| Host's number | What a client leaves out or sends as before |
+| --- | --- |
+| below 27 | map sharing's messages 83 to 86 |
+| below 32 | input entry byte 2 (no friendly fire in co-op) as 0, the padding it was |
+| below 40 | any bytes past the join request's first 0x70 |
+| below 41 | vote messages 78 and 79 (41's layout) and 94 and 95 |
+| below 42 | the header's 4 further bytes (8-byte headers, no epoch), the join request's version word (234 bytes of zeros at 40 and 41) |
 
 For a client that already plays 44 (Content Evolved, OpenCE's own), steps
 3, 5 and 6 are the whole change: the extra versions' records, join request
@@ -714,7 +737,7 @@ sends that the build reads by number (`network_rules.h`, "layouts"):
 
 | Field | What it is | The limit |
 | --- | --- | --- |
-| `settings_size` | the game settings record's bytes at the network's 128 machines and players (13,120 to 34, 13,136 from 35); bytes past the options and the 4 of local data come after them, and a build has no use for them | at most 13,200 (`NETWORK_RULES_SETTINGS_MAXIMUM`: 35's and 64), and never fewer than the version before had, or than the options leave room for |
+| `settings_size` | the game settings record's bytes at the network's 128 machines and players (13,120 to 34, 13,136 from 35); bytes past the options and the 4 of local data come after them, and a build has no use for them | at most 13,264 (`NETWORK_RULES_SETTINGS_MAXIMUM`: 35's 13,136 and 128), and never fewer than the version before had, or than the options leave room for |
 | `options_size` | the gametype's options' bytes in it (0x1C to 34, 0x2C from 35); the record grows with them, in front of the local data; a build reads the 0x2C it knows and ignores the rest (a host sends zeros) | never shorter than before, the record within its limit |
 | `shield_effects_maximum` | the largest value the shield effects message (91) takes (6 built in); a value a build has no look for is drawn as stock | never lower than before, at most 15 |
 | `dropped_messages` | distributed message kinds a host of the version sends that a machine that doesn't know them drops (91 from 36 built in; 78, 79, 94 and 95, OpenCE's votes, from 41) | kinds 1 to 255; only kinds the build doesn't know are affected |
