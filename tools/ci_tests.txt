@@ -48,6 +48,7 @@ tools/test_delta.py
 tools/test_delta_compat.py
 tools/test_delta_docs.py
 tools/test_delta_input_rules.py
+tools/test_delta_layouts.py
 tools/test_delta_menu_art.py
 tools/test_delta_peer.py
 tools/test_delta_ref.py
