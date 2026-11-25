@@ -66,6 +66,8 @@ static struct ui_widget_definition no_handlers = { "screen", { 0, NULL } };
 static boolean we_are_at_the_main_menu;
 static struct widget_instance *ui_widget_port_error_text_box;
 static wchar_t const *ui_widget_port_error_text;
+static struct widget_instance *ui_widget_port_override_box;
+static wchar_t const *ui_widget_port_override_text;
 static void *widget_memory_pool;
 
 static struct ui_widget_definition *ui_widget_definition_get(long tag_index)
