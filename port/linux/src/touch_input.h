@@ -35,7 +35,7 @@ void touch_input_menu_read(struct platform_ui_pointer *pointer);
 presses A for a few polls when a cinematic can be skipped */
 void touch_input_gamepad(XINPUT_GAMEPAD *pad);
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_ANDROID32)
 /* the on-screen touch controls (port/android/app/.../TouchControls.java),
 an Android view over the game: tells them whether a menu is up and
 input.touch_controls, and adds their stick and buttons to port 0's state */

@@ -43,7 +43,7 @@ int gl_functions_load(void)
 		!strcmp(#name, "glVertexAttribIFormat") || !strcmp(#name, "glVertexAttribBinding") || \
 		!strcmp(#name, "glBindVertexBuffer") || !strcmp(#name, "glGetQueryBufferObjectuiv") || \
 		!strcmp(#name, "glBindTextures"))
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_ANDROID32)
 /* ES 3.2's; on 3.0 (iOS's newest) gl_initialize does without it */
 #define GL_ES_OPTIONAL_FUNCTION(name) !strcmp(#name, "glDrawElementsBaseVertex")
 #else

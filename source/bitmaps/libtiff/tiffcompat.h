@@ -170,7 +170,7 @@ extern	long lseek();
 #define	WriteOK(fd, buf, size)	(write(fd, (char *)buf, size) == size)
 #endif
 
-#if defined(__MACH__) || defined(THINK_C)
+#if defined(__MACH__) || defined(THINK_C) || defined(HALO_ANDROID32)
 extern	void *malloc(size_t size);
 extern	void *realloc(void *ptr, size_t size);
 #else /* !__MACH__ && !THINK_C */

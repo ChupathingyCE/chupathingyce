@@ -16,7 +16,7 @@ finger down (host_gesture_insets).
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_ANDROID32)
 /* port/android/guest/runtime/guest_host.h */
 void host_gesture_insets(int *insets);
 void host_touch_read(int *state);
@@ -86,7 +86,7 @@ static void menu_setup(void)
 and zones matter only at a down, so changing them between two fingers is safe */
 static void refresh_zones(int width, int height)
 {
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_ANDROID32)
 	int insets[4];
 
 	host_gesture_insets(insets);
@@ -185,7 +185,7 @@ void touch_input_gamepad(XINPUT_GAMEPAD *pad)
 	}
 }
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_ANDROID32)
 /* ---------- the on-screen touch controls
 
 The overlay (port/android/app/.../TouchControls.java) draws and reads its
