@@ -33,6 +33,7 @@ project_yellow it honors at run time (the gravity scale, when it is above
 #include "ce_map_checks.h"
 #include "opensauce.h"
 #include "opensauce_scripts.h"
+#include "opensauce_postprocess.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -276,6 +277,8 @@ void opensauce_map_tags_loaded(
 
 	if (!opensauce_globals.active || !instances || tag_count <= 0)
 		return;
+	/* (its post-processing tags: opensauce_postprocess.c) */
+	opensauce_postprocess_tags_loaded(tag_instances, tag_count);
 	/* (the scenario's first reference, its unused structure bsp's, is
 	OpenSauce's project_yellow: not in the scenario's schema, so checked
 	here) */
@@ -360,7 +363,10 @@ void opensauce_map_unloaded(
 {
 	opensauce_gravity_restore();
 	if (opensauce_globals.active)
+	{
 		opensauce_scripts_map_unloaded();
+		opensauce_postprocess_map_unloaded();
+	}
 	opensauce_globals.active = FALSE;
 	opensauce_globals.camouflage_logged = FALSE;
 }

@@ -22,10 +22,12 @@ back). Read as facts; the code is this game's:
     does, for every weapon of it, until the map loads again;
   - the numbers and bits (abs_real, bit_test, bit_toggle), distances, and
     physics_set_gravity (opensauce_map.c puts the gravity back);
+  - post-processing's (pp_*) go to the map's post-processing
+    (opensauce_postprocess.c), where the map has some and the build draws
+    it; elsewhere an effect instance's active flag and fade are kept, the
+    fade done at once, as nothing is drawn;
   - what needs a part of OpenSauce the game does not have yet answers as
-    that part would with nothing to show, and says so once: post-processing
-    (an effect instance's active flag and fade are kept, the fade done at
-    once, as nothing is drawn), scripted UI widgets, BSP sky and lightmap
+    that part would with nothing to show, and says so once: scripted UI widgets, BSP sky and lightmap
     sets, runtime vectors, bink movies, OpenSauce's third and fourth
     grenade counts.
 The globals are Halo PC's network globals (vehicle_incremental_rate and the
@@ -51,6 +53,7 @@ blur ones, of the types Halo PC's and OpenSauce's scripts give them
 #include "objects/object_types.h"
 #include "units/units.h"
 #include "opensauce.h"
+#include "opensauce_postprocess.h"
 #include "stubbs_functions.h"
 #include "network_coop.h"
 #include "networking/network_game_globals.h"
@@ -643,6 +646,54 @@ static void opensauce_script_missing(
 {
 	char const *name = function->definition.name;
 
+#ifdef OPENSAUCE_POSTPROCESS
+	/* (the map's post-processing, when it has some: opensauce_postprocess.c,
+	which draws it; presentation only, each machine's own) */
+	if (!strncmp(name, "pp_", 3) && opensauce_postprocess_active())
+	{
+		short index = (short)arguments[0];
+
+		if (!strcmp(name, "pp_set_effect_instance_active"))
+			opensauce_postprocess_set_instance_active(index, (arguments[1] & 0xFF) != 0);
+		else if (!strcmp(name, "pp_set_effect_instance_fade"))
+		{
+			opensauce_postprocess_set_instance_fade(index, opensauce_real_argument(arguments[1]),
+				opensauce_real_argument(arguments[2]), opensauce_real_argument(arguments[3]));
+		}
+		else if (!strcmp(name, "pp_get_effect_instance_current_fade"))
+			*value = opensauce_real_result(opensauce_postprocess_instance_current_fade(index));
+		else if (!strcmp(name, "pp_set_effect_shader_variable_integer"))
+		{
+			opensauce_postprocess_set_variable_integer(index, (short)arguments[1], arguments[2],
+				opensauce_real_argument(arguments[3]));
+		}
+		else if (!strcmp(name, "pp_set_effect_shader_variable_real"))
+		{
+			float values[4];
+			short component;
+
+			for (component = 0; component < 4; component++)
+				values[component] = opensauce_real_argument(arguments[2 + component]);
+			opensauce_postprocess_set_variable_real(index, (short)arguments[1], values,
+				opensauce_real_argument(arguments[6]));
+		}
+		else if (!strcmp(name, "pp_bloom_set_maximum_color"))
+		{
+			float color[3];
+
+			color[0] = opensauce_real_argument(arguments[0]);
+			color[1] = opensauce_real_argument(arguments[1]);
+			color[2] = opensauce_real_argument(arguments[2]);
+			opensauce_postprocess_bloom_set_maximum_color(color, opensauce_real_argument(arguments[3]));
+		}
+		else if (!strcmp(name, "pp_bloom_set_exposure"))
+		{
+			opensauce_postprocess_bloom_set_exposure(opensauce_real_argument(arguments[0]),
+				opensauce_real_argument(arguments[1]));
+		}
+		return;
+	}
+#endif
 	if (!strncmp(name, "pp_", 3))
 	{
 		short instance = (short)arguments[0];
@@ -654,7 +705,7 @@ static void opensauce_script_missing(
 			opensauce_script_effect_instances[instance].fade = opensauce_real_argument(arguments[2]);
 		else if (!strcmp(name, "pp_get_effect_instance_current_fade"))
 			*value = opensauce_real_result(valid ? opensauce_script_effect_instances[instance].fade : 0.f);
-		opensauce_script_log_once(function, "is kept, not drawn: no post-processing yet (fades end at once)");
+		opensauce_script_log_once(function, "is kept, not drawn: this build or map draws no post-processing (fades end at once)");
 		return;
 	}
 	opensauce_script_log_once(function, "does nothing yet: this game has no part for it (it returns as though "

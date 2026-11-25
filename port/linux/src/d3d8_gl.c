@@ -7676,3 +7676,5 @@ HRESULT WINAPI D3DDevice_PersistDisplay(void)
 #ifdef HALO_SHADER_PREP
 #include "d3d8_shader_prep.inl"
 #endif
+/* OpenSauce maps' post-processing (port/linux/game/opensauce_postprocess.c) */
+#include "opensauce_postprocess_gl.inl"
