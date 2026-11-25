@@ -941,6 +941,34 @@ def test_interrupted_write(program, directory, defaults, kind):
 	check(not (case.folder / "config.toml.new").exists(), "after: config.toml.new left beside the file")
 
 
+def test_long_string_write(program, directory, defaults, kind):
+	"""a string value is written whole, its quotes and backslashes escaped,
+	however many it has (the longest taken, all quotes, twice as long in the
+	file); a longer one is refused, said in the log, and the file stays as
+	it was"""
+	if kind not in ("desktop", "desktop32"):
+		return
+	case = Case(program, directory / "long_string")
+	fresh_file(case, kind)
+	longest = '"\\' * 128
+	values, output = case.run("write", "display.window_size", longest)
+	check("write failed" not in output, f"long string: the longest value was refused: {output[-200:]}")
+	check(values["display.window_size"] == longest, "long string: the value read back differs")
+	written, _ = value_lines(case.text(), "window_size")
+	check(written == ['window_size = "' + longest.replace("\\", "\\\\").replace('"', '\\"') + '"'],
+		f"long string: the file's line is {[line[:80] for line in written]}")
+	values, _ = case.get("display.window_size", "display.vsync")
+	check(values["display.window_size"] == longest, "long string: the value read again differs")
+	before = case.text()
+	for length in (257, 4000):
+		values, output = case.run("write", "display.window_size", "x" * length)
+		check("write failed" in output, f"too long ({length}): the value was taken")
+		check(f"display.window_size not written: its value is {length} characters" in output,
+			f"too long ({length}): nothing said in the log")
+		check(case.text() == before, f"too long ({length}): config.toml changed")
+		check(values["display.window_size"] == longest, f"too long ({length}): the value changed")
+
+
 def test_layout(program, directory, defaults, kind):
 	"""A new file's layout: the top block, each section once with its note,
 	the everyday sections first, and the advanced ones ([debug], and
@@ -1538,7 +1566,7 @@ def main():
 			for test in (test_unique_settings, test_new_file, test_previous_release_file, test_answered_first_question,
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
-				test_retired_setting, test_delta_renamed, test_interrupted_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
+				test_retired_setting, test_delta_renamed, test_interrupted_write, test_long_string_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
 				test_server_file, test_follow_file, test_tuning, test_tuning_drawing_knobs, test_renderer_round_trip):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
