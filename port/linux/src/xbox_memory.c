@@ -334,6 +334,7 @@ static void contiguous_arena_reserve(void)
 	}
 #endif
 #ifdef HALO_64BIT
+#ifndef _WIN32
 	/* (no swap reserved for these, as for the heap, xbox_heap.c: pages are
 	backed when touched, and a small machine refuses the whole window
 	otherwise) */
@@ -343,6 +344,15 @@ static void contiguous_arena_reserve(void)
 		platform_log("cannot commit the Xbox contiguous memory window (%s)", strerror(errno));
 		abort();
 	}
+#else
+	/* Windows has no MAP_NORESERVE: a read-write mapping is committed whole,
+	against memory and the page file. The window stays as the address
+	space's reservation left it, and a block's pages are committed as it is
+	allocated (clear_block's mapping: win32_posix.c's mmap commits inside a
+	reservation), so the commit charge follows the blocks the game has
+	taken, not the window's size. Nothing reads or writes the window
+	outside a block. */
+#endif
 	/* Custom Edition maps' tag cache, and the room above it (platform.h) */
 	if (mmap(xbox_pointer(PLATFORM_CE_TAG_CACHE_BASE), PLATFORM_CE_TAG_CACHE_SIZE + PLATFORM_CE_CONVERSION_ROOM_SIZE,
 		PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) !=
@@ -442,8 +452,10 @@ which zeroes them without touching them: the memory is taken only once the
 game writes there (a 128 MB texture cache that a map fills a fifth of, or a
 dedicated server's, which draws nothing). Those pages are free until the
 block takes them, so read-write, as a fresh mapping is. The host pages it
-shares with a neighbour are cleared. */
-static void clear_block(void *address, size_t size)
+shares with a neighbour are cleared. On Windows the mapping is what commits
+the block (the window is only reserved): if Windows refuses, nothing is
+touched, it is said, and the block is not made (FALSE). */
+static BOOL clear_block(void *address, size_t size)
 {
 	uintptr_t mask = platform_host_page_size - 1;
 	uintptr_t start = ((uintptr_t)address + mask) & ~mask;
@@ -452,11 +464,18 @@ static void clear_block(void *address, size_t size)
 	if (end <= start || mmap((void *)start, end - start, PROT_READ | PROT_WRITE,
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) != (void *)start)
 	{
+#ifdef _WIN32
+		platform_log("not enough memory: Windows would not commit %lu KB for a block of the Xbox's memory (%s)",
+			(unsigned long)(size >> 10), strerror(errno));
+		return FALSE;
+#else
 		memset(address, 0, size);
-		return;
+		return TRUE;
+#endif
 	}
 	memset(address, 0, start - (uintptr_t)address);
 	memset((void *)end, 0, (uintptr_t)address + size - end);
+	return TRUE;
 }
 
 static BOOL pages_free(unsigned int first, unsigned int count)
@@ -543,7 +562,12 @@ void *platform_contiguous_alloc(unsigned long size, unsigned long alignment,
 	/* a block starts out zeroed (its pages still free, so read-write), then
 	takes its protection */
 	reprotect_host_pages(address, count * PAGE_SIZE_BYTES);
-	clear_block(address, count * PAGE_SIZE_BYTES);
+	if (!clear_block(address, count * PAGE_SIZE_BYTES))
+	{
+		/* (its pages still free: none was marked) */
+		pthread_mutex_unlock(&arena_lock);
+		return NULL;
+	}
 #else
 	/* map fresh zeroed pages over the reservation */
 	if (mmap(address, count * PAGE_SIZE_BYTES, protection_to_host(protect),

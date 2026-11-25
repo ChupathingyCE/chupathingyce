@@ -198,13 +198,24 @@ ones, and community maps draw many large ones at once: Portent's busiest
 frames draw 23 MB, Foundation's 66 MB.
 
 The desktop builds (Linux, macOS and Windows, 32-bit and 64-bit) are not
-held to the Xbox's memory: their window is 512 MB (port/linux/src/platform.h) and
+held to the Xbox's memory. The 32-bit ones' window, and that of the 64-bit
+dedicated server, iOS and tvOS, is 512 MB (port/linux/src/platform.h) and
 their cache 256 MB, about four times Foundation's busiest frame and more
 than bigass_v3's (over 64 MB, DamnationCE's measurement, as OpenCE's
-build-145 has it); with it the window still has about 170 MB free. A block's
-pages are taken only as the game writes them (xbox_memory.c), so a map
-that fills a fraction of the cache takes no more. Nothing of the cache's
-size reaches the network or the game state.
+build-145 has it). SPV3's maps draw their art in 32 bits a pixel at 2048
+texels and more: from Silent Cartographer's beach a frame draws up to 228
+MB, the cache filled ("YOU GOT STABBED") and the bitmaps of one frame
+pushed out those of the next, loaded again frame after frame. The 64-bit
+desktop clients' window (and the native 64-bit Android build's) is 1 GB
+and their cache 448 MB, twice that frame, with the rest the window holds
+there (the tag cache, the game state, the sound cache and Direct3D's
+resources: about 120 MB on that map) and room to spare; the cache's pages
+are counted in a short (data.c, lruv_cache.c), so it stays under 512 MB.
+A block's pages are taken only as the game writes them (xbox_memory.c), so
+a map that fills a fraction of the cache takes no more; on Windows the
+window is only reserved and each block is committed as it is allocated,
+so the commit charge follows the blocks, not the window. Nothing of the
+cache's size reaches the network or the game state.
 
 Android's guest build keeps the development kit's 128 MB window (its
 guest image is linked just above it), 82 MB of it above the game state. Besides the
@@ -236,6 +247,12 @@ extern unsigned long platform_contiguous_size;
 #define HALO_PORT_TEXTURE_CACHE_SIZE_VARIES
 #elif defined(HALO_ANDROID) && !defined(HALO_64BIT)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x2C00000 /* (0x1600000) */
+#elif defined(HALO_64BIT) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && \
+	!defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_IOS) && !defined(HALO_TVOS) && \
+	!defined(HALO_CONSOLE_XBOX_RENDER_SIZES) && !defined(HALO_WINDOW_REBASE) && !defined(HALO_WINDOW_TRANSLATED)
+/* (the 64-bit desktop clients and Android's, with platform.h's 1 GB window:
+the same test; tools/test_texture_cache_platforms.py) */
+#define HALO_PORT_TEXTURE_CACHE_SIZE 0x1C000000 /* (0x1600000) */
 #elif !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_XBOX_RENDER_SIZES)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x10000000 /* (0x1600000) */
 #else
