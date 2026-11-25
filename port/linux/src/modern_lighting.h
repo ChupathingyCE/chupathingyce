@@ -137,6 +137,9 @@ void halo_ml_opaque(const struct halo_ml_frame *frame);
 /* the lab's CPU timings of the scene's gathering */
 double halo_ml_now_ms(void);
 void halo_ml_scene_ms(double ms);
+/* the view before the level's shine and reflections (the dynamic lights',
+a muzzle flash's, drawn already: no surface counts as shiny for a flash) */
+void halo_ml_shine(const struct halo_ml_frame *frame);
 void halo_ml_reflections(const struct halo_ml_frame *frame);
 /* (from d3d8_gl.c's tone mapping, before its curve: the bloom) */
 void halo_ml_bloom(unsigned int texture, unsigned int framebuffer, int width, int height, const int corners[4]);

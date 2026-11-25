@@ -283,7 +283,7 @@ SCREENS = {
                 ("RT QUALITY:", "display.ray_tracing_quality",
                  [("AUTO", "auto"), ("LOW", "low"), ("MEDIUM", "medium"), ("HIGH", "high")],
                  "How much ray tracing costs. Lower is faster and softer.\nAuto is Medium on laptops and handhelds, High elsewhere.",
-                 "desktop"),
+                 "desktop", "rt_quality"),
             ]),
         ],
     },

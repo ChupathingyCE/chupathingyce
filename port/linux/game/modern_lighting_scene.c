@@ -73,6 +73,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 /* (halo_linux_source_fixups.h makes them nothing where the game's units have
 no HALO_PORT_HDR: these are the functions render.c calls) */
 #undef modern_lighting_opaque
+#undef modern_lighting_shine
 #undef modern_lighting_reflections
 #undef modern_lighting_replaces_object_shadows
 
@@ -1041,6 +1042,16 @@ void modern_lighting_scene_encounters(char *text, int size)
 			break;
 		used += wrote;
 	}
+}
+
+/* render_window: once the dynamic lights' shine is drawn, before the
+level's own shine and reflections */
+void modern_lighting_shine(const struct render_camera *camera)
+{
+	struct halo_ml_frame frame;
+	if (halo_ml_ray_tracing_mode() < HALO_RT_AO || !frame_make(camera, &frame))
+		return;
+	halo_ml_shine(&frame);
 }
 
 /* render_window: once the shine and the reflections are drawn */

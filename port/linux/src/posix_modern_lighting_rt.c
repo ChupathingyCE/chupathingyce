@@ -2837,6 +2837,15 @@ int ml_rt_trace(const struct ml_rt_trace *trace)
 			width = (width + push.grid[0] - 1) / push.grid[0];
 			height = (height + push.grid[0] - 1) / push.grid[0];
 			rt.CmdDispatch(commands, (unsigned int)(width + 7) / 8, (unsigned int)(height + 7) / 8, 1);
+			/* (on a grid of blocks, with the reflections: their own pass, a
+			thread for each two of the grid's texels; it writes the
+			reflections' image alone, the first the lighting's: no barrier) */
+			if (push.grid[0] > 1 && trace->mode >= 2 && !(trace->flags & 1))
+			{
+				push.grid[3] = trace->flags | 8;
+				rt.CmdPushConstants(commands, rt.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+				rt.CmdDispatch(commands, (unsigned int)((width + 1) / 2 + 7) / 8, (unsigned int)(height + 7) / 8, 1);
+			}
 			traced = 1;
 		}
 	}

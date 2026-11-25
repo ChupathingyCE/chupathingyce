@@ -861,10 +861,14 @@ static void render_window(
 		/* port: (tuning.effects = "reduced" leaves the shine and the
 		reflections out) */
 		if (render_tuning_draws(_render_tuning_specular_bit))
-		{
 			lights_render_specular();
+		/* port: the view before the
+		level's shine, for the traced reflections (the dynamic lights' shine,
+		a muzzle flash's, is not a surface's) */
+		if (rasterizer_target == _render_target_primary)
+			modern_lighting_shine(rasterizer_camera);
+		if (render_tuning_draws(_render_tuning_specular_bit))
 			structure_render_specular_lightmaps();
-		}
 		if (render_tuning_draws(_render_tuning_reflections_bit))
 		{
 			structure_render_reflection_lightmap_masks();

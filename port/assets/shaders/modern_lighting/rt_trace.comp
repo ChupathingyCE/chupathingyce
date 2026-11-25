@@ -3,8 +3,10 @@
 Display.ray_tracing's trace
 (port/linux/src/posix_modern_lighting_rt.c), one thread a pixel.
 
-In: each pixel's position from the camera (w: its distance, 0 for none) and
-normal, written by OpenGL (modern_lighting.c's prepass). Out: r the ambient
+In: each traced pixel's position from the camera (w: its distance, 0 for
+none) and normal (w: 1 where the surface shines), written by OpenGL
+(modern_lighting.c's prepass) at the pixel's place, or on a grid of blocks
+at its block's. Out: r the ambient
 occlusion, g the sun's visibility, b 1 on an object, a 1 on a unit (the
 fairness floor's).
 
@@ -90,7 +92,8 @@ layout(push_constant) uniform Trace
 	ivec4 more;    /* x: shadow rays, y: debug (1: the level's own shadows on every pixel, to check the sun),
 	                  z: 1 the render meshes (0 the collision models), w: 1 the low-discrepancy noise */
 	ivec4 grid;    /* x: 1 every pixel, 2 one of each 2x2 block; yz: this frame's pixel in its block;
-	                  w: the lab's parts left out (1 reflections, 2 occlusion, 4 sun) */
+	                  w: the lab's parts left out (1 reflections, 2 occlusion, 4 sun); 8 the
+	                  reflections' own pass (reflections_pass) */
 } trace;
 
 const uint LEVEL = 0x01u;
@@ -260,8 +263,60 @@ vec3 cone_direction(vec3 axis, float half_angle)
 	return normalize(axis + (t * cos(phi) + b * sin(phi)) * r);
 }
 
+/* the reflected ray from a pixel's point (n its normal, origin and t_min
+as main's): its hit's world point from the camera and 1, or 0 for none */
+vec4 reflected_hit(vec4 P, vec3 n, vec3 origin, float t_min, int skip)
+{
+	vec3 r = reflect(P.xyz / P.w, n);
+	float hit = nearest_split(origin, r, t_min, 60.0, OBJECT | SHADOWLESS, skip);
+
+	return hit >= 0.0 ? vec4(origin + r * hit - trace.camera.xyz, 1.0) : vec4(0.0);
+}
+
+/* (grid.w 8) the reflections' own pass, on a grid of blocks: one texel of
+each two of the grid's, in a checkerboard that turns each frame (each thread
+its texel: no thread idle in a wave), the hit at that texel. Only where the
+surface shines (the normal's w, the prepass's: where the game's shine was
+drawn there the frame before, or not known): elsewhere no ray, and a wave
+with no shiny pixel skips it all. The other half's texels keep last frame's
+hit, which modern_lighting.c's reflections never read: they fill each pixel
+from this frame's texels around it */
+void reflections_pass()
+{
+	int scale = max(trace.grid.x, 1);
+	ivec2 thread = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 block = ivec2(thread.x * 2 + ((thread.y + trace.misc.y) & 1), thread.y);
+	ivec2 at = trace.rect.xy + block;
+
+	if (at.x >= trace.rect.x + (trace.rect.z - trace.rect.x + scale - 1) / scale ||
+		at.y >= trace.rect.y + (trace.rect.w - trace.rect.y + scale - 1) / scale)
+	{
+		return;
+	}
+	/* (the prepass wrote the traced pixel's at its block's texel) */
+	vec4 P = imageLoad(positions, at);
+	vec4 N = imageLoad(normals, at);
+	vec4 reflected = vec4(0.0);
+
+	if (P.w > 0.0 && N.w > 0.5)
+	{
+		vec3 n = normalize(N.xyz);
+		vec3 origin = trace.camera.xyz + P.xyz + n * (0.006 + P.w * 0.0012);
+		float t_min = trace.more.z != 0 ? 0.01 + P.w * 0.0008 : 0.04 + P.w * 0.002;
+
+		/* (the game's shine is the level's: no object's own pixel is here) */
+		reflected = reflected_hit(P, n, origin, t_min, trace.misc.z);
+	}
+	imageStore(reflection, at, reflected);
+}
+
 void main()
 {
+	if ((trace.grid.w & 8) != 0)
+	{
+		reflections_pass();
+		return;
+	}
 	int scale = max(trace.grid.x, 1);
 	ivec2 block = ivec2(gl_GlobalInvocationID.xy);
 	/* (the result at the block's place: with every pixel traced, the pixel's) */
@@ -273,16 +328,20 @@ void main()
 	{
 		return;
 	}
-	vec4 P = imageLoad(positions, pixel);
+	/* (the prepass wrote the traced pixel's point and normal at its block's
+	texel: with every pixel traced, the pixel's own) */
+	vec4 P = imageLoad(positions, at);
 	if (P.w <= 0.0)
 	{
 		imageStore(result, at, vec4(1.0, 1.0, 0.0, 0.0));
-		imageStore(reflection, at, vec4(0.0));
+		if (scale <= 1)
+			imageStore(reflection, at, vec4(0.0));
 		return;
 	}
 	seed = uint(pixel.x) * 1973u + uint(pixel.y) * 9277u + uint(trace.misc.y) * 26699u;
 	noise_pixel = vec2(pixel);
-	vec3 n = normalize(imageLoad(normals, pixel).xyz);
+	vec4 N = imageLoad(normals, at);
+	vec3 n = normalize(N.xyz);
 	vec3 p = trace.camera.xyz + P.xyz;
 	float distance = P.w;
 	int viewer = trace.misc.z;
@@ -397,22 +456,16 @@ void main()
 		ao = mix(ao, 1.0, smoothstep(40.0, 90.0, distance));
 	}
 	/* the reflected ray: where it meets the scene (OpenGL shades the hit
-	from the view before the reflections, where the hit is on screen). On a
-	grid of blocks, half the workgroups a frame, in a checkerboard of
-	workgroups that turns each frame (whole workgroups: a checkerboard of
-	threads would leave every wave tracing anyway): the other half keep the
-	hit they had, a frame old */
-	vec4 reflected = vec4(0.0);
-	bool reflect_now = scale <= 1 || ((gl_WorkGroupID.x + gl_WorkGroupID.y + uint(trace.misc.y)) & 1u) == 0u;
-	if (trace.misc.x >= 2 && (trace.grid.w & 1) == 0 && reflect_now)
+	from the view before the reflections, where the hit is on screen), where
+	the surface shines (the normal's w). On a grid of blocks the
+	reflections' own pass traces them (reflections_pass) */
+	if (scale <= 1)
 	{
-		vec3 r = reflect(P.xyz / distance, n);
-		float hit = nearest_split(origin, r, t_min, 60.0, OBJECT | SHADOWLESS, self >= 0 ? self : viewer);
+		vec4 reflected = vec4(0.0);
 
-		if (hit >= 0.0)
-			reflected = vec4(origin + r * hit - trace.camera.xyz, 1.0);
-	}
-	if (reflect_now)
+		if (trace.misc.x >= 2 && (trace.grid.w & 1) == 0 && N.w > 0.5)
+			reflected = reflected_hit(P, n, origin, t_min, self >= 0 ? self : viewer);
 		imageStore(reflection, at, reflected);
+	}
 	imageStore(result, at, vec4(ao, visible, self >= 0 ? 1.0 : 0.0, unit ? 1.0 : 0.0));
 }

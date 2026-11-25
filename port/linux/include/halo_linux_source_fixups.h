@@ -98,10 +98,12 @@ the game's units, render.c among them, do not have it) */
 #if defined(HALO_64BIT) && !defined(HALO_SERVER) && !defined(HALO_ANDROID) && !defined(HALO_CONSOLE)
 struct render_camera;
 void modern_lighting_opaque(const struct render_camera *camera);
+void modern_lighting_shine(const struct render_camera *camera);
 void modern_lighting_reflections(const struct render_camera *camera);
 unsigned char modern_lighting_replaces_object_shadows(void);
 #else
 #define modern_lighting_opaque(camera) ((void)(camera))
+#define modern_lighting_shine(camera) ((void)(camera))
 #define modern_lighting_reflections(camera) ((void)(camera))
 #define modern_lighting_replaces_object_shadows() 0
 #endif

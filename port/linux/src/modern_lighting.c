@@ -206,6 +206,8 @@ enum
 	_program_bloom_combine,
 	_program_temporal,
 	_program_shafts,
+	_program_shine,
+	_program_reflect_grid,
 	NUMBER_OF_PROGRAMS
 };
 
@@ -262,6 +264,40 @@ static const char common_source[] =
 	"\tvec2 uv = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);\n"
 	"\treturn vec4(rect.xy + uv * (rect.zw - rect.xy), ndc.z, c.w);\n"
 	"}\n"
+	"/* the view's depth (the opaque surfaces'), and from it a pixel's point\n"
+	"from the camera (w its distance, 0 the sky) and its surface's normal: on\n"
+	"a grid of blocks the passes over the whole view take them from here, not\n"
+	"from full-size images of them (the prepass writes the traced pixels'\n"
+	"alone) */\n"
+	"uniform sampler2D depth_texture;\n"
+	"float depth_at(ivec2 p)\n"
+	"{\n"
+	"\treturn texelFetch(depth_texture, clamp(p, ivec2(rect.xy), ivec2(rect.zw) - 1), 0).r;\n"
+	"}\n"
+	"vec3 neighbor(ivec2 p, ivec2 step)\n"
+	"{\n"
+	"\tivec2 q = clamp(p + step, ivec2(rect.xy), ivec2(rect.zw) - 1);\n"
+	"\treturn world_at(vec2(q) + 0.5, depth_at(q));\n"
+	"}\n"
+	"vec4 point_at(ivec2 p)\n"
+	"{\n"
+	"\tfloat d = depth_at(p);\n"
+	"\tif (d >= 1.0)\n"
+	"\t\treturn vec4(0.0);\n"
+	"\tvec3 w = world_at(vec2(p) + 0.5, d) - camera.xyz;\n"
+	"\treturn vec4(w, length(w));\n"
+	"}\n"
+	"/* (w: the point, from the camera) */\n"
+	"vec3 normal_at(ivec2 p, vec3 w)\n"
+	"{\n"
+	"\tw += camera.xyz;\n"
+	"\tvec3 r = neighbor(p, ivec2(1, 0)) - w, l = w - neighbor(p, ivec2(-1, 0));\n"
+	"\tvec3 u = neighbor(p, ivec2(0, 1)) - w, b = w - neighbor(p, ivec2(0, -1));\n"
+	"\tvec3 dx = dot(r, r) < dot(l, l) ? r : l;\n"
+	"\tvec3 dy = dot(u, u) < dot(b, b) ? u : b;\n"
+	"\tvec3 n = normalize(cross(dx, dy));\n"
+	"\treturn dot(n, camera.xyz - w) < 0.0 ? -n : n;\n"
+	"}\n"
 	"bool inside(vec2 frag)\n"
 	"{\n"
 	"\treturn frag.x >= rect.x && frag.y >= rect.y && frag.x < rect.z && frag.y < rect.w;\n"
@@ -272,22 +308,42 @@ static const char common_source[] =
 	"}\n";
 
 static const char prepass_source[] =
-	"uniform sampler2D depth_texture;\n"
 	"uniform usampler2D stencil_texture;\n"
+	"/* the last frame's shine (the shine pass's: the game's shine, each\n"
+	"texel the most of an 8x8 block's), its matrix, and x 1 when known */\n"
+	"uniform sampler2D shine;\n"
+	"uniform vec4 previous_clip[4];\n"
+	"uniform vec4 shine_params;\n"
 	"layout(location = 0) out vec4 out_position;\n"
 	"layout(location = 1) out vec4 out_normal;\n"
-	"float depth_at(ivec2 p)\n"
+	"/* 1 where the point shone the frame before (its block or one beside\n"
+	"it), or that is not known (not in view then): the trace's reflected\n"
+	"rays go only there */\n"
+	"float shone(vec3 w)\n"
 	"{\n"
-	"\treturn texelFetch(depth_texture, clamp(p, ivec2(rect.xy), ivec2(rect.zw) - 1), 0).r;\n"
+	"\tif (shine_params.x < 0.5)\n"
+	"\t\treturn 1.0;\n"
+	"\tvec4 p = vec4(w, 1.0);\n"
+	"\tvec4 c = vec4(dot(previous_clip[0], p), dot(previous_clip[1], p), dot(previous_clip[2], p), dot(previous_clip[3], p));\n"
+	"\tif (c.w <= 0.0)\n"
+	"\t\treturn 1.0;\n"
+	"\tvec2 uv = vec2(c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5);\n"
+	"\tif (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0)\n"
+	"\t\treturn 1.0;\n"
+	"\tvec2 f = uv * (rect.zw - rect.xy) / 8.0 - 0.5;\n"
+	"\tivec2 k = ivec2(floor(f));\n"
+	"\tivec2 last = (ivec2(rect.zw) - ivec2(rect.xy) + 7) / 8 - 1;\n"
+	"\tfloat m = max(max(texelFetch(shine, clamp(k, ivec2(0), last), 0).r,\n"
+	"\t\ttexelFetch(shine, clamp(k + ivec2(1, 0), ivec2(0), last), 0).r),\n"
+	"\t\tmax(texelFetch(shine, clamp(k + ivec2(0, 1), ivec2(0), last), 0).r,\n"
+	"\t\ttexelFetch(shine, clamp(k + ivec2(1, 1), ivec2(0), last), 0).r));\n"
+	"\treturn m >= 0.02 ? 1.0 : 0.0;\n"
 	"}\n"
-	"vec3 neighbor(ivec2 p, ivec2 step)\n"
-	"{\n"
-	"\tivec2 q = clamp(p + step, ivec2(rect.xy), ivec2(rect.zw) - 1);\n"
-	"\treturn world_at(vec2(q) + 0.5, depth_at(q));\n"
-	"}\n"
+	"/* (on a grid of blocks: drawn over the low-resolution corner, each texel\n"
+	"its block's pixel traced this frame) */\n"
 	"void main()\n"
 	"{\n"
-	"\tivec2 p = ivec2(gl_FragCoord.xy);\n"
+	"\tivec2 p = grid_pixel(ivec2(gl_FragCoord.xy), grid.yz);\n"
 	"\tfloat d = depth_at(p);\n"
 	"\tuint s = texelFetch(stencil_texture, p, 0).r;\n"
 	"\tif (d >= 1.0 || (s & 1u) != 0u)\n"
@@ -296,24 +352,43 @@ static const char prepass_source[] =
 	"\t\tout_normal = vec4(0.0, 0.0, 1.0, (s & 1u) != 0u ? 1.0 : 0.0);\n"
 	"\t\treturn;\n"
 	"\t}\n"
-	"\tvec3 w = world_at(gl_FragCoord.xy, d);\n"
-	"\tvec3 r = neighbor(p, ivec2(1, 0)) - w, l = w - neighbor(p, ivec2(-1, 0));\n"
-	"\tvec3 u = neighbor(p, ivec2(0, 1)) - w, b = w - neighbor(p, ivec2(0, -1));\n"
-	"\tvec3 dx = dot(r, r) < dot(l, l) ? r : l;\n"
-	"\tvec3 dy = dot(u, u) < dot(b, b) ? u : b;\n"
-	"\tvec3 n = normalize(cross(dx, dy));\n"
-	"\tif (dot(n, camera.xyz - w) < 0.0)\n"
-	"\t\tn = -n;\n"
+	"\tvec3 w = world_at(vec2(p) + 0.5, d);\n"
 	"\tout_position = vec4(w - camera.xyz, length(w - camera.xyz));\n"
-	"\tout_normal = vec4(n, 0.0);\n"
+	"\tout_normal = vec4(normal_at(p, w - camera.xyz), shone(w));\n"
+	"}\n";
+
+/* the shine: where the game's shine and reflections lit the view (what the
+reflections pass draws over), each texel the most of an 8x8 block of the
+view's pixels (16 of them looked at), for the next frame's trace */
+static const char shine_source[] =
+	"uniform sampler2D scene_before;\n"
+	"uniform sampler2D scene_now;\n"
+	"out vec4 result;\n"
+	"void main()\n"
+	"{\n"
+	"\tivec2 base = ivec2(rect.xy) + ivec2(gl_FragCoord.xy) * 8;\n"
+	"\tivec2 last = ivec2(rect.zw) - 1;\n"
+	"\tfloat m = 0.0;\n"
+	"\tfor (int j = 0; j < 4; j++)\n"
+	"\t{\n"
+	"\t\tfor (int i = 0; i < 4; i++)\n"
+	"\t\t{\n"
+	"\t\t\tivec2 q = min(base + ivec2(i * 2 + (j & 1), j * 2), last);\n"
+	"\t\t\tvec3 shine = max(texelFetch(scene_now, q, 0).rgb - texelFetch(scene_before, q, 0).rgb, vec3(0.0));\n"
+	"\t\t\tm = max(m, dot(shine, vec3(0.299, 0.587, 0.114)) * 8.0);\n"
+	"\t\t}\n"
+	"\t}\n"
+	"\tresult = vec4(clamp(m, 0.0, 1.0));\n"
 	"}\n";
 
 /* a blur that keeps to each surface: nine taps along direction, weighted by
 how near each one's distance is to the middle's */
 static const char blur_source[] =
 	"uniform sampler2D source;\n"
-	"/* the frame's guide (the traced pixels' positions, on the grid) */\n"
+	"/* the frame's guide (the traced pixels' positions, on the grid; with\n"
+	"its normals, w the frames accumulated) */\n"
 	"uniform sampler2D guide;\n"
+	"uniform sampler2D guide_normal;\n"
 	"uniform vec4 direction;\n"
 	"out vec4 result;\n"
 	"/* (on the trace's grid: its texels, as wide in the view's pixels) */\n"
@@ -332,6 +407,18 @@ static const char blur_source[] =
 	"\tint s = grid_scale();\n"
 	"\tint reach = 4 / s;\n"
 	"\tfloat spread = 10.0 / float(s * s);\n"
+	"\t/* (on a grid, a texel whose history is new, a point just come into\n"
+	"\tview or a moving one's: one sparse sample of few rays, spread over\n"
+	"\ttwice the width until the frames add up, never shown alone) */\n"
+	"\tif (s > 1)\n"
+	"\t{\n"
+	"\t\tfloat young = clamp((4.0 - texelFetch(guide_normal, p, 0).w) / 3.0, 0.0, 1.0);\n"
+	"\t\tif (young > 0.0)\n"
+	"\t\t{\n"
+	"\t\t\treach *= 2;\n"
+	"\t\t\tspread *= 1.0 + 3.0 * young;\n"
+	"\t\t}\n"
+	"\t}\n"
 	"\tivec2 last = grid_last();\n"
 	"\tfor (int k = -reach; k <= reach; k++)\n"
 	"\t{\n"
@@ -367,16 +454,17 @@ static const char composite_source[] =
 	"texels', weighted by how near each is (bilinear) and by how near its\n"
 	"traced point's distance and normal are to the pixel's own, so that no\n"
 	"shade crosses an edge; the object and unit marks the likest one's */\n"
-	"vec4 lighting_at(ivec2 p, float d)\n"
+	"vec4 lighting_at(ivec2 p, vec4 P)\n"
 	"{\n"
 	"\tint s = grid_scale();\n"
 	"\tif (s <= 1)\n"
 	"\t\treturn texelFetch(lighting, p, 0);\n"
+	"\tfloat d = P.w;\n"
 	"\tvec2 f = (vec2(p) + 0.5 - rect.xy) / float(s) - 0.5;\n"
 	"\tivec2 k = ivec2(floor(f));\n"
 	"\tvec2 t = f - vec2(k);\n"
 	"\tivec2 last = grid_last();\n"
-	"\tvec3 n = texelFetch(normal_texture, p, 0).xyz;\n"
+	"\tvec3 n = normal_at(p, P.xyz);\n"
 	"\tvec4 sum = vec4(0.0);\n"
 	"\tfloat weights = 0.0, best = -1.0;\n"
 	"\tvec4 likest = vec4(1.0, 1.0, 0.0, 0.0);\n"
@@ -408,10 +496,12 @@ static const char composite_source[] =
 	"void main()\n"
 	"{\n"
 	"\tivec2 p = ivec2(gl_FragCoord.xy);\n"
-	"\tvec4 P = texelFetch(position_texture, p, 0);\n"
+	"\t/* (every pixel traced: the prepass's full-size images; on a grid, from\n"
+	"\tthe depth) */\n"
+	"\tvec4 P = grid_scale() <= 1 ? texelFetch(position_texture, p, 0) : point_at(p);\n"
 	"\tif (P.w <= 0.0)\n"
 	"\t\tdiscard;\n"
-	"\tvec4 L = lighting_at(p, P.w);\n"
+	"\tvec4 L = lighting_at(p, P);\n"
 	"\tfloat shadow = strength.y;\n"
 	"\tif (fade.x > 0.5)\n"
 	"\t\tshadow *= smoothstep(0.06, 0.3, dot(texelFetch(scene_now, p, 0).rgb, vec3(0.299, 0.587, 0.114)));\n"
@@ -421,7 +511,7 @@ static const char composite_source[] =
 	"\tif (debug.x > 3.5)\n"
 	"\t\tresult = vec4(L.rgb, 1.0);\n"
 	"\telse if (debug.x > 2.5)\n"
-	"\t\tresult = vec4(texelFetch(normal_texture, p, 0).xyz * 0.5 + 0.5, 1.0);\n"
+	"\t\tresult = vec4((grid_scale() <= 1 ? texelFetch(normal_texture, p, 0).xyz : normal_at(p, P.xyz)) * 0.5 + 0.5, 1.0);\n"
 	"\telse if (debug.x > 1.5)\n"
 	"\t\tresult = vec4(fract(camera.xyz + P.xyz), 1.0);\n"
 	"\telse if (debug.x > 0.5)\n"
@@ -430,23 +520,106 @@ static const char composite_source[] =
 	"\t\tresult = vec4(vec3(pow(f, 1.0 / 2.2)), 1.0);\n"
 	"}\n";
 
+/* the view at a reflected hit (from the camera) of a ray from the point
+P, faded toward the screen's edges and the ray's end; w 0 when it is not
+seen (off screen, or something else drawn there). The reflections' passes
+have it */
+#define ML_SEEN_SOURCE \
+	"uniform sampler2D scene_before;\n" \
+	"uniform sampler2D position_texture;\n" \
+	"uniform sampler2D reflection_hits;\n" \
+	"/* x: strength, y: the longest ray, z: the frame's checkerboard (0 or\n" \
+	"1), w: debug */\n" \
+	"uniform vec4 params;\n" \
+	"vec4 seen(vec3 hit, vec3 P)\n" \
+	"{\n" \
+	"\tvec4 s = screen_of(camera.xyz + hit);\n" \
+	"\tif (s.w <= 0.0 || !inside(s.xy))\n" \
+	"\t\treturn vec4(0.0);\n" \
+	"\tvec4 Q = grid_scale() <= 1 ? texelFetch(position_texture, ivec2(s.xy), 0) : point_at(ivec2(s.xy));\n" \
+	"\tif (Q.w <= 0.0 || abs(Q.w - length(hit)) > 0.15 + 0.02 * Q.w)\n" \
+	"\t\treturn vec4(0.0);\n" \
+	"\tvec2 at = s.xy;\n" \
+	"\tfloat t = length(hit - P);\n" \
+	"\tvec2 edge = min(at - rect.xy, rect.zw - at) / (rect.zw - rect.xy);\n" \
+	"\tfloat fade = smoothstep(0.0, 0.08, min(edge.x, edge.y)) * (1.0 - smoothstep(params.y * 0.6, params.y, t));\n" \
+	"\treturn vec4(texelFetch(scene_before, ivec2(at), 0).rgb * fade, 1.0);\n" \
+	"}\n"
+
+/* on a grid of blocks, the reflected view at each texel of the grid (its
+traced point's), complete: the texels traced this frame (rt_trace.comp's
+reflections_pass: one of each two, in a checkerboard that turns) from their
+own hit; the others from the four traced around them, those on the same
+surface (distance and normal), each one's hit distance along the texel's
+own reflected ray. Misses and hits out of view count as no reflection. No
+texel of another frame is used (its hit is where another view's ray went):
+nothing of a pattern shows while the view moves, and the view-size pass
+takes this up as the lighting is */
+static const char reflect_grid_source[] =
+	ML_SEEN_SOURCE
+	"/* this frame's guide: each grid texel's traced point and normal */\n"
+	"uniform sampler2D guide;\n"
+	"uniform sampler2D guide_normal;\n"
+	"out vec4 result;\n"
+	"void main()\n"
+	"{\n"
+	"\tivec2 q = ivec2(gl_FragCoord.xy);\n"
+	"\tvec4 G = texelFetch(guide, q, 0);\n"
+	"\tresult = vec4(0.0);\n"
+	"\tif (G.w <= 0.0)\n"
+	"\t\treturn;\n"
+	"\tivec2 k = q - ivec2(rect.xy);\n"
+	"\tif (((k.x + k.y) & 1) == int(params.z))\n"
+	"\t{\n"
+	"\t\tvec4 H = texelFetch(reflection_hits, q, 0);\n"
+	"\t\tif (H.w > 0.0)\n"
+	"\t\t\tresult = vec4(seen(H.xyz, G.xyz).rgb, 1.0);\n"
+	"\t\treturn;\n"
+	"\t}\n"
+	"\tvec3 n = texelFetch(guide_normal, q, 0).xyz;\n"
+	"\tvec3 r = reflect(normalize(G.xyz), n);\n"
+	"\tivec2 last = grid_last();\n"
+	"\tvec3 sum = vec3(0.0);\n"
+	"\tfloat weights = 0.0;\n"
+	"\tfor (int i = 0; i < 4; i++)\n"
+	"\t{\n"
+	"\t\tivec2 o = i == 0 ? ivec2(1, 0) : i == 1 ? ivec2(-1, 0) : i == 2 ? ivec2(0, 1) : ivec2(0, -1);\n"
+	"\t\tivec2 u = q + o;\n"
+	"\t\tif (u.x < int(rect.x) || u.y < int(rect.y) || u.x > last.x || u.y > last.y)\n"
+	"\t\t\tcontinue;\n"
+	"\t\tvec4 U = texelFetch(guide, u, 0);\n"
+	"\t\tif (U.w <= 0.0)\n"
+	"\t\t\tcontinue;\n"
+	"\t\tfloat weight = exp(-abs(U.w - G.w) / (0.01 * G.w + 0.02)) *\n"
+	"\t\t\tpow(max(dot(n, texelFetch(guide_normal, u, 0).xyz), 0.0), 8.0);\n"
+	"\t\tif (weight < 1e-3)\n"
+	"\t\t\tcontinue;\n"
+	"\t\tvec4 H = texelFetch(reflection_hits, u, 0);\n"
+	"\t\tif (H.w > 0.0)\n"
+	"\t\t\tsum += seen(G.xyz + r * length(H.xyz - U.xyz), G.xyz).rgb * weight;\n"
+	"\t\tweights += weight;\n"
+	"\t}\n"
+	"\tresult = weights > 0.0 ? vec4(sum / weights, 1.0) : vec4(0.0);\n"
+	"}\n";
+
 /* "full"'s reflections: where the game's shine and reflections lit a
-surface, the view before them marched along the reflected ray */
+surface, the view before them at the traced reflected ray's hit. Every
+pixel traced: its own hit. On a grid of blocks: the grid's reflected view
+(reflect_grid_source's), from its four nearest texels, weighted by how near
+each is (bilinear) and how near its point's distance and normal are to the
+pixel's own, as the lighting is */
 static const char reflections_source[] =
-	"uniform sampler2D scene_before;\n"
+	ML_SEEN_SOURCE
 	"uniform sampler2D scene_now;\n"
-	"uniform sampler2D position_texture;\n"
 	"uniform sampler2D normal_texture;\n"
-	"uniform sampler2D reflection_hits;\n"
-	"/* x: strength, y: the longest ray */\n"
-	"uniform vec4 params;\n"
+	"uniform sampler2D guide;\n"
+	"uniform sampler2D guide_normal;\n"
+	"/* the grid's reflected view (rgb, a 1 where known) */\n"
+	"uniform sampler2D reflected_grid;\n"
 	"out vec4 result;\n"
 	"void main()\n"
 	"{\n"
 	"\tivec2 p = ivec2(gl_FragCoord.xy);\n"
-	"\tvec4 P = texelFetch(position_texture, p, 0);\n"
-	"\tif (P.w <= 0.0)\n"
-	"\t\tdiscard;\n"
 	"\tvec3 now = texelFetch(scene_now, p, 0).rgb;\n"
 	"\tvec3 shine = max(now - texelFetch(scene_before, p, 0).rgb, vec3(0.0));\n"
 	"\tfloat m = clamp(dot(shine, vec3(0.299, 0.587, 0.114)) * 8.0, 0.0, 1.0);\n"
@@ -458,26 +631,53 @@ static const char reflections_source[] =
 	"\t}\n"
 	"\tif (m < 0.03)\n"
 	"\t\tdiscard;\n"
-	"\tvec3 n = texelFetch(normal_texture, p, 0).xyz;\n"
+	"\tint scale = grid_scale();\n"
+	"\tvec4 P = scale <= 1 ? texelFetch(position_texture, p, 0) : point_at(p);\n"
+	"\tif (P.w <= 0.0)\n"
+	"\t\tdiscard;\n"
+	"\tvec3 n = scale <= 1 ? texelFetch(normal_texture, p, 0).xyz : normal_at(p, P.xyz);\n"
 	"\tvec3 v = normalize(P.xyz);\n"
-	"\tvec3 r = reflect(v, n);\n"
-	"\t/* the traced ray's hit, shaded from the screen where it is seen */\n"
-	"\tvec4 H = texelFetch(reflection_hits, grid_block(p), 0);\n"
-	"\tif (H.w <= 0.0)\n"
-	"\t\tdiscard;\n"
-	"\tvec4 s = screen_of(camera.xyz + H.xyz);\n"
-	"\tif (s.w <= 0.0 || !inside(s.xy))\n"
-	"\t\tdiscard;\n"
-	"\tvec4 Q = texelFetch(position_texture, ivec2(s.xy), 0);\n"
-	"\tif (Q.w <= 0.0 || abs(Q.w - length(H.xyz)) > 0.15 + 0.02 * Q.w)\n"
-	"\t\tdiscard;\n"
-	"\tvec2 at = s.xy;\n"
-	"\tfloat t = length(H.xyz - P.xyz);\n"
-	"\tvec2 edge = min(at - rect.xy, rect.zw - at) / (rect.zw - rect.xy);\n"
-	"\tfloat fade = smoothstep(0.0, 0.08, min(edge.x, edge.y)) * (1.0 - smoothstep(params.y * 0.6, params.y, t));\n"
+	"\tvec3 reflected;\n"
+	"\tif (scale <= 1)\n"
+	"\t{\n"
+	"\t\t/* the traced ray's hit, shaded from the screen where it is seen */\n"
+	"\t\tvec4 H = texelFetch(reflection_hits, p, 0);\n"
+	"\t\tif (H.w <= 0.0)\n"
+	"\t\t\tdiscard;\n"
+	"\t\tvec4 c = seen(H.xyz, P.xyz);\n"
+	"\t\tif (c.w <= 0.0)\n"
+	"\t\t\tdiscard;\n"
+	"\t\treflected = c.rgb;\n"
+	"\t}\n"
+	"\telse\n"
+	"\t{\n"
+	"\t\tvec2 f = (vec2(p) + 0.5 - rect.xy) / float(scale) - 0.5;\n"
+	"\t\tivec2 k = ivec2(floor(f));\n"
+	"\t\tvec2 t = f - vec2(k);\n"
+	"\t\tivec2 last = grid_last();\n"
+	"\t\tvec4 sum = vec4(0.0);\n"
+	"\t\tfloat weights = 0.0;\n"
+	"\t\tfor (int j = 0; j < 2; j++)\n"
+	"\t\t{\n"
+	"\t\t\tfor (int i = 0; i < 2; i++)\n"
+	"\t\t\t{\n"
+	"\t\t\t\tivec2 q = clamp(ivec2(rect.xy) + k + ivec2(i, j), ivec2(rect.xy), last);\n"
+	"\t\t\t\tfloat dq = texelFetch(guide, q, 0).w;\n"
+	"\t\t\t\tif (dq <= 0.0)\n"
+	"\t\t\t\t\tcontinue;\n"
+	"\t\t\t\tfloat weight = (mix(1.0 - t.x, t.x, float(i)) * mix(1.0 - t.y, t.y, float(j)) + 0.01) *\n"
+	"\t\t\t\t\texp(-abs(dq - P.w) / (0.01 * P.w + 0.02)) *\n"
+	"\t\t\t\t\tpow(max(dot(n, texelFetch(guide_normal, q, 0).xyz), 0.0), 8.0);\n"
+	"\t\t\t\tsum += texelFetch(reflected_grid, q, 0) * weight;\n"
+	"\t\t\t\tweights += weight;\n"
+	"\t\t\t}\n"
+	"\t\t}\n"
+	"\t\tif (weights < 1e-4 || sum.a <= 0.0)\n"
+	"\t\t\tdiscard;\n"
+	"\t\treflected = sum.rgb / weights;\n"
+	"\t}\n"
 	"\tfloat fresnel = mix(0.35, 1.0, pow(1.0 - max(dot(-v, n), 0.0), 3.0));\n"
-	"\tvec3 reflected = texelFetch(scene_before, ivec2(at), 0).rgb;\n"
-	"\tresult = vec4(now + reflected * (m * params.x * fade * fresnel), 1.0);\n"
+	"\tresult = vec4(now + reflected * (m * params.x * fresnel), 1.0);\n"
 	"}\n";
 
 /* the bloom: the light past white (linear), halved six times and added back
@@ -545,22 +745,30 @@ static const char bloom_combine_source[] =
 	"}\n";
 
 /* the lighting accumulated over frames: each pixel's last value found where
-its point was drawn the frame before (the positions are world points: no
-motion vectors needed), kept unless the point there is another one (a
-disocclusion), and blended with this frame's */
+its point was drawn the frame before (the positions are world points: the
+camera's motion needs no motion vectors), kept unless the point there is
+another one (a disocclusion, or an object that moved: its point is not
+where it was), held to the range of this frame's samples around it (a
+moving object's shadow left behind on the ground goes at once), and blended
+with this frame's: faster while the history is short (the guide normal's w
+counts its frames), so that a point come into view is not stuck on one
+sparse sample */
 static const char temporal_source[] =
 	"uniform sampler2D source;\n"
 	"uniform sampler2D position_texture;\n"
 	"uniform sampler2D normal_texture;\n"
 	"uniform sampler2D history;\n"
-	"/* the last frame's guide: each texel's traced point then */\n"
+	"/* the last frame's guide: each texel's traced point then, and (w) its\n"
+	"history's frames */\n"
 	"uniform sampler2D previous_position;\n"
+	"uniform sampler2D previous_guide_normal;\n"
 	"uniform vec4 previous_clip[4];\n"
 	"uniform vec4 previous_camera;\n"
 	"/* x: this frame's weight, y: a history to use */\n"
 	"uniform vec4 params;\n"
 	"layout(location = 0) out vec4 result;\n"
-	"/* this frame's guide: the traced pixel's position and normal */\n"
+	"/* this frame's guide: the traced pixel's position and normal (w: the\n"
+	"frames accumulated) */\n"
 	"layout(location = 1) out vec4 out_guide;\n"
 	"layout(location = 2) out vec4 out_guide_normal;\n"
 	"/* (on the trace's grid: a texel is its block's, the point the pixel traced\n"
@@ -570,10 +778,10 @@ static const char temporal_source[] =
 	"{\n"
 	"\tivec2 p = ivec2(gl_FragCoord.xy);\n"
 	"\tvec4 now = texelFetch(source, p, 0);\n"
-	"\tivec2 traced = grid_pixel(p, grid.yz);\n"
-	"\tvec4 P = texelFetch(position_texture, traced, 0);\n"
+	"\t/* (the prepass wrote the traced pixel's at its texel) */\n"
+	"\tvec4 P = texelFetch(position_texture, p, 0);\n"
 	"\tout_guide = P;\n"
-	"\tout_guide_normal = texelFetch(normal_texture, traced, 0);\n"
+	"\tout_guide_normal = vec4(texelFetch(normal_texture, p, 0).xyz, 1.0);\n"
 	"\tresult = now;\n"
 	"\tif (P.w <= 0.0 || params.y < 0.5)\n"
 	"\t\treturn;\n"
@@ -590,14 +798,31 @@ static const char temporal_source[] =
 	"\tif (Q.w <= 0.0 || distance(previous_camera.xyz + Q.xyz, w.xyz) > (0.03 + 0.01 * P.w) * float(grid_scale()))\n"
 	"\t\treturn;\n"
 	"\tvec4 before = texelFetch(history, block, 0);\n"
-	"\tresult = vec4(mix(before.rg, now.rg, params.x), now.ba);\n"
+	"\tfloat frames = min(max(texelFetch(previous_guide_normal, block, 0).w, 1.0) + 1.0, 32.0);\n"
+	"\tvec2 kept = before.rg;\n"
+	"\tif (grid_scale() > 1)\n"
+	"\t{\n"
+	"\t\tvec2 low = now.rg, high = now.rg;\n"
+	"\t\tivec2 last = grid_last();\n"
+	"\t\tfor (int j = -1; j <= 1; j++)\n"
+	"\t\t{\n"
+	"\t\t\tfor (int i = -1; i <= 1; i++)\n"
+	"\t\t\t{\n"
+	"\t\t\t\tvec2 value = texelFetch(source, clamp(p + ivec2(i, j), ivec2(rect.xy), last), 0).rg;\n"
+	"\t\t\t\tlow = min(low, value);\n"
+	"\t\t\t\thigh = max(high, value);\n"
+	"\t\t\t}\n"
+	"\t\t}\n"
+	"\t\tkept = clamp(kept, low - 0.1, high + 0.1);\n"
+	"\t}\n"
+	"\tout_guide_normal.w = frames;\n"
+	"\tresult = vec4(mix(kept, now.rg, max(params.x, 1.0 / frames)), now.ba);\n"
 	"}\n";
 
 /* light shafts: the sky's light (the view's pixels with no depth) blurred
 along the lines to the sun, added to the bloom's first level */
 static const char shafts_source[] =
 	"uniform sampler2D source;\n"
-	"uniform sampler2D depth_texture;\n"
 	"/* xy: the sun on the screen (0 to 1), z: strength, w: decay */\n"
 	"uniform vec4 params;\n"
 	"out vec4 result;\n"
@@ -662,6 +887,12 @@ static struct
 	composite's upsampling read, rather than the full-size images at a
 	stride; the last frame's the accumulation's previous positions) */
 	GLuint history[2], history_framebuffers[2], guide[2], guide_normal[2];
+	/* where the game's shine was drawn (the shine pass's, an eighth of the
+	size), for the next frame's reflected rays; the frame it was made in */
+	GLuint shine, shine_framebuffer;
+	/* the grid's reflected view (reflect_grid_source's), in its corner */
+	GLuint reflected_grid, reflected_grid_framebuffer;
+	int shine_frame;
 	int history_index, history_valid;
 	float previous_clip[16], previous_camera[4];
 	/* the view before the lighting, for the shadows' fade into the lightmaps' */
@@ -671,6 +902,8 @@ static struct
 	/* display.glow */
 	int glow;
 	BOOL reflections_traced;
+	/* the view before the shine copied this frame (halo_ml_shine) */
+	BOOL shine_before;
 	float glow_intensity, glow_threshold;
 	BOOL glow_shafts;
 	/* the bloom's, of the size it was made for */
@@ -952,18 +1185,19 @@ static GLuint program_build(int which)
 	{
 		prepass_source, blur_source, composite_source, reflections_source,
 		bloom_bright_source, bloom_down_source, bloom_up_source, bloom_combine_source, temporal_source,
-		shafts_source
+		shafts_source, shine_source, reflect_grid_source
 	};
 	static const char *const names[NUMBER_OF_PROGRAMS] =
 	{
 		"ML prepass", "ML blur", "ML composite", "ML reflections",
-		"ML bloom bright", "ML bloom down", "ML bloom up", "ML bloom combine", "ML temporal", "ML shafts"
+		"ML bloom bright", "ML bloom down", "ML bloom up", "ML bloom combine", "ML temporal", "ML shafts",
+		"ML shine", "ML reflect grid"
 	};
 	static const char *const units[] =
 	{
 		"depth_texture", "stencil_texture", "position_texture", "normal_texture", "source", "lighting",
 		"scene_before", "scene_now", "bloom", "history", "previous_position", "reflection_hits", "guide",
-		"guide_normal"
+		"guide_normal", "previous_guide_normal", "shine", "reflected_grid"
 	};
 	struct xgpu_text text = { 0 };
 	GLuint fragment_shader, program;
@@ -1040,6 +1274,9 @@ enum
 	_unit_reflection_hits,
 	_unit_guide,
 	_unit_guide_normal,
+	_unit_previous_guide_normal,
+	_unit_shine,
+	_unit_reflected_grid,
 };
 
 static void texture_bind(int unit, GLuint texture, BOOL linear)
@@ -1103,6 +1340,10 @@ static void textures_delete(void)
 		glDeleteFramebuffers(2, ml.history_framebuffers);
 		glDeleteTextures(2, ml.guide);
 		glDeleteTextures(2, ml.guide_normal);
+		glDeleteTextures(1, &ml.shine);
+		glDeleteTextures(1, &ml.reflected_grid);
+		glDeleteFramebuffers(1, &ml.reflected_grid_framebuffer);
+		glDeleteFramebuffers(1, &ml.shine_framebuffer);
 	}
 	for (index = 0; index < 3; index++)
 	{
@@ -1110,6 +1351,8 @@ static void textures_delete(void)
 	}
 	ml.depth_copy = ml.stencil_view = 0;
 	ml.scene_before = ml.scene_now = 0;
+	ml.shine = ml.shine_framebuffer = 0;
+	ml.reflected_grid = ml.reflected_grid_framebuffer = 0;
 }
 
 /* Track A's images, made by Vulkan and taken in here; FALSE without them */
@@ -1192,8 +1435,31 @@ static void textures_fit(const struct halo_ml_targets *targets)
 		ml.guide_normal[index] = texture_make(GL_RGBA16F, ml.width, ml.height);
 		ml.history_framebuffers[index] = framebuffer_make3(ml.history[index], ml.guide[index], ml.guide_normal[index]);
 	}
+	ml.shine = texture_make(GL_R8, (ml.width + 7) / 8, (ml.height + 7) / 8);
+	ml.shine_framebuffer = framebuffer_make(ml.shine, 0);
+	ml.reflected_grid = texture_make(ml.scene_format, ml.width, ml.height);
+	ml.reflected_grid_framebuffer = framebuffer_make(ml.reflected_grid, 0);
+	ml.shine_frame = -100;
 	ml.history_valid = FALSE;
 	platform_log("modern lighting: targets %dx%d (GL error %u)", ml.width, ml.height, glGetError());
+}
+
+/* the view (resolved) for a pass over it whose pixels each read only their
+own: with multisampling the resolved texture, which the pass does not draw
+into; else the one it draws into, behind a texture barrier; without the
+barrier a copy (copy): no full-size copy of the view each frame */
+static GLuint view_readable(const struct halo_ml_targets *targets, GLuint copy)
+{
+	if (targets->samples)
+		return targets->color_texture;
+	if (ext.TextureBarrier)
+	{
+		ext.TextureBarrier();
+		return targets->color_texture;
+	}
+	glCopyImageSubData(targets->color_texture, GL_TEXTURE_2D, 0, 0, 0, 0, copy, GL_TEXTURE_2D, 0, 0, 0, 0,
+		targets->width, targets->height, 1);
+	return copy;
 }
 
 /* 4x4 inverse (rows first), FALSE if singular */
@@ -2043,7 +2309,7 @@ static void halo_ml_opaque_timed(const struct halo_ml_frame *original)
 	const struct halo_ml_frame *frame = &copy;
 	struct halo_ml_targets targets;
 	int ray_tracing;
-	GLuint position, normal, position_framebuffer, lighting;
+	GLuint position, normal, position_framebuffer, lighting, lit_view;
 	BOOL traced = FALSE;
 	float strength[4];
 	int quality = HALO_RT_QUALITY_HIGH, scale = 1;
@@ -2054,6 +2320,10 @@ static void halo_ml_opaque_timed(const struct halo_ml_frame *original)
 	/* (low's 3x3 blocks: each of the nine in turn, spread out) */
 	static const int offsets3[9][2] =
 		{ { 0, 0 }, { 1, 1 }, { 2, 2 }, { 2, 0 }, { 0, 2 }, { 1, 0 }, { 2, 1 }, { 0, 1 }, { 1, 2 } };
+	/* (4x4 blocks, a large view's: the ordered dither's order) */
+	static const int offsets4[16][2] =
+		{ { 0, 0 }, { 2, 2 }, { 2, 0 }, { 0, 2 }, { 1, 1 }, { 3, 3 }, { 3, 1 }, { 1, 3 },
+		  { 1, 0 }, { 3, 2 }, { 3, 0 }, { 1, 2 }, { 0, 1 }, { 2, 3 }, { 2, 1 }, { 0, 3 } };
 
 	lab_frame = frame;
 	lab_poll();
@@ -2137,13 +2407,27 @@ static void halo_ml_opaque_timed(const struct halo_ml_frame *original)
 	quality = rt_quality();
 	/* (low: one pixel of each 3x3 block, a ninth of the rays) */
 	scale = quality == HALO_RT_QUALITY_HIGH ? 1 : quality == HALO_RT_QUALITY_MEDIUM ? 2 : 3;
+	/* (below high, the trace's grid as fine as at 1280x800 whatever the
+	view's size: its blocks as many as there, each as wide in the view as
+	there, so that the work does not grow with the pixels; 1920x1080 traces
+	one of each 3x3 at medium, 4x4 at low, and looks as 1280x800 does) */
+	if (scale > 1)
+	{
+		double pixels = (double)(targets.corners[2] - targets.corners[0]) *
+			(double)(targets.corners[3] - targets.corners[1]);
+		int sized = (int)((double)scale * sqrt(pixels / (1280.0 * 800.0)) + 0.5);
+
+		scale = sized > scale ? (sized > 4 ? 4 : sized) : scale;
+	}
 	/* the grid: every pixel (high), or one of each 2x2 (medium) or 3x3
 	(low) block, a different one each frame; a history of another grid not
 	used */
 	memcpy(ml.previous_grid, ml.grid, sizeof(ml.grid));
 	ml.grid[0] = (float)scale;
-	ml.grid[1] = scale == 3 ? (float)offsets3[ml.frame % 9][0] : scale > 1 ? (float)offsets[ml.frame & 3][0] : 0.0f;
-	ml.grid[2] = scale == 3 ? (float)offsets3[ml.frame % 9][1] : scale > 1 ? (float)offsets[ml.frame & 3][1] : 0.0f;
+	ml.grid[1] = scale == 4 ? (float)offsets4[ml.frame & 15][0] : scale == 3 ? (float)offsets3[ml.frame % 9][0] :
+		scale > 1 ? (float)offsets[ml.frame & 3][0] : 0.0f;
+	ml.grid[2] = scale == 4 ? (float)offsets4[ml.frame & 15][1] : scale == 3 ? (float)offsets3[ml.frame % 9][1] :
+		scale > 1 ? (float)offsets[ml.frame & 3][1] : 0.0f;
 	if (ml.previous_grid[0] != ml.grid[0])
 		ml.history_valid = FALSE;
 	grid_corners[0] = targets.corners[0];
@@ -2153,10 +2437,17 @@ static void halo_ml_opaque_timed(const struct halo_ml_frame *original)
 	ml.last_position = position;
 	ml.last_normal = normal;
 	common_uniforms(ml.programs[_program_prepass], &targets, frame);
+	/* (the last frame's shine, where the reflected rays go: known when it
+	was made the frame before, else every pixel) */
+	glUniform4fv(glGetUniformLocation(ml.programs[_program_prepass], "previous_clip"), 4, ml.previous_clip);
+	uniform4(ml.programs[_program_prepass], "shine_params",
+		ml.shine_frame == ml.frame - 1 && ml.history_valid ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+	texture_bind(_unit_shine, ml.shine, FALSE);
 	texture_bind(_unit_depth, ml.depth_copy, FALSE);
 	texture_bind(_unit_stencil, ml.stencil_view, FALSE);
 	mark(_mark_prepass);
-	pass_draw(position_framebuffer, targets.corners);
+	/* (on a grid, the traced pixels' alone, at their blocks' texels) */
+	pass_draw(position_framebuffer, grid_corners);
 	mark(_mark_trace);
 
 	/* 2. the lighting */
@@ -2231,6 +2522,7 @@ static void halo_ml_opaque_timed(const struct halo_ml_frame *original)
 		texture_bind(_unit_normal, normal, FALSE);
 		texture_bind(_unit_history, ml.history[ml.history_index], FALSE);
 		texture_bind(_unit_previous_position, ml.guide[ml.history_index], FALSE);
+		texture_bind(_unit_previous_guide_normal, ml.guide_normal[ml.history_index], FALSE);
 		/* (the history, and this frame's guide beside it: the last frame's
 		is the other's, no copy of the positions) */
 		pass_draw(ml.history_framebuffers[next], grid_corners);
@@ -2250,6 +2542,7 @@ static void halo_ml_opaque_timed(const struct halo_ml_frame *original)
 
 		common_uniforms(program, &targets, frame);
 		texture_bind(_unit_guide, ml.guide[ml.history_index], FALSE);
+		texture_bind(_unit_guide_normal, ml.guide_normal[ml.history_index], FALSE);
 		texture_bind(_unit_source, lighting, FALSE);
 		uniform4(program, "direction", 1.0f, 0.0f, 0.0f, 0.0f);
 		pass_draw(ml.lighting_framebuffers[1], grid_corners);
@@ -2260,11 +2553,11 @@ static void halo_ml_opaque_timed(const struct halo_ml_frame *original)
 
 	/* the view as the game lit it, for the traced shadows' fade */
 	mark(_mark_scene_copy);
+	lit_view = ml.scene_lit;
 	if (traced && halo_ml_targets_get((short)frame->bounds[0], (short)frame->bounds[1], (short)frame->bounds[2],
 		(short)frame->bounds[3], TRUE, &targets))
 	{
-		glCopyImageSubData(targets.color_texture, GL_TEXTURE_2D, 0, 0, 0, 0, ml.scene_lit, GL_TEXTURE_2D, 0, 0, 0, 0,
-			targets.width, targets.height, 1);
+		lit_view = view_readable(&targets, ml.scene_lit);
 		pass_state();
 	}
 
@@ -2294,7 +2587,8 @@ static void halo_ml_opaque_timed(const struct halo_ml_frame *original)
 		texture_bind(_unit_lighting, ml.lighting[2], FALSE);
 		texture_bind(_unit_guide, ml.guide[ml.history_index], FALSE);
 		texture_bind(_unit_guide_normal, ml.guide_normal[ml.history_index], FALSE);
-		texture_bind(_unit_scene_now, ml.scene_lit, FALSE);
+		texture_bind(_unit_scene_now, lit_view, FALSE);
+		texture_bind(_unit_depth, ml.depth_copy, FALSE);
 		uniform4(program, "fade", traced ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
 		glEnable(GL_STENCIL_TEST);
 		glStencilFunc(GL_EQUAL, 0, 1);
@@ -2318,16 +2612,10 @@ static void halo_ml_opaque_timed(const struct halo_ml_frame *original)
 		lab_check(lab.trace_before, lab.trace_after);
 	}
 
-	/* the view before the shine and the reflections, for the traced
-	reflections */
+	/* (the view before the shine and the reflections, for the traced
+	reflections: halo_ml_shine's, once the dynamic lights' shine is drawn) */
 	ml.reflections_traced = traced && ray_tracing >= HALO_RT_AO;
-	if (ml.reflections_traced &&
-		halo_ml_targets_get((short)frame->bounds[0], (short)frame->bounds[1], (short)frame->bounds[2],
-			(short)frame->bounds[3], TRUE, &targets))
-	{
-		glCopyImageSubData(targets.color_texture, GL_TEXTURE_2D, 0, 0, 0, 0, ml.scene_before, GL_TEXTURE_2D, 0, 0, 0,
-			0, targets.width, targets.height, 1);
-	}
+	ml.shine_before = FALSE;
 	mark(_mark_end);
 	/* (traced: what follows the wait on the trace sent now, not with the
 	rest of the frame, so that the GPU goes on as soon as the trace is done
@@ -2338,12 +2626,32 @@ static void halo_ml_opaque_timed(const struct halo_ml_frame *original)
 	halo_ml_targets_drawn(FALSE);
 }
 
+/* the view before the level's shine and reflections, after the dynamic
+lights' (a muzzle flash's on the floor is not the floor's shine: with it a
+flash lit up reflections on every surface near it) */
+void halo_ml_shine(const struct halo_ml_frame *frame)
+{
+	struct halo_ml_targets targets;
+
+	if (ml.failed || !ml.reflections_traced || !ml.scene_before)
+		return;
+	if (!halo_ml_targets_get((short)frame->bounds[0], (short)frame->bounds[1], (short)frame->bounds[2],
+		(short)frame->bounds[3], TRUE, &targets) || targets.width != ml.width || targets.height != ml.height)
+	{
+		return;
+	}
+	glCopyImageSubData(targets.color_texture, GL_TEXTURE_2D, 0, 0, 0, 0, ml.scene_before, GL_TEXTURE_2D, 0, 0, 0, 0,
+		targets.width, targets.height, 1);
+	ml.shine_before = TRUE;
+	halo_ml_targets_drawn(FALSE);
+}
+
 void halo_ml_reflections(const struct halo_ml_frame *frame)
 {
 	struct halo_ml_targets targets;
-	GLuint program;
+	GLuint program, now_view;
 
-	if (ml.failed || !ml.reflections_traced || !ml.depth_copy || !ml.last_position ||
+	if (ml.failed || !ml.reflections_traced || !ml.shine_before || !ml.depth_copy || !ml.last_position ||
 		!ml.programs[_program_reflections])
 	{
 		return;
@@ -2357,17 +2665,47 @@ void halo_ml_reflections(const struct halo_ml_frame *frame)
 		return;
 	memcpy(ml.to_clip, frame->world_to_clip, sizeof(ml.to_clip));
 	mark(_mark_reflections);
-	glCopyImageSubData(targets.color_texture, GL_TEXTURE_2D, 0, 0, 0, 0, ml.scene_now, GL_TEXTURE_2D, 0, 0, 0, 0,
-		targets.width, targets.height, 1);
+	now_view = view_readable(&targets, ml.scene_now);
 	pass_state();
+	texture_bind(_unit_scene_before, ml.scene_before, FALSE);
+	texture_bind(_unit_scene_now, now_view, FALSE);
+	/* where the shine was drawn, for the next frame's reflected rays (before
+	the reflections are drawn over the view it reads) */
+	{
+		int shine_corners[4];
+
+		shine_corners[0] = shine_corners[1] = 0;
+		shine_corners[2] = (targets.corners[2] - targets.corners[0] + 7) / 8;
+		shine_corners[3] = (targets.corners[3] - targets.corners[1] + 7) / 8;
+		program = ml.programs[_program_shine];
+		common_uniforms(program, &targets, frame);
+		pass_draw(ml.shine_framebuffer, shine_corners);
+		ml.shine_frame = ml.frame;
+	}
+	texture_bind(_unit_reflection_hits, ml.rt_textures[3], FALSE);
+	texture_bind(_unit_guide, ml.guide[ml.history_index], FALSE);
+	texture_bind(_unit_guide_normal, ml.guide_normal[ml.history_index], FALSE);
+	texture_bind(_unit_position, ml.last_position, FALSE);
+	texture_bind(_unit_depth, ml.depth_copy, FALSE);
+	texture_bind(_unit_normal, ml.last_normal, FALSE);
+	/* (on a grid of blocks: the grid's reflected view first, complete) */
+	if (ml.grid[0] > 1.5f)
+	{
+		int scale = (int)ml.grid[0], grid_corners[4];
+
+		grid_corners[0] = targets.corners[0];
+		grid_corners[1] = targets.corners[1];
+		grid_corners[2] = targets.corners[0] + (targets.corners[2] - targets.corners[0] + scale - 1) / scale;
+		grid_corners[3] = targets.corners[1] + (targets.corners[3] - targets.corners[1] + scale - 1) / scale;
+		program = ml.programs[_program_reflect_grid];
+		common_uniforms(program, &targets, frame);
+		uniform4(program, "params", 0.8f, 60.0f, (float)(ml.frame & 1), 0.0f);
+		pass_draw(ml.reflected_grid_framebuffer, grid_corners);
+		texture_bind(_unit_reflected_grid, ml.reflected_grid, FALSE);
+	}
 	program = ml.programs[_program_reflections];
 	common_uniforms(program, &targets, frame);
-	uniform4(program, "params", 0.8f, 60.0f, 0.0f, lab.debug == 6 ? 1.0f : 0.0f);
-	texture_bind(_unit_reflection_hits, ml.rt_textures[3], FALSE);
-	texture_bind(_unit_position, ml.last_position, FALSE);
-	texture_bind(_unit_normal, ml.last_normal, FALSE);
-	texture_bind(_unit_scene_before, ml.scene_before, FALSE);
-	texture_bind(_unit_scene_now, ml.scene_now, FALSE);
+	uniform4(program, "params", 0.8f, 60.0f, (float)(ml.frame & 1), lab.debug == 6 ? 1.0f : 0.0f);
 	glEnable(GL_STENCIL_TEST);
 	glStencilFunc(GL_EQUAL, 0, 1);
 	glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
@@ -2608,6 +2946,11 @@ double halo_ml_now_ms(void)
 void halo_ml_opaque(const struct halo_ml_frame *original)
 {
 	(void)original;
+}
+
+void halo_ml_shine(const struct halo_ml_frame *frame)
+{
+	(void)frame;
 }
 
 void halo_ml_reflections(const struct halo_ml_frame *frame)

@@ -392,10 +392,12 @@ static const struct config_setting config_settings[] =
 		_platform_desktop,
 		"What display.ray_tracing costs. \"high\": every pixel traced, four\n"
 		"rays toward the sun and four of occlusion. \"medium\": one pixel of\n"
-		"each 2x2 block a frame (a different one each frame, brought up to full\n"
-		"size by depth), two and two. \"low\": one of each 3x3 block, one and\n"
-		"one. \"auto\" (the default): medium on an integrated GPU (an APU),\n"
-		"high on others. Live, drawing only." },
+		"each 2x2 block a frame at 1280x800 (a different one each frame,\n"
+		"brought up to full size by depth), two and two; the blocks wider in a\n"
+		"larger view (3x3 at 1920x1080), so that the cost does not grow with\n"
+		"the pixels. \"low\": one of each 3x3 block (4x4 at 1920x1080), one\n"
+		"and one. \"auto\" (the default): medium on an integrated GPU (an\n"
+		"APU), high on others. Live, drawing only." },
 	{ "display.glow", _config_string, "\"off\"", "HALO_GLOW", _environment_value, _platform_desktop,
 		"A bloom (the OpenGL renderer). \"off\" (the default) draws as the Xbox\n"
 		"does. \"on\": the lights, the self-lit surfaces, plasma and muzzle\n"
