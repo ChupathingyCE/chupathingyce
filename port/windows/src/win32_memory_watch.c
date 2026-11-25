@@ -16,7 +16,7 @@ the 32-bit build, and host pointers are converted at the edges.
 
 /* the Xbox memory window (port/linux/src/platform.h: the desktop builds') */
 #define PLATFORM_CONTIGUOUS_BASE 0x80000000UL
-#ifdef HALO_64BIT
+#if defined(HALO_64BIT) && !defined(HALO_SERVER)
 #define PLATFORM_CONTIGUOUS_SIZE 0x40000000UL
 #else
 #define PLATFORM_CONTIGUOUS_SIZE 0x20000000UL

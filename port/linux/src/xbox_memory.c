@@ -334,6 +334,7 @@ static void contiguous_arena_reserve(void)
 	}
 #endif
 #ifdef HALO_64BIT
+#ifndef _WIN32
 	/* (no swap reserved for these, as for the heap, xbox_heap.c: pages are
 	backed when touched, and a small machine refuses the whole window
 	otherwise) */
@@ -343,6 +344,15 @@ static void contiguous_arena_reserve(void)
 		platform_log("cannot commit the Xbox contiguous memory window (%s)", strerror(errno));
 		abort();
 	}
+#else
+	/* Windows has no MAP_NORESERVE: a read-write mapping is committed whole,
+	against memory and the page file. The window stays as the address
+	space's reservation left it, and a block's pages are committed as it is
+	allocated (clear_block's mapping: win32_posix.c's mmap commits inside a
+	reservation), so the commit charge follows the blocks the game has
+	taken, not the window's size. Nothing reads or writes the window
+	outside a block. */
+#endif
 	/* Custom Edition maps' tag cache, and the room above it (platform.h) */
 	if (mmap(xbox_pointer(PLATFORM_CE_TAG_CACHE_BASE), PLATFORM_CE_TAG_CACHE_SIZE + PLATFORM_CE_CONVERSION_ROOM_SIZE,
 		PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) !=

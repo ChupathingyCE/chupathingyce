@@ -265,8 +265,12 @@ console's own memory (cseries/xbox_address.h) */
 Android build's: four times a 128 MB development kit's, for their larger
 texture cache (halo_port_capacity.h), and eight times in the 64-bit builds,
 whose window is in their own Xbox address space and backed only where it is
-written (xbox_memory.c); port/windows/src/win32_memory_watch.c has the same */
-#ifdef HALO_64BIT
+written (xbox_memory.c): the 64-bit desktop clients and Android's, not the
+dedicated server, iOS and tvOS (their memory limits) or a console port; the
+same test as halo_port_capacity.h's texture cache, and
+port/windows/src/win32_memory_watch.c has the same (tools/test_texture_cache_platforms.py) */
+#if defined(HALO_64BIT) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && \
+	!defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_IOS) && !defined(HALO_TVOS)
 #define PLATFORM_CONTIGUOUS_SIZE 0x40000000U
 #else
 #define PLATFORM_CONTIGUOUS_SIZE 0x20000000U
