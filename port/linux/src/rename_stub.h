@@ -2,20 +2,22 @@
 RENAME_STUB.H
 
 The game's program was halo (halo.exe on Windows) before 0.9.0, and is
-chupathingy (chupathingy.exe) now. For one release series the desktop
-downloads also carry a small halo that starts chupathingy beside it with
-the same arguments, so shortcuts, Steam entries and scripts made for halo
-keep working, and so does an updater from before the rename, which starts
-halo again after it installs:
+chupathingy (chupathingy.exe) now. The Linux and FreeBSD downloads also
+carry a small halo that starts chupathingy beside it with the same
+arguments, so shortcuts, Steam entries and scripts made for halo keep
+working, and so does an updater from before the rename, which starts halo
+again after it installs:
 
-- Windows: halo.exe, port/rename_stub/halo_stub.c (tools/windows_build.py);
 - Linux and FreeBSD: halo, the shell script port/rename_stub/halo.sh;
+- Windows: none since 0.9.2 (0.9.0 and 0.9.1 carried a halo.exe stub; an
+  old halo.exe left in the folder is removed, the stub too: updater.c);
 - macOS: none (the application keeps its name; only the program inside
   it, Contents/MacOS, is chupathingy now). An AppImage has none either.
 
 Each stub carries RENAME_STUB_MARK. At its start the renamed game removes
 an old halo beside it, the game from before the rename (updater.c,
-updater_clean_up), but never a file with the mark: the stub stays.
+updater_clean_up), but never a file with the mark: the stub stays (on
+Windows, where none ships any more, the mark is not looked for).
 
 TODO(after 0.9.x): stop shipping the stubs, and let the clean-up remove
 them too (drop the mark check).
@@ -32,7 +34,7 @@ it on its own (tools/test_rename_stub.py).
 #include <wchar.h>
 
 /* the text every stub carries (halo.sh's second line, a string in
-halo_stub.c's program) */
+0.9.0 and 0.9.1's halo.exe) */
 #define RENAME_STUB_MARK "chupathingy-halo-stub 1"
 /* a stub is far smaller than this; the old game is far larger */
 #define RENAME_STUB_MAXIMUM_SIZE (1024u * 1024u)

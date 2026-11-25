@@ -30,11 +30,13 @@ whether to update:
 - No: nothing, until the next start.
 
 The game is chupathingy (chupathingy.exe) from 0.9.0, and was halo
-(halo.exe) before. A release's zip carries both: the game, which the list
-names as its "main", and a small halo that starts it (rename_stub.h), for
-shortcuts and for the updaters from before the list, which start halo again.
-At its start the renamed game removes an old halo beside it that is a game,
-never the stub (updater_remove_old_program).
+(halo.exe) before. A Linux or FreeBSD release's zip carries both: the game,
+which the list names as its "main", and a small halo that starts it
+(rename_stub.h), for shortcuts and for the updaters from before the list,
+which start halo again. At its start the renamed game removes an old halo
+beside it that is a game, never the stub (updater_remove_old_program). A
+Windows zip has no halo.exe since 0.9.2, and an old one, stub or game, is
+removed.
 - Do not ask again: after the player confirms it, update.auto = false is
   written to config.toml.
 
@@ -1799,7 +1801,9 @@ void updater_install_restart(void)
 /* the game's program from before the rename, beside the renamed one: halo
 beside chupathingy, halo.exe beside chupathingy.exe (rename_stub.h), removed,
 unless it is the small stub that starts this one, which stays for the
-shortcuts and scripts that start halo */
+shortcuts and scripts that start halo. On Windows the stub goes too: the
+downloads have had none since 0.9.2 (while it runs, as it does when it
+started this one, it can't be removed, and goes at a later start) */
 static void updater_remove_old_program(void)
 {
 	const char *running = strrchr(updater_executable, PATH_SEPARATOR[0]);
@@ -1810,6 +1814,7 @@ static void updater_remove_old_program(void)
 	SDL_IOStream *file;
 	size_t size = 0;
 	Sint64 file_size;
+	int stub = 0;
 
 	if (!old_name)
 		return;
@@ -1827,14 +1832,10 @@ static void updater_remove_old_program(void)
 		mark's length of the one before it) */
 		size_t keep = sizeof(RENAME_STUB_MARK) - 2, got;
 
-		while ((got = SDL_ReadIO(file, data + size, sizeof(data) - size)) > 0)
+		while (!stub && (got = SDL_ReadIO(file, data + size, sizeof(data) - size)) > 0)
 		{
 			size += got;
-			if (rename_stub_is_stub(data, size, (unsigned long long)file_size))
-			{
-				SDL_CloseIO(file);
-				return;
-			}
+			stub = rename_stub_is_stub(data, size, (unsigned long long)file_size);
 			if (size > keep)
 			{
 				memmove(data, data + size - keep, keep);
@@ -1843,8 +1844,15 @@ static void updater_remove_old_program(void)
 		}
 	}
 	SDL_CloseIO(file);
-	platform_log("update: removing %s, the game from before its rename to %s", old_name,
-		running ? running + 1 : updater_executable);
+#ifndef _WIN32
+	if (stub)
+		return;
+#endif
+	if (stub)
+		platform_log("update: removing %s, the stub 0.9.0 and 0.9.1 had for the old name", old_name);
+	else
+		platform_log("update: removing %s, the game from before its rename to %s", old_name,
+			running ? running + 1 : updater_executable);
 	update_delete_file(path);
 }
 

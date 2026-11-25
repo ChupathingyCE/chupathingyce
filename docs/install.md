@@ -18,11 +18,12 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 | FreeBSD (64-bit) | `chupathingyce-freebsd64-release.zip` | FreeBSD 14 or later, amd64. See [port/unix/README.md](../port/unix/README.md). |
 
 The program is `chupathingy.exe` on Windows and `chupathingy` on Linux and
-FreeBSD. Until 0.9.0 it was `halo.exe` and `halo`. The downloads still have a
-small `halo.exe` (`halo` on Linux and FreeBSD) that starts `chupathingy`, so
-shortcuts, Steam entries and scripts made for the old name keep working for
-now. Point them at `chupathingy` when you can: the small one goes away in a
-later release. The Mac app is still ChupathingyCE.
+FreeBSD. Until 0.9.0 it was `halo.exe` and `halo`. The Windows downloads have
+no `halo.exe` since 0.9.2: point any shortcut, script or Steam entry that
+starts `halo.exe` at `chupathingy.exe`. The Linux and FreeBSD downloads still
+have a small `halo` that starts `chupathingy`, so things made for the old name
+keep working for now. Point them at `chupathingy` when you can: the small one
+goes away in a later release. The Mac app is still ChupathingyCE.
 
 The game checks for new releases when it starts and asks before updating. The Linux AppImage updates itself too: the new AppImage replaces the old file.
 The Windows and Linux builds are for x86 and x64 PCs; there are no ARM builds of

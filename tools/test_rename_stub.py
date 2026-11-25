@@ -3,8 +3,8 @@
 with the build machine's C compiler, and the Unix stub, halo.sh, run
 beside a stand-in chupathingy: it passes every argument on as it was, from
 any working folder and through a link, makes a chupathingy that lost its
-executable bit executable again, and says so when there is none. Also that
-the Windows stub carries the mark the game's clean-up keeps it by."""
+executable bit executable again, and says so when there is none. (Windows'
+halo.exe stub was dropped in 0.9.2.)"""
 import os
 import shutil
 import subprocess
@@ -15,7 +15,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "port/rename_stub/halo.sh"
-STUB = ROOT / "port/rename_stub/halo_stub.c"
 MARK = "chupathingy-halo-stub 1"
 
 posix = pytest.mark.skipif(sys.platform == "win32", reason="the Unix stub is a shell script")
@@ -45,9 +44,8 @@ def test_stub_rules(tmp_path):
 
 
 def test_marks():
-    """Both stubs carry the mark; the header defines the same one."""
+    """The stub carries the mark; the header defines the same one."""
     assert SCRIPT.read_text().splitlines()[1] == f"# {MARK}"
-    assert "RENAME_STUB_MARK" in STUB.read_text()
     assert f'#define RENAME_STUB_MARK "{MARK}"' in (ROOT / "port/linux/src/rename_stub.h").read_text()
     assert os.access(SCRIPT, os.X_OK), "halo.sh is committed executable (the builds copy it as it is)"
 

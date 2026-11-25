@@ -59,8 +59,9 @@ MANIFEST_FORMAT = "chupathingyce-updates 1"
 # the update channels a list may say it is (update_manifest.h)
 CHANNELS = ("release", "testing", "nightly")
 # the game's executable by its names from 0.9.0: a zip with one starts it
-# after an update (the list's "main"), not the halo or halo.exe beside it,
-# which is only the stub that starts it (port/linux/src/rename_stub.h); a
+# after an update (the list's "main"), not the halo beside it (or, before
+# 0.9.2, halo.exe), which is only the stub that starts it
+# (port/linux/src/rename_stub.h); a
 # zip with neither needs none, as the updater starts the file it was
 # started from
 MAIN_NAMES = ("chupathingy.exe", "chupathingy")
