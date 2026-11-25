@@ -1947,6 +1947,18 @@ static void platform_vulkan_offer(void)
 #endif
 #ifdef HALO_BGFX
 
+/* the API bgfx draws with for display.renderer (d3d8_bgfx.inl, bg_initialize) */
+static const char *platform_bgfx_name(void)
+{
+#if defined(__APPLE__)
+	return "Metal";
+#elif defined(_WIN32)
+	return strcmp(config_string("display.renderer"), "d3d11") == 0 ? "Direct3D 11" : "Vulkan";
+#else
+	return "Vulkan";
+#endif
+}
+
 BOOL platform_bgfx_chosen(void)
 {
 	const char *renderer = config_string("display.renderer");
@@ -2590,7 +2602,10 @@ with an OpenGL context, for the OpenGL renderer, so that a computer whose
 Vulkan (or Metal) is missing or broken still shows the game */
 BOOL platform_video_reopen_for_gl(void)
 {
-	platform_log("renderer: bgfx did not start, so OpenGL");
+	/* (the one asked for and the one drawing, plainly: the reason is the
+	line before, bg_start's) */
+	platform_log("renderer: asked for %s (bgfx, display.renderer = \"%s\"), which did not start: drawing with OpenGL "
+		"for this start; the setting stays as it is", platform_bgfx_name(), config_string("display.renderer"));
 	platform_bgfx_refused = TRUE;
 	xgpu_bgfx = FALSE;
 	if (platform_window)

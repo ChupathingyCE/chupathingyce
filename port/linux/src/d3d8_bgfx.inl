@@ -5126,7 +5126,8 @@ loads remove (bg_frame_out): the main menu's, or the map's a command line
 starts on. The setup screen's frames never count, so a start that closes
 loading that first map still leaves it. A note still there at the next start
 says the last one closed, crashed or hung before them: a driver that refused a pipeline, a GPU fault, a swap chain
-that never presented (game issue #1046, AMD's drivers and RADV). That start
+that never presented (game issue #1046, AMD's drivers and RADV). The setup
+screen's own restart takes it away (xgpu_bgfx_start_note_clear). That start
 draws with OpenGL, and the player is asked whether to stay on OpenGL for
 good (platform_offer_opengl): display.renderer changes only on a yes, and a
 no asks again the next time Vulkan does not get going.
@@ -5176,6 +5177,22 @@ static void bg_start_note(void)
 			"Found at a start, it means the last start closed before them, and that start draws with OpenGL.\n", file);
 		fclose(file);
 	}
+}
+
+/* the setup screen starts the game again for the settings that need it
+(launcher.c): the note goes, and the next start tries Vulkan again (game
+issue #1665). Every other way a start closes before its first map (Quit,
+Escape, the window closed, a crash or a hang) leaves it: a window that
+never showed a picture is closed those ways too */
+void xgpu_bgfx_start_note_clear(void)
+{
+	char path[1024];
+
+	if (!bg_vulkan || !bg_start_note_wanted())
+		return;
+	bg_start_note_path(path, sizeof(path));
+	if (remove(path) == 0)
+		platform_log("bgfx: the setup screen closed this Vulkan start itself, so the next start tries Vulkan again");
 }
 
 /* a frame of the game's went out to the window: the note goes at the
