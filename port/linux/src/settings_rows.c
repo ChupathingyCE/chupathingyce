@@ -67,6 +67,12 @@ enum
 	_in_guide = 1 << SETTINGS_GROUP_GUIDE,
 };
 
+enum
+{
+	/* (a row's restart: 1 everywhere, or this) */
+	_restart_in_game = 2,
+};
+
 struct settings_row
 {
 	unsigned groups;
@@ -77,7 +83,8 @@ struct settings_row
 	value in capitals) */
 	const char *const *choices;
 	const char *const *names;
-	/* a change shows after a restart */
+	/* a change shows after a restart (_restart_in_game: only once the
+	game is running, the Guide's; the setup screen comes before it) */
 	int restart;
 	/* a change shows at once on the window (platform_display_apply) */
 	int window;
@@ -238,8 +245,9 @@ static const struct settings_row settings_rows[] =
 	{ _in_guide, "WORKSHOP MAPS", "game.workshop_maps", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "MAPS WHEN JOINING", "network.workshop_downloads", _kind_words, NULL, NULL, 0, 0 },
 	/* (clips start once, with the game: capture_clips.c) */
-	{ _in_guide, "CLIPS", "clips.enabled", _kind_toggle, NULL, NULL, 1, 0 },
-	{ _in_guide, "CLIP LENGTH", "clips.seconds", _kind_choices, clip_length_choices, clip_length_names, 1, 0 },
+	{ _in_guide, "CLIPS", "clips.enabled", _kind_toggle, NULL, NULL, _restart_in_game, 0 },
+	{ _in_guide, "CLIP LENGTH", "clips.seconds", _kind_choices, clip_length_choices, clip_length_names,
+	  _restart_in_game, 0 },
 	{ _in_guide, "MISSION ORDER", "game.mcc_campaigns", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FORGE", "game.forge", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
@@ -636,7 +644,12 @@ const char *settings_row_key(const struct settings_row *row)
 
 int settings_row_restart(const struct settings_row *row)
 {
-	return row->restart;
+	return row->restart == 1;
+}
+
+int settings_row_restart_in_game(const struct settings_row *row)
+{
+	return row->restart != 0;
 }
 
 void settings_row_value(const struct settings_row *row, char *text, int size)
