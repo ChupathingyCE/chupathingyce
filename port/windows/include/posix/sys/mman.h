@@ -30,5 +30,9 @@ commits fresh zeroed pages.
 void *mmap(void *address, size_t length, int protection, int flags, int descriptor, long offset);
 int munmap(void *address, size_t length);
 int mprotect(void *address, size_t length, int protection);
+/* why this thread's last mmap, munmap or mprotect failed, in Windows' words
+(errno keeps only a few of its reasons): its error code (0 if Windows gave
+none), and its text in text */
+unsigned long mmap_last_error(char *text, size_t size);
 
 #endif
