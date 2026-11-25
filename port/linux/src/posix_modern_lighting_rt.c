@@ -2422,7 +2422,7 @@ void ml_rt_object(int slot_index, int key, const struct ml_rt_part_use *uses, in
 		instance->transform.matrix[0][0] = 1.0f;
 		instance->transform.matrix[1][1] = 1.0f;
 		instance->transform.matrix[2][2] = 1.0f;
-		instance->instanceCustomIndex = (custom & 0xffff) | ((mask & HALO_RT_MASK_UNIT) ? 0x10000u : 0u);
+		instance->instanceCustomIndex = (custom & 0x2ffff) | ((mask & HALO_RT_MASK_UNIT) ? 0x10000u : 0u);
 		instance->mask = mask & HALO_RT_MASK_SHADOWLESS ? HALO_RT_MASK_SHADOWLESS : HALO_RT_MASK_OBJECT;
 		instance->instanceShaderBindingTableRecordOffset = (unsigned int)slot->record_base;
 		instance->flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
@@ -2491,7 +2491,7 @@ void ml_rt_instance(int mesh, const float transform[12], unsigned int custom, un
 	pending_slot[rt.instance_count] = -1;
 	instance = &pending[rt.instance_count++];
 	memcpy(instance->transform.matrix, transform, sizeof(float) * 12);
-	instance->instanceCustomIndex = (custom & 0xffff) | ((mask & HALO_RT_MASK_UNIT) ? 0x10000u : 0u);
+	instance->instanceCustomIndex = (custom & 0x2ffff) | ((mask & HALO_RT_MASK_UNIT) ? 0x10000u : 0u);
 	instance->mask = mask & HALO_RT_MASK_SHADOWLESS ? HALO_RT_MASK_SHADOWLESS : HALO_RT_MASK_OBJECT;
 	instance->instanceShaderBindingTableRecordOffset = 0;
 	instance->flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;

@@ -14,8 +14,11 @@ The scene (more.z 1): the level's render geometry (instance mask 1, custom
 index 0xffff) and each object's render model as it is drawn, skinned
 (posix_modern_lighting_rt.c's rt_skin.comp; mask 2, or 8 for those that
 cast no shadow; mask 4 too for units, vehicles and projectiles; custom index
-their ultimate parent's slot). Or (more.z 0, the round-1 prototype's, for
-comparing) the level's collision BSP and the objects' collision models.
+their ultimate parent's slot; bit 16 a unit, bit 17 an object the game
+lights as in the level's shadow already: no sky where it stands, or the
+level hides the sun from its middle). Or
+(more.z 0, the round-1 prototype's, for comparing) the level's collision BSP
+and the objects' collision models.
 
 Each geometry's record (binding 6, at its instance's shader binding table
 offset plus its geometry's index): where its triangles and vertices are, and
@@ -349,6 +352,9 @@ void main()
 	/* the object the pixel is on, if any */
 	int self = -1;
 	bool unit = false;
+	/* (an object the game lights as in the level's shadow already: no sky
+	where it stands, or the level hides the sun from its middle) */
+	bool level_shaded = false;
 	{
 		int custom;
 		vec3 view = P.xyz / distance;
@@ -364,6 +370,7 @@ void main()
 		{
 			self = custom & 0xffff;
 			unit = ((custom >> 16) & 1) != 0;
+			level_shaded = ((custom >> 17) & 1) != 0;
 		}
 	}
 	bool meshes = trace.more.z != 0;
@@ -397,12 +404,14 @@ void main()
 			if (self < 0)
 				lit += occluded(origin, direction, 0.0, 400.0, OBJECT, -1) ? 0.0 : 1.0;
 			/* (an object's: its own parts and the other objects, then the
-			level on the fast path: the same hit as one ray of both) */
+			level on the fast path: the same hit as one ray of both. Not the
+			level for an object the game lights as in its shadow already:
+			that shadow would be laid over it twice) */
 			else
 			{
 				lit += occluded_self(origin, direction, t_min, 400.0, OBJECT, self,
 					meshes ? SELF_REACH + distance * 0.002 : 0.0) ||
-					occluded(origin, direction, t_min, 400.0, LEVEL, -1) ? 0.0 : 1.0;
+					(!level_shaded && occluded(origin, direction, t_min, 400.0, LEVEL, -1)) ? 0.0 : 1.0;
 			}
 		}
 		visible = lit / float(rays);

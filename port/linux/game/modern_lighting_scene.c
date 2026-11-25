@@ -47,6 +47,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "physics/collision_bsp_definitions.h"
 #include "physics/collision_model_definitions.h"
 #include "physics/collision_models.h"
+#include "physics/collisions.h"
 #include "rasterizer/rasterizer.h"
 #include "render/render.h"
 #include "render/render_cameras.h"
@@ -80,6 +81,65 @@ no HALO_PORT_HDR: these are the functions render.c calls) */
 #include <stdlib.h>
 #include <string.h>
 #include <xtl.h>
+
+/* the sun's direction this frame (toward it), and whether there is one, for
+object_level_shaded */
+static real_vector3d scene_sun;
+static boolean scene_sun_valid;
+static unsigned long scene_frame;
+
+/* whether the game's own lighting of an object has the level's shadow in it
+already: the object stands where no sky is (a cave, a tunnel: lit with no
+sun), or the level hides the sun from its middle (the game lights an object
+from the lightmap there, as one). Then the level's traced shadow is not
+laid over it a second time (custom bit 17, rt_trace.comp's: its own parts'
+and the other objects' shadows still are). Asked once a frame for each
+ultimate parent */
+static boolean object_level_shaded(long object_index, const struct object_datum *object)
+{
+	static unsigned long asked[2048];
+	static boolean answers[2048];
+	struct structure_bsp *structure_bsp = global_structure_bsp_get();
+	long slot = DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index), cluster_index;
+	struct collision_result collision;
+	real_vector3d toward;
+	boolean shaded;
+
+	if (!structure_bsp || !scene_sun_valid)
+		return FALSE;
+	if (slot >= 0 && slot < 2048 && asked[slot] == scene_frame)
+		return answers[slot];
+	cluster_index = cluster_index_from_point(structure_bsp, (real_point3d *)&object->object.bounding_sphere_center);
+	if (cluster_index != NONE && cluster_index >= 0 && cluster_index < structure_bsp->clusters.count &&
+		TAG_BLOCK_GET_ELEMENT(&structure_bsp->clusters, cluster_index, struct structure_cluster)->sky_index == NONE)
+	{
+		shaded = TRUE;
+	}
+	else
+	{
+		toward.i = scene_sun.i * 400.0f;
+		toward.j = scene_sun.j * 400.0f;
+		toward.k = scene_sun.k * 400.0f;
+		shaded = collision_test_vector(FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit),
+			&object->object.bounding_sphere_center, &toward, NONE, &collision);
+	}
+	if (slot >= 0 && slot < 2048)
+	{
+		asked[slot] = scene_frame;
+		answers[slot] = shaded;
+	}
+	return shaded;
+}
+
+/* (a new frame: object_level_shaded asks again) */
+static void object_level_shaded_frame(const struct halo_ml_frame *frame)
+{
+	scene_frame++;
+	scene_sun_valid = frame->sun_valid;
+	scene_sun.i = frame->sun[0];
+	scene_sun.j = frame->sun[1];
+	scene_sun.k = frame->sun[2];
+}
 
 int config_boolean(const char *name);
 unsigned long config_changes(void);
@@ -302,6 +362,8 @@ static int scene_objects(const real_point3d *camera)
 			{
 				viewer = (int)custom;
 			}
+			if (object_level_shaded(parent, ultimate))
+				custom |= 0x20000u;
 		}
 		for (node_index = 0; node_index < instance.node_count; node_index++)
 		{
@@ -826,6 +888,8 @@ static int scene_objects_render(const real_point3d *camera)
 			{
 				viewer = (int)custom;
 			}
+			if (object_level_shaded(parent, ultimate))
+				custom |= 0x20000u;
 		}
 		ml_rt_object((int)DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index), (int)object_index, uses, part_count,
 			&matrices[0][0], node_count, custom, mask);
@@ -938,6 +1002,7 @@ void modern_lighting_opaque(const struct render_camera *camera)
 		double before = halo_ml_now_ms();
 		int meshes = halo_ml_ray_tracing_meshes();
 
+		object_level_shaded_frame(&frame);
 		ml_rt_world(scene_world());
 		/* (a new world, the trace started again, or the other geometry: the
 		level made again) */
