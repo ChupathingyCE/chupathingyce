@@ -138,6 +138,7 @@ symbols in this file:
 #include "tag_byte_swap.h"
 #endif
 #include "scenario/scenario_definitions.h"
+#include "scenario/scenario.h"
 #include "sound/sound_manager.h"
 #include "tag_schema.h"
 #include "halo_map_families.h"
@@ -165,6 +166,12 @@ enum
 /* ---------- macros */
 
 #define STRUCTURE_BSP_TAG 'sbsp'
+#ifndef HALO_CONSOLE_NO_FORGE
+extern unsigned long cache_files_reserved_after_tags;
+#define CACHE_FILES_RESERVED_AFTER_TAGS cache_files_reserved_after_tags
+#else
+#define CACHE_FILES_RESERVED_AFTER_TAGS 0
+#endif
 #define CACHE_FILE_TAG_HEADER_SIGNATURE 'tags'
 #define CACHE_FILE_STRUCTURE_BSP_HEADER_SIGNATURE 'sbsp'
 #define CACHE_FILE_HEADER_SIGNATURE 'head'
@@ -697,8 +704,25 @@ void scenario_tags_unload(
 		hud_hires_tags_unloaded();
 	}
 #endif
+#ifdef HALO_DEVELOPER_FLAMES
+	/* port: and the developer flames this map's flame sprite (developer_flames.c) */
+	{
+		extern void developer_flames_tags_unloaded(void);
+
+		developer_flames_tags_unloaded();
+	}
+#endif
 	sound_cache_close();
 	texture_cache_close();
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: Forge's AI characters go first, the last tags added, after the
+	caches that read from them (port/linux/game/forge_ai_tags.c) */
+	{
+		extern void forge_ai_tags_map_unloaded(void);
+
+		forge_ai_tags_map_unloaded();
+	}
+#endif
 #ifdef HALO_CONSOLE_MARKER_LOOKUPS
 	/* port: model_find_marker's remembered answers were this map's */
 	model_marker_lookups_forget();
@@ -758,6 +782,49 @@ void scenario_tags_unload(
 
 	return;
 }
+
+#ifndef HALO_CONSOLE_NO_FORGE
+/* port: (Forge's AI characters on a multiplayer map, port/linux/game/forge_ai_tags.c)
+the tag cache's bytes past the map's tags that they hold, which a structure
+bsp's load leaves as they are */
+unsigned long cache_files_reserved_after_tags;
+
+/* the tag cache's room past an Xbox map's tags, before its structure bsps,
+16-byte aligned: its start and its size (0: none) */
+void *cache_files_tag_room(
+	unsigned long *size)
+{
+	struct scenario *scenario;
+	byte *base = physical_memory_get_tag_cache_base_address();
+	unsigned long start = ((unsigned long)cache_file_globals.header.tag_data_size + 15) & ~15UL;
+	unsigned long end = 0x01600000;
+	long index;
+
+	*size = 0;
+	if (!cache_file_globals.tags_loaded || mcc_cache_tags_loaded() || global_scenario_index == NONE
+#ifdef HALO_CUSTOM_EDITION
+		|| cache_file_is_ce
+#endif
+		)
+	{
+		return NULL;
+	}
+	scenario = global_scenario_get();
+	for (index = 0; index < scenario->structure_bsp_references.count; index++)
+	{
+		struct scenario_structure_bsp_reference *reference = TAG_BLOCK_GET_ELEMENT(
+			&scenario->structure_bsp_references, index, struct scenario_structure_bsp_reference);
+		unsigned long offset = (unsigned long)((byte *)xbox_pointer(reference->base_address) - base);
+
+		if (offset >= start && offset < end)
+			end = offset;
+	}
+	if (end <= start)
+		return NULL;
+	*size = end - start;
+	return base + start;
+}
+#endif
 
 /* port: the loaded tags' table, and its tags' count, for the menus' tags
 (port/linux/game/menu_tags.c), which a copy with theirs added replaces */
@@ -1025,8 +1092,9 @@ static boolean cache_file_stubbs_read(
 	if (offset < 0 || size <= 0 || offset > cache_file_globals.header.file_length - size)
 		return FALSE;
 	cache_file_read(NONE, offset, size, buffer, &read_complete, TRUE);
-	while (!read_complete)
+	while (!*(volatile boolean *)&read_complete)
 		SwitchToThread();
+	CACHE_FILE_READ_SEEN();
 	return read_complete == TRUE;
 }
 #endif
@@ -1966,6 +2034,7 @@ long scenario_tags_load(
 				tag_cache_base_address, &read_complete, TRUE);
 			while (!read_complete)
 				SwitchToThread();
+			CACHE_FILE_READ_SEEN();
 			ce_header = tag_cache_base_address;
 			/* port: tags that did not all read, or whose header is not a tag
 			header (a damaged map, or one in a format this build does not
@@ -2166,6 +2235,7 @@ long scenario_tags_load(
 						&read_complete, TRUE);
 					while (!read_complete)
 						SwitchToThread();
+					CACHE_FILE_READ_SEEN();
 					if (!ce_models_tags_loaded(global_tag_instances, ce_header->tag_count, model_data,
 						ce_header->vertex_data_size, ce_header->model_data_size))
 					{
@@ -2269,6 +2339,7 @@ long scenario_tags_load(
 			{
 				SwitchToThread();
 			}
+			CACHE_FILE_READ_SEEN();
 
 			/* port: tags that did not all read, or whose header cannot be
 			trusted, are not loaded: the map is refused, as one whose header
@@ -2379,6 +2450,15 @@ long scenario_tags_load(
 				hud_hires_tags_loaded(cache_file_globals.tag_header->scenario_tag_index);
 			}
 #endif
+#ifdef HALO_DEVELOPER_FLAMES
+			/* port: the map's flame sprite, for a verified developer's helmet
+			(port/linux/game/developer_flames.c) */
+			{
+				extern void developer_flames_tags_loaded(void);
+
+				developer_flames_tags_loaded();
+			}
+#endif
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 			/* the Multiplayer menu's ONLINE GAMES (interface/ui_widget.c) */
 			{
@@ -2394,6 +2474,15 @@ long scenario_tags_load(
 				extern void mods_tags_loaded(char const *map_name);
 
 				mods_tags_loaded(stripped_scenario_name);
+			}
+#endif
+#ifndef HALO_CONSOLE_NO_FORGE
+			/* port: Forge's AI characters on a multiplayer map, brought in from
+			the player's own campaign maps, last (port/linux/game/forge_ai_tags.c) */
+			{
+				extern void forge_ai_tags_loaded(char const *scenario_name);
+
+				forge_ai_tags_loaded(scenario_name);
 			}
 #endif
 			result = cache_file_globals.tag_header->scenario_tag_index;
@@ -2466,9 +2555,9 @@ boolean scenario_structure_bsp_load(
 	if (!cache_file_is_ce)
 #endif
 	csmemset(
-		tag_cache_base_address + cache_file_globals.header.tag_data_size,
+		tag_cache_base_address + cache_file_globals.header.tag_data_size + CACHE_FILES_RESERVED_AFTER_TAGS,
 		0xCD,
-		0x01600000 - cache_file_globals.header.tag_data_size);
+		0x01600000 - cache_file_globals.header.tag_data_size - CACHE_FILES_RESERVED_AFTER_TAGS);
 	{
 		boolean read_complete;
 
@@ -2487,6 +2576,7 @@ boolean scenario_structure_bsp_load(
 				sound_idle();
 			}
 		}
+		CACHE_FILE_READ_SEEN();
 
 #ifdef HALO_CUSTOM_EDITION
 		/* port: a Custom Edition map's, only the one checked (the file

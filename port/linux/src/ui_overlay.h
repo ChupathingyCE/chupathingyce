@@ -148,6 +148,10 @@ void ui_overlay_layer(int layer);
 color's alpha dims it (a prompt that does nothing now) */
 float ui_overlay_button(int button, float size, float x, float y, unsigned int color);
 float ui_overlay_button_width(int button, float size);
+/* while set, ui_overlay_button draws A as the pad's right face button and
+B as its bottom one (the Guide's CONFIRM BUTTON: RIGHT, delta.confirm_button,
+while the Guide draws; the game's menus and HUD never) */
+void ui_overlay_set_confirm_swap(int swap);
 /* the same in a game's prompts (input.hud_buttons): DKrumpp's flat buttons,
 whatever input.button_look gives the menus (he drew the gems for menus) */
 float ui_overlay_hud_button(int button, float size, float x, float y, unsigned int color);
@@ -157,6 +161,10 @@ float ui_overlay_hud_button_width(int button, float size);
 are not the game's (the Guide's Q, E and M) draws its own key caps, as the
 keyboard's buttons are drawn, with ui_overlay_key (its width) */
 int ui_overlay_keyboard(void);
+/* the device the prompts are drawn for now (halo_prompt_schemes.h's: 0
+the keyboard, then the pads, input.button_style's choice over the one used
+last), so that words name its buttons as its glyphs show them */
+int ui_overlay_prompt_scheme(void);
 float ui_overlay_key(const char *label, float size, float x, float y, unsigned int color);
 float ui_overlay_key_width(const char *label, float size);
 
@@ -346,6 +354,10 @@ void ui_style_glass(float x, float y, float width, float height, float radius, u
 	unsigned int edge);
 /* a row's capsule: glass, the selected one lit with the plasma */
 void ui_style_row(float x, float y, float width, float height, int selected);
+/* while set, a selected row (ui_style_row, ui_style_setting) is drawn as
+ui_style_row_chosen: the focus is elsewhere (the Guide's sections down the
+left have the d-pad) */
+void ui_style_selection_rest(int rest);
 /* a row's capsule for the one chosen while the focus is elsewhere (the
 item whose page is open beside the list): glass, with the selection's edge */
 void ui_style_row_chosen(float x, float y, float width, float height);
@@ -357,8 +369,20 @@ an action row, its label alone) */
 /* the next ui_style_setting's value shown alone, without the arrows (a
 row that opens something rather than steps through values) */
 void ui_style_setting_plain(void);
+/* the next ui_style_setting opens something (a list, a screen): a chevron
+at the arrow's place, its value (if any) alone before it */
+void ui_style_setting_opens(void);
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected);
+/* a line of information, read and not pressed (no capsule): its label at
+the left in the labels' color and its value at the right, made smaller to
+fit and then cut; a faint rule under it when rule is set (another line of
+its block follows) */
+void ui_style_info(float x, float y, float width, float height, const char *label, const char *value, int rule);
+/* a chevron at the right end of a row from x, width wide, height tall,
+its text size high: a row that opens something (a list, a screen); the
+room it takes from the row's right edge */
+float ui_style_row_chevron(float x, float y, float width, float height, float size);
 /* section tabs between left and right, height tall: the bumpers' glyphs at
 the ends (the keyboard's: left_key and right_key, as "Q" and "E", or the
 device's LB and RB when NULL), the names centered, the selected one lit.
@@ -366,6 +390,9 @@ Each tab's left and right in starts and ends (NULL: not wanted), for the
 pointer */
 void ui_style_tabs(float left, float right, float y, float height, const char *const *names, int count,
 	int selected, const char *left_key, const char *right_key, float *starts, float *ends);
+/* the next ui_style_tabs' end glyphs: these buttons (UI_BUTTON_*), not the
+bumpers (a page's tabs inside a section, as LT and RT) */
+void ui_style_tabs_buttons(int left_button, int right_button);
 /* the prompt bar's prompts, right-aligned at right: each a button's glyph
 (the keyboard's: key, as "ESC", or the game's own key when NULL), then its
 word; their places in starts and ends (NULL: not wanted) */

@@ -183,3 +183,10 @@ int port_mods_describe(int index, char *text, unsigned int size, char const *map
 		text[0] = 0;
 	return 0;
 }
+
+/* (content_vorbis.c's MCC decoder, which mod sounds never use, pulses MCC's
+loading screen as it goes) */
+void mcc_loading_pulse(void);
+void mcc_loading_pulse(void)
+{
+}

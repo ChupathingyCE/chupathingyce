@@ -460,9 +460,17 @@ long player_profile_new(
 			saved_game_file_generate_checksum(&block.profile, sizeof(block.profile),
 				&block.checksum);
 
+#ifdef HALO_PORT_SAFE_SAVES
+			/* port: the new file written whole (saved_game_file_write_block),
+			closed first so that it can be replaced; the blank block it was
+			made with is no backup */
+			saved_game_file_close(&profile_file, player_profile_index);
+			succeeded = saved_game_file_write_block(player_profile_index, &block, FALSE);
+#else
 			succeeded = file_set_position(&profile_file, 0) &&
 				file_write(&profile_file, sizeof(block), &block);
 			saved_game_file_close(&profile_file, player_profile_index);
+#endif
 
 			if (!succeeded)
 			{
@@ -605,15 +613,24 @@ void player_profile_save_last_level_played(
 void player_profile_save_level_completed(
 	short local_player_index)
 {
+	player_profile_save_level_completed_at(local_player_index, main_get_current_solo_level(),
+		game_difficulty_level_get());
+
+	return;
+}
+
+/* port: player_profile_save_level_completed's work for a level and a
+difficulty given, not the solo game's: network co-op's
+(port/linux/game/coop_progress.c), whose level is the network game's map */
+void player_profile_save_level_completed_at(
+	short local_player_index,
+	short level,
+	short difficulty)
+{
 	struct player_profile profile;
-	short level;
-	short difficulty;
 	long player_profile_index;
 
 	match_assert("c:\\halo\\SOURCE\\saved games\\player_profile.c", 0x197, (local_player_index>=0) && (local_player_index<MAXIMUM_NUMBER_OF_LOCAL_PLAYERS));
-
-	level = main_get_current_solo_level();
-	difficulty = game_difficulty_level_get();
 
 	/* port: a level not in the campaign (a Halo PC map's, whose scripts may
 	end it with game_won, or Stubbs's eleventh and twelfth, past Halo's ten)
@@ -828,6 +845,25 @@ static unsigned long __stdcall player_profile_write_thread_proc(
 		boolean failed = FALSE;
 		struct player_profile *profile = &request->profile;
 
+#ifdef HALO_PORT_SAFE_SAVES
+		/* port: written whole or not at all, the last good one kept
+		(saved_game_file_write_block); a write that fails leaves the profile
+		as it was, where the Xbox deleted it */
+		(void)file;
+		csmemcpy(&block.profile, profile, sizeof(struct player_profile));
+		saved_game_file_generate_checksum(&block.profile, sizeof(block.profile),
+			&block.checksum);
+
+		if (!saved_game_file_write_block(player_profile_index, &block, TRUE))
+		{
+			error(_error_silent, "failed to write player profile to file");
+		}
+		else if (!synchronize_metadata_display_name_with_profile_name(player_profile_index, profile->player_name))
+		{
+			error(_error_silent, "metadata name may not match game display name");
+		}
+		(void)failed;
+#else
 		if (saved_game_file_open(&file, player_profile_index))
 		{
 			csmemcpy(&block.profile, profile, sizeof(struct player_profile));
@@ -856,6 +892,7 @@ static unsigned long __stdcall player_profile_write_thread_proc(
 		{
 			delete_enumerated_saved_game_file(player_profile_index);
 		}
+#endif
 
 		saved_game_files_release_mutex();
 	}

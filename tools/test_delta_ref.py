@@ -114,6 +114,54 @@ def test_conformance_check(tmp_path):
     assert run.returncode == 1
 
 
+def test_conformance_port_host(tmp_path):
+    """a port host's tag (layout 2) passes advert; projects 0, 1 and one not
+    in the registry, a wrong check and a set reserved byte fail; check --host
+    passes our host's own answers; listen --project writes the same tag"""
+    module = conformance()
+    example = bytes.fromhex("2c00010000000000000000000000000000444c010202030000af")
+    assert example[:17] + module.project_tag(2, 3) == example
+
+    def advert(data):
+        return subprocess.run([sys.executable, str(KIT / "conformance.py"), "advert", data.hex()], capture_output=True,
+                              text=True)
+
+    run = advert(example)
+    assert run.returncode == 0 and "Content Evolved" in run.stdout, run.stdout
+    for project in (0, 1, 250):
+        assert advert(example[:17] + module.project_tag(project, 3)).returncode == 1
+    broken = bytearray(example)
+    broken[25] ^= 1
+    assert advert(bytes(broken)).returncode == 1
+    spare = bytearray(example)
+    spare[24] = 1
+    spare[25] ^= 1
+    assert advert(bytes(spare)).returncode == 1
+    # (a Content Evolved modded game's bytes are its own)
+    assert advert(bytes.fromhex("70ff2d00") + bytes(range(22))).returncode == 0
+    packets = goldens()
+    sent = tmp_path / "host.txt"
+    sent.write_text("\n".join(packets[name].hex() for name in ("golden_welcome", "golden_roster",
+                                                              "golden_legacy_major2", "golden_bye")) + "\n")
+    run = subprocess.run([sys.executable, str(KIT / "conformance.py"), "check", "--host", str(sent)],
+                         capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout
+    # (a WELCOME that names our build fails)
+    welcome = module.welcome(0x1234ABCD, 0xFFFFFFFF, 44, b"chupa-44b", 0)
+    sent.write_text(welcome.hex() + "\n")
+    run = subprocess.run([sys.executable, str(KIT / "conformance.py"), "check", "--host", str(sent)],
+                         capture_output=True, text=True)
+    assert run.returncode == 1 and run.stdout.count("FAIL  ") == 1, run.stdout
+    # (and a client's HELLO isn't a host's to send)
+    sent.write_text(packets["golden_hello_port"].hex() + "\n")
+    run = subprocess.run([sys.executable, str(KIT / "conformance.py"), "check", "--host", str(sent)],
+                         capture_output=True, text=True)
+    assert run.returncode == 1
+    run = subprocess.run([sys.executable, str(KIT / "conformance.py"), "listen", "--project", "2", "--project-version",
+                          "3", "--seconds", "0", "--port", "0"], capture_output=True, text=True, timeout=60)
+    assert example.hex() in run.stdout, run.stdout
+
+
 def test_conformance_host_answers_read_right():
     """the stand-in host's WELCOME and ROSTER have the game's layouts"""
     module = conformance()

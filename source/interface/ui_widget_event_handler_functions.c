@@ -924,6 +924,7 @@ symbols in this file:
 #include "networking/network_messages.h"
 #include "networking/network_server_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "pause_leave.h" /* port: port/linux/game/pause_leave.h */
 #include "saved games/game_state.h"
 #include "saved games/player_profile.h"
 #include "interface/ui_widget_definitions.h"
@@ -1987,6 +1988,45 @@ static boolean create_and_begin_editing_new_gametype_profile(
 	return result;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: whether the Chupathingy menus' DIRECT IP row (System Link's last,
+server_list_menu_update) is the one chosen */
+static boolean system_link_direct_ip_chosen(
+	struct widget_instance *widget)
+{
+	return pc_menus_direct_ip_list() != NONE && widget->definition_tag_index == pc_menus_direct_ip_list() &&
+		widget->parameters.list.number_of_items > 0 &&
+		widget->parameters.list.selected_index == widget->parameters.list.number_of_items - 1;
+}
+
+/* port: its screen, opened as X's handler opens it (menu_tags.c): B comes
+back to System Link */
+static boolean system_link_direct_ip_open(
+	struct widget_instance *widget,
+	boolean *widget_deleted)
+{
+	struct widget_instance *topmost_parent = widget_instance_get_topmost_parent(widget);
+
+	if (pc_menus_direct_ip_screen() == NONE)
+		return FALSE;
+	ui_play_audio_feedback_sound(2);
+	if (!ui_widget_load_by_name_or_tag(
+		NULL,
+		pc_menus_direct_ip_screen(),
+		NULL,
+		widget->local_player_index,
+		topmost_parent->definition_tag_index,
+		widget->parent ? widget->parent->definition_tag_index : NONE,
+		(short)widget_instance_get_child_index_from_parent(widget)))
+	{
+		error(2, "event handler failed to spawn widget");
+		return FALSE;
+	}
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+#endif
+
 static boolean network_game_join_game_from_server_list(
 	struct widget_instance *widget,
 	struct event_record *event,
@@ -2010,6 +2050,12 @@ static boolean network_game_join_game_from_server_list(
 			if ((word)generated_count > (word)zero)
 			{
 				server = ((byte **)widget->parameters.list.list_items)[widget->parameters.list.selected_index];
+#ifdef HALO_GAME_BROWSER
+				/* port: the Chupathingy menus' DIRECT IP, the list's last row
+				(server_list_menu_update): its screen, as X opens it */
+				if (!server && system_link_direct_ip_chosen(widget))
+					return system_link_direct_ip_open(widget, widget_deleted);
+#endif
 				/* (an entry can have no server behind it, as seen with some other
 				LAN games on an unknown level; pressing A on it does nothing) */
 				if (!server)
@@ -2553,10 +2599,7 @@ static boolean network_game_remove_local_player(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: a mouse or keyboard event has no controller (the Xbox asserted
-	one); the player is then the pause screen's */
-	short controller_index = event && event->controller_index >= 0 && event->controller_index < 4 ?
-		event->controller_index : widget->local_player_index;
+	short controller_index;
 
 	/* port: a multiplayer map played alone (its pause screen: ui_widget.c's
 	ui_check_for_pause_game) has no network game to leave: the main menu,
@@ -2566,8 +2609,15 @@ static boolean network_game_remove_local_player(
 		main_goto_main_menu();
 		return TRUE;
 	}
-	if (controller_index == NONE)
-		controller_index = 0;
+	/* port: the player of the press's controller (the Xbox's), else the
+	pause screen's: a mouse's press has no controller (the Xbox asserted
+	one), and with one person playing any controller drives their pause
+	screen, so the press's controller can have no player here (a gamepad
+	on another port: pause_leave.h) */
+	controller_index = pause_leave_controller(
+		event ? event->controller_index : NONE,
+		event && network_game_client_local_player_exists(event->controller_index),
+		widget->local_player_index);
 	network_game_client_local_player_quit(controller_index);
 	/* port: a split screen player who quit, the others staying, is not
 	joined to the next game */
@@ -2845,6 +2895,13 @@ static boolean start_network_game_if_no_advertised_servers(
 
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4593,
 		widget->type == 3, "expected a column list for server list");
+#ifdef HALO_GAME_BROWSER
+	/* port: the Chupathingy menus' DIRECT IP row (chosen whenever the list
+	has no games): its A opens DIRECT IP (network_game_join_game_from_server_list),
+	not a new game; Y still starts one */
+	if (system_link_direct_ip_chosen(widget))
+		return FALSE;
+#endif
 	if (widget->parameters.list.number_of_items == 0)
 	{
 		client = global_network_game_client_get();

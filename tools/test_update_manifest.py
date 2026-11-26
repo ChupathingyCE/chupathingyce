@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import delta_table  # noqa: E402
 import update_sign  # noqa: E402
 
-SOURCES = ["port/linux/src/update_manifest.c", "port/linux/src/update_signature.c", "tools/update_check.c"]
+SOURCES = ["port/linux/src/update_manifest.c", "port/linux/game/content_sha256.c", "port/linux/src/update_signature.c", "tools/update_check.c"]
 MONOCYPHER = ["port/third_party/monocypher/monocypher.c", "port/third_party/monocypher/monocypher-ed25519.c"]
 VERSION = "0.8.0"
 

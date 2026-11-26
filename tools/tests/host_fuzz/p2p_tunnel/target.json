@@ -2,7 +2,7 @@
   "about": "what a machine's tunnel socket receives: raw datagrams, and the packets of a joined peer (pings, game datagrams, streams)",
   "harness": "port/linux/tests/p2p_tunnel_fuzz.c",
   "sources": [
-    "port/linux/src/p2p_crypto.c",
+    "port/linux/src/p2p_crypto.c", "port/linux/game/content_sha256.c",
     "port/linux/src/p2p_probe.c",
     "port/linux/src/p2p_copies.c",
     "port/linux/src/log_address.c",

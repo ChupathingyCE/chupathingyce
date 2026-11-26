@@ -128,6 +128,16 @@ HALO_CONSOLE_LOG_BUFFER
 	the first waits, and at once for an exception, an exit or a crash
 	(error_log_flush and error_log_update, source/cseries/errors.c;
 	console.log_flush)
+HALO_CONSOLE_WINDOW_LOW
+	a console of the 64-bit layout on 32 bits (HALO_64BIT with
+	HALO_WINDOW_TRANSLATED: source/cseries/xbox_address.h) with less
+	memory than the Xbox 360: the Xbox address its window starts at, in
+	place of 0x78000000, a whole megabyte below 0x80000000. The game's heap
+	(port/linux/src/xbox_heap.c) is the window below the contiguous memory,
+	so it is that much smaller (0x7D000000: 48 MB); a heap that runs out
+	says so and stops the game. The port sets it in its own build (its
+	compile lines, or its prefix header ahead of xbox_address.h, which
+	takes the value)
 HALO_CONSOLE_WINDOW_MAXIMUM
 	a console that puts the Xbox's memory window where it finds room
 	(HALO_WINDOW_REBASE, source/cseries/xbox_address.h) and tells the
@@ -190,6 +200,12 @@ HALO_CONSOLE_NATIVE_RENDERER
 	by the port, instead of the OpenGL layer (port/linux/src/d3d8_console.inl),
 	and "gl" as before; the setting's default is "gl", or "native" with
 	HALO_CONSOLE_NATIVE_RENDERER_FIRST on the port's compile line
+HALO_CONSOLE_STATE_IN_PLACE
+	a console whose heap has no room for a second copy of the game state
+	(the native builds' 20 MB): a checkpoint revert, a core and a saved
+	game are read straight into the game state, as the original Xbox reads
+	them, instead of beside it and copied (source/saved games/
+	game_state_xbox.c); a file refused once read starts the map over
 HALO_CONSOLE_RENDER_TIMING
 	a console that logs where a frame's time goes: the renderer tells it
 	when the game enters and leaves the device's draws, clears and present
@@ -350,6 +366,15 @@ HALO_CONSOLE_MARKER_LOOKUPS
 	when the marker it names bears the name asked for, and they are
 	forgotten as a map's tags go (scenario_tags_unload), so the answers
 	are the search's own. From Lord BirchWood's work
+HALO_CONSOLE_COLLISION_CACHES
+	the collision tests' caches (#1559), with the same answers: a
+	location's weather and water read from a table by cluster, made once a
+	bsp (scenario_get_current, source/scenario/wind.c, #1620); the sound
+	obstruction rays stop at the first thing they meet and keep a repeated
+	ray's structure test (collision_test_vector_obstructed,
+	source/physics/collisions.c, #1624; its memo 21 KB of statics). The
+	desktop builds read the tags and test every ray in full until they opt
+	in. From Lord BirchWood's Vita port
 HALO_CONSOLE_XBOX_MAP_SIZES
 	a console that plays the Xbox's own maps only (no Custom Edition or
 	Halo PC maps): tables the desktop builds size for those maps are sized
@@ -369,9 +394,12 @@ HALO_CONSOLE_NO_HALOMD_MAPS
 	(source/cache/cache_files.c)
 HALO_CONSOLE_NO_LOADING_PICTURE
 	the disc's loading.tga on the loading screen, as the Xbox showed it,
-	instead of Chupathingy's picture (port/linux/game/loading_picture.c,
-	display.xbox_loading_picture): every console, whose packaging has no
-	step for the picture
+	and no Chupathingy's picture to fall back on (port/linux/game/
+	loading_picture.c, display.xbox_loading_picture): the original Xbox,
+	whose disc always has the picture and whose memory is short, and the
+	Switch. The Xbox 360 and the Wii U have Chupathingy's (about 230 KB):
+	the disc's picture when the maps folder has it, else Chupathingy's,
+	as the desktop builds do
 HALO_CONSOLE_NO_TITLE_CHOICE
 	only the classic titles (port/assets/titles, Chupathingy Titles), not
 	the second set display.title_font = "cyborg" draws (port/assets/
@@ -492,6 +520,13 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
+#endif
+
+/* (xbox_address.h read first, with the window at its default: the units
+would disagree about where the heap starts) */
+#if defined(HALO_CONSOLE_WINDOW_LOW) && defined(XBOX_WINDOW_LOW) && XBOX_WINDOW_LOW != HALO_CONSOLE_WINDOW_LOW
+#error the prefix header reads halo_console_features.h after xbox_address.h: read it first (HALO_CONSOLE_WINDOW_LOW)
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
@@ -517,6 +552,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
 #endif
 
 #if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
@@ -566,6 +602,7 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
 /* (its shadow maps: 512x512 at most, beside the screen in its 10 MB of EDRAM;
 d3d8_gl.c) */
 #define HALO_CONSOLE_SHADOW_MAP_MAXIMUM 512
@@ -687,9 +724,20 @@ leave it out with the rest of HALO_CONSOLE_NO_DELTA_IDENTITY */
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_IDENTITY)
 #define HALO_DELTA_PEER_IDENTITY 1
 #endif
+/* a verified developer's blue flame (port/linux/game/developer_flames.c,
+display.developer_flames): the builds that check verified names in games and
+draw them. The consoles don't offer verified names yet, so they have no card
+to draw one from, and leave it out with HALO_CONSOLE_NO_DELTA_IDENTITY; the
+dedicated server draws nothing */
+#if defined(HALO_DELTA_PEER_IDENTITY) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE) && \
+	!defined(HALO_CONSOLE_NO_DEVELOPER_FLAMES)
+#define HALO_DEVELOPER_FLAMES 1
+#endif
 
-#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
-	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
+/* (the Xbox 360 and the Wii U, whose maps folders often lack loading.tga,
+have Chupathingy's picture to fall back on) */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_XBOX_CONSOLE)) && \
+	!defined(HALO_WIIU_CONSOLE) && !defined(HALO_XBOX360_CONSOLE) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 #define HALO_CONSOLE_NO_LOADING_PICTURE 1
 #endif
 
@@ -704,6 +752,15 @@ not on the consoles, HALO_CONSOLE_NO_TITLE_CHOICE */
 #define HALO_TITLE_CHOICE 1
 #endif
 
+/* a script that has waited 2 minutes or more in one sleep_until, said once
+in the log (source/hs/hs_runtime.c): on a console a level whose script never
+goes on looks like a hang, and its log is all there is. Not on the original
+Xbox, which keeps retail's. */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_NO_SCRIPT_WAIT_LOG)
+#define HALO_CONSOLE_SCRIPT_WAIT_LOG 1
+#endif
+
 /* a map's shaders made while its loading screen is up, from its shader key
 list (port/linux/src/d3d8_shader_prep.inl, xgpu_shader_keys.c;
 display.prepare_shaders): the OpenGL and bgfx renderers of the desktop
@@ -711,7 +768,8 @@ builds and Android. A console's renderer can take it later (the Switch's
 has its own, HALO_CONSOLE_MAP_LOAD_HOOKS); HALO_CONSOLE_NO_SHADER_PREP
 leaves it out */
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
-	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_SHADER_PREP)
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_SHADER_PREP) && \
+	!defined(HALO_CONSOLE_SHADER_PREP)
 #define HALO_CONSOLE_NO_SHADER_PREP 1
 #endif
 #if !defined(HALO_CONSOLE_NO_SHADER_PREP) && !defined(HALO_SERVER)

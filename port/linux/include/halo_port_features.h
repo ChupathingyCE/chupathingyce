@@ -158,6 +158,13 @@ out the two settings and their help text */
 #define HALO_CONSOLE_NO_AUDIO_PROBE
 #endif
 
+/* the renderer's trace of a frame's draws (port/linux/src/d3d8_gl.c,
+debug.gpu_trace_frame): a developer's tool, in a console's build with its
+developer tools (HALO_CONSOLE_DEBUG_TOOLS) only */
+#if !defined(HALO_CONSOLE_DEBUG_TOOLS) && !defined(HALO_CONSOLE_NO_GPU_TRACE)
+#define HALO_CONSOLE_NO_GPU_TRACE
+#endif
+
 /* the debug camera flown by mouse and keyboard (source/camera/director.c,
 halo_linux_debug_camera_input in port/linux/src/xinput_sdl.c): a console
 has no mouse, and its controller flies the camera as before */
@@ -308,6 +315,19 @@ console's build, whichever switches it sets on its own */
 #define HALO_CONSOLE_SKIP_DARK_LIGHTS
 #endif
 
+/* a map's navigation for computer-controlled characters (port/linux/game/
+ai_nav.c, port/linux/include/ai_nav.h): the desktop builds' and Android's,
+on no console (its walkable copy and search memory). HALO_AI_NAV is 1 or 0;
+at 0 its source builds to nothing */
+#ifndef HALO_AI_NAV
+#if defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)
+#define HALO_AI_NAV 0
+#else
+#define HALO_AI_NAV 1
+#endif
+#endif
+
 /* Halo MCC maps (port/linux/game/mcc_*.c, docs/mcc_maps.md): the desktop
 builds' and Android's, by a list of their systems, and on no console (any
 console's build, whichever switches it sets on its own: the original Xbox
@@ -336,6 +356,18 @@ HALO_CONSOLE_NO_RAGDOLLS */
 	!(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER))
 #define HALO_PORT_RAGDOLLS
+#endif
+
+/* a profile (blam.sav) written whole or not at all: to blam.sav.tmp, flushed
+to the disk, read back, and renamed over the old one in one step, with the
+last good one kept as blam.sav.bak and taken back when blam.sav is found
+damaged (source/saved games/player_profile.c, saved_game_files.c;
+port/linux/src/xbox_files.c's halo_file_write_whole). The desktop builds'
+and Android's; a console's file layer is its own, and keeps the Xbox's
+write in place until it has been checked there */
+#if !(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER))
+#define HALO_PORT_SAFE_SAVES
 #endif
 
 #endif /* __HALO_PORT_FEATURES_H */

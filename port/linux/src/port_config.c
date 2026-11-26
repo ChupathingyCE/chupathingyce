@@ -23,6 +23,7 @@ it did before the console had the file.
 #include "platform.h"
 #include "port_config.h"
 #include "halo_port_limits.h"
+#include "halo_console_features.h" /* HALO_DELTA_PEER_IDENTITY */
 #include "posix.h"
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 #include "packaged_install.h"
@@ -75,6 +76,10 @@ enum config_environment
 	/* the variable being set makes it false */
 	_environment_set_is_false,
 };
+
+/* the longest value config_write takes (a longer one is refused, said in
+the log, and the file left as it is) */
+#define CONFIG_WRITE_MAXIMUM_VALUE 256
 
 /* the builds a setting means something in, and is written for */
 enum
@@ -387,6 +392,12 @@ static const struct config_setting config_settings[] =
 		"instead of clipping it. The glows the game draws (teleporters, light\n"
 		"fixtures, energy shields, plasma bolts, the weapon's displays) go\n"
 		"past white. false draws into 8 bits a channel, as the Xbox does." },
+	{ "display.opensauce_post_processing", _config_boolean, "true", "HALO_OPENSAUCE_POST_PROCESSING",
+		_environment_value, _platform_desktop,
+		"Draw the post-processing an OpenSauce map carries (SPV3's look: its\n"
+		"bloom, tone mapping, depth of field, ambient occlusion, visor and the\n"
+		"rest of its effects), with the OpenGL renderer. Only maps that have it\n"
+		"change; false draws them without it, for performance." },
 	{ "display.hdr_output", _config_boolean, "false", "HALO_HDR_OUTPUT", _environment_value, _platform_desktop,
 		"With display.hdr, send HDR to a display that has it (the operating\n"
 		"system's HDR must be on): the bgfx renderer's HDR10 swap chain, or\n"
@@ -455,8 +466,7 @@ static const struct config_setting config_settings[] =
 	{ "display.crosshair_position", _config_string, "\"retail\"", "HALO_CROSSHAIR_POSITION", _environment_value,
 		_platform_all,
 		"Where the crosshair and your aim sit: \"retail\" (the middle of the\n"
-		"title-safe frame, as on the Xbox), \"centered\" (the middle of your\n"
-		"view; only different in split screen) or \"lowered\" (a tenth of the\n"
+		"title-safe frame, as on the Xbox) or \"lowered\" (a tenth of the\n"
 		"view's height below the middle). The view moves with it, so shots\n"
 		"still go where the crosshair is. Zoomed, it's in the middle." },
 	{ "display.hud_safe_zone", _config_string, DEFAULT_HUD_SAFE_ZONE, "HALO_HUD_SAFE_ZONE", _environment_value,
@@ -464,7 +474,9 @@ static const struct config_setting config_settings[] =
 		"How far the HUD sits from the screen's edges: \"xbox\" (48 and 36\n"
 		"in, as on the Xbox), \"pc\" (8 in, as Halo PC), \"auto\" (the Xbox's\n"
 		"alone, Halo PC's in split screen) or two numbers, \"24 18\" (8 to\n"
-		"48 across, 8 to 36 down). As Chimera's chimera_safe_zones." },
+		"48 across, 8 to 36 down). As Chimera's chimera_safe_zones. Other\n"
+		"than \"xbox\", each split screen view's crosshair and aim are in\n"
+		"its middle." },
 	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
 		_platform_all,
 		"Draw your weapon and arms. false hides them." },
@@ -676,11 +688,14 @@ static const struct config_setting config_settings[] =
 		"In the game lobby of a game you host: \"button\" (the default) holds\n"
 		"the countdown until you choose START GAME; \"auto\" lets it run by\n"
 		"itself once enough players are in, as the Xbox's lobby does." },
-#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+/* (the join screen is the game list's: browser_screen.c) */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 	{ "display.join_screen", _config_boolean, "true", "HALO_JOIN_SCREEN", _environment_value, _platform_all,
 		"Show the loading screen while a game is joined or its map downloads,\n"
 		"with what is going on and B to cancel. false: a small panel over the\n"
 		"game list." },
+#endif
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
 	{ "display.xbox_loading_picture", _config_boolean, "true", "HALO_XBOX_LOADING_PICTURE", _environment_value,
 		_platform_all,
 		"true: the loading screen shows the Xbox's own picture, xbox_loading.tga\n"
@@ -716,6 +731,9 @@ static const struct config_setting config_settings[] =
 		"In Delta games, show a small Delta mark on the scoreboard, beside the\n"
 		"names of players whose Delta profile is proven. Other players' names\n"
 		"never start with @ or a Delta then." },
+	{ "display.developer_flames", _config_boolean, "true", "HALO_DEVELOPER_FLAMES", _environment_value, _platform_all,
+		"In Delta games, a blue flame on the helmets of verified Chupathingy\n"
+		"developers. Looks only." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
 	{ "display.server_message_text_color", _config_string, "\"\"", "HALO_SERVER_MESSAGE_TEXT_COLOR",
@@ -770,8 +788,11 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_PORT_RAGDOLLS
 	/* (port/linux/game/ragdolls.c; Video Setup's RAGDOLLS. Live) */
 	{ "display.ragdolls", _config_boolean, "false", "HALO_RAGDOLLS", _environment_value, _platform_desktop,
-		"true: a character killed falls limp, thrown by the blow that killed\n"
-		"it, and comes to rest where it lands (Jolt Physics). false (the\n"
+		"true: a character killed plays its death animation and falls limp\n"
+		"partway through it, as in Halo 2 and 3 (one thrown into the air by an\n"
+		"explosion, a melee blow or a vehicle's hit flies in its airborne\n"
+		"death animation and goes limp where it lands), and comes to rest\n"
+		"where it lands (Jolt Physics). false (the\n"
 		"default): its death animation, as on the Xbox. Drawing only: the\n"
 		"body, hit boxes, saved games and the network are as before. The idea\n"
 		"is from jojoxdk's Halo 1 MCC Box3D Physics Mod." },
@@ -906,9 +927,9 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"With V-Sync on: \"vblank\" waits for the display before every frame.\n"
 		"\"adaptive\" shows a frame that missed the display at once, with a tear,\n"
-		"instead of waiting for the next. OpenGL on Windows, Linux and Android,\n"
-		"and the original Xbox; elsewhere it waits. Takes effect at the next\n"
-		"start." },
+		"instead of waiting for the next. OpenGL and Vulkan on Windows, Linux\n"
+		"and Android, and the original Xbox. Direct3D 11 and the Mac wait, as\n"
+		"the log says. Takes effect at the next start." },
 	/* (the drawing's knobs: render.c's render_tuning, which holds them in
 	network games) */
 	{ "tuning.particle_thinning", _config_integer, "1", "HALO_PARTICLE_THINNING", _environment_value,
@@ -949,6 +970,10 @@ static const struct config_setting config_settings[] =
 		"The music's volume, from 0.0 to 1.0." },
 	{ "audio.effects_volume", _config_real, "1.0", "HALO_EFFECTS_VOLUME", _environment_value, _platform_all | _platform_xbox,
 		"The volume of effects and speech, from 0.0 to 1.0." },
+	/* (the original Xbox plays its own DirectSound: dsound_sdl.c's) */
+	{ "audio.loudness", _config_string, "\"xbox\"", "HALO_AUDIO_LOUDNESS", _environment_value, _platform_all,
+		"\"xbox\" plays sound at the original Xbox's level. \"louder\" plays it\n"
+		"6 dB louder, as Chupathingy did before 0.9.2." },
 	{ "audio.enabled", _config_boolean, "true", "HALO_NO_AUDIO", _environment_set_is_false, _platform_all,
 		"Play sound." },
 	/* (audio.voice_device is kept for a voice output of its own, later:
@@ -1219,6 +1244,14 @@ static const struct config_setting config_settings[] =
 		"Open the Delta Guide with the controller's Guide button, where\n"
 		"Chupathingy can read it (Steam and the Xbox Game Bar may keep it for\n"
 		"themselves)." },
+	{ "delta.confirm_button", _config_string, "\"bottom\"", "HALO_DELTA_CONFIRM_BUTTON", _environment_value,
+		_platform_all,
+		"The button that picks in the Delta Guide: \"bottom\", the Xbox's A,\n"
+		"or \"right\", as Nintendo's pads have it (the bottom one goes back).\n"
+		"The game's own menus keep the Xbox's." },
+	{ "delta.rumble", _config_boolean, "false", "HALO_DELTA_RUMBLE", _environment_value, _platform_all,
+		"A short buzz on the controller when a press in the Delta Guide can do\n"
+		"nothing there. Off by default, as the game's own menus have none." },
 	{ "delta.hold_back", _config_boolean, "false", "HALO_DELTA_HOLD_BACK", _environment_value, _platform_all,
 		"Open the Delta Guide by holding Back for about half a second in the\n"
 		"menus. While on, the menus get a Back tap once it is let go, never a\n"
@@ -1395,6 +1428,11 @@ static const struct config_setting config_settings[] =
 	{ "network.host_public", _config_boolean, "true", "HALO_NET_HOST_PUBLIC", _environment_value, _platform_all,
 		"New internet games you host start as PUBLIC. false starts them as\n"
 		"PRIVATE." },
+	{ "network.direct_ip_host", _config_boolean, "false", "HALO_NET_DIRECT_IP_HOST", _environment_value,
+		_platform_all | _platform_server,
+		"Games you host answer game searches from internet addresses (no\n"
+		"more than four answers a second). Off, only your local network's and\n"
+		"internet play's searches are answered." },
 	{ "network.coop_public", _config_boolean, "false", "HALO_NET_COOP_PUBLIC", _environment_value, _platform_all,
 		"New online co-op games start as PUBLIC. false starts them as PRIVATE." },
 	{ "network.host_cheats", _config_boolean, "false", "HALO_NET_HOST_CHEATS", _environment_value,
@@ -1688,6 +1726,19 @@ static const struct config_setting config_settings[] =
 		"players see your games. A number pins it, like 32 for a server meant\n"
 		"for console players on older builds. A number the table does not allow\n"
 		"for hosting is ignored, and \"latest\" is used." },
+#ifdef HALO_DELTA_PEER_IDENTITY
+	{ "network.networks_trust", _config_string, "\"\"", "HALO_NET_NETWORKS_TRUST", _environment_value,
+		_platform_all | _platform_server,
+		"Other networks whose players' names are checked, beside the signed\n"
+		"list of networks: each a domain and 1 to 4 root keys (64 hex digits),\n"
+		"separated by spaces, and the networks separated by commas, like\n"
+		"\"example.org <key> <key>\". At most 16. Empty for none." },
+	{ "network.networks_block", _config_string, "\"\"", "HALO_NET_NETWORKS_BLOCK", _environment_value,
+		_platform_all | _platform_server,
+		"Networks whose players' names are not checked even when the signed\n"
+		"list has them: domains separated by commas. Your own network can't be\n"
+		"removed. Empty for none." },
+#endif
 	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value,
 		_platform_all | _platform_server,
 		"For testing only: an unsigned legacy table file that sets the OpenCE\n"
@@ -1785,9 +1836,44 @@ static const struct config_setting config_settings[] =
 		"map's own tags. See docs/mods.md." },
 #ifndef HALO_CONSOLE_NO_FORGE
 	{ "game.forge", _config_boolean, "false", "HALO_FORGE", _environment_value, _platform_desktop,
-		"Forge, the layout editor of the multiplayer maps: FORGE in the\n"
-		"Multiplayer menu, and the console's forge commands. Local games only.\n"
+		"Forge, the layout editor of the multiplayer maps and the campaign\n"
+		"missions (their AI characters): FORGE in the Multiplayer menu, and the\n"
+		"console's forge commands. Local games only.\n"
 		"FORGE in the Delta Guide's SETTINGS. See docs/forge.md." },
+	/* (forge.h FORGE_BUILD_MAXIMUM_OBJECTS and _AI: a build with the console's
+	tables keeps the console's numbers) */
+#ifdef HALO_CONSOLE_LIMITS
+	{ "game.forge_objects", _config_integer, "256", "HALO_FORGE_OBJECTS", _environment_value, _platform_desktop,
+		"Forge: the most objects and markers a layout holds (64 to 256 on this\n"
+		"build). A layout of more places what fits. See docs/forge.md." },
+	{ "game.forge_ai", _config_integer, "32", "HALO_FORGE_AI", _environment_value, _platform_desktop,
+		"Forge: the most AI characters alive at once (8 to 32 on this build).\n"
+		"Past it, the rest wait for room. See docs/forge.md." },
+#else
+	{ "game.forge_objects", _config_integer, "512", "HALO_FORGE_OBJECTS", _environment_value, _platform_desktop,
+		"Forge: the most objects and markers a layout holds (64 to 512). A\n"
+		"layout of more places what fits. See docs/forge.md." },
+	{ "game.forge_ai", _config_integer, "128", "HALO_FORGE_AI", _environment_value, _platform_desktop,
+		"Forge: the most AI characters alive at once (8 to 128). Past it, the\n"
+		"rest wait for room. See docs/forge.md." },
+#endif
+	{ "game.forge_hold_to_delete", _config_string, "\"off\"", "HALO_FORGE_HOLD_TO_DELETE", _environment_value,
+		_platform_desktop,
+		"How Forge's monitor deletes: \"off\" at a press of Y or the delete key,\n"
+		"\"controller\" when the controller's Y is held half a second (the key\n"
+		"still at a press), \"all\" when either is held. DELETE in the Forge\n"
+		"menu's OPTIONS. See docs/forge.md." },
+	{ "game.forge_grab_range", _config_string, "\"far\"", "HALO_FORGE_GRAB_RANGE", _environment_value,
+		_platform_desktop,
+		"How far Forge's crosshair reaches to grab, copy or delete: \"near\"\n"
+		"(20 world units, about 60 m), \"medium\" (35 world units, about 105 m)\n"
+		"or \"far\" (60 world units, about 180 m: the default). GRAB RANGE in the\n"
+		"Forge menu's OPTIONS. See docs/forge.md." },
+	{ "game.forge_held_facing", _config_string, "\"keep\"", "HALO_FORGE_HELD_FACING", _environment_value,
+		_platform_desktop,
+		"What Forge's monitor holds: \"keep\" keeps the facing it was grabbed\n"
+		"with (the default); \"view\" turns it with the camera until you turn it\n"
+		"by hand. HELD FACING in the Forge menu's OPTIONS. See docs/forge.md." },
 #endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
@@ -1973,7 +2059,8 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"In an automated test game, \"<x> <y> <z> <yaw> <pitch>[@<seconds>]\" puts\n"
 		"the first local player there, facing that way (degrees), that many\n"
-		"seconds in (1 if not given), once. Empty never does. For automated\n"
+		"seconds in (1 if not given), once. More places after it, split by\n"
+		"\";\", put the next local players there. Empty never does. For automated\n"
 		"tests only: it moves a player in the game itself, so never leave it\n"
 		"set on a host." },
 	{ "debug.network_test_camouflage", _config_real, "0.0", "HALO_NETWORK_TEST_CAMOUFLAGE", _environment_value,
@@ -2127,6 +2214,10 @@ static const struct config_setting config_settings[] =
 		"at a time, separated by ; (up, down, left, right, a, b, x, y, lb, rb,\n"
 		"start, back, lt, rt), for tests.\n"
 		"Debug builds only: a release build ignores it." },
+	{ "debug.battery", _config_string, "\"\"", "HALO_BATTERY", _environment_value, _platform_all,
+		"A battery for the Delta Guide's card to show, for screenshots: its\n"
+		"percent, with c after it while charging (\"40\", \"40c\"). Leave it\n"
+		"empty for the real one." },
 	{ "debug.delta_sample", _config_boolean, "false", "HALO_DELTA_SAMPLE", _environment_set_is_true, _platform_all,
 		"The Delta Guide signed in with made-up friends and a party, nothing\n"
 		"asked of the site, for screenshots. Debug builds only: a release build\n"
@@ -2238,6 +2329,9 @@ static const struct config_setting config_settings[] =
 		"them on the CPU except on NVIDIA. cpu or buffer forces one." },
 	{ "debug.door_portals_log", _config_boolean, "false", "HALO_DOOR_PORTALS_LOG", _environment_set_is_true, _platform_all,
 		"Log which level portals each door covers, as it is paired with them." },
+	{ "debug.time_code", _config_boolean, "false", "HALO_TIME_CODE", _environment_set_is_true, _platform_all,
+		"Draw the cutscene scripts' time code (time_code_show): the ticks since\n"
+		"it started, in the top-left corner, as Bungie's tools showed it." },
 #ifdef HALO_SHADER_PREP
 	{ "debug.draw_every_shader", _config_boolean, "false", "HALO_DRAW_EVERY_SHADER", _environment_set_is_true,
 		_platform_all,
@@ -2496,12 +2590,6 @@ static const struct config_setting config_settings[] =
 		"triangles that debug commands draw. Its buffers take 1440 KB. It is\n"
 		"off because the retail game had none, and a stock 64 MB console may\n"
 		"not have the room." },
-	{ "console.simulate_64mb", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
-		"No longer used. A devkit gets 64 MB from the XBE's own flag now, set\n"
-		"with tools/xbox_package.py --devkit-64mb." },
-	{ "console.large_caches", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
-		"No longer used. A console with 128 MB or more gets the larger caches\n"
-		"on its own now (console.memory_class)." },
 };
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
@@ -2981,9 +3069,10 @@ ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
 starting alone (game.start_with_one_player); 4, Headphone 3D on; 5, the
 Xbox's multiplayer by default (v0.9.0: no names above heads, no follow
 camera, no team changes in games you host); 6, the Xbox's own resampler
-(v0.9.1a); 7, the original Xbox's 4:3 picture (v0.9.2). A file answered for
-an earlier generation is asked about the later ones only */
-#define CONFIG_DEFAULTS_GENERATION 7
+(v0.9.1a); 7, the original Xbox's 4:3 picture (v0.9.2); 8, the Xbox's sound
+level (audio.loudness, v0.9.2). A file answered for an earlier generation is
+asked about the later ones only */
+#define CONFIG_DEFAULTS_GENERATION 8
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# Chupathingy uses this line to update the file. Leave it as it is.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -3751,6 +3840,9 @@ static const struct
 	file that names "dashboard" keeps it; one that left it commented out
 	follows "off" (config_find_new_defaults: the Xbox asks nothing) */
 	{ "display.widescreen", "\"dashboard\"", 0, "The 4:3 picture, as the original game had", 7 },
+	/* the whole sum, 6 dB over the Xbox's level, the only one until 0.9.2
+	(a file from before the setting is asked; "louder" keeps it) */
+	{ "audio.loudness", "\"louder\"", 0, "Sound at the original Xbox's level, 6 dB quieter", 8 },
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -3758,7 +3850,8 @@ static const struct
 /* the settings an earlier version had under another name, whose value the
 player chose goes on under the new one (config_forward_renamed), and the
 retired settings a newer one does the job of: an older file that has one
-still loads, and the old name's lines are taken out of it */
+still loads, and the old name's lines are taken out of it (a retired
+setting with no successor, name NULL: its lines are only taken out) */
 static const struct
 {
 	const char *old_name;
@@ -3790,6 +3883,11 @@ static const struct
 	{ "debug.guide_section", "debug.delta_section", NULL, 0 },
 	{ "debug.guide_row", "debug.delta_row", NULL, 0 },
 	{ "debug.guide_test", "debug.delta_test", NULL, 0 },
+	/* the original Xbox's, retired: a devkit gets 64 MB from the XBE's own
+	flag (tools/xbox_package.py --devkit-64mb), and a console with 128 MB
+	or more the larger caches on its own (console.memory_class) */
+	{ "console.simulate_64mb", NULL, NULL, 0 },
+	{ "console.large_caches", NULL, NULL, 0 },
 };
 
 #define NUMBER_OF_CONFIG_RENAMED (sizeof(config_renamed) / sizeof(config_renamed[0]))
@@ -4611,6 +4709,41 @@ static char *config_drop_retired_sections(const char *text)
 	return result;
 }
 
+/* display.crosshair_position "centered" (before) put a split screen
+view's crosshair and aim in the view's middle; display.hud_safe_zone does
+that now ("pc", and "auto" in split screen: compute_window_bounds). A file
+with "centered" gets "retail" in its place, and a display.hud_safe_zone
+of "xbox" (written, or the consoles' default) "auto", so that the player's
+split screen stays as it was and a game alone as the Xbox's. Said in the
+log. Returns the new text, or NULL if there was nothing to change */
+static char *config_retire_centered_crosshair(const char *text, toml_datum_t table)
+{
+	toml_datum_t position = toml_seek(table, "display.crosshair_position");
+	toml_datum_t safe_zone = toml_seek(table, "display.hud_safe_zone");
+	int xbox_safe_zone;
+	char *result;
+
+	if (position.type != TOML_STRING || strcmp(position.u.s, "centered"))
+		return NULL;
+	xbox_safe_zone = safe_zone.type == TOML_STRING ? !strcmp(safe_zone.u.s, "xbox") :
+		!strcmp(DEFAULT_HUD_SAFE_ZONE, "\"xbox\"");
+	result = config_text_with_line(text, "display.crosshair_position", "crosshair_position = \"retail\"\n");
+	if (result && xbox_safe_zone)
+	{
+		char *both = config_text_with_line(result, "display.hud_safe_zone", "hud_safe_zone = \"auto\"\n");
+
+		free(result);
+		result = both;
+	}
+	if (result)
+	{
+		platform_log("settings: display.crosshair_position = \"centered\" is retired; it is \"retail\" now%s "
+			"(display.hud_safe_zone puts each split screen view's crosshair in its middle)",
+			xbox_safe_zone ? ", and display.hud_safe_zone = \"auto\"" : "");
+	}
+	return result;
+}
+
 /* a file that holds a setting under its older name (config_renamed): that
 name's lines are taken out of it (its value, and its line commented out at
 the default with its help text of that day, each with the comment above it
@@ -4633,8 +4766,8 @@ static char *config_forward_renamed(const char *text, toml_datum_t table)
 		const char *source = result ? result : text;
 		const char *old_name = config_renamed[renamed].old_name;
 		const char *old_dot = strchr(old_name, '.');
-		long index = config_setting_index(config_renamed[renamed].name);
-		const struct config_setting *setting;
+		long index = config_renamed[renamed].name ? config_setting_index(config_renamed[renamed].name) : -1;
+		const struct config_setting *setting = NULL;
 		struct config_text out = { NULL, 0, 0 };
 		struct config_text block = { NULL, 0, 0 };
 		const char *line;
@@ -4645,17 +4778,21 @@ static char *config_forward_renamed(const char *text, toml_datum_t table)
 		int forward, given, in_place;
 		toml_datum_t old_datum = toml_seek(table, old_name);
 
-		if (index < 0 || !old_dot)
+		if ((config_renamed[renamed].name && index < 0) || !old_dot)
 			continue;
-		setting = &config_settings[index];
-		given = toml_seek(table, setting->name).type != TOML_UNKNOWN;
-		forward = old_datum.type != TOML_UNKNOWN && (!given || config_renamed[renamed].combine) &&
-			(!config_renamed[renamed].old_default ||
-			!config_datum_is(old_datum, setting->type, config_renamed[renamed].old_default));
+		given = forward = in_place = 0;
+		if (index >= 0)
+		{
+			setting = &config_settings[index];
+			given = toml_seek(table, setting->name).type != TOML_UNKNOWN;
+			forward = old_datum.type != TOML_UNKNOWN && (!given || config_renamed[renamed].combine) &&
+				(!config_renamed[renamed].old_default ||
+				!config_datum_is(old_datum, setting->type, config_renamed[renamed].old_default));
+			/* (the new name's lines where the old one's were: only in the same
+			section, and with no value of its own there) */
+			in_place = !given && !strncmp(setting->name, old_name, (size_t)(old_dot - old_name) + 1);
+		}
 		snprintf(section, sizeof(section), "%.*s", (int)(old_dot - old_name), old_name);
-		/* (the new name's lines where the old one's were: only in the same
-		section, and with no value of its own there) */
-		in_place = !given && !strncmp(setting->name, old_name, (size_t)(old_dot - old_name) + 1);
 		for (line = source; *line; line += strcspn(line, "\n") + (line[strcspn(line, "\n")] ? 1 : 0))
 			capacity++;
 		starts = malloc((capacity + 1) * sizeof(*starts));
@@ -4800,6 +4937,7 @@ static const struct
 	{ "display.theme", { "blue", "red", "green", "orange", "live", NULL }, "\"blue\"" },
 	{ "delta.guide_background", { "auto", "plain", "cellwall", NULL }, "\"auto\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
+	{ "delta.confirm_button", { "bottom", "right", NULL }, "\"bottom\"" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.vrr", { "off", "on", "auto", NULL }, "\"off\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
@@ -4821,7 +4959,8 @@ static const struct
 	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
-	{ "display.crosshair_position", { "retail", "centered", "lowered", NULL }, "\"retail\"" },
+	/* ("centered" is retired: config_retire_centered_crosshair) */
+	{ "display.crosshair_position", { "retail", "lowered", NULL }, "\"retail\"" },
 	/* (two numbers, "24 18", are taken too: the log line for anything else
 	is hud_draw.c's hud_safe_zone_margins) */
 	{ "display.hud_safe_zone", { "xbox", "pc", "auto", NULL }, NULL },
@@ -4832,6 +4971,7 @@ static const struct
 	{ "tuning.present_mode", { "vblank", "adaptive", NULL }, NULL },
 	{ "tuning.effects", { "full", "reduced", "minimal", NULL }, NULL },
 	{ "audio.resampling", { "xbox", "sinc", "linear", NULL }, "\"xbox\"" },
+	{ "audio.loudness", { "xbox", "louder", NULL }, "\"xbox\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
 	{ "game.console_log", { "important", "all", "none", NULL }, "\"important\"" },
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },
@@ -5889,6 +6029,29 @@ static void config_load(void)
 					}
 				}
 			}
+			{
+				/* (display.crosshair_position "centered", retired) */
+				char *retired = config_retire_centered_crosshair(text, result.toptab);
+				toml_result_t retired_result;
+
+				if (retired)
+				{
+					retired_result = toml_parse(retired, (int)strlen(retired));
+					if (retired_result.ok)
+					{
+						toml_free(result);
+						free(text);
+						result = retired_result;
+						text = retired;
+						updated = text;
+					}
+					else
+					{
+						toml_free(retired_result);
+						free(retired);
+					}
+				}
+			}
 			config_find_new_defaults(text, result.toptab);
 			for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 			{
@@ -6133,13 +6296,22 @@ int config_write(const char *name, const char *value)
 {
 	const char *dot = strchr(name, '.');
 	long index = config_setting_index(name);
-	char section[64], key[64], line_text[600], path[1024];
+	char section[64], key[64], number_line[128], path[1024];
+	/* (a string's line is as long as its value, its quotes and backslashes
+	escaped: made to fit it, never a fixed buffer) */
+	char *line_text = number_line, *string_line = NULL;
 	size_t size = 0;
 	char *text, *changed;
 	int succeeded;
 
-	if (index < 0 || !dot || (size_t)(dot - name) >= sizeof(section) || strlen(value) > 256)
+	if (index < 0 || !dot || (size_t)(dot - name) >= sizeof(section))
 		return 0;
+	if (strlen(value) > CONFIG_WRITE_MAXIMUM_VALUE)
+	{
+		platform_log("settings: %s not written: its value is %lu characters, more than %d",
+			name, (unsigned long)strlen(value), CONFIG_WRITE_MAXIMUM_VALUE);
+		return 0;
+	}
 	/* (the file read first, as the other settings are) */
 	config_value(name, config_settings[index].type);
 #ifndef HALO_CONSOLE_NO_UPDATER
@@ -6156,36 +6328,45 @@ int config_write(const char *name, const char *value)
 	switch (config_settings[index].type)
 	{
 	case _config_boolean:
-		snprintf(line_text, sizeof(line_text), "%s = %s\n", key, config_values[index].boolean ? "true" : "false");
+		snprintf(number_line, sizeof(number_line), "%s = %s\n", key, config_values[index].boolean ? "true" : "false");
 		break;
 	case _config_integer:
-		snprintf(line_text, sizeof(line_text), "%s = %ld\n", key, config_values[index].integer);
+		snprintf(number_line, sizeof(number_line), "%s = %ld\n", key, config_values[index].integer);
 		break;
 	case _config_real:
 		/* (with its point: TOML reads 1 as an integer) */
-		snprintf(line_text, sizeof(line_text), "%s = %.15g", key, config_values[index].real);
-		if (!strpbrk(line_text + strlen(key) + 3, ".en"))
-			strcat(line_text, ".0");
-		strcat(line_text, "\n");
+		snprintf(number_line, sizeof(number_line) - 3, "%s = %.15g", key, config_values[index].real);
+		if (!strpbrk(number_line + strlen(key) + 3, ".en"))
+			strcat(number_line, ".0");
+		strcat(number_line, "\n");
 		break;
 	case _config_string:
 	{
-		char *end = line_text + snprintf(line_text, sizeof(line_text), "%s = \"", key);
+		const char *string = config_values[index].string ? config_values[index].string : "";
 		const char *character;
+		/* (the key, ' = "', each character twice at most, '"\n' and the end) */
+		size_t room = strlen(key) + 4 + 2 * strlen(string) + 3;
+		char *end;
 
-		for (character = config_values[index].string; *character; character++)
+		string_line = malloc(room);
+		if (!string_line)
+			break;
+		end = string_line + snprintf(string_line, room, "%s = \"", key);
+		for (character = string; *character; character++)
 		{
 			if (*character == '"' || *character == '\\')
 				*end++ = '\\';
 			*end++ = *character;
 		}
-		strcpy(end, "\"\n");
+		memcpy(end, "\"\n", 3);
+		line_text = string_line;
 		break;
 	}
 	}
 	config_path(path, sizeof(path));
 	text = config_read_file(path, &size);
-	changed = config_text_with_line(text ? text : "", name, line_text);
+	changed = config_settings[index].type == _config_string && !string_line ? NULL :
+		config_text_with_line(text ? text : "", name, line_text);
 	succeeded = changed && config_write_file(path, changed);
 	config_touched[index] = 1;
 	config_presets_apply(index);
@@ -6193,6 +6374,7 @@ int config_write(const char *name, const char *value)
 	pthread_mutex_unlock(&config_lock);
 	free(changed);
 	free(text);
+	free(string_line);
 	return succeeded;
 }
 

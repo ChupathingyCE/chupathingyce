@@ -185,6 +185,7 @@ symbols in this file:
 #include "cache/cache_files.h"
 #include "cache/cache_files_decompress_windows.h"
 #include "cache/texture_cache.h"
+#include "bink/bink_playback.h" /* port: bink_playback_stop_for_texture_cache */
 #include "interface/ui_widget.h"
 #include "interface/missing_maps_screen.h" /* port: a console with no ui.map */
 #ifdef HALO_CUSTOM_EDITION
@@ -1043,6 +1044,11 @@ boolean cache_files_precache_map_begin(
 
 				return FALSE;
 			}
+			/* port: one taker of the texture cache's memory at a time: a
+			movie holding it (the intro, still playing as a game starts) is
+			stopped first (bink_playback_stop_for_texture_cache) */
+			if (bink_playback_stop_for_texture_cache())
+				error(_error_silent, "map copy: stopped the movie that held the texture cache's memory");
 			buffer = texture_cache_steal_memory(buffer_size);
 			map_file = cached_map_file_get(map_file_index);
 
@@ -1295,6 +1301,21 @@ short cache_file_read(
 			(boolean)_cache_file_read_failed;
 		return 0;
 	}
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: Forge's AI characters' pixels and samples, kept from the
+	campaign map they came from (port/linux/game/forge_ai_tags.c), served at
+	once as an MCC map's are */
+	{
+		extern boolean forge_ai_tags_read(long tag_index, long offset, long size, void *buffer, boolean *read);
+		boolean read;
+
+		if (forge_ai_tags_read(tag_index, offset, size, buffer, &read))
+		{
+			*completion_flag_reference = read ? TRUE : (boolean)_cache_file_read_failed;
+			return 0;
+		}
+	}
+#endif
 	request_index = cache_request_next_free_index();
 	request = cache_request_get(request_index);
 	match_assert(
@@ -1728,7 +1749,9 @@ static void CALLBACK cache_file_read_io_completion_routine(
 		finished_request->overlapped.hEvent);
 	/* port: a read that failed or came up short completes as failed: what
 	waits on it stops waiting, and a caller that checks (the map's tags and
-	bsps) sees it, instead of taking what is in its buffer for the map */
+	bsps) sees it, instead of taking what is in its buffer for the map. The
+	buffer's data is made visible to the game's thread first */
+	CACHE_FILE_READ_PUBLISH();
 	*(volatile boolean *)finished_request->overlapped.hEvent =
 		error_code == ERROR_SUCCESS && bytes_transferred == (unsigned long)finished_request->size ?
 			TRUE :
@@ -2043,6 +2066,7 @@ static void CALLBACK cache_file_blocking_io_completion_routine(
 		overlapped->hEvent);
 	/* port: a request that failed completes as failed (not TRUE): what
 	waits on it stops waiting and sees it (cached_map_block_on_async_request) */
+	CACHE_FILE_READ_PUBLISH();
 	*(volatile boolean *)overlapped->hEvent = error_code == ERROR_SUCCESS ? TRUE : (boolean)_cache_file_read_failed;
 
 	return;

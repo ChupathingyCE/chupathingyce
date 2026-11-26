@@ -16,6 +16,12 @@ void chat_update(void);
 being typed, the log */
 void chat_draw(short local_player_index);
 
+/* the same lines in the overlay, in the area left to right, top to bottom
+(the menus' 640x480 units, the lines up from its bottom), for the lobby
+(lobby_screen.c), whose screens the overlay draws over the game's picture
+and its lines. Builds with the overlay (HALO_GAME_BROWSER) */
+void chat_draw_overlay(float left, float top, float right, float bottom);
+
 /* the host's (a dedicated server's sv_say, its notices): a server line to
 every Chupathingy machine of the game, and this machine's own player; 0 if
 no machine could take it */

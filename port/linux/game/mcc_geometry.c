@@ -27,6 +27,7 @@ void rasterizer_triangle_buffer_delete(struct triangle_buffer *triangle_buffer);
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include "content_bytes.h"
 
 /* A strip count is independent of its 16-bit vertex indices. Bound each
  * part to a 2 MiB plus four-byte index stream and 12 MiB of tangent-repair links. This
@@ -69,14 +70,6 @@ struct mcc_geometry_state {
 
 typedef char mcc_render_part_size_check[sizeof(struct mcc_render_part)==0x68 ? 1 : -1];
 
-static uint16_t mg_u16(void const *p) {
-    unsigned char const *v=p;
-    return (uint16_t)(v[0]|((uint16_t)v[1]<<8));
-}
-static uint32_t mg_u32(void const *p) {
-    unsigned char const *v=p;
-    return v[0]|((uint32_t)v[1]<<8)|((uint32_t)v[2]<<16)|((uint32_t)v[3]<<24);
-}
 static int mg_range(uint32_t offset,uint64_t length,uint32_t capacity) {
     return offset<=capacity && length<=capacity-offset;
 }
@@ -295,8 +288,8 @@ static int mg_model_tangents(struct model_vertex_uncompressed *vertices,
 
 static int mg_part(struct mcc_runtime *r,struct model const *model,unsigned char const *wire,
     uint32_t part_index,uint32_t part_count,struct mcc_render_part *part) {
-    uint32_t count=mg_u32(wire+0x58), triangles=mg_u32(wire+0x48);
-    uint32_t vertex_offset=mg_u32(wire+0x64), index_offset=mg_u32(wire+0x4C);
+    uint32_t count=content_u32le(wire+0x58), triangles=content_u32le(wire+0x48);
+    uint32_t vertex_offset=content_u32le(wire+0x64), index_offset=content_u32le(wire+0x4C);
     uint32_t i,raw_bytes,vertex_bytes,index_bytes;
     struct model_vertex_uncompressed *vertices=NULL;
     struct model_vertex_compressed *compressed=NULL;
@@ -311,10 +304,10 @@ static int mg_part(struct mcc_runtime *r,struct model const *model,unsigned char
             (unsigned long)triangles,(unsigned long)MCC_MODEL_MAXIMUM_STRIP_TRIANGLES);
         return 0;
     }
-    if (!count || count>65535 || mg_u16(wire+0x44)!=1 ||
-        mg_u16(wire+0x54)!=4 || model->nodes.count<1 || model->nodes.count>64 ||
+    if (!count || count>65535 || content_u16le(wire+0x44)!=1 ||
+        content_u16le(wire+0x54)!=4 || model->nodes.count<1 || model->nodes.count>64 ||
         model->shaders.count<0 ||
-        (mg_u16(wire+4)!=0xFFFFu && !model->shaders.count) ||
+        (content_u16le(wire+4)!=0xFFFFu && !model->shaders.count) ||
         ((signed char)wire[6]!=-1 && (unsigned char)wire[6]>=part_count) ||
         ((signed char)wire[7]!=-1 && (unsigned char)wire[7]>=part_count))
         return mg_error("invalid model part descriptor");
@@ -357,7 +350,7 @@ static int mg_part(struct mcc_runtime *r,struct model const *model,unsigned char
     /* Match the engine schema's required-index correction for a missing
      * material. MacWorld's damaged Elite torso references one past the end.
      * Keep the geometry; the caller reports the visible fallback. */
-    if (mg_u16(wire+4)!=0xFFFFu && mg_u16(wire+4)>=(uint32_t)model->shaders.count)
+    if (content_u16le(wire+4)!=0xFFFFu && content_u16le(wire+4)>=(uint32_t)model->shaders.count)
         part->shader=0;
     part->flags&=~2u;
     if (local) {
@@ -432,8 +425,8 @@ int mcc_geometry_prepare(struct mcc_runtime *r) {
         unsigned char *geometries,*new_geometries;
         long g;
         mcc_loading_update(MCC_LOADING_GEOMETRY, i, r->report.tag_count);
-        if (mg_u32(entry)!='mod2') continue;
-        model=mcc_runtime_pointer(r,mg_u32(entry+0x14),sizeof(*model));
+        if (content_u32le(entry)!='mod2') continue;
+        model=mcc_runtime_pointer(r,content_u32le(entry+0x14),sizeof(*model));
         if (!model) return mg_error("model header lies outside loaded tags");
         for (known=state->models;known;known=known->next) if (known->address==model) break;
         if (known) { *(uint32_t *)entry='mode'; continue; }
@@ -454,12 +447,12 @@ int mcc_geometry_prepare(struct mcc_runtime *r) {
             for (p=0;p<block->count;p++) {
                 if (!mg_part(r,model,parts+p*0x84,(uint32_t)p,(uint32_t)block->count,&new_parts[p])) {
                     error(_error_silent,"MCC geometry: tag #%lu, geometry %ld, part %ld, shader %u (model has %ld shaders)",
-                        (unsigned long)i,g,p,(unsigned)mg_u16(parts+p*0x84+4),model->shaders.count);
+                        (unsigned long)i,g,p,(unsigned)content_u16le(parts+p*0x84+4),model->shaders.count);
                     return 0;
                 }
-                if (new_parts[p].shader!=(short)mg_u16(parts+p*0x84+4))
+                if (new_parts[p].shader!=(short)content_u16le(parts+p*0x84+4))
                     error(_error_silent,"MCC geometry: tag #%lu, geometry %ld, part %ld: missing material %u; using material 0 (appearance may differ)",
-                        (unsigned long)i,g,p,(unsigned)mg_u16(parts+p*0x84+4));
+                        (unsigned long)i,g,p,(unsigned)content_u16le(parts+p*0x84+4));
             }
             destination->address=xbox_address(new_parts);
             destination->definition=XBOX_NULL;

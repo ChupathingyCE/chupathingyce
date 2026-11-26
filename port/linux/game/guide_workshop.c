@@ -84,9 +84,13 @@ void platform_open_url(char const *url);
 
 #define MCC_STORE_PAGE "https://store.steampowered.com/app/976730"
 
+/* the list's width beside the item's page: its share of the Guide's body
+(guide_layout_columns), set as it is drawn */
+static float list_width_now = 262;
+#define LIST_WIDTH list_width_now
+
 enum
 {
-	LIST_WIDTH = 262,
 	ROW_HEIGHT = 30,
 	/* SEARCH, SHOW, SORT, STEAM, RETRY and PAGE: one line */
 	CONTROL_HEIGHT = 22,
@@ -1406,6 +1410,9 @@ void guide_workshop_update(boolean showing)
 	settings_rows_set_workshop_offered(workshop_browser_offered());
 	workshop_browser_folder_follow();
 	link_follow();
+	/* (a cancelled download's part deleted once it lets go, with the Guide
+	shut too: a join's CANCEL) */
+	steam_link_discard_follow();
 	/* (the on-screen keyboard done: its words searched, the Guide back on WORKSHOP) */
 #if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
 	if (workshop_view.keyboard && !virtual_keyboard_active())
@@ -1531,26 +1538,36 @@ static void sort_step(short step)
 	workshop_view.first = 0;
 }
 
-void guide_workshop_side(short step)
+boolean guide_workshop_side_offered(void)
 {
 	if (workshop_view.searching || workshop_view.page)
-		return;
+		return TRUE;
+	rows_sync();
+	return workshop_view.row_kind[workshop_view.row] == _row_show || workshop_view.row_kind[workshop_view.row] == _row_sort ||
+		workshop_view.row_kind[workshop_view.row] == _row_page;
+}
+
+boolean guide_workshop_side(short step)
+{
+	/* (searching, or an item's page: the d-pad's left and right are its own) */
+	if (workshop_view.searching || workshop_view.page)
+		return TRUE;
 	rows_sync();
 	switch (workshop_view.row_kind[workshop_view.row])
 	{
 	case _row_show:
 		show_step(step);
-		break;
+		return TRUE;
 	case _row_sort:
 		sort_step(step);
-		break;
+		return TRUE;
 	case _row_page:
 		guide_workshop_page_step(step);
 		/* (the focus stays on PAGE for another turn) */
 		workshop_view.focus_first_item = FALSE;
-		break;
+		return TRUE;
 	default:
-		break;
+		return FALSE;
 	}
 }
 
@@ -1759,7 +1776,24 @@ char const *guide_workshop_prompt(void)
 	if (workshop_view.searching)
 		return "SEARCH";
 	if (workshop_view.page)
-		return workshop_view.description_on ? "BUTTONS" : "SELECT";
+	{
+		short options[MAXIMUM_OPTIONS], count;
+		short option;
+
+		if (workshop_view.description_on)
+			return "BUTTONS";
+		/* (the button chosen: its own word, GET, PLAY, REMOVE) */
+		rows_sync();
+		count = options_of(chosen(), workshop_view.row_view[workshop_view.row], options);
+		if (workshop_view.option < 0 || workshop_view.option >= count)
+			return NULL;
+		option = options[workshop_view.option];
+		if (option == _option_open_steam)
+			return "OPEN";
+		if (option == _option_steam_maps)
+			return "CHANGE";
+		return option_label(workshop_view.row_view[workshop_view.row], option);
+	}
 	switch (workshop_view.row_kind[workshop_view.row])
 	{
 	case _row_show:
@@ -2353,8 +2387,17 @@ static void page_render(short row, float x, float top, float width, float bottom
 void guide_workshop_render(float left, float top, float right, float bottom,
 	void (*target)(float x0, float y0, float x1, float y1, short kind, short index))
 {
-	float x = left + LIST_WIDTH + 12, width = right - x;
+	float x, width;
 	short shown_page;
+
+	{
+		struct guide_rect body = { left, top, right - left, bottom - top }, list, page;
+
+		guide_layout_columns(body, 12.0f, 0.53f, 190.0f, &list, &page);
+		list_width_now = list.width;
+	}
+	x = left + LIST_WIDTH + 12;
+	width = right - x;
 
 	rows_sync();
 	workshop_view.description_x0 = workshop_view.description_x1 = 0;

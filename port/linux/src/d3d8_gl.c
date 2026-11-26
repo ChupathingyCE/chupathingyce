@@ -63,6 +63,8 @@ static void prep_present(void);
 d3d8_bgfx.inl, at the end of this file, which shares the device's state) */
 static BOOL bg_initialize(void);
 static BOOL bg_active(void);
+static BOOL bg_anti_alias_prepare(BOOL smaa);
+static void bg_anti_alias(BOOL smaa, short x0, short y0, short x1, short y1);
 static void bg_draw_vertices(D3DPRIMITIVETYPE type, unsigned long start, unsigned long count);
 static void bg_draw_indexed(D3DPRIMITIVETYPE type, unsigned long count, const WORD *indices);
 static void bg_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count);
@@ -129,6 +131,9 @@ void d3d8_surface_resize(D3DSurface *surface, D3DFORMAT format, unsigned long wi
 /* port/linux/game/stats_log.c: display.stats_log's line names the renderer the
 driver reports, once the context exists (gl_initialize below) */
 void stats_log_set_renderer(const char *vendor, const char *renderer);
+/* and its shown=, a frame that went to the window (bgfx's and the Android
+Vulkan renderer's presents; OpenGL's swap is sdl_platform.c's) */
+void stats_log_frame_shown(void);
 
 #ifdef HALO_GL_ES
 /* OpenGL ES 3 (port/android/README.md): the desktop formats, enumerants
@@ -257,46 +262,15 @@ static void anti_aliasing_read(void)
 {
 	const char *setting = config_string("display.anti_aliasing");
 	int value;
-#ifdef HALO_BGFX
-	BOOL mapped = FALSE;
-#endif
 
 	for (value = NUMBER_OF_ANTI_ALIASING_VALUES - 1;
 		value > 0 && strcmp(setting, anti_aliasing_values[value].name);
 		value--)
 	{
 	}
-#ifdef HALO_BGFX
-	/* the bgfx test backend has multisampling only: FXAA, SMAA and
-	supersampling become 2x MSAA, said once */
-	if (xgpu_bgfx && (anti_aliasing_values[value].mode == _anti_aliasing_fxaa ||
-		anti_aliasing_values[value].mode == _anti_aliasing_smaa ||
-		anti_aliasing_values[value].mode == _anti_aliasing_ssaa))
-	{
-		static BOOL said;
-		int msaa;
-
-		for (msaa = 0; anti_aliasing_values[msaa].mode != _anti_aliasing_msaa; msaa++)
-		{
-		}
-		if (!said)
-			platform_log("anti-aliasing: %s is not in the bgfx renderer yet, so %s", setting,
-				anti_aliasing_values[msaa].name);
-		said = TRUE;
-		value = msaa;
-		mapped = TRUE;
-	}
-#endif
 	if (value == anti_aliasing_value)
 		return;
 	anti_aliasing_value = value;
-#ifdef HALO_BGFX
-	if (mapped)
-	{
-		anti_aliasing_prepare();
-		return;
-	}
-#endif
 	if (strcmp(setting, anti_aliasing_values[value].name))
 		platform_log("anti-aliasing: \"%s\" is unknown, so off", setting);
 	else
@@ -2556,6 +2530,18 @@ static void anti_aliasing_prepare(void)
 {
 	int mode;
 
+#ifdef HALO_BGFX
+	/* (bgfx's passes, d3d8_bgfx.inl; its multisampling is its targets',
+	bg_screen_samples) */
+	if (bg_active())
+	{
+		mode = anti_aliasing_value < 0 ? _anti_aliasing_off : anti_aliasing_values[anti_aliasing_value].mode;
+		if ((mode == _anti_aliasing_fxaa || mode == _anti_aliasing_smaa) &&
+			!bg_anti_alias_prepare(mode == _anti_aliasing_smaa))
+			platform_log("anti-aliasing: its programs do not build, so the 3D view is not antialiased");
+		return;
+	}
+#endif
 	if (!device.gl_ready || anti_aliasing_value < 0)
 		return;
 	mode = anti_aliasing_values[anti_aliasing_value].mode;
@@ -3039,7 +3025,14 @@ HRESULT WINAPI D3DDevice_GetDepthStencilSurface(D3DSurface **result)
 	return S_OK;
 }
 
+#ifdef HALO_CONSOLE_NO_GPU_TRACE
+/* (the trace of a frame's draws, debug.gpu_trace_frame: a developer's tool,
+left out of a console's build without them) */
+#define trace_frame() FALSE
+#define trace_draw(kind, type, count, first_vertex) ((void)0)
+#else
 static BOOL trace_frame(void);
+#endif
 
 void WINAPI D3DDevice_SetRenderTarget(D3DSurface *render_target, D3DSurface *depth_stencil)
 {
@@ -5219,6 +5212,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 
 /* ---------- tracing (debug.gpu_trace_frame) */
 
+#ifndef HALO_CONSOLE_NO_GPU_TRACE
 static BOOL trace_frame(void)
 {
 	static long frame = -2;
@@ -5230,11 +5224,12 @@ static BOOL trace_frame(void)
 
 static void trace_draw(const char *kind, D3DPRIMITIVETYPE type, unsigned long count, const float *first_vertex)
 {
-	struct vertex_shader_object *program = current_program();
+	struct vertex_shader_object *program;
 	DWORD *rs = D3D__RenderState;
 
 	if (!trace_frame())
 		return;
+	program = current_program();
 	platform_log("%s type %d count %lu vs %lu (decl %lu) vp %lu,%lu %lux%lu z%.2f-%.2f zen %lu zw %lu zf %lx blend %lu %lx/%lx cull %lx cw %08lx tm %05lx cc %lx fin %08lx/%08lx at %lu/%lx",
 		kind, type, count, program ? program->id : 0, device.vertex_shader ? device.vertex_shader->id : 0,
 		device.viewport.X, device.viewport.Y, device.viewport.Width, device.viewport.Height,
@@ -5311,6 +5306,7 @@ static void trace_draw(const char *kind, D3DPRIMITIVETYPE type, unsigned long co
 		}
 	}
 }
+#endif
 
 
 /* Mesa's GL thread queues a glBufferSubData of up to 8 KB; a larger one
@@ -6547,6 +6543,15 @@ void halo_screen_anti_alias(short x0, short y0, short x1, short y1)
 	GLint corners[4];
 	int mode = anti_aliasing();
 
+#ifdef HALO_BGFX
+	/* (bgfx's: passes of its own, d3d8_bgfx.inl) */
+	if (bg_active())
+	{
+		if (mode == _anti_aliasing_fxaa || mode == _anti_aliasing_smaa)
+			bg_anti_alias(mode == _anti_aliasing_smaa, x0, y0, x1, y1);
+		return;
+	}
+#endif
 	if (!device.gl_ready || (mode != _anti_aliasing_fxaa && mode != _anti_aliasing_smaa))
 		return;
 	/* (the primary target's view: the back buffer's) */
@@ -7673,3 +7678,5 @@ HRESULT WINAPI D3DDevice_PersistDisplay(void)
 #ifdef HALO_SHADER_PREP
 #include "d3d8_shader_prep.inl"
 #endif
+/* OpenSauce maps' post-processing (port/linux/game/opensauce_postprocess.c) */
+#include "opensauce_postprocess_gl.inl"

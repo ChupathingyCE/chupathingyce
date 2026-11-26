@@ -108,6 +108,10 @@ their handlers open opens.
 #include "halo_map_families.h"
 #include "halo_server_browser.h"
 #include "halo_join_reasons.h"
+#ifdef HALO_GAME_BROWSER
+#include "direct_join.h"
+#include "../src/direct_address.h"
+#endif
 /* (the multiplayer maps past the Xbox's: ui_map_list.c) */
 #include "halo_ui_map_list.h"
 #include "mcc_maps.h"
@@ -2251,6 +2255,12 @@ static void views_show(struct widget_instance *list, char const *view)
 		/* (the rows: the Gearbox menus' button bar is after them) */
 		if (!strncmp(child->name, "op_", 3))
 			child->visible = !mark || view_mark_has(mark->name, view);
+#ifndef HALO_PORT_RAGDOLLS
+		/* (RAGDOLLS, in a build without them: configure.py
+		--without-ragdolls. The last row of its view, so no gap) */
+		if (!strcmp(child->name, "op_ragdolls"))
+			child->visible = FALSE;
+#endif
 	}
 	views_scroll(list, view);
 	if (list->focused_child && !list->focused_child->visible)
@@ -2525,17 +2535,37 @@ static void profile_gamepad_layout(struct widget_instance *picture)
 }
 
 /* the Chupathingy menus' settings picture (port/assets/menus/chupathingy):
-a frame for each of its nine rows (SETUP's last), then the Xbox's five button settings,
-which CONTROLS' row shows for the edited profile */
+a frame for each of its nine rows, then the Xbox's five button settings,
+which CONTROLS' row shows for the edited profile. Without ADVANCED SETUP
+the rows after it keep their frames and words
+(pc_menu_settings_description_index, below) */
 #define CHUPATHINGY_FIRST_LAYOUT_FRAME 9
-/* SETUP's frame, and its words in the descriptions (after ABOUT's) */
-#define CHUPATHINGY_SETUP_FRAME 7
-#define CHUPATHINGY_SETUP_DESCRIPTION 7
 
 /* ABOUT's row (the picture's frame for it is blank): this build and the
 project, in the picture's place (its about_text) */
-#define CHUPATHINGY_ABOUT_FRAME 6
+#define CHUPATHINGY_ABOUT_FRAME 7
 #define CHUPATHINGY_ABOUT_LENGTH 512
+
+/* The Chupathingy menus' SETTINGS (chupathingy/settings.xml, the list with
+a save_item) without ADVANCED SETUP, ADVANCED SETUP's place the seventh
+row: the rows after it are a place higher, so their description's words
+and picture are the next ones, the ones they have with it
+(ui_widget_game_data_input_functions.c's
+player_profile_edit_select_menu_update_extended_description) */
+#define CHUPATHINGY_SETUP_PLACE 6
+
+short pc_menu_settings_description_index(struct widget_instance *list_widget, short index)
+{
+	extern boolean pc_menu_setup_shown(void);
+	struct widget_instance *child;
+
+	if (index == NONE || index < CHUPATHINGY_SETUP_PLACE || !list_widget || pc_menu_setup_shown())
+		return index;
+	for (child = list_widget->child; child && strcmp(child->name, "save_item"); child = child->next)
+	{
+	}
+	return child ? (short)(index + 1) : index;
+}
 
 /* (a line's width in the font the draw mode has) */
 static short chupathingy_about_width(char const *text, long length)
@@ -2672,17 +2702,6 @@ static void chupathingy_settings_picture(struct widget_instance *picture)
 {
 	extern boolean pc_menu_setup_shown(void);
 	struct player_profile *profile = player_ui_get_edit_player_profile();
-
-	/* (without SETUP, SAVE CHANGES is in its place: its words and picture,
-	the next ones) */
-	if (!pc_menu_setup_shown() && picture->animation.current_frame_index == CHUPATHINGY_SETUP_FRAME)
-	{
-		struct widget_instance *text = named(picture->parent, "description_text", 0);
-
-		picture->animation.current_frame_index = CHUPATHINGY_SETUP_FRAME + 1;
-		if (text)
-			text->parameters.text_box.string_list_index = CHUPATHINGY_SETUP_DESCRIPTION + 1;
-	}
 
 	chupathingy_settings_about(picture);
 	if (picture->animation.current_frame_index == PROFILE_GAMEPAD_FRAME)
@@ -4131,6 +4150,7 @@ boolean ui_widget_port_open(struct widget_instance *widget, char const *name, bo
 boolean network_game_client_advertised_game_in_progress(void *client, struct advertised_game *game);
 #ifdef HALO_GAME_BROWSER
 boolean network_game_client_advertised_game_opence_server(void *client, struct advertised_game *game);
+char const *network_game_client_advertised_game_project(void *client, struct advertised_game *game);
 #endif
 boolean ui_widget_port_join(struct widget_instance *widget, void *advertised_game, char const *lobby_name,
 	boolean *widget_deleted);
@@ -6540,6 +6560,197 @@ static boolean password_screen_edit(struct widget_instance *row, boolean *widget
 	return TRUE;
 }
 
+/* ---- the Custom Edition menus' DIRECT IP (and the Chupathingy menus', which
+System Link's X opens: menu_tags.c): a game joined by its address, as
+direct_join.c joins it. SERVER ADDRESS takes the address (the keyboard
+types into it; a controller gets the on-screen keyboard), shown as stars
+once entered (a host name as it is). The PC version's PASSWORD row is
+RECENT here (a system link join has no password): A goes through the
+addresses joined before, by their names (Saved server 1, ...), never the
+addresses; one chosen is what JOIN joins. The help line says how the join
+goes (direct_join_status) */
+
+#ifdef HALO_GAME_BROWSER
+#define DIRECT_IP_KEYBOARD_LENGTH 32
+/* the help line's characters before it wraps (its box: the screen's own
+help's widest line) */
+#define DIRECT_IP_HELP_LINE 50
+#define DIRECT_IP_HELP "pc\\main_menu\\multiplayer_type_select\\direct_ip\\cap_direct_ip_options"
+
+static struct
+{
+	/* the address typed (never shown again once entered) */
+	char text[DIRECT_JOIN_TEXT_SIZE];
+	/* the recent address chosen (NONE: the one typed) */
+	short recent;
+	/* the on-screen keyboard up for it, and its text */
+	boolean keyboard;
+	wchar_t keyboard_text[DIRECT_IP_KEYBOARD_LENGTH];
+} direct_ip;
+
+static void direct_ip_typed(char const *text)
+{
+	snprintf(direct_ip.text, sizeof(direct_ip.text), "%s", text);
+	if (text[0])
+		direct_ip.recent = NONE;
+}
+
+/* "direct ip connect init" */
+static boolean direct_ip_initialize(void)
+{
+	csmemset(direct_ip.text, 0, sizeof(direct_ip.text));
+	direct_ip.keyboard = FALSE;
+	/* (the last one joined, ready for JOIN: a LAN party's host again) */
+	direct_ip.recent = direct_join_saved_count() ? 0 : NONE;
+	direct_join_screen_alive();
+	return TRUE;
+}
+
+/* "direct ip connect update": the rows' values, the help line */
+static void direct_ip_update(struct widget_instance *list)
+{
+	struct widget_instance *address_row = named(list, "op_server_address", 0);
+	struct widget_instance *help = list->parameters.list.extended_description;
+	char name[DIRECT_JOIN_NAME_SIZE + 16];
+	wchar_t text[DIRECT_JOIN_STATUS_SIZE];
+	short index;
+
+	direct_join_screen_alive();
+	/* (the on-screen keyboard's words, once it closes with them) */
+	if (direct_ip.keyboard && !virtual_keyboard_active())
+	{
+		direct_ip.keyboard = FALSE;
+		if (virtual_keyboard_last_exit_saved_text())
+		{
+			char typed[DIRECT_IP_KEYBOARD_LENGTH];
+
+			for (index = 0; direct_ip.keyboard_text[index] && index < DIRECT_IP_KEYBOARD_LENGTH - 1; index++)
+				typed[index] = direct_ip.keyboard_text[index] < 0x80 ? (char)direct_ip.keyboard_text[index] : '?';
+			typed[index] = 0;
+			direct_ip_typed(typed);
+			csmemset(typed, 0, sizeof(typed));
+		}
+		csmemset(direct_ip.keyboard_text, 0, sizeof(direct_ip.keyboard_text));
+	}
+	if (direct_ip.recent >= direct_join_saved_count())
+		direct_ip.recent = NONE;
+	if (text_field_editing(address_row))
+		text_field_show(named(list, "server_address_value_label", 0), "", TRUE);
+	else
+	{
+		if (direct_ip.recent != NONE)
+			direct_join_saved_name(direct_ip.recent, name, sizeof(name));
+		else
+			direct_address_shown(direct_ip.text, name, sizeof(name));
+		text_field_show(named(list, "server_address_value_label", 0), name, FALSE);
+	}
+	if (direct_ip.recent == NONE || !direct_join_saved_name(direct_ip.recent, name, sizeof(name)))
+		snprintf(name, sizeof(name), "NONE");
+	text_field_show(named(list, "server_password_value_label", 0), name, FALSE);
+	/* (how the join goes, else the screen's own line) */
+	if (help)
+	{
+		char const *status = direct_join_status();
+
+		if (status[0])
+		{
+			short used = 0, line = 0;
+			char const *word = status;
+
+			/* (wrapped at a space before the box's edge, a line break as
+			the menus' strings have it: a refusal's sentence is never cut) */
+			while (*word && used < DIRECT_JOIN_STATUS_SIZE - 3)
+			{
+				short length = (short)strcspn(word, " ");
+
+				if (line && line + 1 + length > DIRECT_IP_HELP_LINE)
+				{
+					text[used++] = L'\r';
+					text[used++] = L'\n';
+					line = 0;
+				}
+				else if (line)
+				{
+					text[used++] = L' ';
+					line++;
+				}
+				for (index = 0; index < length && used < DIRECT_JOIN_STATUS_SIZE - 3; index++)
+					text[used++] = (wchar_t)(unsigned char)word[index];
+				line = (short)(line + length);
+				word += length;
+				while (*word == ' ')
+					word++;
+			}
+			text[used] = 0;
+		}
+		else
+			string_get(DIRECT_IP_HELP, 0, text);
+		text_set_length(named(help, "direct_ip_help_text", 0), text, DIRECT_JOIN_STATUS_SIZE);
+	}
+}
+
+/* "direct ip edit field": A on SERVER ADDRESS types an address (a new one:
+the one before is never shown to edit), on RECENT the next saved one */
+static boolean direct_ip_edit(struct widget_instance *widget)
+{
+	struct widget_instance *screen = screen_of(widget);
+	struct widget_instance *row = named(screen, "op_server_address", 0);
+
+	if (widget->name && strstr(widget->name, "password"))
+	{
+		short count = direct_join_saved_count();
+
+		if (!count)
+			return campaign_fail();
+		direct_ip.recent = direct_ip.recent == NONE ? 0 : direct_ip.recent + 1 < count ? direct_ip.recent + 1 : NONE;
+		if (direct_ip.recent != NONE)
+			csmemset(direct_ip.text, 0, sizeof(direct_ip.text));
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		return TRUE;
+	}
+	if (!row)
+		return FALSE;
+	if (text_field_editing(row))
+	{
+		text_field_end(TRUE);
+		return TRUE;
+	}
+	if (direct_join_active())
+		direct_join_cancel();
+	/* (the keys type already; a controller gets the on-screen keyboard) */
+	if (ui_overlay_keyboard())
+	{
+		text_field_begin(row, "", DIRECT_JOIN_TEXT_SIZE - 1, direct_ip_typed);
+		return TRUE;
+	}
+	csmemset(direct_ip.keyboard_text, 0, sizeof(direct_ip.keyboard_text));
+	direct_ip.keyboard = virtual_keyboard_launch_plain(direct_ip.keyboard_text, sizeof(direct_ip.keyboard_text),
+		L"Address");
+	return direct_ip.keyboard;
+}
+
+/* "direct ip connect go" on DIRECT IP's JOIN: the address typed, else the
+recent one chosen, joined (direct_join.c says how it goes) */
+static boolean direct_ip_go(struct widget_instance *widget)
+{
+	struct widget_instance *row = named(screen_of(widget), "op_server_address", 0);
+	boolean started;
+
+	if (row && text_field_editing(row))
+		text_field_end(TRUE);
+	if (direct_join_active())
+		return TRUE;
+	if (!direct_ip.text[0] && direct_ip.recent != NONE)
+		started = direct_join_saved_start(direct_ip.recent);
+	else
+		started = direct_join_start(direct_ip.text);
+	if (!started)
+		return campaign_fail();
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return TRUE;
+}
+#endif
+
 /* "gamespy screen update": the games' rows (name, map, gametype, players),
 the one chosen's line, the counts over the titles (the PC version's: its
 players, page, servers) */
@@ -6611,14 +6822,25 @@ static void browser_update(struct widget_instance *list)
 		text[NUMBEROF(text) - 1] = 0;
 		text_set(named(list, "ticker_player_info", 0), text);
 		/* (an OpenCE dedicated server's game, by its advertisement: the
-		lists' neutral label) */
+		lists' neutral label; or the project of a host of another project's
+		code, by its Delta tag) */
 		text[0] = 0;
 #ifdef HALO_GAME_BROWSER
-		if (multiplayer.mode != _multiplayer_mode_server_browser && multiplayer.game_count &&
-			network_game_client_advertised_game_opence_server(global_network_game_client_get(),
-				multiplayer.games[multiplayer.game_chosen]))
+		if (multiplayer.mode != _multiplayer_mode_server_browser && multiplayer.game_count)
 		{
-			usnprintf(text, NUMBEROF(text) - 1, L"%s", JOIN_WIDE(HOST_LABEL_OPENCE_SERVER));
+			struct advertised_game *chosen = multiplayer.games[multiplayer.game_chosen];
+			char const *project = network_game_client_advertised_game_project(global_network_game_client_get(), chosen);
+
+			if (network_game_client_advertised_game_opence_server(global_network_game_client_get(), chosen))
+				usnprintf(text, NUMBEROF(text) - 1, L"%s", JOIN_WIDE(HOST_LABEL_OPENCE_SERVER));
+			else if (project)
+			{
+				int index;
+
+				for (index = 0; project[index] && index < (int)NUMBEROF(text) - 1; index++)
+					text[index] = (wchar_t)(unsigned char)project[index];
+				text[index] = 0;
+			}
 		}
 #endif
 		text[NUMBEROF(text) - 1] = 0;
@@ -10383,8 +10605,23 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "direct ip connect go"))
 		{
+#ifdef HALO_GAME_BROWSER
+			/* (DIRECT IP's JOIN; else Direct Link's PASTE LINK) */
+			if (widget->name && strstr(widget->name, "direct_ip"))
+				return direct_ip_go(widget);
+#endif
 			return direct_link_from_clipboard();
 		}
+#ifdef HALO_GAME_BROWSER
+		else if (!strcmp(name, "direct ip connect init"))
+		{
+			return direct_ip_initialize();
+		}
+		else if (!strcmp(name, "direct ip edit field"))
+		{
+			return direct_ip_edit(widget);
+		}
+#endif
 		else if (!strcmp(name, "join controller to mp game"))
 		{
 			return multiplayer_host(widget, event, controller, widget_deleted);
@@ -10691,6 +10928,10 @@ void pc_menu_game_data_function_invoke(
 		server_settings_update(widget);
 	else if (!strcmp(name, "port password update"))
 		password_screen_update(widget);
+#ifdef HALO_GAME_BROWSER
+	else if (!strcmp(name, "direct ip connect update"))
+		direct_ip_update(widget);
+#endif
 	else if (!strcmp(name, "gamespy screen update"))
 		browser_update(widget);
 	else if (!strcmp(name, "gt edit list update"))

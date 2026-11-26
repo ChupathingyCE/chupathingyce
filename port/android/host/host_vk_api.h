@@ -24,8 +24,6 @@ the game, after SDL's video is up */
 int host_vk_startup(const char *vk_driver, int validation, char *line, size_t size);
 /* the renderer's commands (vk_commands.h), run during the call */
 void host_vk_submit(const void *commands, uint32_t size);
-/* the highest submission number the GPU has finished */
-uint32_t host_vk_retired(void);
 /* the shader service (host_vk_shaders.c): find returns a handle (1 or more)
 of the shader's module, or 0 and writes a VK_SHADER_STATUS_* to *status_out;
 compile queues GLSL (copied during the call) for the compile thread */
@@ -56,5 +54,12 @@ extern int host_vk_presenting;
 /* config.toml's debug.vk_present_marker and debug.vk_self_test */
 extern int host_vk_present_marker;
 extern int host_vk_self_test;
+/* how the game wants its frames shown, as every renderer shows them
+(sdl_platform.h's platform_present_mode, the same values): the swapchain's
+present mode follows it, made again when it changes */
+#define HOST_VK_PRESENT_IMMEDIATE 0
+#define HOST_VK_PRESENT_VBLANK 1
+#define HOST_VK_PRESENT_ADAPTIVE 2
+extern int host_vk_present_mode;
 
 #endif

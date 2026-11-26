@@ -481,8 +481,8 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
 #include "../../port/linux/game/party_teams.h"
-#include "../../port/linux/game/network_rules.h" /* port: the game modes' rules (docs/modes.md) */
 #endif
+#include "../../port/linux/game/network_rules.h" /* port: the game modes' rules (docs/modes.md; every build's) */
 #include "interface/player_ui.h"
 #include "tag_files/tag_files.h"
 
@@ -879,6 +879,8 @@ boolean network_distributed_banned(unsigned long address, char const *hardware_i
 #ifdef HALO_GAME_BROWSER
 /* (port/linux/game/host_rules.c's: whether the host takes no new machines now) */
 boolean host_rules_joins_locked(void);
+/* (port/linux/src/p2p.c's: whether the game hosted has a password) */
+int p2p_hosting_has_password(void);
 #endif
 /* (its budget for a client machine's lobby messages, full again) */
 void network_distributed_lobby_budget_reset(long machine_index);
@@ -1478,15 +1480,23 @@ each lobby frame, and undone as hosting ends; said once if this build can't */
 /* (network_server_message_handler.c) */
 unsigned network_game_server_machine_joined_number(struct network_game_server *server,
 	struct network_game_server_client_machine *machine);
+#ifdef HALO_GAME_BROWSER
+boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
+long dedicated_playlist_count(void);
+char const *dedicated_playlist_map(long entry);
+#else
+/* (no dedicated server in a build without the game browser: server/src is
+left out) */
+#define dedicated_server_active() FALSE
+#define dedicated_playlist_count() 0L
+#define dedicated_playlist_map(entry) ((void)(entry), (char const *)NULL)
+#endif
 #if defined(HALO_MCC) && HALO_MCC
 #include "delta.h" /* the capabilities */
 char const *config_string(char const *name);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
 int delta_legacy_host_game_at(int version); /* (port/linux/src/delta.c) */
 int delta_legacy_mcc_version(void);
-boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
-long dedicated_playlist_count(void);
-char const *dedicated_playlist_map(long entry);
 static int network_game_server_mcc_asked = -1;
 static void network_game_server_port_cooperative_apply(struct network_game_server *server, short difficulty);
 /* (when the number changed: the record is sent again a little later, which
@@ -1556,7 +1566,8 @@ void network_game_server_mcc_playlist_changed(
 /* port: a host's lobby moving to or from an MCC map changes the number its
 game is played at: how many machines in it would not follow (no Delta with
 mcc_maps), which leave. The host is asked first (invite_prompt_ask), unless
-it is a dedicated server or a test */
+it is a dedicated server or a test, or the build has no game browser, whose
+overlay asks */
 static long network_game_server_mcc_would_drop(
 	struct network_game_server *server,
 	char const *map_name)
@@ -1564,6 +1575,9 @@ static long network_game_server_mcc_would_drop(
 	boolean want = mcc_level_name(map_name);
 	long index, count = 0;
 
+#ifndef HALO_GAME_BROWSER
+	return 0;
+#endif
 	if (dedicated_server_active() || config_string("debug.network_test")[0] ||
 		want == (network_game_server_mcc_asked > 0))
 	{
@@ -2640,6 +2654,21 @@ boolean network_game_server_accept_client_machine_into_game(
 		{
 			network_event("refusing a machine @ %s: joins are locked (sv_lock)", transport_address_to_string(&address));
 			network_game_server_refusal_code = _rejection_code_game_is_closed;
+			return FALSE;
+		}
+		/* (and, in a game with a password, none that came from the
+		internet straight to the game's port, as a system link join does: the
+		password is asked for by the invite, which an internet play peer
+		came through, and a join request carries none. A LAN's machines, and
+		a game without a password, as ever: network_rules.h) */
+		if (!network_game_server_client_machine_is_local(server, machine) &&
+			address.address.long_words[0] != IPV4_LOOPBACK_ADDRESS &&
+			network_rules_join_password_refused((uint32_t)address.address.long_words[0],
+				p2p_hosting_has_password()))
+		{
+			network_event("refusing a machine @ %s: the game has a password, and the machine did not come "
+				"through its invite", transport_address_to_string(&address));
+			network_game_server_refusal_code = _rejection_code_bad_password;
 			return FALSE;
 		}
 #endif
@@ -4397,12 +4426,39 @@ void network_game_server_pause_countdown(
 	struct network_game_server *server,
 	boolean pause_countdown)
 {
+	boolean was_counting;
+
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x78C, server);
 
+	was_counting = server->countdown_state.active;
 	if (pause_countdown == TRUE)
 		csmemset(&server->countdown_state, 0, sizeof(server->countdown_state));
 
 	server->countdown_state.paused = pause_countdown;
+
+	/* port: a countdown stopped here was never taken back from the clients
+	(the countdown messages only go out while it runs), so every lobby,
+	the host's own too, kept its last count: "Starting on ..." stayed up and
+	the host's lobby could not start again (#1414). The clients are told it
+	stopped with the count the game already sends when a countdown can't go
+	on (NONE, network_game_server_idle_pregame_tasks) */
+	if (pause_countdown == TRUE && was_counting &&
+		server->state == _network_game_server_state_pregame)
+	{
+		struct message_server_pregame_countdown message_packet;
+		struct network_message *message;
+
+		message_packet.seconds_to_start = NONE;
+		message = create_network_game_message(
+			_message_server_pregame_countdown,
+			&message_packet,
+			sizeof(message_packet));
+		if (message == NULL ||
+			!network_game_server_send_message_to_all_machines(server, message))
+		{
+			network_event("failed to send a message_server_pregame_countdown to all clients");
+		}
+	}
 
 	return;
 }
@@ -6809,9 +6865,13 @@ boolean network_game_server_map_share_game(
 	*in_progress = server->state == _network_game_server_state_ingame;
 	return TRUE;
 }
+#endif
 
+#if defined(HALO_GAME_BROWSER) || (defined(HALO_MCC) && HALO_MCC)
 /* a client machine that joined the game (not the host's own): the address
-its connection comes from (IPv4, first byte highest) */
+its connection comes from (IPv4, first byte highest). Map sharing's, and
+MCC's admission's (network_distributed.c), which a build without the game
+browser has too */
 boolean network_game_server_map_share_machine(
 	long machine_index,
 	unsigned long *address)

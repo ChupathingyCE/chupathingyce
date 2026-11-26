@@ -20,6 +20,10 @@ his were, images the backend makes, decoded by xbox_textures.c's helpers as
 the bgfx backend decodes them; the high-res HUD, the text's atlas and the
 menus' art are images of the same kind (xgpu_vulkan_texture_create).
 
+V-Sync, tuning.present_mode and display.max_fps are every renderer's
+(sdl_platform.h's platform_present_mode and platform_video_swap): the
+swapchain's present mode follows them, and the frame ends in the same clock.
+
 Not here yet: the Guide and the other overlays (ui_overlay.c draws with
 OpenGL or bgfx), the anti-aliasing passes and the capture of screenshots and
 clips, which are the OpenGL renderer's; and the shaders are the generators'
@@ -1605,9 +1609,16 @@ static void vk_present(void)
 
 	if (!vk.ready)
 		return;
+	/* (V-Sync and tuning.present_mode as every renderer reads them: the
+	swapchain's present mode follows, host_vk_present.c) */
+	host_vk_present_mode = platform_present_mode();
 	command = stream_command(VK_COMMAND_PRESENT, sizeof(*command));
 	surface_describe(&device.back_buffer, FALSE, &command->back_buffer, scale);
 	stream_flush();
+	stats_log_frame_shown();
+	/* (the frame's end as every renderer's: display.max_fps's clock with
+	V-Sync off; sdl_platform.c leaves the swap to the swapchain) */
+	platform_video_swap();
 	targets_known = FALSE;
 	data_id = 0;
 	puts_reset();
@@ -1633,12 +1644,6 @@ static void vk_present(void)
 			vk_stats.skipped_shader, vk_stats.skipped_texture, vk_stats.skipped_other);
 		memset(&vk_stats, 0, sizeof(vk_stats));
 	}
-}
-
-static void vk_frame_account(char *text, size_t size)
-{
-	if (size)
-		text[0] = 0;
 }
 
 static BOOL vk_active(void)

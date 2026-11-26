@@ -19,12 +19,16 @@ properties' PHYSICS row - NORMAL, FIXED, PHASED - for any placed object.
   projectile's line still meets it: the engine's vector test does not read
   the switch, as for a scripted object; so a PHASED object also carries
   _object_forge_phased_bit, which the vector tests of collisions.c read: shots
-  pass it, a scripted object's behaviour as it was. The monitor's crosshair
+  pass it, a scripted object's behavior as it was. The monitor's crosshair
   asks for it, _collision_test_forge_phased_objects_bit: it is still grabbed.)
 
 Saved in the layout as version 7's flags (forge_files.h
 FORGE_RECORD_PHYSICS_*). Nothing of a game that is not Forge or a layout
 played is touched.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 /* ---------- constants */
@@ -52,7 +56,9 @@ static unsigned char forge_physics_flags(
 }
 
 /* the object's collision switch as its physics has it: set for a phased
-one, cleared for another only where this set it */
+one, cleared for another only where this set it. (The consoles build this
+file but leave Forge's hooks out, HALO_CONSOLE_NO_FORGE: there the object
+flag that lets shots pass is not in objects.h, and the switch alone is set.) */
 static void forge_physics_apply(
 	struct forge_placed *placed)
 {
@@ -69,13 +75,17 @@ static void forge_physics_apply(
 	{
 		if (!TEST_FLAG(object->object.flags, _object_no_collisions_bit))
 			SET_FLAG(object->object.flags, _object_no_collisions_bit, TRUE);
+#ifndef HALO_CONSOLE_NO_FORGE
 		SET_FLAG(object->object.flags, _object_forge_phased_bit, TRUE);
+#endif
 		placed->phased_applied = TRUE;
 	}
 	else if (placed->phased_applied)
 	{
 		SET_FLAG(object->object.flags, _object_no_collisions_bit, FALSE);
+#ifndef HALO_CONSOLE_NO_FORGE
 		SET_FLAG(object->object.flags, _object_forge_phased_bit, FALSE);
+#endif
 		placed->phased_applied = FALSE;
 	}
 }

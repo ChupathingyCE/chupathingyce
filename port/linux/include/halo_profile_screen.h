@@ -46,7 +46,6 @@ goes back to; Gearbox's from Select Profile), and whether it or a dialog of
 its is up, taking the input */
 void profile_screen_open(boolean from_online_games);
 boolean profile_screen_active(void);
-boolean profile_screen_dialog_active(void);
 boolean profile_screen_dialog_only(void);
 void profile_screen_process(void);
 void profile_screen_render(void);
@@ -98,6 +97,11 @@ boolean profile_names_player(long player_index, wchar_t *name, long size);
 verified in a game on Delta and shown by their name, with display.verified_mark
 and display.profile_names on */
 boolean profile_names_verified(long player_index);
+/* whether a player's helmet has a developer's blue flame (profile_names.c,
+developer_flames.c): verified as profile_names_verified's player, whose
+card's certificate is this network's and carries the developer mark, with
+display.developer_flames and display.profile_names on */
+boolean profile_names_developer(long player_index);
 
 /* the name a local player plays under (the game name it joins with): while
 its Halo profile is linked to a Delta profile, the handle in the capitals

@@ -262,10 +262,19 @@ console's own memory (cseries/xbox_address.h) */
 #define PLATFORM_CONTIGUOUS_MAXIMUM PLATFORM_CONTIGUOUS_SIZE
 #else
 /* the desktop builds' (Linux, macOS, Windows) and the native 64-bit
-Android build's: four times a 128 MB
-development kit's, for their larger texture cache (halo_port_capacity.h);
-port/windows/src/win32_memory_watch.c has the same */
+Android build's: four times a 128 MB development kit's, for their larger
+texture cache (halo_port_capacity.h), and eight times in the 64-bit builds,
+whose window is in their own Xbox address space and backed only where it is
+written (xbox_memory.c): the 64-bit desktop clients and Android's, not the
+dedicated server, iOS and tvOS (their memory limits) or a console port; the
+same test as halo_port_capacity.h's texture cache, and
+port/windows/src/win32_memory_watch.c has the same (tools/test_texture_cache_platforms.py) */
+#if defined(HALO_64BIT) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && \
+	!defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_IOS) && !defined(HALO_TVOS)
+#define PLATFORM_CONTIGUOUS_SIZE 0x40000000U
+#else
 #define PLATFORM_CONTIGUOUS_SIZE 0x20000000U
+#endif
 #define PLATFORM_CONTIGUOUS_MAXIMUM PLATFORM_CONTIGUOUS_SIZE
 #endif
 #define PLATFORM_ANY_PHYSICAL_ADDRESS 0xffffffffU
@@ -274,8 +283,6 @@ port/windows/src/win32_memory_watch.c has the same */
 /* the console's: reserves size bytes of address space, uncommitted (the
 memory mapping calls commit them), and returns where; NULL if it cannot */
 void *platform_xbox_window_reserve(unsigned int size);
-/* reserves the window now if it is not yet (xbox_memory.c does at start-up) */
-void platform_xbox_window_ensure(void);
 /* a host pointer's Xbox address, unchecked */
 #define PLATFORM_XBOX_OFFSET(pointer) \
 	((unsigned long long)(unsigned int)((uintptr_t)(pointer) - xbox_address_space_base))

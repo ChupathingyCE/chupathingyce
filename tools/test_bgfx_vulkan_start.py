@@ -19,7 +19,10 @@ for what is still unknown:
 - a Vulkan start leaves a note in the save root that the game's first
   frames after its first map loads remove (never the setup screen's); a note found at the next start means the last one closed before
   them, and that start draws with OpenGL and asks whether to stay there; the
-  setting changes only on a yes.
+  setting changes only on a yes. The setup screen's own restart (a setting
+  that needs one, such as the renderer) takes the note away, and the next
+  start tries Vulkan again (#1665). Nothing else does: a black window left
+  with Escape, Quit or its close button still goes to OpenGL next (#1046).
 """
 from pathlib import Path
 
@@ -106,6 +109,59 @@ def test_a_start_that_did_not_get_going_goes_to_opengl():
 	launcher = function_body(source, "BOOL xgpu_bgfx_launcher_frame(")
 	assert "bg_frame_out();" not in launcher
 	assert 'getenv("HALO_BGFX_START_NOTE")' in function_body(source, "static BOOL bg_start_note_wanted(")
+
+
+def test_setup_screen_restart_is_not_a_failed_start():
+	"""#1665: choosing Vulkan on the setup screen restarts the game for it;
+	a start that drew the setup screen on Vulkan and was closed by that
+	restart is not one that didn't get going"""
+	source = read(SOURCE)
+	clear = function_body(source, "void xgpu_bgfx_start_note_clear(")
+	assert "if (!bg_vulkan || !bg_start_note_wanted())" in clear
+	assert "bg_start_note_path(path, sizeof(path));" in clear
+	assert "remove(path)" in clear
+	assert "void xgpu_bgfx_start_note_clear(void);" in read(ROOT / "port" / "linux" / "src" / "xgpu.h")
+	launcher = read(ROOT / "port" / "linux" / "src" / "launcher.c")
+	purpose = function_body(launcher, "static void closing_on_purpose(")
+	assert "if (xgpu_bgfx)" in purpose and "xgpu_bgfx_start_note_clear();" in purpose
+	# (before either way of starting again: in this same process, which never
+	# returns, or a new one)
+	restart = function_body(launcher, "static int restart_with(")
+	cleared = restart.index("closing_on_purpose();")
+	assert cleared < restart.index("update_launch_with(path, argument)")
+	assert cleared < restart.index("update_start_in_place_with(path, argument)")
+	to_setup = function_body(launcher, "int launcher_restart_to_setup(")
+	assert to_setup.index("closing_on_purpose();") < to_setup.index('update_launch_with(path, "--setup")')
+	# (only those restarts: the cleared note's only callers)
+	assert launcher.count("closing_on_purpose();") == 2
+	assert "xgpu_bgfx_start_note_clear" not in launcher.replace(purpose, "")
+
+
+def test_black_window_left_still_falls_back():
+	"""#1046 against #1665: a Vulkan window that never shows a picture is
+	left blind, with Escape or B (Welcome's QUIT, back), Quit or the close
+	button; none of them may take the note away, so the next start draws with
+	OpenGL"""
+	launcher = read(ROOT / "port" / "linux" / "src" / "launcher.c")
+	back = function_body(launcher, "static void back(")
+	welcome = back.index("case _screen_welcome:")
+	assert "closing_on_purpose" not in back[welcome:back.index("exit(EXIT_SUCCESS);", welcome)]
+	quit_at = launcher.index('platform_log("launcher: quit");')
+	assert "closing_on_purpose" not in launcher[quit_at:launcher.index("exit(EXIT_SUCCESS);", quit_at)]
+	assert "closing_on_purpose" not in function_body(launcher, "static void events(")
+	assert "closing_on_purpose" not in function_body(launcher, "static void input(")
+	assert "closing_on_purpose" not in function_body(launcher, "static void script_step(")
+
+
+def test_fallback_says_what_was_asked_for_and_what_draws():
+	platform = read(ROOT / "port" / "linux" / "src" / "sdl_platform.c")
+	# (bgfx's, the first: Android's Vulkan backend has its own after it)
+	start = platform.index("BOOL platform_video_reopen_for_gl(")
+	reopen = platform[start:platform.index("\n}\n", start)]
+	assert "renderer: asked for %s (bgfx, display.renderer" in reopen
+	assert "drawing with OpenGL" in reopen and "platform_bgfx_name()" in reopen
+	name = function_body(platform, "static const char *platform_bgfx_name(")
+	assert '"Metal"' in name and '"Vulkan"' in name and '"Direct3D 11"' in name
 
 
 def test_opengl_for_good_only_on_a_yes():

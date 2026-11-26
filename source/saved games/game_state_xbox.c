@@ -158,6 +158,17 @@ static HANDLE game_state_open_persistent_storage(
 
 static struct xbox_game_state_globals_prefix xbox_game_state_globals = { 0 };
 
+/* port: the persistent storage's zeroes and its checksum's reads, which
+retail kept on the stack (16 KB and 128 KB). With the calls under them that
+was 144 KB of stack in one place, more than a Wii U application's main
+thread has, and the campaign froze after its map loaded. One buffer serves
+both: the zeroes are written before the reads begin. The original Xbox keeps
+retail's stack buffers: its 512 KB stack has room for them. */
+#define PERSISTENT_STORAGE_BUFFER_SIZE (128*1024)
+#ifndef HALO_XBOX_CONSOLE
+static byte persistent_storage_buffer[PERSISTENT_STORAGE_BUFFER_SIZE];
+#endif
+
 
 #ifdef HALO_XBOX_CONSOLE
 /* the console has no room beside the game state (3.3 MB on a 64 MB box), so a
@@ -186,6 +197,65 @@ static boolean game_state_read_in_place(
 	}
 
 	return game_state_image_accept(base, size);
+}
+#else
+/* port: the native builds read a saved game beside the game state and take
+it once checked (game_state_image_accept). The block it is read into is made
+at the first read and kept: a revert, a core and the saved game each made
+and freed one of the game state's whole size (16 MB on the consoles), which
+a console's heap may not have in one piece by then. Only a campaign reads
+one, so the most the game holds is no more than before. It is let go when a
+map that is not a campaign's starts, and at the end
+(game_state_image_buffer_release). */
+static void *game_state_image;
+static long game_state_image_size;
+
+#ifdef HALO_CONSOLE_STATE_IN_PLACE
+/* port: a console whose heap has no room for a second game state (the Vita:
+its 20 MB state in a 48 MB heap) reads a saved game straight into the game
+state, as the original Xbox does (game_state_read_in_place): the "image" is
+the game state itself, which game_state_image_accept checks where it lies.
+A file refused after its read leaves the state unusable, and the map starts
+over (game_state_revert, game_state_read_from_persistent_storage). The saved
+game a campaign map starts from is checked first, its checksum read through a
+small buffer, and read over the game state only when it is taken
+(game_state_take_persistent_storage_image) */
+static boolean game_state_image_in_place(
+	void const *image)
+{
+	return image && image == xbox_game_state_globals.buffer;
+}
+#endif
+
+#line 213
+static void *game_state_image_buffer(
+	long size)
+{
+#ifdef HALO_CONSOLE_STATE_IN_PLACE
+	return size == xbox_game_state_globals.buffer_size ? xbox_game_state_globals.buffer : NULL;
+#else
+#line 216
+	if (size > game_state_image_size)
+	{
+		/* (the game's free takes no NULL: debug_memory.c) */
+		if (game_state_image)
+			free(game_state_image);
+		game_state_image = malloc(size);
+		game_state_image_size = game_state_image ? size : 0;
+	}
+
+	return game_state_image;
+#endif
+#line 226
+}
+
+void game_state_image_buffer_release(
+	void)
+{
+	if (game_state_image)
+		free(game_state_image);
+	game_state_image = NULL;
+	game_state_image_size = 0;
 }
 #endif
 
@@ -395,7 +465,7 @@ boolean game_state_read_from_file(
 	}
 #else
 	/* port: read beside the game state, and taken once checked */
-	image = malloc(xbox_game_state_globals.buffer_size);
+	image = game_state_image_buffer(xbox_game_state_globals.buffer_size);
 	if (image &&
 		SetFilePointer(xbox_game_state_globals.handle, 0, NULL, FILE_BEGIN) !=
 			INVALID_SET_FILE_POINTER &&
@@ -408,7 +478,7 @@ boolean game_state_read_from_file(
 	}
 	else
 	{
-#ifdef HALO_SWITCH_CONSOLE
+#if defined(HALO_SWITCH_CONSOLE) || defined(HALO_CONSOLE_STATE_IN_PLACE)
 		/* port: a file that cannot be read, or an image that is not taken
 		(game_state_image_accept: a saved game of another build, or one
 		written with the window elsewhere), is not the end of the game:
@@ -426,7 +496,6 @@ boolean game_state_read_from_file(
 #endif
 #line 415
 	}
-	free(image);
 #endif
 
 	return result;
@@ -512,7 +581,7 @@ void game_state_read_core(
 	char path[1024];
 	HANDLE file;
 	unsigned long bytes_read;
-	void *image = malloc(buffer_size);
+	void *image = game_state_image_buffer(buffer_size);
 
 	sprintf(path, "d:\\core\\%s", name);
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
@@ -528,7 +597,6 @@ void game_state_read_core(
 		"game state has been corrupted (thank you, come again)");
 	(void)buffer;
 	CloseHandle(file);
-	free(image);
 
 	return;
 #endif
@@ -565,7 +633,13 @@ static HANDLE game_state_open_persistent_storage(
 	const char *directory)
 {
 	char path[256];
-	byte zeroes[16*1024];
+	enum { ZEROES_SIZE = 16*1024 };
+#ifdef HALO_XBOX_CONSOLE
+	byte zeroes[ZEROES_SIZE];
+#else
+	/* (retail's 16 KB of zeroes) */
+	byte *zeroes = persistent_storage_buffer;
+#endif
 	HANDLE file;
 	unsigned long bytes_written;
 	boolean success = FALSE;
@@ -589,9 +663,9 @@ static HANDLE game_state_open_persistent_storage(
 			success = TRUE;
 			if (GetFileSize(file, NULL) != GAME_STATE_FILE_SIZE)
 			{
-				memset(zeroes, 0, sizeof(zeroes));
-				if (!WriteFile(file, zeroes, sizeof(zeroes), &bytes_written, NULL) ||
-					bytes_written != sizeof(zeroes) ||
+				memset(zeroes, 0, ZEROES_SIZE);
+				if (!WriteFile(file, zeroes, ZEROES_SIZE, &bytes_written, NULL) ||
+					bytes_written != ZEROES_SIZE ||
 					SetFilePointer(file, GAME_STATE_FILE_SIZE, NULL, FILE_BEGIN) ==
 						INVALID_SET_FILE_POINTER ||
 					!SetEndOfFile(file))
@@ -644,7 +718,11 @@ boolean game_state_read_header_from_persistent_storage(
 	long buffer_size,
 	boolean *corrupted)
 {
-	byte buffer[128*1024];
+#ifdef HALO_XBOX_CONSOLE
+	byte buffer[PERSISTENT_STORAGE_BUFFER_SIZE];
+#else
+	byte *buffer = persistent_storage_buffer;
+#endif
 	HANDLE file;
 	unsigned long checksum;
 	unsigned long stored_checksum;
@@ -686,7 +764,7 @@ boolean game_state_read_header_from_persistent_storage(
 			remaining_size = buffer_size-header_size;
 			while (remaining_size>0)
 			{
-				read_size = MIN(sizeof(buffer), remaining_size);
+				read_size = MIN(PERSISTENT_STORAGE_BUFFER_SIZE, remaining_size);
 				if (ReadFile(file, buffer, read_size, &bytes_read, NULL) &&
 					bytes_read == read_size)
 				{
@@ -794,7 +872,7 @@ void game_state_read_from_persistent_storage(
 		(void)buffer;
 #else
 		/* port: read beside the game state, and taken once checked */
-		void *image = malloc(buffer_size);
+		void *image = game_state_image_buffer(buffer_size);
 
 		if (!image ||
 			SetFilePointer(file, 0, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER ||
@@ -809,9 +887,14 @@ void game_state_read_from_persistent_storage(
 				csprintf(temporary, "failed to read from persistent storage (#%d)",
 					GetLastError()));
 			delete_persistent_storage();
+#ifdef HALO_CONSOLE_STATE_IN_PLACE
+			/* (read over the game state: the map starts over) */
+			if (game_state_image_in_place(image))
+				main_reset_map();
+#endif
+#line 866
 		}
 		(void)buffer;
-		free(image);
 #endif
 		CloseHandle(file);
 	}
@@ -830,5 +913,134 @@ void game_state_create_persistent_storage(
 
 	return;
 }
+
+/* port: the saved game's header alone, read without making the file or
+reading on. FALSE for no file, or one of another size (one never written
+whole, which holds no saved game). */
+boolean game_state_read_persistent_storage_header(
+	void *header,
+	long header_size)
+{
+	char path[256];
+	HANDLE file;
+	unsigned long bytes_read;
+	boolean result = FALSE;
+
+	if (!game_state_get_persistent_storage_path(path))
+		return FALSE;
+	strcat(path, "savegame.bin");
+	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (file == INVALID_HANDLE_VALUE)
+		return FALSE;
+	if (GetFileSize(file, NULL) == GAME_STATE_FILE_SIZE &&
+		ReadFile(file, header, header_size, &bytes_read, NULL) &&
+		bytes_read == header_size)
+	{
+		game_state_header_terminate(header, header_size);
+		result = TRUE;
+	}
+	CloseHandle(file);
+
+	return result;
+}
+
+#ifndef HALO_XBOX_CONSOLE
+/* port: the saved game read once, into the image's block, and checked
+there: its checksum is the one game_state_write_to_persistent_storage made,
+of the whole state with the checksum's own field as zero. Retail read the
+file twice, once for the checksum (game_state_read_header_from_persistent_storage)
+and once to take it. The image, or NULL. */
+void *game_state_read_persistent_storage_image(
+	long checksum_offset,
+	long buffer_size)
+{
+	enum { CHUNK_SIZE = 1024*1024 };
+	char path[256];
+	HANDLE file;
+	byte *image;
+	unsigned long stored_checksum;
+	unsigned long checksum;
+	long offset;
+	void *result = NULL;
+
+	if (!game_state_get_persistent_storage_path(path))
+		return NULL;
+	strcat(path, "savegame.bin");
+	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (file == INVALID_HANDLE_VALUE)
+		return NULL;
+	image = game_state_image_buffer(buffer_size);
+#ifdef HALO_CONSOLE_STATE_IN_PLACE
+	if (game_state_image_in_place(image))
+	{
+		/* only checked here, through a small buffer, as retail did; read
+		over the game state once it is taken (game_state_take_persistent_storage_image) */
+		struct game_state_header header;
+
+		CloseHandle(file);
+		if (checksum_offset < 0 || checksum_offset + (long)sizeof(unsigned long) > (long)sizeof(header) ||
+			!game_state_read_header_from_persistent_storage(&header,
+				(unsigned long *)((char *)&header + checksum_offset), sizeof(header), buffer_size, NULL))
+			return NULL;
+		return image;
+	}
+#endif
+#line 943
+	for (offset = 0; image && offset < buffer_size; offset += CHUNK_SIZE)
+	{
+		unsigned long bytes_read;
+		long chunk = MIN(CHUNK_SIZE, buffer_size - offset);
+
+		if (!ReadFile(file, image + offset, chunk, &bytes_read, NULL) || bytes_read != chunk)
+			break;
+		/* (the sound goes on between the reads, as in retail's checksum) */
+		sound_idle();
+	}
+	CloseHandle(file);
+	if (image && offset >= buffer_size)
+	{
+		memcpy(&stored_checksum, image + checksum_offset, sizeof(stored_checksum));
+		memset(image + checksum_offset, 0, sizeof(stored_checksum));
+		crc_new(&checksum);
+		crc_checksum_buffer(&checksum, image, buffer_size);
+		memcpy(image + checksum_offset, &stored_checksum, sizeof(stored_checksum));
+		if (checksum == stored_checksum)
+			result = image;
+		else
+			error(_error_silent, "checksum failed on persistent storage");
+	}
+
+	return result;
+}
+
+/* port: an image read and checked above, taken as the game state; one that
+is refused is gone, as game_state_read_from_persistent_storage's is */
+void game_state_take_persistent_storage_image(
+	void *image,
+	long buffer_size)
+{
+#ifdef HALO_CONSOLE_STATE_IN_PLACE
+	if (game_state_image_in_place(image))
+	{
+		/* (checked, not read yet: game_state_read_persistent_storage_image) */
+		game_state_read_from_persistent_storage(image, buffer_size);
+		return;
+	}
+#endif
+#line 976
+	if (!game_state_image_accept(image, buffer_size))
+	{
+		match_vassert(
+			"c:\\halo\\SOURCE\\saved games\\game_state_xbox.c",
+			383,
+			FALSE,
+			csprintf(temporary, "failed to read from persistent storage (#%d)",
+				GetLastError()));
+		delete_persistent_storage();
+	}
+
+	return;
+}
+#endif
 
 /* ---------- private code */

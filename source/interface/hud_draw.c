@@ -659,6 +659,88 @@ static boolean hud_point_sampled(
 		xy_scale->j == 1.0f;
 }
 
+/* the rasterizer's combine for a multitexture overlay's blending function */
+static short hud_multitexture_blend_code(
+	short blending_function)
+{
+	switch (blending_function)
+	{
+	case _hud_multitexture_overlay_blend_function_add:
+		return _shader_framebuffer_blend_function_alpha_blend;
+	case _hud_multitexture_overlay_blend_function_subtract:
+		return _shader_framebuffer_blend_function_double_multiply;
+	case _hud_multitexture_overlay_blend_function_multiply:
+		return _shader_framebuffer_blend_function_multiply;
+	case _hud_multitexture_overlay_blend_function_multiply2x:
+		return _shader_framebuffer_blend_function_add;
+	case _hud_multitexture_overlay_blend_function_dot:
+		return _shader_framebuffer_blend_function_subtract;
+	}
+	return _shader_framebuffer_blend_function_alpha_blend;
+}
+
+#ifdef HALO_CUSTOM_EDITION
+#include "opensauce.h"
+
+/* port: Halo PC picks the pixel shader of a three map overlay from a list of
+its 25 pairs of blending functions (add, dot, multiply, multiply 2x, subtract
+for each of the two), but one place too early: it draws the pair before the
+one the tag asks for, and for add then add the first map alone. Chimera
+fixes the order for every map and keeps Halo PC's order only for a list of
+older Custom Edition maps (matched by name and tag checksum). OpenSauce maps
+(SPV3's) were made against Halo PC's order, so we keep it for them: their
+overlays are drawn with the pair Halo PC draws (SPV3's dynamic reticles drew
+a flat square at the crosshair with the pair asked for). FALSE, and the overlay drawn as the Xbox draws it, for any
+other map. Two map overlays are left as they are: Halo PC's second pair
+there reads a texture stage nothing set. */
+static boolean hud_multitexture_overlay_gearbox_pair(
+	short const blending_function[2],
+	short pc_blending_function[2],
+	boolean *first_map_only)
+{
+	/* each blending function's place in Halo PC's list, and back */
+	static short const place[NUMBER_OF_HUD_MULTITEXTURE_OVERLAY_BLEND_FUNCTIONS] =
+	{
+		0, /* add */
+		4, /* subtract */
+		2, /* multiply */
+		3, /* multiply 2x */
+		1, /* dot */
+	};
+	static short const function_at[NUMBER_OF_HUD_MULTITEXTURE_OVERLAY_BLEND_FUNCTIONS] =
+	{
+		_hud_multitexture_overlay_blend_function_add,
+		_hud_multitexture_overlay_blend_function_dot,
+		_hud_multitexture_overlay_blend_function_multiply,
+		_hud_multitexture_overlay_blend_function_multiply2x,
+		_hud_multitexture_overlay_blend_function_subtract,
+	};
+	static boolean logged = FALSE;
+	short pair;
+
+	if (!opensauce_map_active() ||
+		blending_function[0] < 0 || blending_function[0] >= NUMBER_OF_HUD_MULTITEXTURE_OVERLAY_BLEND_FUNCTIONS ||
+		blending_function[1] < 0 || blending_function[1] >= NUMBER_OF_HUD_MULTITEXTURE_OVERLAY_BLEND_FUNCTIONS)
+	{
+		return FALSE;
+	}
+	if (!logged)
+	{
+		logged = TRUE;
+		error(_error_silent, "OpenSauce map: HUD multitexture overlays drawn with Halo PC's blending functions");
+	}
+	pair = place[blending_function[0]] * NUMBER_OF_HUD_MULTITEXTURE_OVERLAY_BLEND_FUNCTIONS +
+		place[blending_function[1]] - 1;
+	*first_map_only = pair < 0;
+	if (pair >= 0)
+	{
+		pc_blending_function[0] = function_at[pair / NUMBER_OF_HUD_MULTITEXTURE_OVERLAY_BLEND_FUNCTIONS];
+		pc_blending_function[1] = function_at[pair % NUMBER_OF_HUD_MULTITEXTURE_OVERLAY_BLEND_FUNCTIONS];
+	}
+	return TRUE;
+}
+#endif
+
 static void hud_draw_multitexture_overlay(
 	struct multitexture_overlay_hud_element_definition const *overlay,
 	short local_player_index,
@@ -796,33 +878,8 @@ static void hud_draw_multitexture_overlay(
 				&parameters.map1_to_2_blend_function
 			};
 
-			switch (overlay->map_blending_function[map_index])
-			{
-			case _hud_multitexture_overlay_blend_function_add:
-				*out_modes[map_index] =
-					_shader_framebuffer_blend_function_alpha_blend;
-				break;
-
-			case _hud_multitexture_overlay_blend_function_subtract:
-				*out_modes[map_index] =
-					_shader_framebuffer_blend_function_double_multiply;
-				break;
-
-			case _hud_multitexture_overlay_blend_function_multiply:
-				*out_modes[map_index] =
-					_shader_framebuffer_blend_function_multiply;
-				break;
-
-			case _hud_multitexture_overlay_blend_function_multiply2x:
-				*out_modes[map_index] =
-					_shader_framebuffer_blend_function_add;
-				break;
-
-			case _hud_multitexture_overlay_blend_function_dot:
-				*out_modes[map_index] =
-					_shader_framebuffer_blend_function_subtract;
-				break;
-			}
+			*out_modes[map_index] =
+				hud_multitexture_blend_code(overlay->map_blending_function[map_index]);
 		}
 		else
 		{
@@ -1019,7 +1076,33 @@ static void hud_draw_multitexture_overlay(
 		}
 	}
 
-	rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
+	/* port: an overlay without a first map has nothing to draw. The
+	rasterizer asserts it has one; without it the quad took whatever texture
+	and pixel shader the last screen quad left (CE+ Xbox's cex_overscan has
+	such an empty overlay: #1460) */
+#ifdef HALO_CUSTOM_EDITION
+	if (parameters.map[0] && parameters.map[1] && parameters.map[2])
+	{
+		short pc_blending_function[2];
+		boolean first_map_only = FALSE;
+
+		if (hud_multitexture_overlay_gearbox_pair(overlay->map_blending_function, pc_blending_function, &first_map_only))
+		{
+			if (first_map_only)
+			{
+				parameters.map[1] = NULL;
+				parameters.map[2] = NULL;
+			}
+			else
+			{
+				parameters.map0_to_1_blend_function = hud_multitexture_blend_code(pc_blending_function[0]);
+				parameters.map1_to_2_blend_function = hud_multitexture_blend_code(pc_blending_function[1]);
+			}
+		}
+	}
+#endif
+	if (parameters.map[0])
+		rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
 
 	match_assert_stack_frame("c:\\halo\\SOURCE\\interface\\hud_draw.c", 1372);
 
@@ -1492,21 +1575,22 @@ The Xbox lays a view's HUD out in its window: the title-safe frame of the
 640x480 screen (48 columns and 36 lines in from each edge, 7.5%:
 _rasterizer_initialize), split for split screen with only 4 pixels between
 a view's window and the line between views (compute_window_bounds). So in
-split screen a view's HUD sits far in from the screen's edges and close to
-the other views', as on the Xbox (retail: compute_window_bounds at
-0x000bba00, the frame set at 0x0007fadc). "xbox" keeps that (the consoles'
-default: televisions overscan); "pc" puts it 8 in from the screen's edges,
-as Halo PC does; "auto" (the desktop's and Android's default:
-port_config.c's DEFAULT_HUD_SAFE_ZONE) is the Xbox's alone and Halo PC's in
-split screen; two numbers ("24 18") set the
-columns and the lines, 8 to 48 and 8 to 36. Only the edges that are the
-screen's move: the 4 pixels between views stay. The range and the
-two-number form follow Chimera's chimera_safe_zones, by SnowyMouse
-(GPL-3.0), thanks!
+split screen a view's window sits off its view's middle, far in from the
+screen's edges and close to the other views', as on the Xbox (retail:
+compute_window_bounds at 0x000bba00, the frame set at 0x0007fadc). "xbox"
+keeps that (the consoles' default: televisions overscan); "pc" puts the HUD
+8 in from each view's edges, as Halo PC does; "auto" (the desktop's and
+Android's default: port_config.c's DEFAULT_HUD_SAFE_ZONE) is the Xbox's
+alone and Halo PC's in split screen; two numbers ("24 18") set the columns
+and the lines, 8 to 48 and 8 to 36. The range and the two-number form follow
+Chimera's chimera_safe_zones, by SnowyMouse (GPL-3.0), thanks!
 
-Only the HUD's corners and edges move. The window itself, which the 3D
-view's projection and the crosshair are centered in, stays as it is, so the
-aim doesn't move. Local only: nothing here is sent. */
+With other than the Xbox's margins, each split screen view's window is also
+put in the middle of its view (compute_window_bounds, at its end:
+hud_safe_zone_centers_windows), so its crosshair, its aim (the view's
+projection is built about the window's middle), its first-person weapon and
+the HUD's middle pieces are in the view's middle, and every view looks the
+same. Only drawing changes: nothing here is sent or simulated. */
 enum
 {
 	HUD_SAFE_ZONE_XBOX_COLUMNS = 48,
@@ -1590,11 +1674,20 @@ static void hud_safe_zone_margins(
 	}
 }
 
+boolean hud_safe_zone_centers_windows(
+	void)
+{
+	short columns;
+	short lines;
+
+	hud_safe_zone_margins(&columns, &lines);
+	return columns != HUD_SAFE_ZONE_XBOX_COLUMNS || lines != HUD_SAFE_ZONE_XBOX_LINES;
+}
+
 void hud_safe_zone_bounds(
 	rectangle2d *bounds)
 {
 	rectangle2d const *screen = &rasterizer_globals.reserved04.screen_bounds;
-	rectangle2d const *frame = &rasterizer_globals.reserved04.frame_bounds;
 	rectangle2d const *viewport = &render.camera.viewport_bounds;
 	short columns;
 	short lines;
@@ -1605,18 +1698,15 @@ void hud_safe_zone_bounds(
 		return;
 
 	/* (in the screen's units: a wider screen's frame is as much wider,
-	_rasterizer_initialize; each edge from the frame's, so the Xbox's own
-	4 pixels at a lone column's right and a lone row's bottom stay) */
+	_rasterizer_initialize; the same in from each of the view's edges, so
+	each view's HUD sits in it as the others' do, its window in its middle:
+	compute_window_bounds) */
 	columns = (short)(columns * (screen->x1 - screen->x0) / HUD_SAFE_ZONE_SCREEN_COLUMNS);
 	lines = (short)(lines * (screen->y1 - screen->y0) / HUD_SAFE_ZONE_SCREEN_LINES);
-	if (viewport->x0 <= screen->x0)
-		bounds->x0 = (short)(bounds->x0 - (frame->x0 - screen->x0 - columns));
-	if (viewport->x1 >= screen->x1)
-		bounds->x1 = (short)(bounds->x1 + (screen->x1 - frame->x1 - columns));
-	if (viewport->y0 <= screen->y0)
-		bounds->y0 = (short)(bounds->y0 - (frame->y0 - screen->y0 - lines));
-	if (viewport->y1 >= screen->y1)
-		bounds->y1 = (short)(bounds->y1 + (screen->y1 - frame->y1 - lines));
+	bounds->x0 = (short)(viewport->x0 + columns);
+	bounds->x1 = (short)(viewport->x1 - columns);
+	bounds->y0 = (short)(viewport->y0 + lines);
+	bounds->y1 = (short)(viewport->y1 - lines);
 }
 
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE

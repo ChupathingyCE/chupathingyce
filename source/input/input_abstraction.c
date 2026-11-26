@@ -320,7 +320,7 @@ enum
 	_port_icon_left_stick = 16,
 	_port_icon_right_stick,
 	_port_icon_action,
-	_port_icon_zoom = 27,
+	_port_icon_crouch = 27,
 	_port_icon_accept,
 	_port_icon_back,
 	_port_icon_move,
@@ -328,8 +328,8 @@ enum
 };
 
 /* (the keyboard's action of each of the game's controls' icons, action to
-zoom) */
-static long const port_icon_keyboard_actions[_port_icon_zoom - _port_icon_action + 1] =
+crouch: retail's maps put zoom before crouch) */
+static long const port_icon_keyboard_actions[_port_icon_crouch - _port_icon_action + 1] =
 {
 	HALO_KEYBOARD_ACTION,
 	HALO_KEYBOARD_THROW_GRENADE,
@@ -339,8 +339,8 @@ static long const port_icon_keyboard_actions[_port_icon_zoom - _port_icon_action
 	HALO_KEYBOARD_MELEE,
 	HALO_KEYBOARD_SWITCH_WEAPON,
 	HALO_KEYBOARD_SWITCH_GRENADE,
-	HALO_KEYBOARD_CROUCH,
 	HALO_KEYBOARD_ZOOM,
+	HALO_KEYBOARD_CROUCH,
 };
 
 /* the keyboard's action for one of the Xbox's buttons in a game: the game
@@ -416,7 +416,7 @@ boolean input_abstraction_port_icon_key(
 	else if (icon_type == _port_icon_right_stick)
 		icon_type = _port_icon_look;
 
-	if (icon_type >= _port_icon_action && icon_type <= _port_icon_zoom)
+	if (icon_type >= _port_icon_action && icon_type <= _port_icon_crouch)
 		action = port_icon_keyboard_actions[icon_type - _port_icon_action];
 	else if (icon_type == _port_icon_look)
 		csstrcpy(shown, "Mouse");

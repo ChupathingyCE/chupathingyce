@@ -229,6 +229,12 @@ extern boolean debug_sound_environment;
 
 long global_scenario_index = NONE;
 short global_structure_bsp_index = NONE;
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+/* port: one more each time the structure bsp is loaded or let go of, for what
+keeps answers of the bsp's tests (collisions.c's obstruction rays): a bsp of
+another map may be read at the same address */
+unsigned long scenario_structure_bsp_generation = 1;
+#endif
 
 static scenario_structure_bsp_connection_proc scenario_structure_bsp_reconnect_proc_table[] =
 {
@@ -382,6 +388,9 @@ void scenario_unload(
 	global_collision_bsp = NULL;
 	global_bsp3d = NULL;
 	global_game_globals = NULL;
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+	scenario_structure_bsp_generation++;
+#endif
 
 	return;
 }
@@ -390,6 +399,14 @@ struct scenario *global_scenario_try_and_get(
 	void)
 {
 	return global_scenario;
+}
+
+/* port: the loaded structure bsp, or NULL with none (a failed switch),
+without global_structure_bsp_get's assert: the main loop checks for one */
+struct structure_bsp *global_structure_bsp_try_and_get(
+	void)
+{
+	return global_structure_bsp;
 }
 
 struct scenario *global_scenario_get(
@@ -526,6 +543,15 @@ long scenario_get_sky_definition_index(
 
 		definition_index = sky_reference->index;
 	}
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge layout's sky in place of the map's
+	(port/linux/game/forge_environment.inc) */
+	{
+		long forge_sky_definition_index(long definition_index);
+
+		definition_index = forge_sky_definition_index(definition_index);
+	}
+#endif
 
 	return definition_index;
 }
@@ -911,7 +937,8 @@ boolean scenario_trigger_volume_test_object(
 {
 	boolean result = FALSE;
 
-	if (object_index != NONE)
+	/* port: an object deleted since a script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 		result = scenario_trigger_volume_test_point(trigger_volume_index, &object_get(object_index)->object.bounding_sphere_center);
 
 	return result;
@@ -1173,6 +1200,9 @@ boolean scenario_switch_structure_bsp(
 				struct collision_bsp);
 			scenario_globals->structure_bsp_index = structure_bsp_index;
 			global_structure_bsp_index = structure_bsp_index;
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+			scenario_structure_bsp_generation++;
+#endif
 			/* port: cache buckets while the newly current bsp's tags are loaded */
 			structure_culling_load_settings();
 			structure_culling_structure_bsp_loaded();
@@ -1559,6 +1589,15 @@ void scenario_get_atmospheric_fog(
 		else
 		{
 			fog = &sky->outdoor_fog;
+#ifndef HALO_CONSOLE_NO_FORGE
+			/* port: a Forge layout's fog outdoors
+			(port/linux/game/forge_environment.inc) */
+			{
+				struct sky_atmospheric_fog const *forge_outdoor_fog(struct sky_atmospheric_fog const *fog);
+
+				fog = (struct sky_atmospheric_fog *)forge_outdoor_fog(fog);
+			}
+#endif
 		}
 		indoor_fog_scale =
 			(short)sky_index == NONE && sky->indoor_fog_screen.index != NONE

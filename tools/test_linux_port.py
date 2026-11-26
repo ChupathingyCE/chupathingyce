@@ -527,7 +527,7 @@ def test_p2p_signatures_and_listings(tmp_path):
     def build(name, *defines):
         program = tmp_path / name
         built = subprocess.run(["clang", *flags, *defines, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all",
-                                "-o", str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c",
+                                "-o", str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c", "port/linux/game/content_sha256.c",
                                 "port/linux/src/p2p_lobby.c", "port/linux/src/p2p_copies.c",
                                 "port/linux/src/delta_compat.c",
                                 "port/third_party/monocypher/monocypher.c",
@@ -597,8 +597,8 @@ def test_system_link_bots_messages_are_the_games():
 
 def test_network_format_is_the_recorded_one():
     """what the machines send each other is what port/linux/network_format.txt
-    records for MCC_PROTOCOL_VERSION, and NETCODE.md says what that version
-    changed. The ordinary OpenCE contract is pinned by test_mcc_protocol.py."""
+    records for HALO_PORT_NETWORK_VERSION, and NETCODE.md says what that
+    version changed."""
     from tools import network_format
 
     problems = network_format.check()

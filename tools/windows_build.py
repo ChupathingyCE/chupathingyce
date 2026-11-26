@@ -4,9 +4,7 @@ windows64``).
 Like the Linux build (tools/linux_build.py), it compiles the game sources
 with clang for 32-bit x86 Windows (i686-pc-windows-msvc), adds the platform layer shared with
 Linux (``port/linux/src``) and the Windows parts in ``port/windows``, and
-links ``build/windows/chupathingy.exe`` with lld (and the small
-``halo.exe`` beside it that starts it, for what started the game by its old
-name: port/linux/src/rename_stub.h). It is generated only when
+links ``build/windows/chupathingy.exe`` with lld. It is generated only when
 configure.py runs on Windows. See port/windows/README.md for the design.
 
 ``ninja windows64`` compiles the same units for x64 Windows
@@ -528,8 +526,8 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     # at the first failed assertion; a release build does not, so that an
     # overrun nobody has met cannot end a game)
     # the ragdolls' Jolt Physics (linux_build.py, JOLT_DIR): the game's, not
-    # the dedicated server's
-    use_jolt = not target.server
+    # the dedicated server's, unless configure.py --without-ragdolls
+    use_jolt = not target.server and getattr(sln, "with_ragdolls", True)
     abi = " ".join(target.abi_flags + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False)
                                                            else ["-fstack-protector-strong"])
                    + game_browser_defines(sln) + (["-DHALO_JOLT"] if use_jolt else []))
@@ -833,29 +831,5 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build / "brokers.txt"
     n.build(outputs=brokers, rule=f"{prefix}_copy", inputs=Path("port/assets/network/brokers.txt"))
-    # halo.exe, which starts chupathingy.exe, for shortcuts, Steam entries and
-    # scripts made for the old name, and the updaters from before the rename,
-    # which start halo.exe again (port/rename_stub/halo_stub.c, with the game's
-    # icon; TODO(after 0.9.x): remove)
-    stub = build / "halo.exe"
-    stub_resource = build / "halo_stub.res"
-    stub_object = build / "stub" / "halo_stub.o"
-    n.rule(
-        name=f"{prefix}_stub_rc",
-        command=f"${prefix}_rc /nologo /D HALO_RENAME_STUB /I {build} /I {PORT_DIR} /FO $out $in",
-        description=f"{label} RC $out",
-    )
-    n.build(outputs=stub_resource, rule=f"{prefix}_stub_rc", inputs=PORT_DIR / "halo.rc",
-            implicit=[PORT_DIR / "halo.ico", resource_header])
-    n.build(outputs=stub_object, rule=f"{prefix}_cc", inputs=Path("port/rename_stub/halo_stub.c"),
-            variables={"cflags": " ".join([f"--target={target.triple}", "-O2", "-g", "-gcodeview", *WIN32_FLAGS,
-                                           "-DUNICODE", "-D_UNICODE", "-D_CRT_SECURE_NO_WARNINGS",
-                                           f"-I{LINUX_DIR / 'src'}"])})
-    stub_subsystem = "WINDOWS" if getattr(sln, "port_release", False) else "CONSOLE"
-    n.build(outputs=stub, rule=f"{prefix}_link", inputs=[stub_object, stub_resource],
-            variables={"ldflags": " ".join([f"--target={target.triple}", "-fuse-ld=lld", "-g",
-                                            f"-Wl,/SUBSYSTEM:{stub_subsystem}",
-                                            "-Wl,/ENTRY:wWinMainCRTStartup"]),
-                       "libs": "-luser32"})
-    n.build(outputs=prefix, rule="phony", inputs=[output, stub, sdl_dll, brokers])
+    n.build(outputs=prefix, rule="phony", inputs=[output, sdl_dll, brokers])
     n.newline()
