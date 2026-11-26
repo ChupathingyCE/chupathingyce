@@ -143,12 +143,27 @@ typedef char stubbs_actor_variant_size_assert[
 	STUBBS_ACTOR_VARIANT_SIZE - STUBBS_ACTOR_VARIANT_MOVEMENT_OFFSET ==
 		HALO_ACTOR_VARIANT_SIZE - HALO_ACTOR_VARIANT_MOVEMENT_OFFSET ? 1 : -1];
 
-static void stubbs_actor_variant_convert(unsigned char *definition)
+enum
 {
+	STUBBS_ACTOR_VARIANT_WEAPON_OFFSET = 0xB0,
+};
+
+/* FALSE (left as it is) unless Stubbs's weapon reference is where his
+layout has it: a weap reference, or none */
+static boolean stubbs_actor_variant_convert(unsigned char *definition)
+{
+	unsigned long group;
+	long index;
+
+	memcpy(&group, definition + STUBBS_ACTOR_VARIANT_WEAPON_OFFSET, 4);
+	memcpy(&index, definition + STUBBS_ACTOR_VARIANT_WEAPON_OFFSET + 0x0C, 4);
+	if (group != 'weap' && index != NONE)
+		return FALSE;
 	memmove(definition + HALO_ACTOR_VARIANT_MOVEMENT_OFFSET, definition + STUBBS_ACTOR_VARIANT_MOVEMENT_OFFSET,
 		HALO_ACTOR_VARIANT_SIZE - HALO_ACTOR_VARIANT_MOVEMENT_OFFSET);
 	memset(definition + ACTOR_VARIANT_STUBBS_OWN_OFFSET, 0,
 		HALO_ACTOR_VARIANT_MOVEMENT_OFFSET - ACTOR_VARIANT_STUBBS_OWN_OFFSET);
+	return TRUE;
 }
 
 /* the tags being converted (stubbs_mode_convert_tags) */
@@ -427,7 +442,7 @@ static void stubbs_weapon_class_animations_order(unsigned char *base, unsigned l
 sound (390 in the twelve levels: footsteps' dust, the zombies' gore), which
 Halo's graphs never do. Each one's effect is kept in the element's unused
 long and its reference made none, so the graph is Halo's; the unit plays the
-effect where Halo would play the sound (stubbs_mode_animation_effect). The
+effect where Halo would play the sound (stubbs_engine_animation_effect). The
 others' unused long is made none */
 enum
 {
@@ -605,8 +620,9 @@ static long stubbs_animation_convert(unsigned char *base, unsigned long size, un
 
 /* a weapon class's animations in Halo's order. Stubbs's classes have up to 69
 of their own order (some fewer, the same order cut short: the vehicles'
-seats 67, the zombies' maimed seat 68, the head 61), one set of them for each way of moving (the sets, in
-order: standing, forward, back, left, right, then the four diagonals),
+seats 67, the zombies' maimed seat 68, the head 61), one set of them for
+each way of moving (the sets, in order: standing, forward, back, left,
+right, then the four diagonals),
 where Halo has one list of 55 with a slot for each direction. Their order is
 read from the names of a10's classes ("stand unarmed idle", "... move b",
 "... melee s-l"); slots Halo has and Stubbs doesn't are left empty, which
@@ -1059,11 +1075,8 @@ void stubbs_mode_convert_tags(
 		{
 			unsigned char *variant = stubbs_host(base, tag_data_size, address, STUBBS_ACTOR_VARIANT_SIZE);
 
-			if (variant)
-			{
-				stubbs_actor_variant_convert(variant);
+			if (variant && stubbs_actor_variant_convert(variant))
 				converted_actor_variants++;
-			}
 			continue;
 		}
 		if (group == 'wphi')
