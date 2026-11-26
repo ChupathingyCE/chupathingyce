@@ -721,12 +721,6 @@ int mcc_bitmaps_read(struct mcc_runtime *runtime,long tag,uint32_t offset,uint32
     return 0;
 }
 
-uint32_t mcc_bitmaps_stream_end(struct mcc_runtime *runtime)
-{
-    struct mcc_textures *textures=runtime->bitmaps;
-    return textures && textures->stream_end ? MCC_BITMAP_BASE+textures->stream_end : (uint32_t)runtime->source.size;
-}
-
 int mcc_bitmaps_contains(struct mcc_runtime *runtime,uint32_t offset,uint32_t bytes)
 {
     struct mcc_textures *textures=runtime->bitmaps;

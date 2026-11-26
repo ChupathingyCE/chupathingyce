@@ -491,11 +491,6 @@ done:
     return ok;
 }
 
-int mcc_resources_probe(char const *name,struct mcc_cache_source const *source,uint32_t *checksum)
-{
-    return mcc_resources_inspect(name,source,checksum,NULL,NULL,0);
-}
-
 int mcc_resources_probe_explain(char const *name,struct mcc_cache_source const *source,
     uint32_t *checksum,char *reason,size_t size)
 {

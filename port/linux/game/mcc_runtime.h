@@ -68,8 +68,4 @@ void const *mcc_bitmaps_pixels(struct mcc_runtime *runtime,
     struct bitmap_data const *bitmap, uint32_t *bytes, int *coverage);
 void mcc_bitmaps_dispose(struct mcc_runtime *runtime);
 
-/* Returns the maximum exclusive virtual stream offset after conversion. */
-uint32_t mcc_audio_stream_end(struct mcc_runtime *runtime);
-uint32_t mcc_bitmaps_stream_end(struct mcc_runtime *runtime);
-
 #endif
