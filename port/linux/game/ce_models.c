@@ -64,6 +64,7 @@ listed, with a cache block, a texture and channels of its own
 #include <xtl.h>
 #include <stdlib.h>
 #include <string.h>
+#include "content_bytes.h"
 
 /* ---------- constants */
 
@@ -1092,15 +1093,6 @@ typedef char verify_ce_largest_conversion_allocation[
 	CE_ALIGNED((CE_MAXIMUM_PART_TRIANGLES + 2) * 2) <= CE_LARGEST_CONVERSION_ALLOCATION &&
 	CE_ALIGNED(CE_MAXIMUM_GEOMETRY_PARTS * XBOX_PART_SIZE) <= CE_LARGEST_CONVERSION_ALLOCATION ? 1 : -1];
 
-static long ce_read_long32(
-	byte const *at)
-{
-	long value;
-
-	memcpy(&value, at, sizeof(value));
-	return value;
-}
-
 static boolean ce_is_shader(
 	struct ce_tag_instance const *instance)
 {
@@ -1181,12 +1173,12 @@ static boolean ce_part_check(
 	unsigned long model_data_size = data->size;
 	unsigned long vertex_data_size = data->vertex_data_size;
 	short triangle_type = ce_read_short(part + PART_TRIANGLE_BUFFER_OFFSET);
-	long triangle_count = ce_read_long32(part + PART_TRIANGLE_BUFFER_OFFSET + 4);
-	unsigned long triangle_offset = (unsigned long)ce_read_long32(part + PART_TRIANGLE_BUFFER_OFFSET + 8);
-	long vertex_count = ce_read_long32(part + PART_VERTEX_BUFFER_OFFSET + 4);
-	unsigned long vertex_offset = (unsigned long)ce_read_long32(part + PART_VERTEX_BUFFER_OFFSET + 16);
+	long triangle_count = content_s32(part + PART_TRIANGLE_BUFFER_OFFSET + 4);
+	unsigned long triangle_offset = (unsigned long)content_s32(part + PART_TRIANGLE_BUFFER_OFFSET + 8);
+	long vertex_count = content_s32(part + PART_VERTEX_BUFFER_OFFSET + 4);
+	unsigned long vertex_offset = (unsigned long)content_s32(part + PART_VERTEX_BUFFER_OFFSET + 16);
 	byte local_node_count = part[CE_PART_LOCAL_NODE_COUNT_OFFSET];
-	boolean local_nodes = (ce_read_long32(part) & CE_PART_LOCAL_NODES_FLAG) && local_node_count;
+	boolean local_nodes = (content_s32(part) & CE_PART_LOCAL_NODES_FLAG) && local_node_count;
 	unsigned long index_count;
 	byte const *span = NULL;
 	long index;
@@ -1322,7 +1314,7 @@ boolean ce_models_check(
 		/* (the shaders: each a shader's tag, as tag_get asserts) */
 		for (item = 0; item < shader_count; item++)
 		{
-			unsigned long shader_index = (unsigned long)ce_read_long32(shaders + item * MODEL_SHADER_SIZE + 0xc);
+			unsigned long shader_index = (unsigned long)content_s32(shaders + item * MODEL_SHADER_SIZE + 0xc);
 			struct ce_tag_instance const *shader = (struct ce_tag_instance const *)((byte const *)tag_instances +
 				(shader_index & 0xffff) * CE_TAG_INSTANCE_SIZE);
 

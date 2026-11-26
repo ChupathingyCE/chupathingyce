@@ -18,6 +18,7 @@
 #include <string.h>
 #include <errno.h>
 #include "mcc_host_memory.h"
+#include "content_bytes.h"
 unsigned long system_milliseconds(void);
 
 /* Logging includes the game's allocation macros. This reader owns libc
@@ -38,11 +39,6 @@ struct mcc_resource_file {
 "FromMCC") MCC's shared sets its file leaves the rest of its references to:
 the singleplayer set, then the multiplayer set */
 struct mcc_resources { struct mcc_resource_file files[2]; struct mcc_resource_file shared[2][2]; };
-
-static uint32_t mcc_resource_word(unsigned char const *p)
-{
-    return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;
-}
 
 static void mcc_resource_close(struct mcc_resource_file *file)
 {
@@ -76,8 +72,8 @@ static int mcc_resource_open(struct mcc_resource_file *file,unsigned type,char c
     }
     if (fseek(file->stream,0,SEEK_END) || (length=ftell(file->stream))<16 ||
         fseek(file->stream,0,SEEK_SET) || fread(header,1,16,file->stream)!=16) goto failed;
-    names=mcc_resource_word(header+4);index=mcc_resource_word(header+8);count=mcc_resource_word(header+12);
-    if (mcc_resource_word(header)!=type || names<16 || index<names || index>(uint32_t)length ||
+    names=content_u32le(header+4);index=content_u32le(header+8);count=content_u32le(header+12);
+    if (content_u32le(header)!=type || names<16 || index<names || index>(uint32_t)length ||
         !count || count>MCC_RESOURCE_METADATA_LIMIT/sizeof(*file->items) ||
         count>((uint32_t)length-index)/12) goto failed;
     names_bytes=index-names;
@@ -92,7 +88,7 @@ static int mcc_resource_open(struct mcc_resource_file *file,unsigned type,char c
     for (i=0;i<count;i++) {
         struct mcc_resource_item *item=&file->items[i];
         if (fread(entry,1,12,file->stream)!=12) goto failed;
-        item->name=mcc_resource_word(entry);item->size=mcc_resource_word(entry+4);item->offset=mcc_resource_word(entry+8);
+        item->name=content_u32le(entry);item->size=content_u32le(entry+4);item->offset=content_u32le(entry+8);
         if (item->name>=names_bytes || !memchr(file->names+item->name,0,
             names_bytes-item->name<320 ? names_bytes-item->name : 320) ||
             item->offset<16 || item->offset>names || item->size>names-item->offset) goto failed;

@@ -41,6 +41,7 @@ it is here.
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include "content_bytes.h"
 
 /* ---------- constants */
 
@@ -134,16 +135,6 @@ static char const *const opensauce_flag_names[NUMBER_OF_OPENSAUCE_HEADER_FLAGS] 
 
 /* ---------- private code */
 
-static unsigned long opensauce_read32(
-	byte const *data,
-	long offset)
-{
-	unsigned long value;
-
-	memcpy(&value, data + offset, sizeof(value));
-	return value;
-}
-
 static void opensauce_log(
 	char const *format,
 	...)
@@ -188,7 +179,7 @@ static unsigned long opensauce_reference_index(
 	byte const *root,
 	long offset)
 {
-	return opensauce_read32(root, offset + 0x0C);
+	return content_u32(root + offset + 0x0C);
 }
 
 /* a tag block's count (struct tag_block: its count first) */
@@ -196,7 +187,7 @@ static long opensauce_block_count(
 	byte const *root,
 	long offset)
 {
-	return (long)opensauce_read32(root, offset);
+	return (long)content_u32(root + offset);
 }
 
 static void opensauce_gravity_restore(
@@ -221,7 +212,7 @@ boolean opensauce_header_read(
 	byte const *yelo = (byte const *)cache_header + OPENSAUCE_HEADER_OFFSET;
 	unsigned short flags;
 
-	if (opensauce_read32(yelo, 0) != (unsigned long)OPENSAUCE_HEADER_SIGNATURE)
+	if (content_u32(yelo) != (unsigned long)OPENSAUCE_HEADER_SIGNATURE)
 		return FALSE;
 	if (header)
 	{
@@ -317,7 +308,7 @@ void opensauce_map_tags_loaded(
 		"game globals override %s (built into the map by OpenSauce's tools), player speed scale %.3f%s",
 		(int)*(short const *)(yelo_root + YELO_VERSION_OFFSET),
 		opensauce_block_count(yelo_root, YELO_SCRIPTED_WIDGETS_OFFSET),
-		opensauce_read32(yelo_root, YELO_GAMEPLAY_FLAGS_OFFSET),
+		(unsigned long)content_u32(yelo_root + YELO_GAMEPLAY_FLAGS_OFFSET),
 		opensauce_reference_index(yelo_root, YELO_GAME_GLOBALS_OFFSET) != 0xFFFFFFFFUL ? "set" : "none",
 		(double)player_speed_scale, player_speed_scale != 1.0f ? " (not honored: OpenSauce reads none at run time)" : "");
 
@@ -394,7 +385,7 @@ static long opensauce_scripted_widget_in(
 	count = opensauce_block_count(root, offset);
 	/* (the block's elements all within the map's tags, as a tag's root) */
 	elements = count > 0 && count < 0x10000 ?
-		ce_loaded_pointer(opensauce_read32(root, offset + 4), (unsigned long)count * SCRIPTED_WIDGET_SIZE) : NULL;
+		ce_loaded_pointer(content_u32(root + offset + 4), (unsigned long)count * SCRIPTED_WIDGET_SIZE) : NULL;
 	if (!elements)
 		return NONE;
 	for (index = 0; index < count; index++)

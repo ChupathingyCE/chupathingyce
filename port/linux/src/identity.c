@@ -19,6 +19,7 @@ does the asking.
 
 #include <stdio.h>
 #include <string.h>
+#include "../game/content_bytes.h"
 
 static const char issuer_label[] = "chupathingy identity issuer v1\n";
 static const char device_label[] = "chupathingy device cert v1\n";
@@ -127,17 +128,6 @@ static int signed_by(const unsigned char *public_key, const char *label, const u
 
 /* ---------- the certificates and the list */
 
-static unsigned long read32(const unsigned char *bytes)
-{
-	return (unsigned long)bytes[0] | (unsigned long)bytes[1] << 8 | (unsigned long)bytes[2] << 16 |
-		(unsigned long)bytes[3] << 24;
-}
-
-static unsigned read16(const unsigned char *bytes)
-{
-	return (unsigned)bytes[0] | (unsigned)bytes[1] << 8;
-}
-
 static int all_zero(const unsigned char *bytes, int size)
 {
 	int index;
@@ -166,8 +156,8 @@ int identity_parse_issuer(const unsigned char *data, int size, struct identity_i
 	{
 		return 0;
 	}
-	issuer->valid_from = read32(data + 8);
-	issuer->valid_until = read32(data + 12);
+	issuer->valid_from = content_u32le(data + 8);
+	issuer->valid_until = content_u32le(data + 12);
 	if (issuer->valid_from >= issuer->valid_until)
 		return 0;
 	memcpy(issuer->public_key, data + 16, IDENTITY_KEY_SIZE);
@@ -230,8 +220,8 @@ int identity_parse_device(const unsigned char *data, int size, struct identity_d
 	device->handle[length] = 0;
 	device->platform = data[5];
 	device->flags = data[7];
-	device->issued = read32(data + 8);
-	device->expires = read32(data + 12);
+	device->issued = content_u32le(data + 8);
+	device->expires = content_u32le(data + 12);
 	if (device->issued >= device->expires)
 		return 0;
 	memcpy(device->serial, data + 16, 8);
@@ -239,7 +229,7 @@ int identity_parse_device(const unsigned char *data, int size, struct identity_d
 	memcpy(device->account, data + 32, IDENTITY_ID_SIZE);
 	memcpy(device->public_key, data + 48, IDENTITY_KEY_SIZE);
 	identity_device_id(device->public_key, device->device_id);
-	device->capabilities = read32(data + 80);
+	device->capabilities = content_u32le(data + 80);
 	device->body_size = IDENTITY_DEVICE_HEADER + length;
 	return 1;
 }
@@ -269,7 +259,7 @@ int identity_parse_revoked(const unsigned char *data, int size, struct identity_
 	{
 		return 0;
 	}
-	count = (int)read16(data + 28);
+	count = (int)content_u16le(data + 28);
 	if (count > IDENTITY_REVOKED_MOST || size != IDENTITY_REVOKED_HEADER + 16 * count + IDENTITY_SIGNATURE_SIZE)
 		return 0;
 	/* (sorted, no repeats: what identity_is_revoked's search needs) */
@@ -281,9 +271,9 @@ int identity_parse_revoked(const unsigned char *data, int size, struct identity_
 			return 0;
 		}
 	}
-	revoked->serial = read32(data + 8);
-	revoked->issued = read32(data + 12);
-	revoked->next_update = read32(data + 16);
+	revoked->serial = content_u32le(data + 8);
+	revoked->issued = content_u32le(data + 12);
+	revoked->next_update = content_u32le(data + 16);
 	memcpy(revoked->issuer, data + 20, IDENTITY_KEY_ID_SIZE);
 	revoked->count = count;
 	revoked->ids = data + IDENTITY_REVOKED_HEADER;
