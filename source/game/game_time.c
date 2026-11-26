@@ -162,17 +162,20 @@ static long game_time_freeze_tick(
 }
 
 /* port: TRUE once a game reaches debug.freeze_at_tick; never in a network
-game (a client or host that stops ticking falls out of the game), nor the
-main menu's scene, whose lobby has to count down */
+game (a client or host that stops ticking falls out of the game), but for a
+determinism replay's, which is hosted with no one else in it
+(tools/renderer_gate.py's action views); nor the main menu's scene, whose
+lobby has to count down */
 static boolean game_time_frozen_at_tick(
 	void)
 {
+	extern boolean determinism_check_replaying(void);
 	short connection = game_connection();
 
 	return game_time_freeze_tick() > 0 &&
 		game_time_globals->server_time >= game_time_freeze_tick() &&
 		connection != _game_connection_network_client &&
-		connection != _game_connection_network_server &&
+		(connection != _game_connection_network_server || determinism_check_replaying()) &&
 		!main_menu_is_active();
 }
 
