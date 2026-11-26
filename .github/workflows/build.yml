@@ -586,6 +586,14 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
 
+      # (JDK 17 for the Android touch layout's checks, tools/test_touch_layout.py,
+      # one of the script tests: not left to the runner image)
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        if: matrix.part == 'other'
+        with:
+          distribution: temurin
+          java-version: "17"
+
       # (the test lists, from this workflow's commit)
       - uses: actions/checkout@v4
         with:
