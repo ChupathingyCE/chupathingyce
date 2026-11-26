@@ -24,7 +24,11 @@
 /* port: chester's MCC pause menus build tag data in host memory, which a
 64-bit build's tags cannot name (cseries/xbox_address.h), and add to the
 GulchCE menus; Chupathingy's own pause menu stays with MCC maps until they
-are ported (HALO_MCC_PAUSE_MENUS, which no build defines) */
+are ported (HALO_MCC_PAUSE_MENUS, which no build defines)
+
+Parked, not dead: this is MCC's co-op and multiplayer pause menu, from
+chester (GulchCE), kept here until it is ported. mcc_pause.c's builders are
+its, and are parked with it. */
 #ifdef HALO_MCC_PAUSE_MENUS
 #define MCC_PAUSE_MAX_ART 64
 struct mcc_pause_instance {
