@@ -46,6 +46,7 @@ typedef int boolean;
 #define match_assert(file,line,condition) do { if (!(condition)) abort(); } while (0)
 #define match_vassert(file,line,condition,message) match_assert(file,line,condition)
 #define TAG_BLOCK_GET_ELEMENT(block,index,type) (&((type *)(block)->address)[index])
+#define NUMBEROF(array) (sizeof(array) / sizeof(array[0]))
 enum { _sound_fade_mode_linear, _sound_fade_mode_crossfade };
 enum { _looping_sound_refresh_start, _looping_sound_refresh_loop, _looping_sound_refresh_stop };
 enum { _sound_impulse, _sound_start_track, _sound_loop_track, _sound_stopping_track, _sound_stop_track };
