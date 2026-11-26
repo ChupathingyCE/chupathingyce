@@ -9,7 +9,7 @@ Built with the platform layer's ABI, with nothing of the game's: the unit
 tests (server/tests/events_test.c) build it as it is.
 
 Limits (bounded memory, whatever the game): a game keeps at most
-event_log_capacity() events (network.events_limit), and its players' slots,
+network.events_limit's events (event_log_set_capacity), and its players' slots,
 tags and per-player weapons, vehicles and pickups to the sizes in
 event_log.h. When the events are full the samples (positions, pings) thin
 out first: those of every other second are dropped, then every other of
@@ -1003,11 +1003,6 @@ void event_log_set_capacity(int capacity)
 {
 	event_log.capacity_wanted = capacity < EVENT_LOG_MINIMUM_EVENTS ? EVENT_LOG_MINIMUM_EVENTS :
 		capacity > EVENT_LOG_MAXIMUM_EVENTS ? EVENT_LOG_MAXIMUM_EVENTS : capacity;
-}
-
-int event_log_capacity(void)
-{
-	return event_log.capacity_wanted;
 }
 
 void event_log_begin(struct event_log_game const *game, unsigned char const random_id[16])

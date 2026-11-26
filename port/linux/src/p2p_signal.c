@@ -2041,18 +2041,6 @@ void p2p_signal_update(const int *read, int read_count, const int *write, int wr
 		send_join();
 }
 
-int p2p_signal_connected(void)
-{
-	int index;
-
-	for (index = 0; index < signalling.broker_count; index++)
-	{
-		if (signalling.brokers[index].state == _broker_ready)
-			return 1;
-	}
-	return 0;
-}
-
 void p2p_signal_reconnect(void)
 {
 	int index;

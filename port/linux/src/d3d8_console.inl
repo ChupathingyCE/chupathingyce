@@ -390,13 +390,6 @@ static unsigned long cr_hash(const void *data, unsigned long size, unsigned long
 	return hash;
 }
 
-static unsigned long cr_level_dimension(unsigned long base, unsigned long level)
-{
-	unsigned long value = base >> level;
-
-	return value ? value : 1;
-}
-
 static void cr_texture_upload(struct cr_texture *entry, const unsigned char *base, const D3DCOLOR *palette)
 {
 	struct xgpu_texture_description *description = &entry->description;
