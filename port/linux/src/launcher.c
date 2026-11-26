@@ -42,6 +42,7 @@ upload, which have threads of their own.
 #include "map_download.h"
 #include "update.h"
 #include "log_send.h"
+#include "map_pack_folders.h"
 
 #include <SDL3/SDL.h>
 #ifdef __APPLE__
@@ -989,6 +990,11 @@ static void scan(void)
 		for (character = 0; valid && character < length; character++)
 			valid = isalnum((unsigned char)id[character]) || id[character] == '+';
 		if (!valid || !SDL_strcasecmp(id, "ce") || !SDL_strcasecmp(id, "pc") || !SDL_strcasecmp(id, "md"))
+			continue;
+		/* (not Xbox map packs: Halo MCC's maps (maps_mcc) and SPV3's
+		(maps_spv3, a mode in Play once it is there), whose files these
+		checks don't count; Make the folders makes both) */
+		if (!SDL_strcasecmp(id, "mcc") || !SDL_strcasecmp(id, "spv3"))
 			continue;
 		snprintf(path, sizeof(path), "%s/%s", launcher.root, name);
 		if (!is_directory(path))
@@ -2647,6 +2653,8 @@ static void make_folders(void)
 			}
 		}
 	}
+	/* (and the map packs' folders, each with its README.txt) */
+	map_pack_folders_make(launcher.root);
 	platform_log("launcher: made the maps folders");
 	scan();
 	open_folder(launcher.root);

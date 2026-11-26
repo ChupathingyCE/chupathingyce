@@ -27,6 +27,7 @@ and the debug keyboard that the game's console reads.
 #include "crash_report.h"
 #include "launcher.h"
 #include "vrr.h"
+#include "map_pack_folders.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -1131,13 +1132,16 @@ static BOOL data_make_folders(const char *destination)
 		snprintf(path, sizeof(path), "%s/%s", destination, folders[index]);
 		posix_make_directory(path);
 	}
+	/* (and the map packs' folders, each with its README.txt) */
+	map_pack_folders_make(destination);
 	platform_log("made the maps folders in %s", destination);
 	snprintf(message, sizeof(message),
 		"The folders are in %s:\n\n"
 		"maps: the Xbox maps, with ui.map. Required.\n"
 		"maps_ce: Custom Edition maps, with bitmaps.map, sounds.map and loc.map.\n"
 		"maps_pc: the maps from your Halo PC disc.\n"
-		"maps_md: HaloMD maps.\n\n"
+		"maps_md: HaloMD maps.\n"
+		"maps_cex, maps_spv3, maps_mcc: Halo CE+ Xbox, SPV3 and Halo MCC maps. Each has a README.txt.\n\n"
 		"Put the files in, then choose Check again.",
 		destination);
 	for (;;)
