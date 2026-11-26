@@ -28,6 +28,9 @@ packs never take these paths.
 #include "scenario/scenario_definitions.h"
 #include "units/unit_definitions.h"
 #include "ai/actor_definitions.h"
+#include "effects/effects.h"
+#include "models/model_animation_definitions.h"
+#include "objects/objects.h"
 #include "stubbs_mode.h"
 #include "stubbs_engine.h" /* (its special attacks, before the rewrite) */
 #include "stubbs_possession.h" /* (its possession seat, before the rewrite) */
@@ -422,6 +425,81 @@ static unsigned long stubbs_animation_data_read(unsigned char *animation, unsign
 static void stubbs_weapon_class_animations_order(unsigned char *base, unsigned long size, unsigned char *block,
 	unsigned char *sets, unsigned long set_count);
 
+/* an animation graph's sounds: Stubbs's may name an effect instead of a
+sound (390 in the twelve levels: footsteps' dust, the zombies' gore), which
+Halo's graphs never do. Each one's effect is kept in the element's unused
+long and its reference made none, so the graph is Halo's; the unit plays the
+effect where Halo would play the sound (stubbs_mode_animation_effect). The
+others' unused long is made none */
+enum
+{
+	ANIMATION_GRAPH_SOUND_REFERENCES_OFFSET = 0x54,
+	ANIMATION_GRAPH_SOUND_REFERENCE_SIZE = 0x14,
+	ANIMATION_GRAPH_SOUND_REFERENCE_EFFECT_OFFSET = 0x10,
+};
+/* (Halo's element, model_animations.c's: its unused long holds the effect) */
+struct stubbs_animation_sound_reference
+{
+	struct tag_reference sound;
+	long effect;
+};
+typedef char stubbs_animation_sound_reference_assert[
+	offsetof(struct animation_graph, sound_references) == ANIMATION_GRAPH_SOUND_REFERENCES_OFFSET &&
+	sizeof(struct stubbs_animation_sound_reference) == ANIMATION_GRAPH_SOUND_REFERENCE_SIZE &&
+	offsetof(struct stubbs_animation_sound_reference, effect) == ANIMATION_GRAPH_SOUND_REFERENCE_EFFECT_OFFSET ?
+	1 : -1];
+
+static boolean stubbs_tag_is(unsigned char *base, unsigned long size, long handle, unsigned long group)
+{
+	unsigned char *instance;
+	unsigned long instance_group;
+	long instance_handle;
+
+	if (handle == NONE || (unsigned long)(handle & 0xFFFF) >= stubbs_tags_count)
+		return FALSE;
+	instance = stubbs_host(base, size, stubbs_tags_instances + (unsigned long)(handle & 0xFFFF) * 0x20, 0x20);
+	if (!instance)
+		return FALSE;
+	memcpy(&instance_group, instance, 4);
+	memcpy(&instance_handle, instance + 0x0C, 4);
+	return instance_group == group && instance_handle == handle;
+}
+
+static long stubbs_animation_effects_convert(unsigned char *base, unsigned long size, unsigned char *graph)
+{
+	unsigned long count, address, index;
+	unsigned char *references;
+	long effects = 0;
+
+	memcpy(&count, graph + ANIMATION_GRAPH_SOUND_REFERENCES_OFFSET, 4);
+	memcpy(&address, graph + ANIMATION_GRAPH_SOUND_REFERENCES_OFFSET + 4, 4);
+	references = count && count <= 0x1000 ?
+		stubbs_host(base, size, address, count * ANIMATION_GRAPH_SOUND_REFERENCE_SIZE) : NULL;
+	for (index = 0; references && index < count; index++)
+	{
+		unsigned char *reference = references + index * ANIMATION_GRAPH_SOUND_REFERENCE_SIZE;
+		unsigned long group;
+		long handle, effect = NONE;
+
+		memcpy(&group, reference, 4);
+		memcpy(&handle, reference + 0x0C, 4);
+		if (group == 'effe' && stubbs_tag_is(base, size, handle, 'effe'))
+		{
+			unsigned long sound_group = 'snd!';
+			long none = NONE;
+
+			effect = handle;
+			memcpy(reference, &sound_group, 4);
+			memcpy(reference + 0x0C, &none, 4);
+			effects++;
+		}
+		memcpy(reference + ANIMATION_GRAPH_SOUND_REFERENCE_EFFECT_OFFSET, &effect, 4);
+	}
+	return effects;
+}
+
+static long stubbs_animation_effects;
+
 static long stubbs_animation_convert(unsigned char *base, unsigned long size, unsigned long address)
 {
 	unsigned char *graph = stubbs_host(base, size, address, 0x80);
@@ -430,6 +508,7 @@ static long stubbs_animation_convert(unsigned char *base, unsigned long size, un
 
 	if (!graph)
 		return 0;
+	stubbs_animation_effects += stubbs_animation_effects_convert(base, size, graph);
 	memcpy(&count, graph + ANIMATION_GRAPH_UNITS_OFFSET, 4);
 	memcpy(&seats_address, graph + ANIMATION_GRAPH_UNITS_OFFSET + 4, 4);
 	{
@@ -872,6 +951,8 @@ void stubbs_mode_convert_tags(
 	long converted_weapon_huds = 0;
 	long converted_actor_variants = 0;
 
+	stubbs_animation_effects = 0;
+
 	if (!stubbs_mode_active() || tag_data_size < 0x28)
 		return;
 	memcpy(&instances, base, 4);
@@ -970,6 +1051,7 @@ void stubbs_mode_convert_tags(
 	}
 	stubbs_mode_log("%ld bipeds and %ld vehicles rewritten in Halo's unit layout", converted[0], converted[1]);
 	stubbs_mode_log("%ld animation graphs rewritten in Halo's layout", converted_animations);
+	stubbs_mode_log("%ld animation sounds that are effects played as effects", stubbs_animation_effects);
 	stubbs_mode_log("%ld sounds of classes Halo lacks played as the nearest class before", converted_sounds);
 	stubbs_mode_log("%ld collision models' materials and regions rewritten in Halo's layout", converted_collision);
 	stubbs_mode_log("%ld weapon HUDs' image effects left out of their screen effects", converted_weapon_huds);
@@ -1047,4 +1129,31 @@ void stubbs_mode_convert_structure_bsp(
 	for (index = 0; index < clusters_count; index++)
 		memset(clusters + index * CLUSTER_SIZE + CLUSTER_SURFACE_INDICES_OFFSET, 0, 12);
 	stubbs_mode_log("structure bsp: %lu clusters' surface indices left empty", clusters_count);
+}
+
+void stubbs_mode_animation_effect(
+	long object_index,
+	long animation_graph_index,
+	struct animation_state const *state)
+{
+	struct animation_graph const *graph;
+	struct animation const *animation;
+	struct stubbs_animation_sound_reference const *reference;
+
+	if (!stubbs_mode_active() || animation_graph_index == NONE || !state ||
+		(graph = animation_graph_definition_get(animation_graph_index)) == NULL ||
+		!VALID_INDEX(state->index, graph->animations.count))
+	{
+		return;
+	}
+	animation = TAG_BLOCK_GET_ELEMENT(&graph->animations, state->index, struct animation);
+	if (animation->sound_index == NONE || animation->private_sound_frame_index != state->frame_index ||
+		!VALID_INDEX(animation->sound_index, graph->sound_references.count))
+	{
+		return;
+	}
+	reference = TAG_BLOCK_GET_ELEMENT(&graph->sound_references, animation->sound_index,
+		struct stubbs_animation_sound_reference);
+	if (reference->sound.index == NONE && reference->effect != NONE && reference->effect != 0)
+		effect_new_from_object(reference->effect, object_index, object_index, NONE, 0.f, 0.f, NULL, NULL);
 }

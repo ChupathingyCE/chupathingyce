@@ -10405,7 +10405,11 @@ static short unit_animation_update(
 	struct animation_state *animation)
 {
 	long sound_index;
-	short result = animation_update_internal(
+	short result;
+
+	/* port: Stubbs's animations' effects (Stubbs mode only) */
+	stubbs_mode_animation_effect(unit_index, animation_graph_index, animation);
+	result = animation_update_internal(
 		1,
 		animation_graph_index,
 		animation,
