@@ -255,7 +255,7 @@ def main():
         exe = Path(temp) / ('death.exe' if os.name == 'nt' else 'death')
         c.write_text(unit)
         flags = ['--target=i686-pc-windows-msvc', '-fuse-ld=lld'] if os.name == 'nt' else []
-        subprocess.run([cc, *flags, '-std=c11', '-Wno-parentheses', '-O2', str(c), '-o', str(exe)], check=True)
+        subprocess.run([cc, *flags, '-std=c11', '-Wno-parentheses', '-O2', str(c), '-o', str(exe), '-lm'], check=True)
         subprocess.run([str(exe)], check=True)
 
 

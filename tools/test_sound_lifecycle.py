@@ -286,12 +286,12 @@ def main():
         unit = path / "sound_lifecycle.c"
         executable = path / "sound_lifecycle.exe"
         unit.write_text(PRELUDE + "\n".join(function(source, name) for name in names) + TESTS, encoding="utf-8")
-        subprocess.run([*compiler, str(unit), "-o", str(executable)], check=True)
+        subprocess.run([*compiler, str(unit), "-o", str(executable), "-lm"], check=True)
         subprocess.run([str(executable)], check=True)
         backend = args.backend_source.read_text(encoding="utf-8")
         unit.write_text(BACKEND_PRELUDE + function(backend, "dsound_channel_callback") +
                         function(backend, "channel_stop") + BACKEND_TESTS, encoding="utf-8")
-        subprocess.run([*compiler, str(unit), "-o", str(executable)], check=True)
+        subprocess.run([*compiler, str(unit), "-o", str(executable), "-lm"], check=True)
         subprocess.run([str(executable)], check=True)
 
 
