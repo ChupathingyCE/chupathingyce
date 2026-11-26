@@ -149,6 +149,19 @@ CORNERS = {
     ("hud_ammo_meters__0", (0, 27, 130, 45)): [-2, 108],
     ("hud_ammo_meters__0", (0, 78, 130, 88)): [-5, 312],
 }
+# sheets whose cells take the restored sprite's whole rectangle from their
+# top left corner, not aligned by their content: the ammo and grenade
+# counters' digits and icons. The Xbox's sprites and Halo PC's are the same
+# rectangles, which the restored sheets have at 4x (the Xbox's 4 is a texel
+# wider, its art at its left), so a Custom Edition map with halopc-restored's
+# resource maps draws each glyph where its own sprite puts it. Aligned by its
+# content, a glyph moved up to three of the art's texels (about half a pixel
+# to a pixel at 1080p) toward where the Xbox's blurred one sits, so the Xbox
+# maps' counters sat a little apart from the others' (#1822)
+SPRITE_ALIGNED = {
+    HUD + "combined\\hud_counter_numbers",
+    HUD + "combined\\hud_ammo_type_icons",
+}
 
 
 # ---------- Xbox maps
@@ -738,6 +751,9 @@ def sheet_cells(name: str, tag: str, texels: np.ndarray, group: dict, index: int
             return None
         score, source, scale, corner, clip, cell_kind, _ = best
         corner = CORNERS.get((name, tuple(cell)), corner)
+        if (tag in SPRITE_ALIGNED and kind == "art" and keep is None and
+                clip[2] - clip[0] <= (right - left) * scale and clip[3] - clip[1] <= (bottom - top) * scale):
+            corner = clip[:2]
         if tag in METERS:
             cell_kind = "meter"
         flat = source.replace("/", "__").replace(" ", "_")
