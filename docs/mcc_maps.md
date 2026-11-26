@@ -551,7 +551,10 @@ so a later native editor cannot be closed by stale MCC state.
 Campaign layouts display the scenario's current mission objectives through
 the native objective-text callback. Owned objective and confirmation text
 boxes wrap their instance copies using the current font's metrics and clip
-to their bounds. The map's objective data, custom HUD
+to their bounds. So does the objective's text box of an MCC map's own
+campaign pause screen (the one the Xbox and Chupathingy menus show), as MCC
+wraps it: a campaign's objective written as one long line ends on the next
+line instead of past the box's edge. The map's objective data, custom HUD
 and embedded widgets remain present. Scripts that explicitly open embedded
 widgets can still use the MCC callback adapter described below. The new
 pause labels and confirmation text are currently English; localization of
