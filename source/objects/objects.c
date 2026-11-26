@@ -285,6 +285,15 @@ long cluster_get_next_collideable_object(
 		reference_index);
 }
 
+#ifdef HALO_PORT_CLUSTER_OBJECT_LISTS
+/* port: (object_bounds_cache.c's lists of a cluster's objects) */
+unsigned long cluster_port_collideable_object_changes(
+	short cluster_index)
+{
+	return cluster_partition_port_cluster_changes(&collideable_object_cluster_partition, cluster_index);
+}
+#endif
+
 short object_get_next_cluster(
 	struct object_cluster_iterator *iterator,
 	long object_index)
