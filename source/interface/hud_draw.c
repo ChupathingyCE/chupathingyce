@@ -1019,7 +1019,12 @@ static void hud_draw_multitexture_overlay(
 		}
 	}
 
-	rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
+	/* port: an overlay without a first map has nothing to draw. The
+	rasterizer asserts it has one; without it the quad took whatever texture
+	and pixel shader the last screen quad left (CE+ Xbox's cex_overscan has
+	such an empty overlay: #1460) */
+	if (parameters.map[0])
+		rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
 
 	match_assert_stack_frame("c:\\halo\\SOURCE\\interface\\hud_draw.c", 1372);
 
