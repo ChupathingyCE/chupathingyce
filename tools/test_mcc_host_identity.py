@@ -144,3 +144,36 @@ def test_settings_wait_for_identity():
     assert "mcc_identity_host_clear()" in function(ui, "mcc_ui_network_server_dispose")
     disconnect = function(IDENTITY.read_text(), "mcc_identity_disconnect")
     assert "mcc_host_identity" not in disconnect
+
+
+def test_wire_digest_of_other_projects_rows(tmp_path):
+    """A joiner reads the host's digest from the last 64 bytes of a 13,200
+    record, and of another project's longer record only when it recognized
+    the row (Content Evolved's 13,244 at 44: network_rules.h, "other
+    projects' hosts"); any other size leaves it zero (refused)."""
+    source = IDENTITY.read_text()
+    (tmp_path / "test.c").write_text(r'''
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+static unsigned char mcc_wire_digest[32];
+''' + function(source, "mcc_identity_wire_record") + r'''
+int main(void) {
+    static unsigned char record[13264];
+    static unsigned char zero[32];
+    memset(record,0,sizeof(record));
+    memset(record+13200-64,0xA1,32);
+    mcc_identity_wire_record(record,13200,0);assert(!memcmp(mcc_wire_digest,record+13200-64,32));
+    memset(record,0,sizeof(record));
+    memset(record+13244-64,0xC3,32);
+    mcc_identity_wire_record(record,13244,0);assert(!memcmp(mcc_wire_digest,zero,32));
+    mcc_identity_wire_record(record,13244,1);assert(mcc_wire_digest[0]==0xC3 && mcc_wire_digest[31]==0xC3);
+    mcc_identity_wire_record(record,13136,1);assert(!memcmp(mcc_wire_digest,zero,32));
+    mcc_identity_wire_record(NULL,13244,1);assert(!memcmp(mcc_wire_digest,zero,32));
+    puts("ok");
+    return 0;
+}
+''')
+    result = subprocess.run([str(compile_tool(tmp_path, [tmp_path / "test.c"]))], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "ok\n"

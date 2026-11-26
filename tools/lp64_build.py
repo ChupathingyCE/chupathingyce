@@ -33,6 +33,7 @@ from .linux_build import (
     KCP_DIR,
     LUA_DEFINES,
     LUA_DIR,
+    LUA_INCLUDE,
     jolt_cflags,
     jolt_sources,
     LZMA_DIR,
@@ -282,7 +283,7 @@ class Lp64Build:
         # (the desktop builds, which have zstd: the Steam content client too,
         # port/linux/src/steam_content, steam_bridge_pipe.c)
         compressed_maps = [*COMPRESSED_MAP_DEFINES, "-DHALO_STEAM_CONTENT"] if host.compressed_maps else []
-        lua = [*LUA_DEFINES, f"-idirafter {LUA_DIR}"] if host.lua else []
+        lua = [*LUA_DEFINES, LUA_INCLUDE] if host.lua else []
         abi = " ".join([*host.target_flags, *LP64_ABI_FLAGS, *release, *game_browser_defines(sln),
                         *compressed_maps, *lua, *(["-DHALO_JOLT"] if host.jolt else [])])
         prefix_header = lp64(LINUX_PORT_DIR / "include" / "halo_linux_prefix.h")

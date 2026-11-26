@@ -1167,6 +1167,11 @@ STRING_OVERRIDES.update({
         "Play the campaign with a\\nfriend in split screen.",
         "Set all the attributes for your \\nmultiplayer gametypes and\\nkeep them for future use.",
     ],
+    # (DIRECT IP: a game joined by its address, port/linux/game/
+    # direct_join.c. The PC version's PASSWORD row is RECENT, the addresses
+    # joined before: a system link join has no password)
+    f"{MT}/direct_ip/cap_direct_ip_options": ["Enter the host's address or name.", "Pick a server you joined before."],
+    f"{MT}/direct_ip/direct_ip_options": ["SERVER ADDRESS", "RECENT"],
     "main_menu/gametype_select/var_gametype_banks": ["STANDARD", "CUSTOM"],
     # (the PC's weapon sets, then the Xbox's NO GRENADES: menu_functions.c's
     # gametype_options maps them to the engine's)
@@ -1212,6 +1217,26 @@ MAP_KIND_CHOOSER = "main_menu/new_select/list_item_0_map_kind"
 # changes to the PC version's widgets (by our names): attributes set, all
 # their handlers replaced, children added, game data inputs added
 WIDGET_PATCHES = {
+    # DIRECT IP's JOIN GAME (the PC version's said START GAME), and its
+    # PASSWORD row as RECENT (menu_functions.c's direct_ip_*)
+    f"{MT}/direct_ip/direct_ip_button_join": {"set": {"text": "JOIN GAME", "string_list": None,
+                                                         "string_index": None}},
+    f"{MT}/direct_ip/server_password_label": {"set": {"string_list": f"{MT}/direct_ip/direct_ip_options",
+                                                        "string_index": 1}},
+    # (the help line: menu_functions.c's direct_ip_update writes it, the
+    # strings' first line or how the join goes)
+    f"{MT}/direct_ip/direct_ip_help_text": {"set": {"string_list": None, "text_flags": "no_focus_test"}},
+    # (the values drawn as Server Setup's are: menu_functions.c sets them)
+    f"{MT}/direct_ip/server_address_value_label": {"set": {"controller": 1, "text_flags": "no_focus_test"}},
+    f"{MT}/direct_ip/server_password_value_label": {"set": {"font": "ui\\small_ui", "controller": 1,
+                                                              "text_flags": "no_focus_test"}},
+    # (the rows take A themselves: the PC version's value labels had it, which
+    # never have the focus here)
+    **{f"{MT}/direct_ip/op_{row}": {"handlers": [
+        '<on event="a" run="direct ip edit field"/>',
+        '<on event="start" run="direct ip edit field"/>',
+        '<on event="left_mouse" run="mouse emit accept event"/>',
+    ]} for row in ("server_address", "server_password")},
     # The host returns here after a round with no menu history. Back must
     # reopen the main menu when it closes the last screen, as the lobby does.
     f"{MT}/connected/connected_map_select_wrapper": {"set": {

@@ -251,6 +251,14 @@ struct delta_peer_identity
 	int platform;
 	int flags;
 	delta_u32 capabilities;
+	/* the network the certificate belongs to (delta-spec's link.md,
+	"Networks": the one whose root key signed its issuer certificate), its
+	domain ("chupathingy.org"; empty where the checker doesn't say), and
+	whether it is another network than this machine's own: such a player
+	shows as Name:domain, and gets no role, ban or site card. The account
+	is the pair of network and account */
+	char network[254];
+	int other_network;
 	/* the proof said the challenge was bound to the host its player
 	connected to (DELTA_WIRE_IDENTITY_BOUND): only such a player's account
 	is given roles or bans; any other shows a name, and nothing more */

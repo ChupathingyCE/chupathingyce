@@ -206,6 +206,11 @@ MCC_FORMATS = {**FORMATS, 17: "p8", 18: "bc7"}
 # how well an MCC sheet's whole bitmap must match the restored art for it
 # to be drawn in its place (a sprite's must be the same sprite on both)
 MCC_MATCH = 0.5
+# MCC sheets left as the map draws them: the ammo and grenade counters'
+# panels, which MCC draws taller than the restored art (64 texels to its 56,
+# at the same size), so the art left a transparent strip along their bottom
+# (#1821); at the same size the restored art adds no detail
+MCC_OWN_SHEETS = {"hud_weapon_backgrounds__0", "hud_weapon_backgrounds__1", "hud_weapon_backgrounds__2"}
 # the sheets whose sequences the HUD globals' button icons name
 MESSAGE_ICONS = ("ui\\hud\\bitmaps\\combined\\hud_msg_icons", "ui\\hud\\bitmaps\\hud_msg_icons_sm")
 
@@ -1063,7 +1068,7 @@ def mcc_layout(arguments) -> None:
                     print(f"{path}: {name}: no pixels here")
                     continue
                 crc = zlib.crc32(bitmap["pixels"])
-                if name in left_out:
+                if name in left_out or name in MCC_OWN_SHEETS:
                     continue
                 if name in entries:
                     if entries[name]["crc"] != crc:

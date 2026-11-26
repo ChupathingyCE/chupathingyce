@@ -107,6 +107,7 @@ Where your maps, settings and saves go: [docs/install.md](docs/install.md#where-
 - **Join a game.** Open **Multiplayer > Online Games**, pick a game and press **A**. Or press **Join** on [stats.chupathingy.org](https://stats.chupathingy.org).
 - **Host a game.** In Online Games, press **Y** to create one. Everyone can see it on the list.
 - **Invite a friend.** Send them your game's invite link.
+- **Join by address.** On **System Link**, press **X** for **DIRECT IP** and type the host's address or name, like at a LAN party. [More](docs/online.md#join-by-address).
 - **Play the campaign together.** Host it online from Create Game. [Here's how](docs/online.md#online-co-op).
 
 Chupathingy players on every platform play together. They also play with players on other Halo CE builds when the versions match.
@@ -372,7 +373,11 @@ with their authors credited in each commit.
   `port/linux/game/lua_opensauce.c`); its cache header, tag definitions and
   memory upgrades, the reference for how OpenSauce maps are read and
   checked (`port/linux/game/opensauce_map.c`,
-  `port/linux/game/tag_schema_opensauce.c`).
+  `port/linux/game/tag_schema_opensauce.c`); its post-processing (effects,
+  shader parameters, render stages, G-buffer formats and its bloom shader),
+  the reference for how OpenSauce maps' post-processing is drawn
+  (`port/linux/game/opensauce_postprocess.c`,
+  `port/linux/src/opensauce_postprocess_gl.inl`).
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, Lua, tomlc17, musl's maths,

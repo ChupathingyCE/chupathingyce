@@ -1731,6 +1731,11 @@ void encounter_squad_timer_expire(
 	return;
 }
 
+#ifndef HALO_CONSOLE_NO_FORGE
+/* port/linux/game/forge.h's */
+boolean forge_mission_off(void);
+#endif
+
 void encounters_create_for_new_map(
 	void)
 {
@@ -1747,6 +1752,12 @@ void encounters_create_for_new_map(
 
 		if (DATUM_INDEX_TO_ABSOLUTE_INDEX(ai_debug.selected_squad_index) == DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.index))
 			create = TRUE;
+#ifndef HALO_CONSOLE_NO_FORGE
+		/* port: none in a Forge game on a campaign mission
+		(port/linux/game/forge_ai.inc): its AI is the layout's */
+		if (forge_mission_off())
+			create = FALSE;
+#endif
 
 		if (create)
 		{

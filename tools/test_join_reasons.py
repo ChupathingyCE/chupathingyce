@@ -34,6 +34,8 @@ REASONS = {
     "NOT_OPEN": "Not taking players right now.",
     "FULL": "Game is full.",
     "PASSWORD": "Password needed.",
+    # (a Direct IP join's alone: it has no password to give)
+    "PASSWORD_INVITE": "This game has a password. Join it from its invite.",
     "NO_ANSWER": "The host didn't answer.",
     # (a failed join's alone: the site's list never says it)
     "NO_CONNECTION": "Couldn't connect to the host.",

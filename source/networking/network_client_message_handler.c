@@ -921,7 +921,14 @@ static boolean network_game_client_handle_message_server_game_advertise(
 				}
 				else
 #endif
-				network_game_client_new_advertised_game(client, &advertisement);
+				{
+#ifdef HALO_GAME_BROWSER
+					/* port: where it came from (Direct IP joins a host behind
+					a router by it) */
+					network_game_client_note_advertisement_source(source_address);
+#endif
+					network_game_client_new_advertised_game(client, &advertisement);
+				}
 			}
 		}
 		else
@@ -1143,6 +1150,15 @@ unsigned network_rules_modes_needed(unsigned char const *options, int engine, in
 char const *network_rules_modes_unplayed(unsigned needed);
 void display_error_text_deferred(wchar_t const *text, short local_player_index);
 void display_error_text_when_main_menu_loaded(wchar_t const *text);
+/* port: another project's hosts on an OpenCE number (network_rules.h,
+"other projects' hosts"): the one whose plain game's record a host of the
+version sends, its options' bytes and its games this build does not play */
+int network_rules_fork_settings(unsigned version, unsigned total_size);
+int network_rules_fork_options_size(int fork);
+int network_rules_fork_option_at(int fork);
+char const *network_rules_fork_name(int fork);
+char const *network_rules_fork_refusal(int fork, long engine, int modded, unsigned flags, int option_value,
+	char *text, int size);
 
 enum
 {
@@ -1159,6 +1175,18 @@ typedef char network_game_client_settings_size_assert[
 	sizeof(network_game_client_settings_staging) >= NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM ? 1 : -1];
 
 static byte network_game_client_extended_options[16];
+/* port: the project whose plain game the host plays, by its last record
+(network_rules.h's NETWORK_RULES_FORK_NONE, -1: none, an OpenCE host's or
+ours), and that record's option byte the project's row names (-1: none) */
+static int network_game_client_host_fork = -1;
+static int network_game_client_host_fork_option = -1;
+
+/* (network_distributed.c's: the kinds such a host sends, dropped quietly) */
+int network_game_client_host_fork_get(
+	void)
+{
+	return network_game_client_host_fork;
+}
 
 /* port: the host's gametype's further options as this client last read them
 (the game modes layer's, source/game/game_modes.c: SWAT, Hardcore) */
@@ -1205,8 +1233,32 @@ static boolean network_game_client_leave_unsupported_game_type(
 	struct transport_address *source_address)
 {
 	char const *name = NULL;
-	wchar_t const *text = network_game_client_unsupported_game_type(game, &name);
+	wchar_t const *text;
 
+	/* (another project's game this build doesn't play: Firefight in its
+	engine slot, its take on a mode; said in the project's words) */
+	if (network_game_client_host_fork >= 0)
+	{
+		char reason[96];
+		static wchar_t wide[96];
+
+		if (network_rules_fork_refusal(network_game_client_host_fork, game->variant.game_engine_index, FALSE, 0,
+			network_game_client_host_fork_option, reason, (int)sizeof(reason)))
+		{
+			long length;
+
+			for (length = 0; reason[length] && length < (long)NUMBEROF(wide) - 1; length++)
+				wide[length] = (wchar_t)(unsigned char)reason[length];
+			wide[length] = 0;
+			network_event("cross-play: leaving the %s host's game (engine %d, option %d): %s",
+				network_rules_fork_name(network_game_client_host_fork), (int)game->variant.game_engine_index,
+				network_game_client_host_fork_option, reason);
+			display_error_text_when_main_menu_loaded(wide);
+			network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_closed);
+			return TRUE;
+		}
+	}
+	text = network_game_client_unsupported_game_type(game, &name);
 	if (!text)
 		return FALSE;
 	network_event("cross-play: leaving the host's game: it plays OpenCE's %s, which this build does not", name);
@@ -1240,8 +1292,12 @@ static boolean network_game_client_receive_game_settings_piece(
 	13,136 from 35, a newer version's by the table's layouts), either of the
 	first two for a host not known */
 	unsigned int host_version = network_game_client_settings_version();
+	/* port: or another project's plain game's, by its own layout at the
+	version (network_rules.h, "other projects' hosts") */
+	int fork = network_rules_settings_size_taken(host_version, piece->total_size) ? -1 :
+		network_rules_fork_settings(host_version, piece->total_size);
 
-	if (!network_rules_settings_size_taken(host_version, piece->total_size) ||
+	if ((fork < 0 && !network_rules_settings_size_taken(host_version, piece->total_size)) ||
 		piece->total_size > NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM ||
 		piece->length > sizeof(piece->data) ||
 		piece->offset + piece->length > piece->total_size)
@@ -1279,14 +1335,34 @@ static boolean network_game_client_receive_game_settings_piece(
 
 				network_game_client_settings_staging_size = 0;
 				/* port: the host's MCC content digest, at the end of a 43 record
-				(mcc_identity.c) */
+				or of another project's recognized row (mcc_identity.c) */
 				mcc_identity_wire_record((unsigned char const *)&network_game_client_settings_staging,
-					(long)piece->total_size);
+					(long)piece->total_size, fork >= 0);
 				/* port: a record of 35 on made the older layout, its further
 				options kept; an older one's are the defaults. A host not
 				known that sends the newer is taken for one of 35. */
 				options_size = network_rules_settings_options_size(host_version,
 					piece->total_size);
+				if (fork != network_game_client_host_fork)
+				{
+					if (fork >= 0)
+						network_event("cross-play: the host plays a plain %s game (its record %u bytes, as %u)",
+							network_rules_fork_name(fork), (unsigned)piece->total_size, host_version);
+					network_game_client_host_fork = fork;
+				}
+				network_game_client_host_fork_option = -1;
+				if (fork >= 0)
+				{
+					/* (its option byte, read before the fold leaves the
+					options this build has) */
+					int at = network_rules_fork_option_at(fork);
+
+					options_size = network_rules_fork_options_size(fork);
+					if (at >= 0 && at < options_size)
+						network_game_client_host_fork_option =
+							((byte const *)&network_game_client_settings_staging)[NETWORK_GAME_CLIENT_SETTINGS_SIZE - 4 -
+							NETWORK_GAME_CLIENT_OPTIONS_SIZE + at];
+				}
 				if (options_size > NETWORK_GAME_CLIENT_OPTIONS_SIZE)
 				{
 					network_rules_settings_fold((byte *)&network_game_client_settings_staging, piece->total_size,

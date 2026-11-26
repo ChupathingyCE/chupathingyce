@@ -23,6 +23,7 @@ it did before the console had the file.
 #include "platform.h"
 #include "port_config.h"
 #include "halo_port_limits.h"
+#include "halo_console_features.h" /* HALO_DELTA_PEER_IDENTITY */
 #include "posix.h"
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 #include "packaged_install.h"
@@ -75,6 +76,10 @@ enum config_environment
 	/* the variable being set makes it false */
 	_environment_set_is_false,
 };
+
+/* the longest value config_write takes (a longer one is refused, said in
+the log, and the file left as it is) */
+#define CONFIG_WRITE_MAXIMUM_VALUE 256
 
 /* the builds a setting means something in, and is written for */
 enum
@@ -414,6 +419,12 @@ static const struct config_setting config_settings[] =
 		"In a network game, the darkest display.ray_tracing may make a player,\n"
 		"a vehicle or a projectile (0.5 to 1.0): the online brightness floor,\n"
 		"so that nobody hides in a shadow only some machines draw." },
+	{ "display.opensauce_post_processing", _config_boolean, "true", "HALO_OPENSAUCE_POST_PROCESSING",
+		_environment_value, _platform_desktop,
+		"Draw the post-processing an OpenSauce map carries (SPV3's look: its\n"
+		"bloom, tone mapping, depth of field, ambient occlusion, visor and the\n"
+		"rest of its effects), with the OpenGL renderer. Only maps that have it\n"
+		"change; false draws them without it, for performance." },
 	{ "display.hdr_output", _config_boolean, "false", "HALO_HDR_OUTPUT", _environment_value, _platform_desktop,
 		"With display.hdr, send HDR to a display that has it (the operating\n"
 		"system's HDR must be on): the bgfx renderer's HDR10 swap chain, or\n"
@@ -738,6 +749,9 @@ static const struct config_setting config_settings[] =
 		"In Delta games, show a small Delta mark on the scoreboard, beside the\n"
 		"names of players whose Delta profile is proven. Other players' names\n"
 		"never start with @ or a Delta then." },
+	{ "display.developer_flames", _config_boolean, "true", "HALO_DEVELOPER_FLAMES", _environment_value, _platform_all,
+		"In Delta games, a blue flame on the helmets of verified Chupathingy\n"
+		"developers. Looks only." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
 	{ "display.server_message_text_color", _config_string, "\"\"", "HALO_SERVER_MESSAGE_TEXT_COLOR",
@@ -1730,6 +1744,19 @@ static const struct config_setting config_settings[] =
 		"players see your games. A number pins it, like 32 for a server meant\n"
 		"for console players on older builds. A number the table does not allow\n"
 		"for hosting is ignored, and \"latest\" is used." },
+#ifdef HALO_DELTA_PEER_IDENTITY
+	{ "network.networks_trust", _config_string, "\"\"", "HALO_NET_NETWORKS_TRUST", _environment_value,
+		_platform_all | _platform_server,
+		"Other networks whose players' names are checked, beside the signed\n"
+		"list of networks: each a domain and 1 to 4 root keys (64 hex digits),\n"
+		"separated by spaces, and the networks separated by commas, like\n"
+		"\"example.org <key> <key>\". At most 16. Empty for none." },
+	{ "network.networks_block", _config_string, "\"\"", "HALO_NET_NETWORKS_BLOCK", _environment_value,
+		_platform_all | _platform_server,
+		"Networks whose players' names are not checked even when the signed\n"
+		"list has them: domains separated by commas. Your own network can't be\n"
+		"removed. Empty for none." },
+#endif
 	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value,
 		_platform_all | _platform_server,
 		"For testing only: an unsigned legacy table file that sets the OpenCE\n"
@@ -1827,9 +1854,44 @@ static const struct config_setting config_settings[] =
 		"map's own tags. See docs/mods.md." },
 #ifndef HALO_CONSOLE_NO_FORGE
 	{ "game.forge", _config_boolean, "false", "HALO_FORGE", _environment_value, _platform_desktop,
-		"Forge, the layout editor of the multiplayer maps: FORGE in the\n"
-		"Multiplayer menu, and the console's forge commands. Local games only.\n"
+		"Forge, the layout editor of the multiplayer maps and the campaign\n"
+		"missions (their AI characters): FORGE in the Multiplayer menu, and the\n"
+		"console's forge commands. Local games only.\n"
 		"FORGE in the Delta Guide's SETTINGS. See docs/forge.md." },
+	/* (forge.h FORGE_BUILD_MAXIMUM_OBJECTS and _AI: a build with the console's
+	tables keeps the console's numbers) */
+#ifdef HALO_CONSOLE_LIMITS
+	{ "game.forge_objects", _config_integer, "256", "HALO_FORGE_OBJECTS", _environment_value, _platform_desktop,
+		"Forge: the most objects and markers a layout holds (64 to 256 on this\n"
+		"build). A layout of more places what fits. See docs/forge.md." },
+	{ "game.forge_ai", _config_integer, "32", "HALO_FORGE_AI", _environment_value, _platform_desktop,
+		"Forge: the most AI characters alive at once (8 to 32 on this build).\n"
+		"Past it, the rest wait for room. See docs/forge.md." },
+#else
+	{ "game.forge_objects", _config_integer, "512", "HALO_FORGE_OBJECTS", _environment_value, _platform_desktop,
+		"Forge: the most objects and markers a layout holds (64 to 512). A\n"
+		"layout of more places what fits. See docs/forge.md." },
+	{ "game.forge_ai", _config_integer, "128", "HALO_FORGE_AI", _environment_value, _platform_desktop,
+		"Forge: the most AI characters alive at once (8 to 128). Past it, the\n"
+		"rest wait for room. See docs/forge.md." },
+#endif
+	{ "game.forge_hold_to_delete", _config_string, "\"off\"", "HALO_FORGE_HOLD_TO_DELETE", _environment_value,
+		_platform_desktop,
+		"How Forge's monitor deletes: \"off\" at a press of Y or the delete key,\n"
+		"\"controller\" when the controller's Y is held half a second (the key\n"
+		"still at a press), \"all\" when either is held. DELETE in the Forge\n"
+		"menu's OPTIONS. See docs/forge.md." },
+	{ "game.forge_grab_range", _config_string, "\"far\"", "HALO_FORGE_GRAB_RANGE", _environment_value,
+		_platform_desktop,
+		"How far Forge's crosshair reaches to grab, copy or delete: \"near\"\n"
+		"(20 world units, about 60 m), \"medium\" (35 world units, about 105 m)\n"
+		"or \"far\" (60 world units, about 180 m: the default). GRAB RANGE in the\n"
+		"Forge menu's OPTIONS. See docs/forge.md." },
+	{ "game.forge_held_facing", _config_string, "\"keep\"", "HALO_FORGE_HELD_FACING", _environment_value,
+		_platform_desktop,
+		"What Forge's monitor holds: \"keep\" keeps the facing it was grabbed\n"
+		"with (the default); \"view\" turns it with the camera until you turn it\n"
+		"by hand. HELD FACING in the Forge menu's OPTIONS. See docs/forge.md." },
 #endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
@@ -2015,7 +2077,8 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"In an automated test game, \"<x> <y> <z> <yaw> <pitch>[@<seconds>]\" puts\n"
 		"the first local player there, facing that way (degrees), that many\n"
-		"seconds in (1 if not given), once. Empty never does. For automated\n"
+		"seconds in (1 if not given), once. More places after it, split by\n"
+		"\";\", put the next local players there. Empty never does. For automated\n"
 		"tests only: it moves a player in the game itself, so never leave it\n"
 		"set on a host." },
 	{ "debug.network_test_camouflage", _config_real, "0.0", "HALO_NETWORK_TEST_CAMOUFLAGE", _environment_value,
@@ -6000,13 +6063,22 @@ int config_write(const char *name, const char *value)
 {
 	const char *dot = strchr(name, '.');
 	long index = config_setting_index(name);
-	char section[64], key[64], line_text[600], path[1024];
+	char section[64], key[64], number_line[128], path[1024];
+	/* (a string's line is as long as its value, its quotes and backslashes
+	escaped: made to fit it, never a fixed buffer) */
+	char *line_text = number_line, *string_line = NULL;
 	size_t size = 0;
 	char *text, *changed;
 	int succeeded;
 
-	if (index < 0 || !dot || (size_t)(dot - name) >= sizeof(section) || strlen(value) > 256)
+	if (index < 0 || !dot || (size_t)(dot - name) >= sizeof(section))
 		return 0;
+	if (strlen(value) > CONFIG_WRITE_MAXIMUM_VALUE)
+	{
+		platform_log("settings: %s not written: its value is %lu characters, more than %d",
+			name, (unsigned long)strlen(value), CONFIG_WRITE_MAXIMUM_VALUE);
+		return 0;
+	}
 	/* (the file read first, as the other settings are) */
 	config_value(name, config_settings[index].type);
 #ifndef HALO_CONSOLE_NO_UPDATER
@@ -6023,36 +6095,45 @@ int config_write(const char *name, const char *value)
 	switch (config_settings[index].type)
 	{
 	case _config_boolean:
-		snprintf(line_text, sizeof(line_text), "%s = %s\n", key, config_values[index].boolean ? "true" : "false");
+		snprintf(number_line, sizeof(number_line), "%s = %s\n", key, config_values[index].boolean ? "true" : "false");
 		break;
 	case _config_integer:
-		snprintf(line_text, sizeof(line_text), "%s = %ld\n", key, config_values[index].integer);
+		snprintf(number_line, sizeof(number_line), "%s = %ld\n", key, config_values[index].integer);
 		break;
 	case _config_real:
 		/* (with its point: TOML reads 1 as an integer) */
-		snprintf(line_text, sizeof(line_text), "%s = %.15g", key, config_values[index].real);
-		if (!strpbrk(line_text + strlen(key) + 3, ".en"))
-			strcat(line_text, ".0");
-		strcat(line_text, "\n");
+		snprintf(number_line, sizeof(number_line) - 3, "%s = %.15g", key, config_values[index].real);
+		if (!strpbrk(number_line + strlen(key) + 3, ".en"))
+			strcat(number_line, ".0");
+		strcat(number_line, "\n");
 		break;
 	case _config_string:
 	{
-		char *end = line_text + snprintf(line_text, sizeof(line_text), "%s = \"", key);
+		const char *string = config_values[index].string ? config_values[index].string : "";
 		const char *character;
+		/* (the key, ' = "', each character twice at most, '"\n' and the end) */
+		size_t room = strlen(key) + 4 + 2 * strlen(string) + 3;
+		char *end;
 
-		for (character = config_values[index].string; *character; character++)
+		string_line = malloc(room);
+		if (!string_line)
+			break;
+		end = string_line + snprintf(string_line, room, "%s = \"", key);
+		for (character = string; *character; character++)
 		{
 			if (*character == '"' || *character == '\\')
 				*end++ = '\\';
 			*end++ = *character;
 		}
-		strcpy(end, "\"\n");
+		memcpy(end, "\"\n", 3);
+		line_text = string_line;
 		break;
 	}
 	}
 	config_path(path, sizeof(path));
 	text = config_read_file(path, &size);
-	changed = config_text_with_line(text ? text : "", name, line_text);
+	changed = config_settings[index].type == _config_string && !string_line ? NULL :
+		config_text_with_line(text ? text : "", name, line_text);
 	succeeded = changed && config_write_file(path, changed);
 	config_touched[index] = 1;
 	config_tuning_apply(index);
@@ -6060,6 +6141,7 @@ int config_write(const char *name, const char *value)
 	pthread_mutex_unlock(&config_lock);
 	free(changed);
 	free(text);
+	free(string_line);
 	return succeeded;
 }
 

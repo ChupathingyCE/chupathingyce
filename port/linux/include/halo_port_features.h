@@ -308,6 +308,19 @@ console's build, whichever switches it sets on its own */
 #define HALO_CONSOLE_SKIP_DARK_LIGHTS
 #endif
 
+/* a map's navigation for computer-controlled characters (port/linux/game/
+ai_nav.c, port/linux/include/ai_nav.h): the desktop builds' and Android's,
+on no console (its walkable copy and search memory). HALO_AI_NAV is 1 or 0;
+at 0 its source builds to nothing */
+#ifndef HALO_AI_NAV
+#if defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)
+#define HALO_AI_NAV 0
+#else
+#define HALO_AI_NAV 1
+#endif
+#endif
+
 /* Halo MCC maps (port/linux/game/mcc_*.c, docs/mcc_maps.md): the desktop
 builds' and Android's, by a list of their systems, and on no console (any
 console's build, whichever switches it sets on its own: the original Xbox

@@ -19,9 +19,6 @@ from .ninja_syntax import Writer
 from .version import VERSION_SOURCES, identity_defines, release_build, version
 
 PORT_DIR = Path("port/linux")
-# the halo that starts chupathingy, beside it in the Linux and FreeBSD builds
-# (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
-RENAME_STUB_SCRIPT = Path("port/rename_stub/halo.sh")
 PORT_CONFIG = PORT_DIR / "port.json"
 # the Xbox SDK declarations the game and the platform layer use, in place of
 # the SDK's headers (port/include/xdk/README.md)
@@ -128,6 +125,12 @@ KCP_DIR = Path("port/third_party/kcp")
 # dedicated server's
 LUA_DIR = Path("port/third_party/lua")
 LUA_DEFINES = ["-DHALO_LUA"]
+# (after everything else, so that "../../" from it finds none of the game's
+# headers (#1702's review: mcc_vorbis.c on macOS). A system Lua's lua.h,
+# which may be another version, as Lua 5.5's in /usr/include, would come
+# first that way: the game's units include the bundled headers by their
+# path, port/linux/game/lua_internal.h, lua_scripting.c)
+LUA_INCLUDE = f"-idirafter {LUA_DIR}"
 
 
 def lua_sources() -> List[Path]:
@@ -679,7 +682,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
                    + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
                    + browser_defines + CUSTOM_EDITION_DEFINES + MODS_DEFINES + COMPRESSED_MAP_DEFINES + units.extra_flags
                    + units.ffmpeg[0]
-                   + ([*LUA_DEFINES, f"-idirafter {LUA_DIR}"] if units.lua else [])
+                   + ([*LUA_DEFINES, LUA_INCLUDE] if units.lua else [])
                    + (["-DHALO_JOLT"] if units.jolt else []))
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
@@ -1048,9 +1051,5 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule="linux_copy", inputs=Path("port/assets/network/brokers.txt"))
-    # halo, which starts chupathingy, for what started the game by its old
-    # name (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
-    stub = build_dir / "halo"
-    n.build(outputs=stub, rule="linux_copy", inputs=RENAME_STUB_SCRIPT)
-    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator, stub, *sdl_outputs])
+    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator, *sdl_outputs])
     n.newline()
