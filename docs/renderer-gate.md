@@ -130,9 +130,33 @@ the load over half the CPUs fails as "busy", to be measured again.
 (no fallback), and the frame-time rules on every bench map. Without
 `--bench` the best it says is `PASS (looks only)`.
 
-## For CI later
+## In CI
 
 The runs are as fixed as they can be: a fixed tick, a fixed window size,
 V-Sync off, no network, muted, their own home, save and data folders. On
-Linux, `--xvfb` gives every copy its own display. What's left is a machine
-with the maps and a GPU (or lavapipe, for looks only).
+Linux, `--xvfb` gives every copy its own display.
+
+`.github/workflows/renderer-gate.yml` runs the pictures half every Monday on
+main and by hand (Actions, Renderer gate, with a few maps if you like): the
+64-bit Linux build, bgfx on lavapipe against OpenGL on llvmpipe, with
+`--repeat-first`, the report in the run's summary and the pictures as an
+artifact for two weeks. Software rendering is fine for looks and says
+nothing about frame time, which is measured on real GPUs before a platform's
+default changes.
+
+GitHub's own runners have no maps, and the maps never go into a cache, an
+artifact or a download. So the job runs only on a machine of ours that has
+them: the repository variable `RENDERER_GATE_RUNNER` names its runner's
+labels as JSON (`["self-hosted", "linux", "halo-maps"]`), and while it is
+unset the job is skipped. The runner sets `HALO_GATE_MAPS` (the stock Xbox
+maps' folder), `HALO_DATA_ROOT_SCRIPT` (the script that makes a data root of
+links to them) and, for the Custom Edition views, `HALO_GATE_MAPS_CE`; it
+needs Xvfb, Mesa's lavapipe and llvmpipe, and Python 3 with numpy and Pillow.
+
+The checks that need no maps run on every pull request: bgfx's shaders
+compiled for each backend (`tools/bgfx_shader_check.py`), and the gate's own
+comparison (`tools/test_renderer_gate.py`).
+
+`tools/picture_check.py` checks bgfx too: `--renderer bgfx
+--reference-renderer gl` compares the build drawing with bgfx against the
+same build drawing with OpenGL, at the pose list's spots.
