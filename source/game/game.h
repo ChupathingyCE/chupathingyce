@@ -45,6 +45,12 @@ enum
 	_game_team_unused8,
 	_game_team_unused9,
 	NUMBER_OF_SOLO_CAMPAIGN_TEAMS,
+#ifdef HALO_STUBBS_LIMITS
+	/* port: Stubbs the Zombie's teams, his scientists and sheep past Halo's
+	ten (Stubbs mode: their units and encounters keep them; a team past
+	Halo's ten is its own friend and everyone's enemy, game_team_is_enemy) */
+	NUMBER_OF_STUBBS_CAMPAIGN_TEAMS = NUMBER_OF_SOLO_CAMPAIGN_TEAMS + 2,
+#endif
 	_team_red = 0,
 	_team_blue,
 	MAXIMUM_MULTIPLAYER_GAME_TEAMS,

@@ -670,7 +670,8 @@ builds alone for now, not the consoles */
 #endif
 
 /* Stubbs mode's counts past Halo's, in the builds that have Stubbs mode (the
-desktop's): 35 material types where Halo has 33 (source/game/game_globals.h).
+desktop's): 35 material types where Halo has 33 (source/game/game_globals.h),
+12 campaign teams where Halo has 10 (source/game/game.h).
 Halo's maps are still checked against Halo's own counts, so they play as
 before; a console keeps Halo's counts and builds as before */
 #if !defined(HALO_CONSOLE_NO_STUBBS) && !defined(HALO_STUBBS_LIMITS)

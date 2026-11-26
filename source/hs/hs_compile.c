@@ -1548,10 +1548,19 @@ static boolean hs_parse_enum(
 			if (!_stricmp(hs_compile_globals.compiled_source + expression->source_offset, stubbs_teams[value_index]))
 				break;
 		}
-		/* (Stubbs's last two teams have no room among Halo's ten: they read
-		as none, so an allegiance made or broken with one does nothing,
-		ai_scripting_allegiance and ai_scripting_allegiance_remove, and the
-		rest of its script runs) */
+		/* (Stubbs's last two teams are past Halo's ten: where the build has
+		room for them, HALO_STUBBS_LIMITS, they are their own indices, which a
+		unit or an encounter takes, and an allegiance made or broken with one
+		does nothing, game_allegiance.c; else they read as none, and an
+		allegiance or ai_set_team with one does nothing; the rest of its
+		script runs) */
+#ifdef HALO_STUBBS_LIMITS
+		if (value_index >= enum_definition->count && value_index < (short)NUMBEROF(stubbs_teams))
+		{
+			expression->short_value = value_index;
+			return TRUE;
+		}
+#endif
 		if (value_index >= enum_definition->count && value_index < (short)NUMBEROF(stubbs_teams))
 		{
 			expression->short_value = NONE;
