@@ -460,7 +460,16 @@ byte *distributed_wire_put(byte *cursor, void const *data, short size, short par
 boolean distributed_wire_take(byte const **cursor, byte const *end, void *data, short size, short part);
 #endif
 
-#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+/* the wire's samples are in a little-endian build made to capture them
+(HALO_NETWORK_WIRE_CAPTURE) and in a big-endian one with its developer tools
+(HALO_CONSOLE_DEBUG_TOOLS, configure.py --console-debug-tools), whose
+network_wire_self_test compares them; a big-endian build without them has
+the self-test alone, which says so */
+#if defined(HALO_NETWORK_WIRE_CAPTURE) || (defined(HALO_BIG_ENDIAN) && defined(HALO_CONSOLE_DEBUG_TOOLS))
+#define HALO_NETWORK_WIRE_SAMPLES
+#endif
+
+#ifdef HALO_NETWORK_WIRE_SAMPLES
 /* ---------- the wire's samples (network_distributed.c's
 network_wire_self_test)
 
