@@ -32,7 +32,9 @@ def test_stub_rules(tmp_path):
         import pytest
         pytest.skip("no C compiler")
     binary = tmp_path / ("rename_stub_test.exe" if sys.platform == "win32" else "rename_stub_test")
-    build = subprocess.run([cc, "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-O1",
+    # (Windows' C library calls fopen deprecated: the other tools tests' define)
+    windows = ["-D_CRT_SECURE_NO_WARNINGS"] if sys.platform == "win32" else []
+    build = subprocess.run([cc, *windows, "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-O1",
                             str(ROOT / "port/linux/tests/rename_stub_test.c"), "-o", str(binary)],
                            capture_output=True, text=True)
     assert build.returncode == 0, build.stdout + build.stderr
