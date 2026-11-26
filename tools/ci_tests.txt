@@ -40,6 +40,7 @@ tools/test_console_packager.py
 tools/test_console_shell.py
 tools/test_console_structure_culling.py
 tools/test_content_golden.py
+tools/test_content_map_probe.py
 tools/test_coop_level_prompt.py
 tools/test_coop_spectate.py
 tools/test_crash_null_call.py
