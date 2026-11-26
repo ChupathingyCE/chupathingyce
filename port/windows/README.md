@@ -80,8 +80,8 @@ and the other ports over the network, and it is a dedicated server too
 
 ## Start the game
 
-Enter `build\windows\chupathingy.exe`. The small `halo.exe` beside it starts
-`chupathingy.exe`, for shortcuts made before the rename in 0.9.0.
+Enter `build\windows\chupathingy.exe`. (Until 0.9.2 a small `halo.exe` beside
+it started `chupathingy.exe`, for shortcuts made before the rename in 0.9.0.)
 
 The game finds the game data as on Linux. Refer to "Start the game" in
 [port/linux/README.md](../linux/README.md#start-the-game).

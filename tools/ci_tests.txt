@@ -141,6 +141,7 @@ tools/test_mod_archives.py
 tools/test_net43_host.py
 tools/test_network_rules.py
 tools/test_network_test_startup.py
+tools/test_no_game_browser_calls.py
 tools/test_online_games_list.py
 tools/test_opence_welcome.py
 tools/test_opensauce_scripts.py
@@ -148,6 +149,7 @@ tools/test_p2p_copies.py
 tools/test_p2p_host_port.py
 tools/test_p2p_public_address.py
 tools/test_p2p_signal_sockets.py
+tools/test_p2p_spoofed_source.py
 tools/test_packaged_install.py
 tools/test_party_teams.py
 tools/test_pause_leave.py
