@@ -81,3 +81,12 @@ def test_message_icons_keep_the_controller_buttons():
 def test_embedded_only_where_mcc_maps_are_played():
     source = (ROOT / "tools/embed_assets.py").read_text()
     assert '"#if HALO_MCC"' in source and "MCC_LAYOUT" in source
+
+
+def test_counter_panels_stay_the_maps():
+    # MCC's ammo and grenade counter panels are taller than the restored
+    # art: drawn with it, they had a transparent strip along the bottom
+    # (#1821), so they stay MCC's own
+    names = {entry["name"] for entry in entries()}
+    for index in range(3):
+        assert f"hud_weapon_backgrounds__{index}" not in names
