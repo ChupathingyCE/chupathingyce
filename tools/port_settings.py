@@ -964,7 +964,7 @@ CHUPATHINGY_ONLY = {
         "help_top": 376,
         "rows": [
             ("SHARE MY PROFILE:", "network.share_profile", ON_OFF,
-             "Show your Delta name to Chupathingy players.", None),
+             "Show your verified Delta name to Chupathingy players.", None),
             ("RECORD GAMES I JOIN:", "network.report_joined_games", ON_OFF,
              "Report the games you join.", None),
             ("RECORD GAMES I HOST:", "network.report_hosted_games", ON_OFF,
