@@ -304,6 +304,14 @@ static void forge_marker_spawn_color(
 		marker->blue = route_colors[route][2] * shade;
 		return;
 	}
+	/* (an effect's: pale cyan; a decal's: tan) */
+	if (forge_spawn_is_effect(spawn))
+	{
+		marker->red = spawn->kind == _forge_spawn_effect ? 0.55f : 0.82f;
+		marker->green = spawn->kind == _forge_spawn_effect ? 0.95f : 0.66f;
+		marker->blue = spawn->kind == _forge_spawn_effect ? 1.00f : 0.42f;
+		return;
+	}
 	/* (a game type object's: a CTF flag its team's, a hill point yellow, an
 	oddball spawn white, a race checkpoint orange) */
 	if (forge_spawn_is_objective(spawn))
