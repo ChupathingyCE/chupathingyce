@@ -685,11 +685,12 @@ static short hud_multitexture_blend_code(
 /* port: Halo PC picks the pixel shader of a three map overlay from a list of
 its 25 pairs of blending functions (add, dot, multiply, multiply 2x, subtract
 for each of the two), but one place too early: it draws the pair before the
-one the tag asks for, and for add then add the first map alone. OpenSauce
-maps (SPV3's) were made against that, without the fix Chimera gives older
-Custom Edition maps: their overlays are drawn with the pair Halo PC draws
-(SPV3's dynamic reticles, which drew a flat square at the crosshair with the
-pair asked for). FALSE, and the overlay drawn as the Xbox draws it, for any
+one the tag asks for, and for add then add the first map alone. Chimera
+fixes the order for every map and keeps Halo PC's order only for a list of
+older Custom Edition maps (matched by name and tag checksum). OpenSauce maps
+(SPV3's) were made against Halo PC's order, so we keep it for them: their
+overlays are drawn with the pair Halo PC draws (SPV3's dynamic reticles drew
+a flat square at the crosshair with the pair asked for). FALSE, and the overlay drawn as the Xbox draws it, for any
 other map. Two map overlays are left as they are: Halo PC's second pair
 there reads a texture stage nothing set. */
 static boolean hud_multitexture_overlay_gearbox_pair(
