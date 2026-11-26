@@ -66,7 +66,6 @@ long hud_hires_override_find(unsigned long address, unsigned long width, unsigne
 stand for an MCC bitmap of this size (a whole multiple of it, the same
 both ways, as large or larger) */
 long hud_hires_asset_mcc(long asset);
-long hud_hires_asset_fits_mcc(long asset, long width, long height);
 /* the game's (port/linux/game/hud_hires_tags.c): the texture standing for
 an MCC map's bitmap, or -1 (mcc_texture_bridge.c asks as it registers
 one); and an MCC sheet's texture's kept cells filled in from the map's own

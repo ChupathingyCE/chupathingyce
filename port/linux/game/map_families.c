@@ -26,6 +26,7 @@ play it); the files are looked for only on the builds that play such maps
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "content_resource_map.h"
 
 /* ---------- constants */
 
@@ -958,19 +959,25 @@ static short resource_map_state(
 	unsigned long type,
 	char const *ending)
 {
-	unsigned long header[4], bytes_read = 0, file_size;
+	unsigned char header_bytes[CONTENT_RESOURCE_HEADER_SIZE];
+	struct content_resource_header header;
+	unsigned long bytes_read = 0, file_size;
 	short state = _resource_map_unreadable;
 	HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
 	if (file == INVALID_HANDLE_VALUE)
 		return _resource_map_missing;
 	file_size = GetFileSize(file, NULL);
-	if (file_size != INVALID_FILE_SIZE && ReadFile(file, header, sizeof(header), &bytes_read, NULL) &&
-		bytes_read == sizeof(header) && header[0] == type && header[3] && header[3] <= 0x10000 &&
-		header[1] >= sizeof(header) && header[1] <= header[2] && header[2] <= file_size &&
-		header[3] * 12 <= file_size - header[2])
+	memset(&header, 0, sizeof(header));
+	if (file_size != INVALID_FILE_SIZE && ReadFile(file, header_bytes, sizeof(header_bytes), &bytes_read, NULL) &&
+		bytes_read == sizeof(header_bytes))
 	{
-		unsigned long paths_size = header[2] - header[1];
+		content_resource_header_read(header_bytes, &header);
+	}
+	if (header.type == type && header.count && header.count <= 0x10000 &&
+		header.paths_offset >= CONTENT_RESOURCE_HEADER_SIZE && content_resource_header_within(&header, file_size))
+	{
+		unsigned long paths_size = header.table_offset - header.paths_offset;
 		char *paths;
 
 		state = _resource_map_ready;
@@ -978,7 +985,7 @@ static short resource_map_state(
 		if (ending && paths_size && paths_size <= 0x400000 && (paths = malloc(paths_size)) != NULL)
 		{
 			bytes_read = 0;
-			if (SetFilePointer(file, (long)header[1], NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER ||
+			if (SetFilePointer(file, (long)header.paths_offset, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER ||
 				!ReadFile(file, paths, paths_size, &bytes_read, NULL) || bytes_read != paths_size)
 			{
 				state = _resource_map_unreadable;

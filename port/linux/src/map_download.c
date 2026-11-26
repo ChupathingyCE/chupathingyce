@@ -1322,18 +1322,6 @@ void map_download_reset(void)
 	pthread_mutex_unlock(&map_download.lock);
 }
 
-/* ---------- from the host */
-
-int map_download_host_setting_from(const char *text)
-{
-	return map_host_setting_from(text);
-}
-
-const char *map_download_host_setting_word(int setting)
-{
-	return map_host_setting_word(setting);
-}
-
 int map_download_host_setting(void)
 {
 #ifdef HALO_HOST_MAP_DOWNLOADS

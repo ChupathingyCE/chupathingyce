@@ -42,6 +42,8 @@ upload, which have threads of their own.
 #include "map_download.h"
 #include "update.h"
 #include "log_send.h"
+#include "map_pack_folders.h"
+#include "../game/content_map_header.h"
 
 #include <SDL3/SDL.h>
 #ifdef __APPLE__
@@ -573,13 +575,10 @@ static void set_status(unsigned int color, const char *format, ...)
 
 enum
 {
-	MAP_HEADER_SIGNATURE = 0x68656164,
-	MAP_VERSION_XBOX = 5,
-	MAP_VERSION_HALO_PC = 7,
-	MAP_VERSION_MCC = 13,
-	MAP_VERSION_CUSTOM_EDITION = 609,
-	/* (a Chimera-compressed map's version: the real one in the low half) */
-	MAP_VERSION_COMPRESSED = 0x861A0000,
+	MAP_VERSION_XBOX = CONTENT_MAP_VERSION_XBOX,
+	MAP_VERSION_HALO_PC = CONTENT_MAP_VERSION_HALO_PC,
+	MAP_VERSION_MCC = CONTENT_MAP_VERSION_MCC,
+	MAP_VERSION_CUSTOM_EDITION = CONTENT_MAP_VERSION_CUSTOM_EDITION,
 };
 
 /* where Halo MCC's maps go, said when they are in another family's folder:
@@ -602,19 +601,15 @@ static long map_version(const char *path)
 {
 	unsigned char header[8];
 	FILE *file = fopen(path, "rb");
-	unsigned long version = 0;
+	struct content_map_info map;
+	long version = 0;
 
 	if (!file)
 		return 0;
-	if (fread(header, 1, sizeof(header), file) == sizeof(header) &&
-		(header[0] | header[1] << 8 | header[2] << 16 | (unsigned long)header[3] << 24) == MAP_HEADER_SIGNATURE)
-	{
-		version = header[4] | header[5] << 8 | header[6] << 16 | (unsigned long)header[7] << 24;
-		if ((version & 0xFFFF0000UL) == MAP_VERSION_COMPRESSED)
-			version &= 0xFFFF;
-	}
+	if (fread(header, 1, sizeof(header), file) == sizeof(header) && content_map_probe(header, sizeof(header), &map))
+		version = (long)map.cache_version;
 	fclose(file);
-	return (long)version;
+	return version;
 }
 
 /* whether an Xbox map's data is still compressed, as the game reads it: a
@@ -989,6 +984,11 @@ static void scan(void)
 		for (character = 0; valid && character < length; character++)
 			valid = isalnum((unsigned char)id[character]) || id[character] == '+';
 		if (!valid || !SDL_strcasecmp(id, "ce") || !SDL_strcasecmp(id, "pc") || !SDL_strcasecmp(id, "md"))
+			continue;
+		/* (not Xbox map packs: Halo MCC's maps (maps_mcc) and SPV3's
+		(maps_spv3, a mode in Play once it is there), whose files these
+		checks don't count; Make the folders makes both) */
+		if (!SDL_strcasecmp(id, "mcc") || !SDL_strcasecmp(id, "spv3"))
 			continue;
 		snprintf(path, sizeof(path), "%s/%s", launcher.root, name);
 		if (!is_directory(path))
@@ -2647,6 +2647,8 @@ static void make_folders(void)
 			}
 		}
 	}
+	/* (and the map packs' folders, each with its README.txt) */
+	map_pack_folders_make(launcher.root);
 	platform_log("launcher: made the maps folders");
 	scan();
 	open_folder(launcher.root);
@@ -2937,6 +2939,20 @@ static int executable_path(char *path, size_t size)
 #endif
 }
 
+/* this screen starts the game again for a setting that needs it (#1665):
+a bgfx Vulkan start it closes that way isn't taken for one that didn't get
+going. Only these restarts clear it: Quit, Welcome's QUIT (B, Escape) and
+the window closed leave the note, since a Vulkan window that never shows a
+picture is left those ways too, and its next start must still go to OpenGL
+(#1046) */
+static void closing_on_purpose(void)
+{
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+		xgpu_bgfx_start_note_clear();
+#endif
+}
+
 /* Chupathingy started again, in mode (its id) and past this screen, for
 the settings that show only after a restart; 0 if it could not be */
 static int restart_with(const char *mode)
@@ -2948,6 +2964,8 @@ static int restart_with(const char *mode)
 		platform_log("launcher: could not find the game's executable to start it again");
 		return 0;
 	}
+	/* (before the start in this same process too, which never returns) */
+	closing_on_purpose();
 	snprintf(argument, sizeof(argument), "--mode=%s", mode);
 #ifdef __linux__
 	/* (this same process, as an update's restart: Steam and gamescope keep
@@ -2996,6 +3014,7 @@ int launcher_restart_to_setup(void)
 		platform_log("launcher: could not start again on the setup screen");
 		return 0;
 	}
+	closing_on_purpose();
 #ifdef __linux__
 	/* (this same process: see restart_with) */
 	if (update_start_in_place_with(path, "--setup"))

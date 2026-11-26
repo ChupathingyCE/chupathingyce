@@ -91,7 +91,8 @@ def binaries(tmp_path_factory):
         for file in ("halo_map_families.h", "halo_join_reasons.h", "halo_map_packs.h", "spv3_mode.h"):
             rewrite(ROOT / "port/linux/include" / file, work / file)
         rewrite(ROOT / "port/linux/game/map_families.c", work / "game/map_families.c")
-        rewrite(ROOT / "port/linux/game/map_stock_pairs.h", work / "game/map_stock_pairs.h")
+        for file in ("map_stock_pairs.h", "content_resource_map.h", "content_bytes.h"):
+            rewrite(ROOT / "port/linux/game" / file, work / "game" / file)
         for file in ("map_archive.h", "map_file_hash.h"):
             rewrite(ROOT / "port/linux/src" / file, work / "src" / file)
         binary = work / "installed"

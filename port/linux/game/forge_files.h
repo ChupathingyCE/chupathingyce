@@ -13,7 +13,7 @@ A layout is <stem>.hmv in the Forge folder's folder of its map
 
 	header  64 bytes
 	  magic        char[4]  "HFRG"
-	  version      u16      1 to 7, or 11 to 14 (below)
+	  version      u16      1 to 7, or 11 to 16 (below)
 	  header size  u16      64
 	  flags        u32      bit 0: a record is not a plain object (a spawn
 	                        point, a teleporter, a game type object); bit
@@ -57,9 +57,10 @@ point, an oddball spawn, a race checkpoint; its type in variant, its index
 in team), 7 a teleporter sender, 8 a teleporter receiver (their channel in
 team), 19 an AI route point and 20 an AI patrol area (version 12; their
 route in team, a point's stop or an area's size in variant), 21 a volume
-(version 14: below). Kinds 1, 3 and 4 (a squad, a weapon or vehicle spawn)
-are defined but placed by nothing; 6, 9 to 18 and any other kind are
-refused.
+(version 14: below), 22 the layout's sky and fog (version 15: below),
+23 an effect and 24 a decal (version 16: below).
+Kinds 1, 3 and 4 (a squad, a weapon or vehicle spawn) are defined but
+placed by nothing; 6, 9 to 18 and any other kind are refused.
 
 A volume (version 14, kind 21): a zone of the layout that does something
 to whoever is in it, the Forge menu's VOLUMES. No path; its place the
@@ -72,6 +73,26 @@ two zeros), amount u8 (a kill volume's 0; a damage volume's percent of full
 health a second, 1 to 100; a gravity volume's percent of gravity, 0 to
 200), target u8 (0 every unit, 1 players only; a team's always 1), then
 three zeros.
+
+The sky and fog (version 15, kind 22): how a layout's outdoors looks, one
+record at most. Its path a sky tag of the map's (group sky), or none for
+the map's own sky; its place, angles and the rest of an object's zero. Its
+own bytes: what it sets u8 (FORGE_FILE_ENVIRONMENT_SKY, _FOG: at least one;
+the sky bit set exactly when it has a path), the fog's color u8[3] (red,
+green, blue), its density u8 (percent, 1 to 100), where it starts u8 (world
+units, 0 to 254) and where it is whole u8 (two world units each, 1 to 255,
+past where it starts); the fog's bytes zero without the fog bit; then two
+zeros.
+
+An effect (version 16, kind 23): one of the map's effects placed in the
+layout, started where it stands, again every so often. Its path an effect
+(group effe); its place, its yaw; nothing else of an object's. Its own
+bytes: its repeat u8 (seconds between starts, 1 to 60; 0 once, kept
+looping when the effect loops), then zeros.
+A decal (version 16, kind 24): one of the map's decals laid on the ground
+under its place. Its path a decal (group deca); its place, its yaw; nothing
+else of an object's. Its own bytes: its size u8 (tenths of the decal's own,
+1 to 40), then zeros.
 
 Versions: each adds what a record may hold. A layout is written as the
 lowest version that holds it, so a layout without the newer things stays
@@ -107,13 +128,15 @@ that version (a file a writer would not make is refused).
 	   forge.h FORGE_MAXIMUM_OBJECTS): a build from before reads a layout
 	   this big as one from a newer build, not as a damaged one
 	14 volumes: kill, damage and gravity zones (above)
-Versions 8 to 10 (game mode markers, boundaries, a lobby camera) and 15 on
+	15 the layout's sky and fog (above)
+	16 effects and decals (above)
+Versions 8 to 10 (game mode markers, boundaries, a lobby camera) and 17 on
 are refused with _forge_file_newer_version: this build reads versions 1 to
-7 and 11 to 14. Version 11 is the Vita build's number for the same block
+7 and 11 to 16. Version 11 is the Vita build's number for the same block
 (its "blank canvas"), so those layouts' blocks are read the same; 8 to 10
 keep meaning what they mean there. Each version reads what the ones below
 it add: a version 12 layout may hold the map's own objects block too, and a
-version 13 one AI movement and the block, a version 14 one all of them.
+version 13 one AI movement and the block, a version 14, 15 or 16 one all of them.
 
 The validator (forge_file_decode), in order; a file is taken whole or not
 at all:
@@ -129,7 +152,8 @@ at all:
 - each pack: its name [a-z0-9_ -], 1 to 24 characters, zeros after it;
 - each path: 1 to 127 characters of [a-z0-9_ \-.], no "..", no empty part,
   no \ at either end, within the file; a group Forge places (vehi weap eqip
-  scen bipd mach ctrl lifi actv); no path twice;
+  scen bipd mach ctrl lifi actv), a sky (sky , version 15), or an effect
+  or decal (effe deca, version 16); no path twice;
 - each record: within the file; a known kind; its path index below the
   path count and of a group its kind takes, or none for a kind that names
   no object; team -1 to 7 (a spawn point -1 to 1, a teleporter's channel 0
@@ -144,12 +168,15 @@ at all:
   or patrol area (version 12) with no path, its route 0 to 15, its stop or
   size in range, its yaw alone, nothing else; a volume's type, shape,
   size, amount and target in range, its yaw alone, nothing else (version
-  14); the kind's own bytes zero for any other kind; every float finite,
+  14); the sky and fog's sky a sky's path, its fog's bytes in range,
+  nothing else (version 15); an effect's path an effect's, a decal's a
+  decal's, their own bytes in range, their yaw alone, nothing else
+  (version 16); the kind's own bytes zero for any other kind; every float finite,
   positions within +-5000 world units, angles within +-pi, a marker's
   pitch and roll zero; the reserved bytes zero;
 - the layout: at most 32 teleporters, each sender's channel with a
   receiver; at most 64 route points and 16 patrol areas; at most 64 game type objects, a hill's points at most 12; at most 32
-  volumes; the
+  volumes; one sky and fog at most; at most 16 effects and 32 decals; the
   flag bit 0 set exactly when a record is not a plain object; the version
   the lowest that holds it;
 - the map's own objects (version 11 on, flag bit 2): its block's version 1
@@ -175,7 +202,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #define FORGE_FILE_EXTENSION ".hmv"
 /* the newest version written and read, and the oldest read */
-#define FORGE_FILE_VERSION 14
+#define FORGE_FILE_VERSION 16
 #define FORGE_FILE_FIRST_VERSION 1
 /* (the versions this build does not read below FORGE_FILE_VERSION: the
 Vita build's game mode markers, boundaries and lobby camera) */
@@ -186,6 +213,10 @@ Vita build's game mode markers, boundaries and lobby camera) */
 #define FORGE_FILE_EARLIER_MAXIMUM_RECORDS 256
 /* the version of volumes (kind 21) and the kind's own bytes */
 #define FORGE_FILE_VOLUMES_VERSION 14
+/* the version of a layout's sky and fog (kind 22) */
+#define FORGE_FILE_ENVIRONMENT_VERSION 15
+/* the version of effects and decals (kinds 23 and 24) */
+#define FORGE_FILE_EFFECTS_VERSION 16
 #define FORGE_FILE_HEADER_SIZE 64
 #define FORGE_FILE_MAXIMUM_SIZE 65536
 #define FORGE_FILE_MAXIMUM_PATHS 256
@@ -198,7 +229,8 @@ Vita build's game mode markers, boundaries and lobby camera) */
 #define FORGE_FILE_PACK_NAME_SIZE 24
 #define FORGE_FILE_RECORD_SIZE 48
 /* (version 14 on) a record's own bytes, after the AI's: a kind's that has
-them (a volume's), zeros for any other */
+them (a volume's, a layout's sky and fog, an effect's or decal's), zeros
+for any other */
 #define FORGE_FILE_RECORD_PARAMS_SIZE 9
 /* the texts' room, each one's terminator included */
 #define FORGE_FILE_MAP_NAME_SIZE 32
@@ -310,6 +342,41 @@ enum
 #define FORGE_FILE_VOLUME_SIZE_UNIT 0.25f
 #define FORGE_FILE_MAXIMUM_VOLUME_DAMAGE 100
 #define FORGE_FILE_MAXIMUM_VOLUME_GRAVITY 200
+/* (version 15) the layout's sky and fog: what it sets (its own bytes'
+first), the places of the rest, their ranges */
+enum
+{
+	FORGE_FILE_ENVIRONMENT_SKY = 1 << 0,
+	FORGE_FILE_ENVIRONMENT_FOG = 1 << 1,
+	FORGE_FILE_ENVIRONMENT_KNOWN = FORGE_FILE_ENVIRONMENT_SKY | FORGE_FILE_ENVIRONMENT_FOG,
+};
+enum
+{
+	FORGE_FILE_ENVIRONMENT_PARAM_SETS = 0,
+	FORGE_FILE_ENVIRONMENT_PARAM_COLOR,
+	FORGE_FILE_ENVIRONMENT_PARAM_DENSITY = FORGE_FILE_ENVIRONMENT_PARAM_COLOR + 3,
+	FORGE_FILE_ENVIRONMENT_PARAM_START,
+	FORGE_FILE_ENVIRONMENT_PARAM_OPAQUE,
+};
+#define FORGE_FILE_MAXIMUM_FOG_DENSITY 100
+#define FORGE_FILE_MAXIMUM_FOG_START 254
+/* (the whole fog's byte: two world units each) */
+#define FORGE_FILE_FOG_OPAQUE_UNIT 2.f
+/* the sky's group (sky ) */
+#define FORGE_FILE_SKY_GROUP 0x736B7920
+/* (version 16) effects and decals: the most in a layout, their groups,
+their own bytes' ranges */
+#define FORGE_FILE_MAXIMUM_EFFECTS 16
+#define FORGE_FILE_MAXIMUM_DECALS 32
+#define FORGE_FILE_EFFECT_GROUP 0x65666665
+#define FORGE_FILE_DECAL_GROUP 0x64656361
+#define FORGE_FILE_MAXIMUM_EFFECT_REPEAT 60
+#define FORGE_FILE_MAXIMUM_DECAL_SIZE 40
+enum
+{
+	FORGE_FILE_EFFECT_PARAM_REPEAT = 0,
+	FORGE_FILE_DECAL_PARAM_SIZE = 0,
+};
 
 /* a record's path index when its kind names no object */
 #define FORGE_FILE_NO_PATH 0xFFFF
@@ -417,6 +484,13 @@ enum
 	/* (version 14) a volume: variant its type, team the players it acts
 	on, its own bytes its shape, size, amount and target */
 	_forge_record_volume = 21,
+	/* (version 15) the layout's sky and fog: its path the sky (or none),
+	its own bytes what it sets and the fog */
+	_forge_record_environment = 22,
+	/* (version 16) an effect and a decal of the map's: its path the tag,
+	its own bytes its repeat or size */
+	_forge_record_effect = 23,
+	_forge_record_decal = 24,
 };
 
 /* why a file was refused (forge_file_decode), in the order checked */
@@ -563,7 +637,7 @@ int forge_file_layout_check(
 	char const *expected_map);
 
 /* the version a layout is written as: its own when set, else the lowest
-that holds it (14 with a volume, 12 with AI movement, 11 with the map's own objects block, 7 with an object's physics, 6 with a game type object, 5
+that holds it (16 with an effect or decal, 15 with a sky and fog, 14 with a volume, 12 with AI movement, 11 with the map's own objects block, 7 with an object's physics, 6 with a game type object, 5
 with a teleporter, 4 with a player spawn, 3 with a respawning character, 2
 when a record has an AI setting, else 1) */
 int forge_file_layout_version(
@@ -576,6 +650,11 @@ char const *forge_file_result_name(
 /* whether a group tag is one Forge places (vehi weap eqip scen bipd mach
 ctrl lifi actv) */
 int forge_file_group_allowed(
+	unsigned int group_tag);
+
+/* whether a group tag is one a layout's path may name: a group Forge
+places, a sky (version 15), or an effect or a decal (version 16) */
+int forge_file_path_group_allowed(
 	unsigned int group_tag);
 
 /* whether a tag path is one a file may name: 1 to 127 characters of

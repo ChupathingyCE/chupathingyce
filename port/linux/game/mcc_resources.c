@@ -1,5 +1,6 @@
 /* MCC resource cache reader. The on-disk header and twelve-byte entries are
- * decoded explicitly; no CE resource state or readers are shared. */
+ * the game's one resource map reader's (content_resource_map.h); MCC's own
+ * rules for them, and its files and shared sets, are here. */
 #ifndef HALO_MCC
 #include "../include/halo_port_features.h"
 #endif
@@ -8,7 +9,7 @@
 #include "mcc_loading.h"
 #include "mcc_resources.h"
 #include "mcc_identity.h"
-#include "mcc_sha256.h"
+#include "content_sha256.h"
 #include "mcc_package.h"
 #include "mcc_errors.h"
 #include "cseries.h"
@@ -18,6 +19,7 @@
 #include <string.h>
 #include <errno.h>
 #include "mcc_host_memory.h"
+#include "content_resource_map.h"
 unsigned long system_milliseconds(void);
 
 /* Logging includes the game's allocation macros. This reader owns libc
@@ -39,11 +41,6 @@ struct mcc_resource_file {
 the singleplayer set, then the multiplayer set */
 struct mcc_resources { struct mcc_resource_file files[2]; struct mcc_resource_file shared[2][2]; };
 
-static uint32_t mcc_resource_word(unsigned char const *p)
-{
-    return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;
-}
-
 static void mcc_resource_close(struct mcc_resource_file *file)
 {
     if (file->stream) fclose(file->stream);
@@ -60,7 +57,8 @@ static int mcc_resource_compare(void const *a,void const *b)
 static int mcc_resource_open(struct mcc_resource_file *file,unsigned type,char const *level,char const *explicit_path,
     char *reason,size_t reason_size)
 {
-    unsigned char header[16],entry[12];
+    unsigned char header[CONTENT_RESOURCE_HEADER_SIZE],entry[CONTENT_RESOURCE_ENTRY_SIZE];
+    struct content_resource_header map;
     uint32_t names,index,count,names_bytes,i;
     long length;
     char path[128];
@@ -76,10 +74,11 @@ static int mcc_resource_open(struct mcc_resource_file *file,unsigned type,char c
     }
     if (fseek(file->stream,0,SEEK_END) || (length=ftell(file->stream))<16 ||
         fseek(file->stream,0,SEEK_SET) || fread(header,1,16,file->stream)!=16) goto failed;
-    names=mcc_resource_word(header+4);index=mcc_resource_word(header+8);count=mcc_resource_word(header+12);
-    if (mcc_resource_word(header)!=type || names<16 || index<names || index>(uint32_t)length ||
-        !count || count>MCC_RESOURCE_METADATA_LIMIT/sizeof(*file->items) ||
-        count>((uint32_t)length-index)/12) goto failed;
+    content_resource_header_read(header,&map);
+    names=map.paths_offset;index=map.table_offset;count=map.count;
+    if (map.type!=type || names<CONTENT_RESOURCE_HEADER_SIZE || !count ||
+        count>MCC_RESOURCE_METADATA_LIMIT/sizeof(*file->items) ||
+        !content_resource_header_within(&map,(uint32_t)length)) goto failed;
     names_bytes=index-names;
     if (!names_bytes || names_bytes>MCC_RESOURCE_METADATA_LIMIT) goto failed;
     file->names=malloc(names_bytes);file->items=malloc(count*sizeof(*file->items));
@@ -91,8 +90,10 @@ static int mcc_resource_open(struct mcc_resource_file *file,unsigned type,char c
         fread(file->names,1,names_bytes,file->stream)!=names_bytes) goto failed;
     for (i=0;i<count;i++) {
         struct mcc_resource_item *item=&file->items[i];
-        if (fread(entry,1,12,file->stream)!=12) goto failed;
-        item->name=mcc_resource_word(entry);item->size=mcc_resource_word(entry+4);item->offset=mcc_resource_word(entry+8);
+        struct content_resource_entry read;
+        if (fread(entry,1,sizeof(entry),file->stream)!=sizeof(entry)) goto failed;
+        content_resource_entry_read(entry,&read);
+        item->name=read.path_offset;item->size=read.size;item->offset=read.offset;
         if (item->name>=names_bytes || !memchr(file->names+item->name,0,
             names_bytes-item->name<320 ? names_bytes-item->name : 320) ||
             item->offset<16 || item->offset>names || item->size>names-item->offset) goto failed;
@@ -405,32 +406,32 @@ int mcc_resources_checksum(struct mcc_runtime *runtime,unsigned resources,uint32
 }
 
 /* Length/type framing keeps file boundaries distinct without including paths. */
-static void mcc_fingerprint_file_header(struct mcc_sha256 *hash, unsigned type, uint64_t size)
+static void mcc_fingerprint_file_header(struct content_sha256 *hash, unsigned type, uint64_t size)
 {
     unsigned char header[9];
     unsigned i;
     header[0]=(unsigned char)type;
     for (i=0;i<8;i++) header[i+1]=(unsigned char)(size>>(i*8));
-    mcc_sha256_add(hash,header,sizeof(header));
+    content_sha256_add(hash,header,sizeof(header));
 }
 
 int mcc_resources_fingerprint(struct mcc_runtime *runtime,unsigned char digest[32])
 {
-    struct mcc_sha256 hash;
+    struct content_sha256 hash;
     unsigned char buffer[32768];
     uint32_t offset,bytes;
     unsigned type;
     struct mcc_resource_file *resource;
     long size;
     if (!runtime || !runtime->source.read || runtime->source.size>0x7fffffffu) return 0;
-    mcc_sha256_begin(&hash);
-    mcc_sha256_add(&hash,"GulchCE MCC content v1",sizeof("GulchCE MCC content v1")-1);
+    content_sha256_begin(&hash);
+    content_sha256_add(&hash,"GulchCE MCC content v1",sizeof("GulchCE MCC content v1")-1);
     mcc_fingerprint_file_header(&hash,0,runtime->source.size);
     for (offset=0;offset<runtime->source.size;offset+=bytes) {
         bytes=(uint32_t)(runtime->source.size-offset);
         if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
         if (!runtime->source.read(runtime->source.context,offset,bytes,buffer)) return 0;
-        mcc_sha256_add(&hash,buffer,(int)bytes);
+        content_sha256_add(&hash,buffer,(int)bytes);
         mcc_loading_pulse();
     }
     for (type=1;type<=2;type++) {
@@ -443,11 +444,11 @@ int mcc_resources_fingerprint(struct mcc_runtime *runtime,unsigned char digest[3
             bytes=(uint32_t)size-offset;
             if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
             if (fread(buffer,1,bytes,resource->stream)!=bytes) return 0;
-            mcc_sha256_add(&hash,buffer,(int)bytes);
+            content_sha256_add(&hash,buffer,(int)bytes);
             mcc_loading_pulse();
         }
     }
-    mcc_sha256_end(&hash,digest);
+    content_sha256_end(&hash,digest);
     return 1;
 }
 
@@ -489,11 +490,6 @@ done:
     if (!ok && reason && reason_size) snprintf(reason,reason_size,"%s",runtime.failure[0] ? runtime.failure : problem);
     mcc_resources_dispose(&runtime);free(raw);
     return ok;
-}
-
-int mcc_resources_probe(char const *name,struct mcc_cache_source const *source,uint32_t *checksum)
-{
-    return mcc_resources_inspect(name,source,checksum,NULL,NULL,0);
 }
 
 int mcc_resources_probe_explain(char const *name,struct mcc_cache_source const *source,

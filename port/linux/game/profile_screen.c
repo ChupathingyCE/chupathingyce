@@ -1145,12 +1145,6 @@ void profile_screen_refresh(
 	refresh(TRUE);
 }
 
-boolean profile_screen_dialog_active(
-	void)
-{
-	return profile_screen.dialog != _dialog_none;
-}
-
 /* a dialog up over the menus' own screen (the Chupathingy menus'), which
 are drawn under it */
 boolean profile_screen_dialog_only(

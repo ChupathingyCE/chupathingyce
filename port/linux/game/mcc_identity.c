@@ -232,44 +232,12 @@ int mcc_identity_resources(char const *name,char paths[2][128])
     return 1;
 }
 
-/* port: the host's MCC content fingerprint travels in its game settings,
-which our wire does not change: with HALO_MCC_NETWORK only (mcc_network.c) */
-#ifdef HALO_MCC_NETWORK
-void const *mcc_identity_host_settings(void const *settings,long bytes,struct network_game *copy)
-{
-    struct network_game const *game=settings;
-    struct mcc_precache_snapshot files;
-    char canonical[64];
-    uint32_t checksum;
-    if (!game || bytes!=sizeof(*game)) return NULL;
-    memcpy(copy,game,sizeof(*copy));
-    memset(copy->mcc_content_sha256,0,32);
-    if (!mcc_level_name(game->map.name)) {
-        mcc_host_identity.valid=0;
-        return copy;
-    }
-    /* Recheck every resource candidate before reusing the prepared digest.
-     * A changed installation still requires fresh validation. */
-    /* Sending or tearing down a session must never initiate package work.
-     * Only pregame preparation may establish the host's identity. */
-    if (!mcc_host_identity.valid || !mcc_package_name(game->map.name,canonical) ||
-        strcmp(canonical,mcc_host_identity.name) || !mcc_precache_snapshot(canonical,&files) ||
-        memcmp(&files,&mcc_host_identity.files,sizeof(files)) ||
-        !mcc_validation_lookup(canonical,&checksum,NULL) ||
-        checksum!=(uint32_t)game->map.version) return NULL;
-    memcpy(copy->mcc_content_sha256,mcc_host_identity.digest,32);
-    /* MCC protocol 64 reserves the name tail for advisory Workshop metadata. */
-    mcc_workshop_wire_pack(copy->map.name,&mcc_host_identity.item);
-    return copy;
-}
-#endif
-
-/* port: the host's content digest, as its settings carry it: our build's own
-record (HALO_MCC_NETWORK), or the 43-layout record's (13,200 bytes), the first
-of the 64 bytes that end it (mcc_identity_host_overlay); zero for none. A
-record of another project's row (network_rules.h, "other projects' hosts":
-Content Evolved's 13,244 at 44, its options longer) ends with the same 64
-bytes: taken there too when the client recognized the row (recognized) */
+/* port: the host's content digest, as its settings carry it: the 43-layout
+record's (13,200 bytes), the first of the 64 bytes that end it
+(mcc_identity_host_overlay); zero for none. A record of another project's
+row (network_rules.h, "other projects' hosts": Content Evolved's 13,244 at
+44, its options longer) ends with the same 64 bytes: taken there too when the
+client recognized the row (recognized) */
 static unsigned char mcc_wire_digest[32];
 
 void mcc_identity_wire_record(unsigned char const *record, long size, int recognized)
@@ -280,14 +248,9 @@ void mcc_identity_wire_record(unsigned char const *record, long size, int recogn
 
 static unsigned char const *mcc_identity_session_digest(struct network_game const *game)
 {
-#ifdef HALO_MCC_NETWORK
-    return game->mcc_content_sha256;
-#else
     (void)game;
     return mcc_wire_digest;
-#endif
 }
-
 
 /* Only a known item ID establishes presence. Its older package may not yet
  * contain the requested level, so search independently of the filename. */
@@ -347,12 +310,8 @@ int mcc_identity_accept(struct network_game const *game)
     struct mcc_client_binding previous=mcc_client_identity;
     memset(&mcc_client_identity,0,sizeof(mcc_client_identity));
     mcc_cache_precache_clear();
-#ifdef HALO_MCC_NETWORK
-    if (!mcc_level_name(game->map.name)) return !memcmp(digest,zero,32);
-#else
     /* (a legacy map's record is the host's: its last bytes are not ours to judge) */
     if (!mcc_level_name(game->map.name)) return 1;
-#endif
     if (!mcc_package_name(game->map.name,session) || !memcmp(digest,zero,32))
         return mcc_identity_error("Couldn't check this game's MCC map. The host may need to restart the game.");
     if (mcc_identity_seen(&previous,session,digest)) return 1;

@@ -229,18 +229,6 @@ unsigned long mcc_cache_checksum(char const *name)
     return checksum;
 }
 
-int mcc_content_probe(char const *name,unsigned char digest[32])
-{
-    struct mcc_cache_identity identity;
-    struct mcc_cache_source source;
-    FILE *stream=mcc_open(name,&source,&identity);
-    int ok;
-    if (!stream) return 0;
-    ok=mcc_resources_fingerprint_probe(name,&source,digest);
-    fclose(stream);
-    return ok;
-}
-
 int mcc_content_match(char const *name,unsigned char const digest[32],char paths[2][128],
     char *reason,unsigned long reason_size)
 {
@@ -554,11 +542,6 @@ boolean mcc_cache_bsp_load(struct scenario_structure_bsp_reference const *refere
 }
 
 void mcc_cache_bsp_unload(void) { mcc_geometry_bsp_unload(&mcc_loaded_cache); }
-
-short mcc_cache_part_palette(void const *buffer, byte const **nodes)
-{
-    return mcc_loaded ? mcc_geometry_part_palette(&mcc_loaded_cache, buffer, nodes) : 0;
-}
 
 boolean mcc_cache_bitmap_valid(struct bitmap_data *bitmap)
 {

@@ -95,6 +95,9 @@ enum
 	/* (volumes: KILL VOLUME, DAMAGE VOLUME, GRAVITY VOLUME, zones that act
 	on whoever is in them: forge_volumes.inc) */
 	_forge_category_volumes,
+	/* (the map's effects and decals, placed as markers: forge_effects.inc) */
+	_forge_category_effects,
+	_forge_category_decals,
 	NUMBER_OF_FORGE_CATEGORIES
 };
 
@@ -135,6 +138,9 @@ enum
 	_forge_spawn_volume_kill,
 	_forge_spawn_volume_damage,
 	_forge_spawn_volume_gravity,
+	/* (an effect or a decal of the map's: forge_effects.inc) */
+	_forge_spawn_effect,
+	_forge_spawn_decal,
 	NUMBER_OF_FORGE_MARKER_KINDS,
 	FORGE_LAST_OBJECTIVE_KIND = _forge_spawn_race
 };
@@ -171,6 +177,19 @@ enum
 	_forge_property_ai_route,
 	_forge_property_ai_vehicles,
 	NUMBER_OF_FORGE_PROPERTIES
+};
+
+/* (forge_environment.inc) the sky and fog's options, SKY AND FOG's rows in
+order */
+enum
+{
+	_forge_environment_sky = 0,
+	_forge_environment_fog,
+	_forge_environment_color,
+	_forge_environment_density,
+	_forge_environment_start,
+	_forge_environment_end,
+	NUMBER_OF_FORGE_ENVIRONMENT_ROWS
 };
 
 /* ---------- structures */
@@ -226,6 +245,10 @@ struct forge_properties
 	unsigned char volume_size[3];
 	unsigned char volume_amount;
 	short volume_target_index;
+	/* (an effect's or a decal's: forge_effects.inc) its repeat (seconds, 0
+	LOOP) or size (tenths) */
+	boolean effect;
+	short effect_value;
 };
 
 /* what the monitor's controls ask of the flying camera this frame */
@@ -464,6 +487,9 @@ enum
 	deleted */
 	_forge_menu_ask_load,
 	_forge_menu_ask_delete,
+	/* the sky and fog's option first (_forge_environment_*) stepped by
+	second (1 or -1) */
+	_forge_menu_ask_environment,
 	/* (forge_ai.inc) the layout's dead AI characters cleared (first 0), or
 	all of them (first 1) */
 	_forge_menu_ask_clear_ai,
@@ -592,6 +618,37 @@ boolean forge_mission_off(
 /* (game.c's game_tick) the layout's volumes act on what is in them: a
 Forge game's or a layout played's, a tick at a time */
 void forge_volumes_tick(
+	void);
+
+/* ---------- prototypes/FORGE_ENVIRONMENT.INC */
+
+struct sky_atmospheric_fog;
+
+/* (scenario.c) the sky a part of the map shows: the layout's in a Forge
+game or a layout played, when it has one (definition_index NONE: none, as
+ever); else definition_index */
+long forge_sky_definition_index(
+	long definition_index);
+
+/* (scenario.c) the outdoor fog drawn: the layout's in a Forge game or a
+layout played, when it has one; else fog */
+struct sky_atmospheric_fog const *forge_outdoor_fog(
+	struct sky_atmospheric_fog const *fog);
+
+/* (forge_menu.c's SKY AND FOG) a sky and fog row's value (SKY: MAP'S or the
+sky's name; FOG: MAP'S or CUSTOM; FOG COLOR; FOG DENSITY; FOG START; FOG
+END) */
+boolean forge_environment_text(
+	short row,
+	char *value,
+	int size);
+
+
+/* ---------- prototypes/FORGE_EFFECTS.INC */
+
+/* (game.c's game_tick) the layout's effects started when due and its decals
+laid: a Forge game's or a layout played's, a tick at a time */
+void forge_effects_tick(
 	void);
 
 /* ---------- prototypes/FORGE_NETGAME.INC */
