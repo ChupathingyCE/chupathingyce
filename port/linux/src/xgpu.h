@@ -398,6 +398,9 @@ started, the window cleared to color (0xRRGGBBAA), the overlay over it in
 the picture's place (x, y its lower left corner) and the window saved to
 screenshot (a .bmp's path, or NULL); FALSE if bgfx does not start */
 BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot);
+/* the setup screen starts the game again for a setting: a Vulkan start's
+note goes (d3d8_bgfx.inl) */
+void xgpu_bgfx_start_note_clear(void);
 /* the overlay's quads (ui_overlay.c) over the window's picture at Present
 (plasma_shift: the plasma's second map's place, then its threads' color;
 cellwall: the cellwall's motion, side and front tints, ui_overlay_cellwall;
@@ -427,6 +430,23 @@ target's framebuffer, width by height, of that internal format (GL_RGBA8, or
 GL_RGBA16F with display.hdr); FALSE if its programs do not build */
 BOOL xgpu_post_anti_alias(BOOL smaa, GLuint framebuffer, GLenum format, unsigned long width,
 	unsigned long height, const GLint corners[4]);
+
+/* a pass's pixel shader, without its #version line (malloc'd; NULL where
+the build has no SMAA): FXAA (0), or SMAA's edge detection, blending
+weights and neighborhood blending (1 to 3). Its samplers are
+color_texture, edges_texture, area_texture, search_texture and
+weights_texture, at the units xgpu_post.c gives them; its uniforms metrics
+(1 / width, 1 / height, width, height) and FXAA's bounds. SMAA's shading
+language is smaa_language's defines (SMAA.hlsl's SMAA_CUSTOM_SL), or
+SMAA_GLSL_4 where it is NULL. bgfx's passes are made from the same text
+(d3d8_bgfx.inl) */
+char *xgpu_post_anti_alias_source(int pass, const char *smaa_language);
+
+/* SMAA's area (search FALSE: 160x560, two channels) or search (64x16, one
+channel) lookup texture's texels, rows from the top (malloc'd; NULL where
+the build has no SMAA or it does not inflate) */
+unsigned char *xgpu_post_smaa_lookup(BOOL search, unsigned long *width, unsigned long *height,
+	unsigned long *texel_size);
 
 /* ---------- high dynamic range (xgpu_tone_map.h)
 

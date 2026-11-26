@@ -30,11 +30,11 @@ whether to update:
 - No: nothing, until the next start.
 
 The game is chupathingy (chupathingy.exe) from 0.9.0, and was halo
-(halo.exe) before. A release's zip carries both: the game, which the list
-names as its "main", and a small halo that starts it (rename_stub.h), for
-shortcuts and for the updaters from before the list, which start halo again.
-At its start the renamed game removes an old halo beside it that is a game,
-never the stub (updater_remove_old_program).
+(halo.exe) before. 0.9.0 and 0.9.1's zips also carried a small halo that
+started it (rename_stub.h); 0.9.2's have none. At its start the game removes
+that stub if it is still beside it, and nothing else of that name: a halo
+or halo.exe without the stub's mark (an old game, or Halo PC's own) stays
+(updater_remove_old_program).
 - Do not ask again: after the player confirms it, update.auto = false is
   written to config.toml.
 
@@ -1796,23 +1796,32 @@ void updater_install_restart(void)
 	updater_install_finish(1);
 }
 
-/* the game's program from before the rename, beside the renamed one: halo
-beside chupathingy, halo.exe beside chupathingy.exe (rename_stub.h), removed,
-unless it is the small stub that starts this one, which stays for the
-shortcuts and scripts that start halo */
+/* the game's old name beside it: halo beside chupathingy, halo.exe beside
+chupathingy.exe (rename_stub.h). Removed only if it is the game's own: the
+small stub 0.9.0 and 0.9.1 had for the old name, or the game from before
+the rename (which an updater from 0.7.5d or older leaves there, and starts
+again). Anything else of that name, Halo PC's own halo.exe for one, stays,
+and the log says so. Once a run; a removal that fails (the file in use, as
+a running stub is on Windows, or a read-only folder) is said once and tried
+again at a later start */
 static void updater_remove_old_program(void)
 {
+	static int done;
 	const char *running = strrchr(updater_executable, PATH_SEPARATOR[0]);
-	const char *old_name = rename_stub_old_name(running ? running + 1 : updater_executable);
-	unsigned char data[RENAME_STUB_MAXIMUM_SIZE > 65536 ? 65536 : RENAME_STUB_MAXIMUM_SIZE];
+	const char *running_name = running ? running + 1 : updater_executable;
+	const char *old_name = rename_stub_old_name(running_name);
+	static unsigned char data[65536];
+	struct rename_stub_scan scan;
 	char path[1300];
 	SDL_PathInfo info;
 	SDL_IOStream *file;
-	size_t size = 0;
 	Sint64 file_size;
+	size_t got;
+	int kind;
 
-	if (!old_name)
+	if (done || !old_name)
 		return;
+	done = 1;
 	updater_path(path, sizeof(path), old_name);
 	if (!SDL_GetPathInfo(path, &info) || info.type != SDL_PATHTYPE_FILE)
 		return;
@@ -1820,32 +1829,34 @@ static void updater_remove_old_program(void)
 	if (!file)
 		return;
 	file_size = SDL_GetIOSize(file);
-	if (file_size >= 0 && (Uint64)file_size <= RENAME_STUB_MAXIMUM_SIZE)
+	memset(&scan, 0, sizeof(scan));
+	/* (read whole, in pieces: a stub's mark is near its start or, a Windows
+	one's, in its data; the game's anywhere in its program. A file far
+	bigger than the game was is no game of ours) */
+	if (file_size > 0 && (Uint64)file_size <= RENAME_STUB_MAXIMUM_SCAN)
 	{
-		/* (a stub has its mark near its start, or, a Windows one, in its
-		data: read it whole, in pieces, and look at each with the last
-		mark's length of the one before it) */
-		size_t keep = sizeof(RENAME_STUB_MARK) - 2, got;
-
-		while ((got = SDL_ReadIO(file, data + size, sizeof(data) - size)) > 0)
-		{
-			size += got;
-			if (rename_stub_is_stub(data, size, (unsigned long long)file_size))
-			{
-				SDL_CloseIO(file);
-				return;
-			}
-			if (size > keep)
-			{
-				memmove(data, data + size - keep, keep);
-				size = keep;
-			}
-		}
+		while ((got = SDL_ReadIO(file, data, sizeof(data))) > 0)
+			rename_stub_scan_add(&scan, data, got);
 	}
 	SDL_CloseIO(file);
-	platform_log("update: removing %s, the game from before its rename to %s", old_name,
-		running ? running + 1 : updater_executable);
+	kind = file_size > 0 && (Uint64)file_size <= RENAME_STUB_MAXIMUM_SCAN ?
+		rename_stub_kind(&scan, (unsigned long long)file_size) : _rename_stub_other;
+	if (kind == _rename_stub_other)
+	{
+		platform_log("update: leaving %s beside %s: it is not this game's", old_name, running_name);
+		return;
+	}
 	update_delete_file(path);
+	if (SDL_GetPathInfo(path, &info))
+	{
+		platform_log("update: could not remove %s (in use, or the folder is read-only): trying again at a later start",
+			old_name);
+		return;
+	}
+	if (kind == _rename_stub_stub)
+		platform_log("update: removed %s, the stub 0.9.0 and 0.9.1 had for the old name", old_name);
+	else
+		platform_log("update: removed %s, the game from before its rename to %s", old_name, running_name);
 }
 
 /* the separate license files the downloads carried before 0.9.1, which

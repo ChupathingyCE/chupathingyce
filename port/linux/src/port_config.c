@@ -77,6 +77,10 @@ enum config_environment
 	_environment_set_is_false,
 };
 
+/* the longest value config_write takes (a longer one is refused, said in
+the log, and the file left as it is) */
+#define CONFIG_WRITE_MAXIMUM_VALUE 256
+
 /* the builds a setting means something in, and is written for */
 enum
 {
@@ -6014,13 +6018,22 @@ int config_write(const char *name, const char *value)
 {
 	const char *dot = strchr(name, '.');
 	long index = config_setting_index(name);
-	char section[64], key[64], line_text[600], path[1024];
+	char section[64], key[64], number_line[128], path[1024];
+	/* (a string's line is as long as its value, its quotes and backslashes
+	escaped: made to fit it, never a fixed buffer) */
+	char *line_text = number_line, *string_line = NULL;
 	size_t size = 0;
 	char *text, *changed;
 	int succeeded;
 
-	if (index < 0 || !dot || (size_t)(dot - name) >= sizeof(section) || strlen(value) > 256)
+	if (index < 0 || !dot || (size_t)(dot - name) >= sizeof(section))
 		return 0;
+	if (strlen(value) > CONFIG_WRITE_MAXIMUM_VALUE)
+	{
+		platform_log("settings: %s not written: its value is %lu characters, more than %d",
+			name, (unsigned long)strlen(value), CONFIG_WRITE_MAXIMUM_VALUE);
+		return 0;
+	}
 	/* (the file read first, as the other settings are) */
 	config_value(name, config_settings[index].type);
 #ifndef HALO_CONSOLE_NO_UPDATER
@@ -6037,36 +6050,45 @@ int config_write(const char *name, const char *value)
 	switch (config_settings[index].type)
 	{
 	case _config_boolean:
-		snprintf(line_text, sizeof(line_text), "%s = %s\n", key, config_values[index].boolean ? "true" : "false");
+		snprintf(number_line, sizeof(number_line), "%s = %s\n", key, config_values[index].boolean ? "true" : "false");
 		break;
 	case _config_integer:
-		snprintf(line_text, sizeof(line_text), "%s = %ld\n", key, config_values[index].integer);
+		snprintf(number_line, sizeof(number_line), "%s = %ld\n", key, config_values[index].integer);
 		break;
 	case _config_real:
 		/* (with its point: TOML reads 1 as an integer) */
-		snprintf(line_text, sizeof(line_text), "%s = %.15g", key, config_values[index].real);
-		if (!strpbrk(line_text + strlen(key) + 3, ".en"))
-			strcat(line_text, ".0");
-		strcat(line_text, "\n");
+		snprintf(number_line, sizeof(number_line) - 3, "%s = %.15g", key, config_values[index].real);
+		if (!strpbrk(number_line + strlen(key) + 3, ".en"))
+			strcat(number_line, ".0");
+		strcat(number_line, "\n");
 		break;
 	case _config_string:
 	{
-		char *end = line_text + snprintf(line_text, sizeof(line_text), "%s = \"", key);
+		const char *string = config_values[index].string ? config_values[index].string : "";
 		const char *character;
+		/* (the key, ' = "', each character twice at most, '"\n' and the end) */
+		size_t room = strlen(key) + 4 + 2 * strlen(string) + 3;
+		char *end;
 
-		for (character = config_values[index].string; *character; character++)
+		string_line = malloc(room);
+		if (!string_line)
+			break;
+		end = string_line + snprintf(string_line, room, "%s = \"", key);
+		for (character = string; *character; character++)
 		{
 			if (*character == '"' || *character == '\\')
 				*end++ = '\\';
 			*end++ = *character;
 		}
-		strcpy(end, "\"\n");
+		memcpy(end, "\"\n", 3);
+		line_text = string_line;
 		break;
 	}
 	}
 	config_path(path, sizeof(path));
 	text = config_read_file(path, &size);
-	changed = config_text_with_line(text ? text : "", name, line_text);
+	changed = config_settings[index].type == _config_string && !string_line ? NULL :
+		config_text_with_line(text ? text : "", name, line_text);
 	succeeded = changed && config_write_file(path, changed);
 	config_touched[index] = 1;
 	config_tuning_apply(index);
@@ -6074,6 +6096,7 @@ int config_write(const char *name, const char *value)
 	pthread_mutex_unlock(&config_lock);
 	free(changed);
 	free(text);
+	free(string_line);
 	return succeeded;
 }
 

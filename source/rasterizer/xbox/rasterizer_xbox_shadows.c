@@ -548,11 +548,16 @@ void _rasterizer_environment_shadow_end(
 			_rasterizer_target_render_primary &&
 		rasterizer_debug_options.draw_environment_shadows)
 	{
-		if (!shadow_used)
+		/* port: said once, not every frame (an object hidden with what it
+		carries casts one each frame it is drawn) */
+		static boolean empty_shadow_reported = FALSE;
+
+		if (!shadow_used && !empty_shadow_reported)
 		{
 			error(
 				_error_silent,
 				"### WARNING empty shadow has been cast");
+			empty_shadow_reported = TRUE;
 		}
 
 		if (!shadow_restored)

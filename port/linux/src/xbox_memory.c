@@ -465,8 +465,12 @@ static BOOL clear_block(void *address, size_t size)
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) != (void *)start)
 	{
 #ifdef _WIN32
-		platform_log("not enough memory: Windows would not commit %lu KB for a block of the Xbox's memory (%s)",
-			(unsigned long)(size >> 10), strerror(errno));
+		/* (Windows' own reason: errno has only a few of them) */
+		char reason[160];
+		unsigned long error = mmap_last_error(reason, sizeof(reason));
+
+		platform_log("not enough memory: Windows would not commit %lu KB for a block of the Xbox's memory "
+			"(error %lu: %s)", (unsigned long)(size >> 10), error, reason[0] ? reason : strerror(errno));
 		return FALSE;
 #else
 		memset(address, 0, size);

@@ -1206,7 +1206,13 @@ static unsigned char *shrink(const unsigned char *pixels, int width, int height,
 static unsigned char *picture_decode(unsigned char *data, int size, int *width, int *height,
 	struct preview_failure *failure)
 {
+	/* (the pictures' decoder, posix_ui_font.c, is the game browser's: none
+	without it, as workshop_browser_cached_picture) */
+#ifdef HALO_GAME_BROWSER
 	unsigned char *pixels = data ? posix_ui_image_decode(data, size, width, height) : NULL;
+#else
+	unsigned char *pixels = NULL;
+#endif
 
 	if (data && !pixels)
 		failure_say(failure, 0, 0, 0, "it couldn't be decoded (%d bytes)", size);
@@ -1288,7 +1294,9 @@ static void *preview_thread(void *context)
 		small = shrink(pixels, width, height, &small_width, &small_height);
 		if (!small)
 			failure_say(&failure, 1, 0, 0, "out of memory (%dx%d)", width, height);
+#ifdef HALO_GAME_BROWSER
 		posix_ui_image_free(pixels);
+#endif
 	}
 	pthread_mutex_lock(&workshop.lock);
 	snprintf(preview.id, sizeof(preview.id), "%s", job->id);
@@ -2877,6 +2885,10 @@ int workshop_browser_cancel(int index)
 		if (!strcmp(pending_gets[slot], item->id))
 			pending_gets[slot][0] = 0;
 	}
+	/* (the Steam client's subscription undone if the GET made it: the
+	client stops downloading as the game's own download does) */
+	if (bridge_ready())
+		steam_bridge_cancel(item->id);
 	steam_link_cancel_get(item->id);
 	failed_clear(item->id);
 	platform_log("Workshop: item %s's GET cancelled", item->id);
@@ -3263,7 +3275,23 @@ void workshop_join_cancel(void)
 	if (joining.state == WORKSHOP_JOIN_LINKING)
 		steam_link_cancel();
 	if (joining.state == WORKSHOP_JOIN_CONNECTING || joining.state == WORKSHOP_JOIN_DOWNLOADING)
-		steam_bridge_close();
+	{
+		/* (asked of Steam: the Steam client's subscription undone if this
+		join made it, so the client stops downloading too, and the game's
+		own download stopped and its part deleted, as the tab's CANCEL;
+		the item was missing when the join asked, so this is never an
+		update's copy) */
+		if (joining.asked)
+		{
+			if (bridge_ready())
+				steam_bridge_cancel(joining.id);
+			if (link_offered())
+				steam_link_cancel_get(joining.id);
+			platform_log("Workshop: the join's item %s cancelled", joining.id);
+		}
+		if (!workshop.tab_open)
+			steam_bridge_close();
+	}
 	joining.state = WORKSHOP_JOIN_IDLE;
 }
 
@@ -3299,7 +3327,12 @@ int workshop_browser_cached_picture(const char *level, struct mcc_preview_image 
 	posix_directory_close(directory);
 	if (!found || !(data = file_read(path, &size)))
 		return 0;
+	/* (the pictures' decoder, posix_ui_font.c, is the game browser's) */
+#ifdef HALO_GAME_BROWSER
 	pixels = picture_bytes(data, size) ? posix_ui_image_decode(data, size, &width, &height) : NULL;
+#else
+	pixels = NULL;
+#endif
 	free(data);
 	if (!pixels)
 		return 0;
@@ -3316,7 +3349,9 @@ int workshop_browser_cached_picture(const char *level, struct mcc_preview_image 
 		image->width = (unsigned)width;
 		image->height = (unsigned)height;
 	}
+#ifdef HALO_GAME_BROWSER
 	posix_ui_image_free(pixels);
+#endif
 	return image->pixels != NULL;
 }
 #endif /* HALO_MCC */

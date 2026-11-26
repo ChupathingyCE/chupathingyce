@@ -63,6 +63,8 @@ static void prep_present(void);
 d3d8_bgfx.inl, at the end of this file, which shares the device's state) */
 static BOOL bg_initialize(void);
 static BOOL bg_active(void);
+static BOOL bg_anti_alias_prepare(BOOL smaa);
+static void bg_anti_alias(BOOL smaa, short x0, short y0, short x1, short y1);
 static void bg_draw_vertices(D3DPRIMITIVETYPE type, unsigned long start, unsigned long count);
 static void bg_draw_indexed(D3DPRIMITIVETYPE type, unsigned long count, const WORD *indices);
 static void bg_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count);
@@ -260,46 +262,15 @@ static void anti_aliasing_read(void)
 {
 	const char *setting = config_string("display.anti_aliasing");
 	int value;
-#ifdef HALO_BGFX
-	BOOL mapped = FALSE;
-#endif
 
 	for (value = NUMBER_OF_ANTI_ALIASING_VALUES - 1;
 		value > 0 && strcmp(setting, anti_aliasing_values[value].name);
 		value--)
 	{
 	}
-#ifdef HALO_BGFX
-	/* the bgfx test backend has multisampling and supersampling (the
-	screen's targets at twice the size, screen_mode_choose, which its blit
-	scales down as OpenGL's does): FXAA and SMAA become 2x MSAA, said once */
-	if (xgpu_bgfx && (anti_aliasing_values[value].mode == _anti_aliasing_fxaa ||
-		anti_aliasing_values[value].mode == _anti_aliasing_smaa))
-	{
-		static BOOL said;
-		int msaa;
-
-		for (msaa = 0; anti_aliasing_values[msaa].mode != _anti_aliasing_msaa; msaa++)
-		{
-		}
-		if (!said)
-			platform_log("anti-aliasing: %s is not in the bgfx renderer yet, so %s", setting,
-				anti_aliasing_values[msaa].name);
-		said = TRUE;
-		value = msaa;
-		mapped = TRUE;
-	}
-#endif
 	if (value == anti_aliasing_value)
 		return;
 	anti_aliasing_value = value;
-#ifdef HALO_BGFX
-	if (mapped)
-	{
-		anti_aliasing_prepare();
-		return;
-	}
-#endif
 	if (strcmp(setting, anti_aliasing_values[value].name))
 		platform_log("anti-aliasing: \"%s\" is unknown, so off", setting);
 	else
@@ -2559,6 +2530,18 @@ static void anti_aliasing_prepare(void)
 {
 	int mode;
 
+#ifdef HALO_BGFX
+	/* (bgfx's passes, d3d8_bgfx.inl; its multisampling is its targets',
+	bg_screen_samples) */
+	if (bg_active())
+	{
+		mode = anti_aliasing_value < 0 ? _anti_aliasing_off : anti_aliasing_values[anti_aliasing_value].mode;
+		if ((mode == _anti_aliasing_fxaa || mode == _anti_aliasing_smaa) &&
+			!bg_anti_alias_prepare(mode == _anti_aliasing_smaa))
+			platform_log("anti-aliasing: its programs do not build, so the 3D view is not antialiased");
+		return;
+	}
+#endif
 	if (!device.gl_ready || anti_aliasing_value < 0)
 		return;
 	mode = anti_aliasing_values[anti_aliasing_value].mode;
@@ -6550,6 +6533,15 @@ void halo_screen_anti_alias(short x0, short y0, short x1, short y1)
 	GLint corners[4];
 	int mode = anti_aliasing();
 
+#ifdef HALO_BGFX
+	/* (bgfx's: passes of its own, d3d8_bgfx.inl) */
+	if (bg_active())
+	{
+		if (mode == _anti_aliasing_fxaa || mode == _anti_aliasing_smaa)
+			bg_anti_alias(mode == _anti_aliasing_smaa, x0, y0, x1, y1);
+		return;
+	}
+#endif
 	if (!device.gl_ready || (mode != _anti_aliasing_fxaa && mode != _anti_aliasing_smaa))
 		return;
 	/* (the primary target's view: the back buffer's) */

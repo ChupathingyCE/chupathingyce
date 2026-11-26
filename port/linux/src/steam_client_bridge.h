@@ -153,6 +153,12 @@ connected backend holds the item; 0 when not ready */
 int steam_bridge_removable(const char *id);
 int steam_bridge_remove(const char *id);
 int steam_bridge_update(const char *id);
+/* CANCEL on a download this game asked for (the Workshop tab's GET, a
+join's missing map): the Steam client's subscription undone when this game
+made it (one the player already had is left alone), which stops Steam's
+download; the downloader's download stopped. Taken even if the bridge is
+closed right after; 0 when not ready */
+int steam_bridge_cancel(const char *id);
 /* client only */
 int steam_bridge_unsubscribe(const char *id);
 int steam_bridge_can_unsubscribe(void);

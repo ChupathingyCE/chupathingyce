@@ -4077,7 +4077,9 @@ static void distributed_vote_dropped(
 	distributed_vote_machines_told[machine_index >> 3] |= (byte)(1 << (machine_index & 7));
 	error(_error_log, "network: machine %ld sent an OpenCE vote (kind %d), dropped: this host has no votes",
 		machine_index, (int)type);
+#ifdef HALO_PORT_CHAT
 	chat_host_notice_to_machine((short)machine_index, "Voting isn't supported on this server; ask a moderator.");
+#endif
 }
 
 /* whether this build knows a distributed message's kind (network_distributed.h) */
