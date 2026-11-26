@@ -78,6 +78,7 @@ tools/test_http_url_rules.py
 tools/test_hud_mcc_layout.py
 tools/test_hud_safe_zone.py
 tools/test_identity.py
+tools/test_invite_declined.py
 tools/test_join_password.py
 tools/test_join_password_pair.py
 tools/test_join_reasons.py
