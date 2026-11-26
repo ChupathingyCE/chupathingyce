@@ -59,7 +59,7 @@ listed, with a cache block, a texture and channels of its own
 #include "bitmaps/bitmap_group.h"
 #include "rasterizer/rasterizer_geometry.h"
 #include "ce_map_checks.h"
-#include "mcc_sha256.h"
+#include "content_sha256.h"
 
 #include <xtl.h>
 #include <stdlib.h>
@@ -789,10 +789,10 @@ boolean ce_model_data_digest(
 	struct ce_model_data *data,
 	byte digest[CE_DIGEST_SIZE])
 {
-	struct mcc_sha256 context;
+	struct content_sha256 context;
 	unsigned long offset = 0;
 
-	mcc_sha256_begin(&context);
+	content_sha256_begin(&context);
 	while (offset < data->size)
 	{
 		unsigned long chunk = MIN(data->size - offset, (unsigned long)CE_MODEL_DATA_WINDOW_SIZE);
@@ -808,10 +808,10 @@ boolean ce_model_data_digest(
 				return FALSE;
 			at = data->windows;
 		}
-		mcc_sha256_add(&context, at, (int)chunk);
+		content_sha256_add(&context, at, chunk);
 		offset += chunk;
 	}
-	mcc_sha256_end(&context, digest);
+	content_sha256_end(&context, digest);
 	return TRUE;
 }
 

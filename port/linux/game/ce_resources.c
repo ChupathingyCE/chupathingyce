@@ -45,7 +45,7 @@ for one not there) they are found in Custom Edition's by their tags' paths
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
 #include "ce_map_checks.h"
-#include "mcc_sha256.h"
+#include "content_sha256.h"
 #include "halo_map_families.h"
 #include "halopc_bitmap_offsets.h"
 
@@ -191,7 +191,7 @@ static unsigned long ce_room_next;
 static unsigned long ce_tags_room_used;
 /* what the placing of a map's resources wrote in its tags
 (ce_resources_place), hashed as it is written: NULL when not placing */
-static struct mcc_sha256 *ce_resources_written;
+static struct content_sha256 *ce_resources_written;
 
 /* ---------- private code */
 
@@ -222,8 +222,8 @@ static void ce_resources_placed(
 		return;
 	where[0] = image->base + (unsigned long)((byte const *)at - image->data);
 	where[1] = size;
-	mcc_sha256_add(ce_resources_written, where, (int)sizeof(where));
-	mcc_sha256_add(ce_resources_written, at, (int)size);
+	content_sha256_add(ce_resources_written, where, sizeof(where));
+	content_sha256_add(ce_resources_written, at, size);
 }
 
 static boolean ce_resource_map_open(
@@ -1699,7 +1699,7 @@ static boolean ce_resources_place_read(
 Xbox address start, in the image) */
 static void ce_resources_placed_copies(
 	struct ce_image const *image,
-	struct mcc_sha256 *written,
+	struct content_sha256 *written,
 	unsigned long start,
 	unsigned long size)
 {
@@ -1709,7 +1709,7 @@ static void ce_resources_placed_copies(
 	{
 		unsigned long chunk = size < 0x40000000UL ? size : 0x40000000UL;
 
-		mcc_sha256_add(written, at, (int)chunk);
+		content_sha256_add(written, at, chunk);
 		at += chunk;
 		size -= chunk;
 	}
@@ -1734,13 +1734,13 @@ static boolean ce_resources_place(
 	byte digest[CE_DIGEST_SIZE])
 {
 	unsigned long copies = ((image->base + image->size) + 15) & ~15UL;
-	struct mcc_sha256 written;
+	struct content_sha256 written;
 	boolean placed;
 	long index;
 
 	if (!digest)
 		return ce_resources_place_read(image, tag_instances, tag_count, end_free, types, next_free, copied);
-	mcc_sha256_begin(&written);
+	content_sha256_begin(&written);
 	ce_resources_written = &written;
 	placed = ce_resources_place_read(image, tag_instances, tag_count, end_free, types, next_free, copied);
 	ce_resources_written = NULL;
@@ -1757,16 +1757,16 @@ static boolean ce_resources_place(
 
 		placement[0] = instance->base_address;
 		placement[1] = types[index];
-		mcc_sha256_add(&written, placement, (int)sizeof(placement));
+		content_sha256_add(&written, placement, sizeof(placement));
 	}
 	{
 		unsigned long end[2];
 
 		end[0] = *next_free;
 		end[1] = (unsigned long)*copied;
-		mcc_sha256_add(&written, end, (int)sizeof(end));
+		content_sha256_add(&written, end, sizeof(end));
 	}
-	mcc_sha256_end(&written, digest);
+	content_sha256_end(&written, digest);
 	return TRUE;
 }
 

@@ -58,7 +58,7 @@ again the next time it is opened. Each byte is hashed once each time: the
 tags as they are read, and then only what copying the resource maps' tags
 in wrote (ce_resources_place: the copies, the tags' addresses, a retail
 map's bitmaps and sounds it changed), not the tags whole again. The hashing uses the processor's SHA-256
-instructions where it has them (mcc_sha256.c). The original Xbox has none,
+instructions where it has them (content_sha256.c). The original Xbox has none,
 and hashes nothing (CE_MAP_HASHED): its maps are checked, not compared
 with the check as they load.
 */
@@ -71,7 +71,7 @@ with the check as they load.
 #include "main/console.h"
 #include "tag_files/tag_groups.h"
 #include "ce_map_checks.h"
-#include "mcc_sha256.h"
+#include "content_sha256.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -254,19 +254,19 @@ static void ce_digest(
 	unsigned long size,
 	byte digest[CE_DIGEST_SIZE])
 {
-	struct mcc_sha256 context;
+	struct content_sha256 context;
 	byte const *at = data;
 
-	mcc_sha256_begin(&context);
+	content_sha256_begin(&context);
 	while (size)
 	{
 		unsigned long chunk = size < 0x40000000UL ? size : 0x40000000UL;
 
-		mcc_sha256_add(&context, at, (int)chunk);
+		content_sha256_add(&context, at, chunk);
 		at += chunk;
 		size -= chunk;
 	}
-	mcc_sha256_end(&context, digest);
+	content_sha256_end(&context, digest);
 }
 
 static boolean ce_file_read(

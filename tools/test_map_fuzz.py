@@ -81,7 +81,7 @@ CUSTOM_EDITION = [
     # (Halo PC's tag schema, which the tags go through as they load)
     *VALIDATOR,
     # (what the checks read, hashed: ce_map_checks.c)
-    "port/linux/game/mcc_sha256.c",
+    "port/linux/game/content_sha256.c",
     "source/bitmaps/bitmaps.c",
     "source/rasterizer/rasterizer_geometry.c",
     "source/rasterizer/rasterizer_swizzle.c",
