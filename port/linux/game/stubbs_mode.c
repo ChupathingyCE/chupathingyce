@@ -442,7 +442,7 @@ static void stubbs_weapon_class_animations_order(unsigned char *base, unsigned l
 sound (390 in the twelve levels: footsteps' dust, the zombies' gore), which
 Halo's graphs never do. Each one's effect is kept in the element's unused
 long and its reference made none, so the graph is Halo's; the unit plays the
-effect where Halo would play the sound (stubbs_mode_animation_effect). The
+effect where Halo would play the sound (stubbs_engine_animation_effect). The
 others' unused long is made none */
 enum
 {
