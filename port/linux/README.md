@@ -1976,5 +1976,5 @@ can optimize that code for each processor:
 | `interface/hud_draw.c` | a read of `[ebp+4]` | `__builtin_return_address(1)` |
 | `bink/bink_playback.c` | `int 3` | `__builtin_trap` |
 
-The x87 control and status words (`_control87`, `_statusfp`, `_clearfp` in
-`src/msvc_crt.c`) use `fenv.h`. On Android, they use the FPCR and FPSR.
+The x87 control word (`_control87` in `src/msvc_crt.c`) uses `fenv.h`. On
+Android, it uses the FPCR.

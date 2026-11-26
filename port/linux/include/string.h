@@ -12,8 +12,6 @@ Host <string.h> plus MSVC-named functions.
 int _stricmp(const char *string1, const char *string2);
 int _strnicmp(const char *string1, const char *string2, size_t count);
 char *_strdup(const char *string);
-char *_strlwr(char *string);
-char *_strupr(char *string);
 
 #define stricmp _stricmp
 #define strcmpi _stricmp
