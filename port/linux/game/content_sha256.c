@@ -10,6 +10,7 @@ update_manifest.c; content_sha256.h's names).
 */
 
 #include "content_sha256.h"
+#include "mcc_sha256.h"
 #if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
 #include <stdlib.h>
 #endif
@@ -379,4 +380,12 @@ void content_sha256(const void *data, size_t size, unsigned char digest[CONTENT_
 	content_sha256_begin(&context);
 	content_sha256_add(&context, data, size);
 	content_sha256_end(&context, digest);
+}
+
+/* mcc_sha256.h's add, which took an int: zero or less adds nothing */
+void mcc_sha256_add(struct content_sha256 *context, void const *data, int size)
+{
+	if (size <= 0)
+		return;
+	content_sha256_add(context, data, (size_t)size);
 }

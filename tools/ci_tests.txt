@@ -134,6 +134,7 @@ tools/test_mcc_projectiles.py
 tools/test_mcc_recordings.py
 tools/test_mcc_score_hint.py
 tools/test_mcc_seats.py
+tools/test_mcc_sha256_shim.py
 tools/test_mcc_share_decline.py
 tools/test_mcc_skulls.py
 tools/test_mcc_validation.py

@@ -5,7 +5,8 @@ for code outside this repository that still uses it */
 #include "content_sha256.h"
 #define mcc_sha256 content_sha256
 #define mcc_sha256_begin content_sha256_begin
-#define mcc_sha256_add(context, data, size) content_sha256_add((context), (data), (size_t)(size))
+/* (as before: a size of zero or less adds nothing) */
+void mcc_sha256_add(struct content_sha256 *context, void const *data, int size);
 #define mcc_sha256_end content_sha256_end
 #define mcc_sha256_implementation content_sha256_implementation
 #endif
