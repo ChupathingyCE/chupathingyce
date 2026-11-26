@@ -824,8 +824,12 @@ them, are copied from the map's own pixels into the texture. The health,
 shield and ammo meters use the Xbox maps' high-res meters, laid out as MCC's
 meter sheets (`tools/hud_assets.py mcc-meters`), with their exact segment
 thresholds and coverage. A meter sheet is replaced whole or not at all, so a
-meter never mixes MCC's pieces with ours. Turning High-Res HUD off restores
-MCC's sheets at once.
+meter never mixes MCC's pieces with ours. The unit HUD's sheets (its panels'
+backgrounds and their meters, `hud_unit_backgrounds` and `hud_unit_meters`)
+are replaced together: a map with one of them its own, as a campaign mod's
+`bitmaps.map` can have, keeps them all its own, so a vehicle's health panel
+never puts MCC's wrench beside ours. Turning High-Res HUD off restores MCC's
+sheets at once.
 
 Visual checks must cover real stock/custom MCC HUDs at native resolution; synthetic
 tests alone cannot establish that every authored layout matches MCC.
