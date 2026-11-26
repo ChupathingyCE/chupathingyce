@@ -711,7 +711,7 @@ int steam_bridge_mcc_state(void)
 	return state;
 }
 
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 /* ---------- no bridge here: the platform's functions as stand-ins that never work */
 
 void *steam_bridge_platform_library_open(const char *path) { (void)path; return NULL; }

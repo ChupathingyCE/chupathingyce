@@ -394,7 +394,7 @@ items but never downloads them; Linux without MCC from Steam), with the
 client still tried for the list and the subscriptions */
 static int bridge_backend(void)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	return STEAM_BRIDGE_BACKEND_NONE;
 #else
 	int backend = steam_bridge_backend();
@@ -1399,7 +1399,7 @@ static int local_preview(const char *id, char *path, int size)
 
 const unsigned char *workshop_browser_preview(int index, int *width, int *height, int *serial)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	(void)index; (void)width; (void)height; (void)serial;
 	return NULL;
 #else
@@ -1477,7 +1477,7 @@ for, then the picture, kept in the cache): one at a time, a failed id again only
 pixels as workshop_browser_preview's; NULL until there is one */
 const unsigned char *workshop_browser_picture_of(const char *id, int *width, int *height, int *serial)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	(void)id; (void)width; (void)height; (void)serial;
 	return NULL;
 #else
@@ -2086,7 +2086,7 @@ static void own_library(void)
 
 /* ---------- WORKSHOP FOLDER: the system's folder picker */
 
-#if !defined(HALO_ANDROID) && !defined(HALO_WEB) && !defined(HALO_IOS) && !defined(HALO_CONSOLE) && !defined(HALO_SERVER)
+#if !defined(HALO_ANDROID) && !defined(HALO_IOS) && !defined(HALO_CONSOLE) && !defined(HALO_SERVER)
 #include <SDL3/SDL_dialog.h>
 #include <SDL3/SDL_atomic.h>
 
@@ -2161,7 +2161,7 @@ int workshop_browser_mcc_present(void)
 
 int workshop_browser_offered(void)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	return 0;
 #else
 	/* (every desktop: the list works before setup, whose rows say what's needed) */
@@ -2183,7 +2183,7 @@ int workshop_browser_bridge_status(void)
 
 void workshop_browser_own_library(void)
 {
-#if !defined(HALO_ANDROID) && !defined(HALO_WEB)
+#if !defined(HALO_ANDROID)
 	own_library();
 #endif
 }

@@ -2339,7 +2339,7 @@ of some other count is an interface's outputs more likely than speakers
 around the room, so it plays stereo. Android plays stereo */
 static unsigned long choose_output_channels(SDL_AudioDeviceID device)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB) || defined(HALO_ARM64_GUEST)
+#if defined(HALO_ANDROID) || defined(HALO_ARM64_GUEST)
 	(void)device;
 	return 2;
 #else
