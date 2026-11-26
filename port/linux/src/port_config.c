@@ -23,6 +23,7 @@ it did before the console had the file.
 #include "platform.h"
 #include "port_config.h"
 #include "halo_port_limits.h"
+#include "halo_console_features.h" /* HALO_DELTA_PEER_IDENTITY */
 #include "posix.h"
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 #include "packaged_install.h"
@@ -76,6 +77,10 @@ enum config_environment
 	/* the variable being set makes it false */
 	_environment_set_is_false,
 };
+
+/* the longest value config_write takes (a longer one is refused, said in
+the log, and the file left as it is) */
+#define CONFIG_WRITE_MAXIMUM_VALUE 256
 
 /* the builds a setting means something in, and is written for */
 enum
@@ -379,6 +384,12 @@ static const struct config_setting config_settings[] =
 		"instead of clipping it. The glows the game draws (teleporters, light\n"
 		"fixtures, energy shields, plasma bolts, the weapon's displays) go\n"
 		"past white. false draws into 8 bits a channel, as the Xbox does." },
+	{ "display.opensauce_post_processing", _config_boolean, "true", "HALO_OPENSAUCE_POST_PROCESSING",
+		_environment_value, _platform_desktop,
+		"Draw the post-processing an OpenSauce map carries (SPV3's look: its\n"
+		"bloom, tone mapping, depth of field, ambient occlusion, visor and the\n"
+		"rest of its effects), with the OpenGL renderer. Only maps that have it\n"
+		"change; false draws them without it, for performance." },
 	{ "display.hdr_output", _config_boolean, "false", "HALO_HDR_OUTPUT", _environment_value, _platform_desktop,
 		"With display.hdr, send HDR to a display that has it (the operating\n"
 		"system's HDR must be on): the bgfx renderer's HDR10 swap chain, or\n"
@@ -660,11 +671,14 @@ static const struct config_setting config_settings[] =
 		"In the game lobby of a game you host: \"button\" (the default) holds\n"
 		"the countdown until you choose START GAME; \"auto\" lets it run by\n"
 		"itself once enough players are in, as the Xbox's lobby does." },
-#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+/* (the join screen is the game list's: browser_screen.c) */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 	{ "display.join_screen", _config_boolean, "true", "HALO_JOIN_SCREEN", _environment_value, _platform_all,
 		"Show the loading screen while a game is joined or its map downloads,\n"
 		"with what is going on and B to cancel. false: a small panel over the\n"
 		"game list." },
+#endif
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
 	{ "display.xbox_loading_picture", _config_boolean, "true", "HALO_XBOX_LOADING_PICTURE", _environment_value,
 		_platform_all,
 		"true: the loading screen shows the Xbox's own picture, xbox_loading.tga\n"
@@ -700,6 +714,9 @@ static const struct config_setting config_settings[] =
 		"In Delta games, show a small Delta mark on the scoreboard, beside the\n"
 		"names of players whose Delta profile is proven. Other players' names\n"
 		"never start with @ or a Delta then." },
+	{ "display.developer_flames", _config_boolean, "true", "HALO_DEVELOPER_FLAMES", _environment_value, _platform_all,
+		"In Delta games, a blue flame on the helmets of verified Chupathingy\n"
+		"developers. Looks only." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
 	{ "display.server_message_text_color", _config_string, "\"\"", "HALO_SERVER_MESSAGE_TEXT_COLOR",
@@ -754,8 +771,11 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_PORT_RAGDOLLS
 	/* (port/linux/game/ragdolls.c; Video Setup's RAGDOLLS. Live) */
 	{ "display.ragdolls", _config_boolean, "false", "HALO_RAGDOLLS", _environment_value, _platform_desktop,
-		"true: a character killed falls limp, thrown by the blow that killed\n"
-		"it, and comes to rest where it lands (Jolt Physics). false (the\n"
+		"true: a character killed plays its death animation and falls limp\n"
+		"partway through it, as in Halo 2 and 3 (one thrown into the air by an\n"
+		"explosion, a melee blow or a vehicle's hit flies in its airborne\n"
+		"death animation and goes limp where it lands), and comes to rest\n"
+		"where it lands (Jolt Physics). false (the\n"
 		"default): its death animation, as on the Xbox. Drawing only: the\n"
 		"body, hit boxes, saved games and the network are as before. The idea\n"
 		"is from jojoxdk's Halo 1 MCC Box3D Physics Mod." },
@@ -1391,6 +1411,11 @@ static const struct config_setting config_settings[] =
 	{ "network.host_public", _config_boolean, "true", "HALO_NET_HOST_PUBLIC", _environment_value, _platform_all,
 		"New internet games you host start as PUBLIC. false starts them as\n"
 		"PRIVATE." },
+	{ "network.direct_ip_host", _config_boolean, "false", "HALO_NET_DIRECT_IP_HOST", _environment_value,
+		_platform_all | _platform_server,
+		"Games you host answer game searches from internet addresses (no\n"
+		"more than four answers a second). Off, only your local network's and\n"
+		"internet play's searches are answered." },
 	{ "network.coop_public", _config_boolean, "false", "HALO_NET_COOP_PUBLIC", _environment_value, _platform_all,
 		"New online co-op games start as PUBLIC. false starts them as PRIVATE." },
 	{ "network.host_cheats", _config_boolean, "false", "HALO_NET_HOST_CHEATS", _environment_value,
@@ -1684,6 +1709,19 @@ static const struct config_setting config_settings[] =
 		"players see your games. A number pins it, like 32 for a server meant\n"
 		"for console players on older builds. A number the table does not allow\n"
 		"for hosting is ignored, and \"latest\" is used." },
+#ifdef HALO_DELTA_PEER_IDENTITY
+	{ "network.networks_trust", _config_string, "\"\"", "HALO_NET_NETWORKS_TRUST", _environment_value,
+		_platform_all | _platform_server,
+		"Other networks whose players' names are checked, beside the signed\n"
+		"list of networks: each a domain and 1 to 4 root keys (64 hex digits),\n"
+		"separated by spaces, and the networks separated by commas, like\n"
+		"\"example.org <key> <key>\". At most 16. Empty for none." },
+	{ "network.networks_block", _config_string, "\"\"", "HALO_NET_NETWORKS_BLOCK", _environment_value,
+		_platform_all | _platform_server,
+		"Networks whose players' names are not checked even when the signed\n"
+		"list has them: domains separated by commas. Your own network can't be\n"
+		"removed. Empty for none." },
+#endif
 	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value,
 		_platform_all | _platform_server,
 		"For testing only: an unsigned legacy table file that sets the OpenCE\n"
@@ -1781,9 +1819,44 @@ static const struct config_setting config_settings[] =
 		"map's own tags. See docs/mods.md." },
 #ifndef HALO_CONSOLE_NO_FORGE
 	{ "game.forge", _config_boolean, "false", "HALO_FORGE", _environment_value, _platform_desktop,
-		"Forge, the layout editor of the multiplayer maps: FORGE in the\n"
-		"Multiplayer menu, and the console's forge commands. Local games only.\n"
+		"Forge, the layout editor of the multiplayer maps and the campaign\n"
+		"missions (their AI characters): FORGE in the Multiplayer menu, and the\n"
+		"console's forge commands. Local games only.\n"
 		"FORGE in the Delta Guide's SETTINGS. See docs/forge.md." },
+	/* (forge.h FORGE_BUILD_MAXIMUM_OBJECTS and _AI: a build with the console's
+	tables keeps the console's numbers) */
+#ifdef HALO_CONSOLE_LIMITS
+	{ "game.forge_objects", _config_integer, "256", "HALO_FORGE_OBJECTS", _environment_value, _platform_desktop,
+		"Forge: the most objects and markers a layout holds (64 to 256 on this\n"
+		"build). A layout of more places what fits. See docs/forge.md." },
+	{ "game.forge_ai", _config_integer, "32", "HALO_FORGE_AI", _environment_value, _platform_desktop,
+		"Forge: the most AI characters alive at once (8 to 32 on this build).\n"
+		"Past it, the rest wait for room. See docs/forge.md." },
+#else
+	{ "game.forge_objects", _config_integer, "512", "HALO_FORGE_OBJECTS", _environment_value, _platform_desktop,
+		"Forge: the most objects and markers a layout holds (64 to 512). A\n"
+		"layout of more places what fits. See docs/forge.md." },
+	{ "game.forge_ai", _config_integer, "128", "HALO_FORGE_AI", _environment_value, _platform_desktop,
+		"Forge: the most AI characters alive at once (8 to 128). Past it, the\n"
+		"rest wait for room. See docs/forge.md." },
+#endif
+	{ "game.forge_hold_to_delete", _config_string, "\"off\"", "HALO_FORGE_HOLD_TO_DELETE", _environment_value,
+		_platform_desktop,
+		"How Forge's monitor deletes: \"off\" at a press of Y or the delete key,\n"
+		"\"controller\" when the controller's Y is held half a second (the key\n"
+		"still at a press), \"all\" when either is held. DELETE in the Forge\n"
+		"menu's OPTIONS. See docs/forge.md." },
+	{ "game.forge_grab_range", _config_string, "\"far\"", "HALO_FORGE_GRAB_RANGE", _environment_value,
+		_platform_desktop,
+		"How far Forge's crosshair reaches to grab, copy or delete: \"near\"\n"
+		"(20 world units, about 60 m), \"medium\" (35 world units, about 105 m)\n"
+		"or \"far\" (60 world units, about 180 m: the default). GRAB RANGE in the\n"
+		"Forge menu's OPTIONS. See docs/forge.md." },
+	{ "game.forge_held_facing", _config_string, "\"keep\"", "HALO_FORGE_HELD_FACING", _environment_value,
+		_platform_desktop,
+		"What Forge's monitor holds: \"keep\" keeps the facing it was grabbed\n"
+		"with (the default); \"view\" turns it with the camera until you turn it\n"
+		"by hand. HELD FACING in the Forge menu's OPTIONS. See docs/forge.md." },
 #endif
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
@@ -1969,7 +2042,8 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"In an automated test game, \"<x> <y> <z> <yaw> <pitch>[@<seconds>]\" puts\n"
 		"the first local player there, facing that way (degrees), that many\n"
-		"seconds in (1 if not given), once. Empty never does. For automated\n"
+		"seconds in (1 if not given), once. More places after it, split by\n"
+		"\";\", put the next local players there. Empty never does. For automated\n"
 		"tests only: it moves a player in the game itself, so never leave it\n"
 		"set on a host." },
 	{ "debug.network_test_camouflage", _config_real, "0.0", "HALO_NETWORK_TEST_CAMOUFLAGE", _environment_value,
@@ -2238,6 +2312,9 @@ static const struct config_setting config_settings[] =
 		"them on the CPU except on NVIDIA. cpu or buffer forces one." },
 	{ "debug.door_portals_log", _config_boolean, "false", "HALO_DOOR_PORTALS_LOG", _environment_set_is_true, _platform_all,
 		"Log which level portals each door covers, as it is paired with them." },
+	{ "debug.time_code", _config_boolean, "false", "HALO_TIME_CODE", _environment_set_is_true, _platform_all,
+		"Draw the cutscene scripts' time code (time_code_show): the ticks since\n"
+		"it started, in the top-left corner, as Bungie's tools showed it." },
 #ifdef HALO_SHADER_PREP
 	{ "debug.draw_every_shader", _config_boolean, "false", "HALO_DRAW_EVERY_SHADER", _environment_set_is_true,
 		_platform_all,
@@ -2496,12 +2573,6 @@ static const struct config_setting config_settings[] =
 		"triangles that debug commands draw. Its buffers take 1440 KB. It is\n"
 		"off because the retail game had none, and a stock 64 MB console may\n"
 		"not have the room." },
-	{ "console.simulate_64mb", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
-		"No longer used. A devkit gets 64 MB from the XBE's own flag now, set\n"
-		"with tools/xbox_package.py --devkit-64mb." },
-	{ "console.large_caches", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
-		"No longer used. A console with 128 MB or more gets the larger caches\n"
-		"on its own now (console.memory_class)." },
 };
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
@@ -3762,7 +3833,8 @@ static const struct
 /* the settings an earlier version had under another name, whose value the
 player chose goes on under the new one (config_forward_renamed), and the
 retired settings a newer one does the job of: an older file that has one
-still loads, and the old name's lines are taken out of it */
+still loads, and the old name's lines are taken out of it (a retired
+setting with no successor, name NULL: its lines are only taken out) */
 static const struct
 {
 	const char *old_name;
@@ -3794,6 +3866,11 @@ static const struct
 	{ "debug.guide_section", "debug.delta_section", NULL, 0 },
 	{ "debug.guide_row", "debug.delta_row", NULL, 0 },
 	{ "debug.guide_test", "debug.delta_test", NULL, 0 },
+	/* the original Xbox's, retired: a devkit gets 64 MB from the XBE's own
+	flag (tools/xbox_package.py --devkit-64mb), and a console with 128 MB
+	or more the larger caches on its own (console.memory_class) */
+	{ "console.simulate_64mb", NULL, NULL, 0 },
+	{ "console.large_caches", NULL, NULL, 0 },
 };
 
 #define NUMBER_OF_CONFIG_RENAMED (sizeof(config_renamed) / sizeof(config_renamed[0]))
@@ -4672,8 +4749,8 @@ static char *config_forward_renamed(const char *text, toml_datum_t table)
 		const char *source = result ? result : text;
 		const char *old_name = config_renamed[renamed].old_name;
 		const char *old_dot = strchr(old_name, '.');
-		long index = config_setting_index(config_renamed[renamed].name);
-		const struct config_setting *setting;
+		long index = config_renamed[renamed].name ? config_setting_index(config_renamed[renamed].name) : -1;
+		const struct config_setting *setting = NULL;
 		struct config_text out = { NULL, 0, 0 };
 		struct config_text block = { NULL, 0, 0 };
 		const char *line;
@@ -4684,17 +4761,21 @@ static char *config_forward_renamed(const char *text, toml_datum_t table)
 		int forward, given, in_place;
 		toml_datum_t old_datum = toml_seek(table, old_name);
 
-		if (index < 0 || !old_dot)
+		if ((config_renamed[renamed].name && index < 0) || !old_dot)
 			continue;
-		setting = &config_settings[index];
-		given = toml_seek(table, setting->name).type != TOML_UNKNOWN;
-		forward = old_datum.type != TOML_UNKNOWN && (!given || config_renamed[renamed].combine) &&
-			(!config_renamed[renamed].old_default ||
-			!config_datum_is(old_datum, setting->type, config_renamed[renamed].old_default));
+		given = forward = in_place = 0;
+		if (index >= 0)
+		{
+			setting = &config_settings[index];
+			given = toml_seek(table, setting->name).type != TOML_UNKNOWN;
+			forward = old_datum.type != TOML_UNKNOWN && (!given || config_renamed[renamed].combine) &&
+				(!config_renamed[renamed].old_default ||
+				!config_datum_is(old_datum, setting->type, config_renamed[renamed].old_default));
+			/* (the new name's lines where the old one's were: only in the same
+			section, and with no value of its own there) */
+			in_place = !given && !strncmp(setting->name, old_name, (size_t)(old_dot - old_name) + 1);
+		}
 		snprintf(section, sizeof(section), "%.*s", (int)(old_dot - old_name), old_name);
-		/* (the new name's lines where the old one's were: only in the same
-		section, and with no value of its own there) */
-		in_place = !given && !strncmp(setting->name, old_name, (size_t)(old_dot - old_name) + 1);
 		for (line = source; *line; line += strcspn(line, "\n") + (line[strcspn(line, "\n")] ? 1 : 0))
 			capacity++;
 		starts = malloc((capacity + 1) * sizeof(*starts));
@@ -5948,13 +6029,22 @@ int config_write(const char *name, const char *value)
 {
 	const char *dot = strchr(name, '.');
 	long index = config_setting_index(name);
-	char section[64], key[64], line_text[600], path[1024];
+	char section[64], key[64], number_line[128], path[1024];
+	/* (a string's line is as long as its value, its quotes and backslashes
+	escaped: made to fit it, never a fixed buffer) */
+	char *line_text = number_line, *string_line = NULL;
 	size_t size = 0;
 	char *text, *changed;
 	int succeeded;
 
-	if (index < 0 || !dot || (size_t)(dot - name) >= sizeof(section) || strlen(value) > 256)
+	if (index < 0 || !dot || (size_t)(dot - name) >= sizeof(section))
 		return 0;
+	if (strlen(value) > CONFIG_WRITE_MAXIMUM_VALUE)
+	{
+		platform_log("settings: %s not written: its value is %lu characters, more than %d",
+			name, (unsigned long)strlen(value), CONFIG_WRITE_MAXIMUM_VALUE);
+		return 0;
+	}
 	/* (the file read first, as the other settings are) */
 	config_value(name, config_settings[index].type);
 #ifndef HALO_CONSOLE_NO_UPDATER
@@ -5971,36 +6061,45 @@ int config_write(const char *name, const char *value)
 	switch (config_settings[index].type)
 	{
 	case _config_boolean:
-		snprintf(line_text, sizeof(line_text), "%s = %s\n", key, config_values[index].boolean ? "true" : "false");
+		snprintf(number_line, sizeof(number_line), "%s = %s\n", key, config_values[index].boolean ? "true" : "false");
 		break;
 	case _config_integer:
-		snprintf(line_text, sizeof(line_text), "%s = %ld\n", key, config_values[index].integer);
+		snprintf(number_line, sizeof(number_line), "%s = %ld\n", key, config_values[index].integer);
 		break;
 	case _config_real:
 		/* (with its point: TOML reads 1 as an integer) */
-		snprintf(line_text, sizeof(line_text), "%s = %.15g", key, config_values[index].real);
-		if (!strpbrk(line_text + strlen(key) + 3, ".en"))
-			strcat(line_text, ".0");
-		strcat(line_text, "\n");
+		snprintf(number_line, sizeof(number_line) - 3, "%s = %.15g", key, config_values[index].real);
+		if (!strpbrk(number_line + strlen(key) + 3, ".en"))
+			strcat(number_line, ".0");
+		strcat(number_line, "\n");
 		break;
 	case _config_string:
 	{
-		char *end = line_text + snprintf(line_text, sizeof(line_text), "%s = \"", key);
+		const char *string = config_values[index].string ? config_values[index].string : "";
 		const char *character;
+		/* (the key, ' = "', each character twice at most, '"\n' and the end) */
+		size_t room = strlen(key) + 4 + 2 * strlen(string) + 3;
+		char *end;
 
-		for (character = config_values[index].string; *character; character++)
+		string_line = malloc(room);
+		if (!string_line)
+			break;
+		end = string_line + snprintf(string_line, room, "%s = \"", key);
+		for (character = string; *character; character++)
 		{
 			if (*character == '"' || *character == '\\')
 				*end++ = '\\';
 			*end++ = *character;
 		}
-		strcpy(end, "\"\n");
+		memcpy(end, "\"\n", 3);
+		line_text = string_line;
 		break;
 	}
 	}
 	config_path(path, sizeof(path));
 	text = config_read_file(path, &size);
-	changed = config_text_with_line(text ? text : "", name, line_text);
+	changed = config_settings[index].type == _config_string && !string_line ? NULL :
+		config_text_with_line(text ? text : "", name, line_text);
 	succeeded = changed && config_write_file(path, changed);
 	config_touched[index] = 1;
 	config_tuning_apply(index);
@@ -6008,6 +6107,7 @@ int config_write(const char *name, const char *value)
 	pthread_mutex_unlock(&config_lock);
 	free(changed);
 	free(text);
+	free(string_line);
 	return succeeded;
 }
 

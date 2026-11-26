@@ -24,7 +24,8 @@ name is two lines in the map list's narrow boxes (the name, then [CE] or
 Those are Halo PC's own, read from its ui.map in maps_ce as Halo PC shows
 them: the names of its map list (ui\shell\main_menu\mp_map_list), their
 descriptions (...\mp_map_select\map_data) and their pictures
-(ui\shell\bitmaps\mp_map_grafix, its pixels in maps_ce\bitmaps.map), each
+(ui\shell\bitmaps\mp_map_grafix, its pixels in maps_ce\bitmaps.map, found
+there by their resource's path: ce_picture_pixels), each
 the map's by Halo PC's order of its maps (ce_maps); a map of another's
 making is named by its file, with Halo PC's picture for an unknown level.
 Without Halo PC's ui.map, the names are ce_maps' and an Xbox map's picture
@@ -184,6 +185,7 @@ static void ce_map_tidy_name(
 #include <xtl.h>
 #endif
 #include <stdlib.h>
+#include "content_bytes.h"
 
 /* ---------- constants */
 
@@ -249,6 +251,11 @@ enum
 	MAXIMUM_CE_PICTURES = 24,
 	/* its bitmaps' pixels kept in bitmaps.map */
 	CE_BITMAP_EXTERNAL_FLAG = 0x100,
+	/* bitmaps.map: its type, and no more resources and paths than this
+	(Custom Edition's has 1706 and under 100 KB of paths) */
+	CE_BITMAPS_MAP_TYPE = 1,
+	CE_BITMAPS_MAXIMUM_RESOURCES = 0x10000,
+	CE_BITMAPS_MAXIMUM_PATHS_SIZE = 0x400000,
 	/* (the bitmaps' type of a 2D texture, as the game's) */
 	CE_BITMAP_TYPE_2D = 0,
 };
@@ -345,6 +352,18 @@ static struct
 /* Halo PC's ui.map's tags, while they are read (ce_ui_read) */
 static byte *ce_tags;
 static unsigned long ce_tags_size;
+
+/* the bitmaps.map the map list's pictures are read from: its resources
+(each its path's offset, its size and its offset in the file, three words)
+and its paths, ended with a terminator after them (ce_bitmaps_table_read) */
+struct ce_bitmaps_table
+{
+	unsigned long *resources;
+	unsigned long count;
+	char *paths;
+	unsigned long paths_size;
+	unsigned long file_size;
+};
 #endif
 
 /* ---------- private code */
@@ -481,6 +500,119 @@ static long ce_string_list_read(
 	return count;
 }
 
+/* whether a bitmaps.map's header (its type, the offsets of its paths and of
+its resources, how many resources) fits a file of file_size bytes */
+static boolean ce_bitmaps_header_valid(
+	unsigned long const *header,
+	unsigned long file_size)
+{
+	return header[0] == CE_BITMAPS_MAP_TYPE && header[3] && header[3] <= CE_BITMAPS_MAXIMUM_RESOURCES &&
+		header[1] >= 16 && header[1] <= header[2] &&
+		header[2] - header[1] <= CE_BITMAPS_MAXIMUM_PATHS_SIZE && header[2] <= file_size &&
+		header[3] * 3 * 4 <= file_size - header[2];
+}
+
+/* the resource of a bitmaps.map whose path is path (any case) and whose
+bytes lie in the file, or NONE */
+static long ce_bitmaps_resource(
+	struct ce_bitmaps_table const *table,
+	char const *path)
+{
+	unsigned long index;
+
+	for (index = 0; index < table->count; index++)
+	{
+		unsigned long const *resource = table->resources + index * 3;
+
+		/* (a path's offset in the paths, which end with a terminator) */
+		if (resource[0] < table->paths_size && !_stricmp(table->paths + resource[0], path) &&
+			resource[2] <= table->file_size && resource[1] <= table->file_size - resource[2])
+		{
+			return (long)index;
+		}
+	}
+	return NONE;
+}
+
+/* where a picture's pixels (the picture'th bitmap of
+ui\shell\bitmaps\mp_map_grafix, which Halo PC's ui.map says are size bytes at
+offset) are in this bitmaps.map: FALSE when they aren't. Custom Edition's
+keeps a tag's bitmaps' pixels in one resource, <tag>__pixels, at the
+offsets its ui.map gives. Halo PC retail's (and MCC's, the same pictures)
+keeps each bitmap's in its own, <tag>_<index>, elsewhere in the file: read
+at Custom Edition's offsets, they were other bitmaps' bytes, a black box
+with a strip of noise */
+static boolean ce_picture_pixels(
+	struct ce_bitmaps_table const *table,
+	long picture,
+	unsigned long offset,
+	unsigned long size,
+	unsigned long *found)
+{
+	char path[64];
+	long resource = ce_bitmaps_resource(table, "ui\\shell\\bitmaps\\mp_map_grafix__pixels");
+
+	if (resource != NONE)
+	{
+		unsigned long const *pixels = table->resources + resource * 3;
+
+		if (offset >= pixels[2] && size <= pixels[1] && offset - pixels[2] <= pixels[1] - size)
+		{
+			*found = offset;
+			return TRUE;
+		}
+	}
+	snprintf(path, sizeof(path), "ui\\shell\\bitmaps\\mp_map_grafix_%ld", picture);
+	resource = ce_bitmaps_resource(table, path);
+	if (resource != NONE && table->resources[resource * 3 + 1] == size)
+	{
+		*found = table->resources[resource * 3 + 2];
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/* a bitmaps.map's resources and paths (ce_bitmaps_table), checked to lie in
+it; FALSE for a file that isn't one */
+static boolean ce_bitmaps_table_read(
+	HANDLE file,
+	struct ce_bitmaps_table *table)
+{
+	unsigned long header[4];
+	unsigned long file_size = GetFileSize(file, NULL);
+
+	memset(table, 0, sizeof(*table));
+	if (file_size == INVALID_FILE_SIZE || !file_read(file, 0, header, sizeof(header)) ||
+		!ce_bitmaps_header_valid(header, file_size))
+	{
+		return FALSE;
+	}
+	table->count = header[3];
+	table->paths_size = header[2] - header[1];
+	table->file_size = file_size;
+	table->resources = malloc(table->count * 3 * sizeof(table->resources[0]));
+	table->paths = malloc(table->paths_size + 1);
+	if (!table->resources || !table->paths ||
+		!file_read(file, header[2], table->resources, table->count * 3 * sizeof(table->resources[0])) ||
+		!file_read(file, header[1], table->paths, table->paths_size))
+	{
+		return FALSE;
+	}
+	table->paths[table->paths_size] = 0;
+	return TRUE;
+}
+
+static void ce_bitmaps_table_free(
+	struct ce_bitmaps_table *table)
+{
+	/* (the game's free takes no NULL) */
+	if (table->resources)
+		free(table->resources);
+	if (table->paths)
+		free(table->paths);
+	memset(table, 0, sizeof(*table));
+}
+
 /* the map list's pictures: each made a bitmap of its own, its pixels and its
 Direct3D texture in contiguous memory, as the texture cache would make it */
 static void ce_pictures_read(
@@ -488,6 +620,8 @@ static void ce_pictures_read(
 {
 	byte *group = ce_tag_find('bitm', "ui\\shell\\bitmaps\\mp_map_grafix", 0x6c);
 	HANDLE bitmaps_file = INVALID_HANDLE_VALUE;
+	struct ce_bitmaps_table bitmaps_table = { 0 };
+	char bitmaps_path[512] = "";
 	unsigned long *block;
 	byte *elements;
 	long count, index;
@@ -543,12 +677,25 @@ static void ce_pictures_read(
 		{
 			if (bitmaps_file == INVALID_HANDLE_VALUE)
 			{
-				char path[512];
-
-				map_family_resource("bitmaps", path, sizeof(path));
-				bitmaps_file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+				map_family_resource("bitmaps", bitmaps_path, sizeof(bitmaps_path));
+				bitmaps_file = CreateFileA(bitmaps_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+					FILE_ATTRIBUTE_NORMAL, NULL);
 				if (bitmaps_file == INVALID_HANDLE_VALUE)
 					break;
+				if (!ce_bitmaps_table_read(bitmaps_file, &bitmaps_table))
+				{
+					error(_error_silent, "the menus' map list: %s is not a bitmaps.map: the Xbox's map pictures "
+						"stand in for Halo PC's", bitmaps_path);
+					break;
+				}
+			}
+			/* (only the picture's own pixels: the Xbox's picture stands in
+			for one that isn't there, and for the rest after it) */
+			if (!ce_picture_pixels(&bitmaps_table, index, pixels_offset, pixels_size, &pixels_offset))
+			{
+				error(_error_silent, "the menus' map list: Halo PC's map picture %ld is not in %s: the Xbox's map "
+					"pictures stand in", index, bitmaps_path);
+				break;
 			}
 			file = bitmaps_file;
 		}
@@ -581,6 +728,7 @@ static void ce_pictures_read(
 		bitmap->hardware_format = xbox_address(texture);
 		ce_ui.picture_count = index + 1;
 	}
+	ce_bitmaps_table_free(&bitmaps_table);
 	if (bitmaps_file != INVALID_HANDLE_VALUE)
 		CloseHandle(bitmaps_file);
 }
@@ -815,11 +963,6 @@ enum
 	SCENARIO_READ_SIZE = 0x358,
 };
 
-static unsigned long little_long(unsigned char const *bytes)
-{
-	return bytes[0] | (bytes[1] << 8) | ((unsigned long)bytes[2] << 16) | ((unsigned long)bytes[3] << 24);
-}
-
 static boolean map_file_details(
 	short family,
 	char const *file,
@@ -837,21 +980,21 @@ static boolean map_file_details(
 		return FALSE;
 	if (fread(header, sizeof(header), 1, stream) == 1 && !memcmp(header, "daeh", 4))
 	{
-		tag_data = little_long(header + MAP_FILE_TAG_DATA_OFFSET);
+		tag_data = content_u32le(header + MAP_FILE_TAG_DATA_OFFSET);
 		if (!fseek(stream, (long)tag_data, SEEK_SET) && fread(index, sizeof(index), 1, stream) == 1)
 		{
-			tag_array = little_long(index) - MAP_FILE_TAG_BASE_ADDRESS;
-			scenario_index = little_long(index + 4) & 0xFFFF;
-			if (scenario_index < little_long(index + 12) &&
+			tag_array = content_u32le(index) - MAP_FILE_TAG_BASE_ADDRESS;
+			scenario_index = content_u32le(index + 4) & 0xFFFF;
+			if (scenario_index < content_u32le(index + 12) &&
 				!fseek(stream, (long)(tag_data + tag_array + scenario_index * MAP_FILE_TAG_SIZE), SEEK_SET) &&
 				fread(tag, sizeof(tag), 1, stream) == 1 && !memcmp(tag, "rncs", 4))
 			{
-				scenario_address = little_long(tag + MAP_FILE_TAG_DATA_ADDRESS) - MAP_FILE_TAG_BASE_ADDRESS;
+				scenario_address = content_u32le(tag + MAP_FILE_TAG_DATA_ADDRESS) - MAP_FILE_TAG_BASE_ADDRESS;
 				if (!fseek(stream, (long)(tag_data + scenario_address), SEEK_SET) &&
 					fread(scenario, sizeof(scenario), 1, stream) == 1)
 				{
-					*spawns = (long)little_long(scenario + SCENARIO_PLAYER_STARTING_LOCATIONS_COUNT);
-					*vehicles = (long)little_long(scenario + SCENARIO_VEHICLES_COUNT);
+					*spawns = (long)content_u32le(scenario + SCENARIO_PLAYER_STARTING_LOCATIONS_COUNT);
+					*vehicles = (long)content_u32le(scenario + SCENARIO_VEHICLES_COUNT);
 					read = *spawns >= 0 && *spawns < 4096 && *vehicles >= 0 && *vehicles < 4096;
 				}
 			}

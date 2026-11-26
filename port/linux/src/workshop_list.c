@@ -598,10 +598,38 @@ static int unicode_escape(const char *at, const char *end, const char *pair, uns
 	return 4;
 }
 
+/* the length of the UTF-8 character at at (before end): 1 to 4, or 0 where
+it is not one (a byte that starts none, a byte after it that does not go on
+one, an overlong form, a surrogate, past U+10FFFF) */
+static int utf8_length(const char *at, const char *end)
+{
+	unsigned char lead = (unsigned char)at[0], second;
+	int count, index;
+
+	if (lead < 0x80)
+		return 1;
+	count = lead >= 0xC2 && lead <= 0xDF ? 2 : lead >= 0xE0 && lead <= 0xEF ? 3 : lead >= 0xF0 && lead <= 0xF4 ? 4 : 0;
+	if (!count || end - at < count)
+		return 0;
+	for (index = 1; index < count; index++)
+	{
+		if (((unsigned char)at[index] & 0xC0) != 0x80)
+			return 0;
+	}
+	second = (unsigned char)at[1];
+	if ((lead == 0xE0 && second < 0xA0) || (lead == 0xED && second > 0x9F) || (lead == 0xF0 && second < 0x90) ||
+		(lead == 0xF4 && second > 0x8F))
+	{
+		return 0;
+	}
+	return count;
+}
+
 /* a string of the page's data, which sits in a script's string: its quotes
 \", its own escapes doubled (\\\" a quote, \\\\ a backslash, \\u a
 character) and the script's \u too. Read from at (past its opening \") into
-out, cut whole characters to size; 1 when it ended where it should */
+out, cut whole characters to size; 1 when it ended where it should. A byte
+that is not valid UTF-8 is read as '?', as a lone surrogate's \u is */
 static int page_string(const char *at, const char *end, char *out, int size)
 {
 	int length = 0, full = 0;
@@ -614,10 +642,16 @@ static int page_string(const char *at, const char *end, char *out, int size)
 		if (*at != '\\')
 		{
 			unsigned char lead = (unsigned char)*at;
-			int count = lead < 0x80 ? 1 : lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 0;
+			int count = utf8_length(at, end);
 
-			if (*at == '"' || !count || end - at < count)
+			if (*at == '"')
 				return 0;
+			if (!count)
+			{
+				utf8_put(out, &length, size, &full, '?');
+				at++;
+				continue;
+			}
 			if (lead >= 0x20 && !full && length + count <= size - 1)
 			{
 				memcpy(out + length, at, (size_t)count);
@@ -645,7 +679,7 @@ static int page_string(const char *at, const char *end, char *out, int size)
 			utf8_put(out, &length, size, &full, '/');
 			at += 2;
 			continue;
-		case 'n': case 'r': case 't':
+		case 'n': case 'r': case 't': case 'b': case 'f':
 			utf8_put(out, &length, size, &full, ' ');
 			at += 2;
 			continue;
@@ -667,7 +701,7 @@ static int page_string(const char *at, const char *end, char *out, int size)
 			utf8_put(out, &length, size, &full, code);
 			at += 3 + taken;
 		}
-		else if (at[2] == '/' || at[2] == 'n' || at[2] == 'r' || at[2] == 't')
+		else if (at[2] == '/' || at[2] == 'n' || at[2] == 'r' || at[2] == 't' || at[2] == 'b' || at[2] == 'f')
 		{
 			utf8_put(out, &length, size, &full, at[2] == '/' ? '/' : ' ');
 			at += 3;
@@ -678,12 +712,55 @@ static int page_string(const char *at, const char *end, char *out, int size)
 	return 0;
 }
 
+/* the end of the page's array whose first item is at (past its "["): its
+closing "]", found as the data's brackets nest, the brackets inside its
+strings left out (the page's data sits in a script's string: a data string
+is between \" and \", and a quote inside one is \\\"); end if it has none */
+static const char *page_array_end(const char *at, const char *end)
+{
+	int depth = 1, in_string = 0, escaped = 0;
+
+	while (at < end)
+	{
+		char character = *at;
+
+		/* (the script's escapes: \" a quote, \\ a backslash, \uXXXX and
+		the others a character that is no bracket) */
+		if (character == '\\')
+		{
+			if (end - at < 2)
+				return end;
+			character = at[1] == '"' || at[1] == '\\' ? at[1] : 'x';
+			at += at[1] == 'u' ? (end - at >= 6 ? 6 : end - at) : 2;
+		}
+		else
+			at++;
+		if (in_string)
+		{
+			if (escaped)
+				escaped = 0;
+			else if (character == '\\')
+				escaped = 1;
+			else if (character == '"')
+				in_string = 0;
+			continue;
+		}
+		if (character == '"')
+			in_string = 1;
+		else if (character == '[')
+			depth++;
+		else if (character == ']' && !--depth)
+			return at - 1;
+	}
+	return end;
+}
+
 int workshop_browser_read_browse_authors(const char *text, int length, struct workshop_browser_author *authors,
 	int maximum)
 {
 	static const char item_key[] = "\\\"publishedfileid\\\":\\\"", creator_key[] = "\\\",\\\"creator\\\":\\\"";
 	static const char player_key[] = "\\\"steamid\\\":\\\"", name_key[] = "\\\"persona_name\\\":\\\"";
-	const char *end, *at, *results, *players;
+	const char *end, *at, *results, *results_end, *players;
 	int count = 0, index;
 
 	if (!text || length <= 0 || maximum <= 0)
@@ -693,19 +770,21 @@ int workshop_browser_read_browse_authors(const char *text, int length, struct wo
 	else on the page, such as an item named in a description, is taken) */
 	if (!(results = find_in(text, end, "\\\"results\\\":[")))
 		return 0;
-	for (at = results; count < maximum && (at = find_in(at, end, item_key)) != NULL;)
+	/* (nor an id and creator after the list: up to its "]") */
+	results_end = page_array_end(results + sizeof("\\\"results\\\":[") - 1, end);
+	for (at = results; count < maximum && (at = find_in(at, results_end, item_key)) != NULL;)
 	{
 		struct workshop_browser_author *author = &authors[count];
 		int digits;
 
 		at += sizeof(item_key) - 1;
-		if (!(digits = digits_at(at, end, author->id, (int)sizeof(author->id))))
+		if (!(digits = digits_at(at, results_end, author->id, (int)sizeof(author->id))))
 			continue;
 		at += digits;
-		if ((size_t)(end - at) < sizeof(creator_key) - 1 || memcmp(at, creator_key, sizeof(creator_key) - 1))
+		if ((size_t)(results_end - at) < sizeof(creator_key) - 1 || memcmp(at, creator_key, sizeof(creator_key) - 1))
 			continue;
 		at += sizeof(creator_key) - 1;
-		if (!digits_at(at, end, author->creator, (int)sizeof(author->creator)))
+		if (!digits_at(at, results_end, author->creator, (int)sizeof(author->creator)))
 			continue;
 		author->name[0] = 0;
 		for (index = 0; index < count && strcmp(authors[index].id, author->id); index++)

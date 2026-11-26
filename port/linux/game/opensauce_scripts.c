@@ -22,10 +22,16 @@ back). Read as facts; the code is this game's:
     does, for every weapon of it, until the map loads again;
   - the numbers and bits (abs_real, bit_test, bit_toggle), distances, and
     physics_set_gravity (opensauce_map.c puts the gravity back);
+  - post-processing's (pp_*) go to the map's post-processing
+    (opensauce_postprocess.c), where the map has some and the build draws
+    it; elsewhere an effect instance's active flag and fade are kept, the
+    fade done at once, as nothing is drawn;
+  - display_scripted_ui_widget opens the widget the map's project_yellow
+    (or project_yellow_globals) lists under the name, as OpenSauce's
+    UIWidgets.cpp does: a widget of its own, the one open closed (none on
+    the dedicated server, as OpenSauce's has none);
   - what needs a part of OpenSauce the game does not have yet answers as
-    that part would with nothing to show, and says so once: post-processing
-    (an effect instance's active flag and fade are kept, the fade done at
-    once, as nothing is drawn), scripted UI widgets, BSP sky and lightmap
+    that part would with nothing to show, and says so once: BSP sky and lightmap
     sets, runtime vectors, bink movies, OpenSauce's third and fourth
     grenade counts.
 The globals are Halo PC's network globals (vehicle_incremental_rate and the
@@ -50,7 +56,9 @@ blur ones, of the types Halo PC's and OpenSauce's scripts give them
 #include "objects/objects.h"
 #include "objects/object_types.h"
 #include "units/units.h"
+#include "interface/ui_widget.h"
 #include "opensauce.h"
+#include "opensauce_postprocess.h"
 #include "stubbs_functions.h"
 #include "network_coop.h"
 #include "networking/network_game_globals.h"
@@ -479,8 +487,12 @@ static boolean opensauce_script_data(
 			for (object_index = object_list_get_first(arguments[0], &reference); object_index != NONE;
 				object_index = object_list_get_next(arguments[0], &reference))
 			{
-				real distance = distance3d(object_get_origin(object_index, &origin), &destination);
+				real distance;
 
+				/* (a listed object deleted since is passed over: #1861) */
+				if (!object_try_and_get(object_index))
+					continue;
+				distance = distance3d(object_get_origin(object_index, &origin), &destination);
 				if (minimum < 0.f || distance < minimum)
 					minimum = distance;
 			}
@@ -618,6 +630,25 @@ static boolean opensauce_script_data(
 		if (bit >= 0 && bit < 32)
 			*value = (arguments[2] & 0xFF) ? (arguments[0] | (1L << bit)) : (arguments[0] & ~(1L << bit));
 	}
+#ifndef HALO_SERVER
+	else if (!strcmp(name, "display_scripted_ui_widget"))
+	{
+		/* the widget the map lists under that name opened, as OpenSauce
+		opens it: on its own, over whatever was open (TRUE if it was) */
+		char const *widget_name = opensauce_string_argument(arguments[0]);
+		long tag_index = opensauce_map_scripted_widget(widget_name);
+
+		*value = FALSE;
+		if (tag_index != NONE)
+		{
+			*value = ui_widget_load_by_name_or_tag(NULL, tag_index, NULL, NONE, NONE, NONE, NONE) != NULL;
+			error(_error_silent, "OpenSauce scripts: scripted widget '%s' %s", widget_name,
+				*value ? "shown" : "could not be made");
+		}
+		else
+			error(_error_silent, "OpenSauce scripts: scripted widget '%s' isn't in the map's lists", widget_name);
+	}
+#endif
 	else if (!strcmp(name, "physics_set_gravity"))
 	{
 		real scale = opensauce_real_argument(arguments[0]);
@@ -643,6 +674,54 @@ static void opensauce_script_missing(
 {
 	char const *name = function->definition.name;
 
+#ifdef OPENSAUCE_POSTPROCESS
+	/* (the map's post-processing, when it has some: opensauce_postprocess.c,
+	which draws it; presentation only, each machine's own) */
+	if (!strncmp(name, "pp_", 3) && opensauce_postprocess_active())
+	{
+		short index = (short)arguments[0];
+
+		if (!strcmp(name, "pp_set_effect_instance_active"))
+			opensauce_postprocess_set_instance_active(index, (arguments[1] & 0xFF) != 0);
+		else if (!strcmp(name, "pp_set_effect_instance_fade"))
+		{
+			opensauce_postprocess_set_instance_fade(index, opensauce_real_argument(arguments[1]),
+				opensauce_real_argument(arguments[2]), opensauce_real_argument(arguments[3]));
+		}
+		else if (!strcmp(name, "pp_get_effect_instance_current_fade"))
+			*value = opensauce_real_result(opensauce_postprocess_instance_current_fade(index));
+		else if (!strcmp(name, "pp_set_effect_shader_variable_integer"))
+		{
+			opensauce_postprocess_set_variable_integer(index, (short)arguments[1], arguments[2],
+				opensauce_real_argument(arguments[3]));
+		}
+		else if (!strcmp(name, "pp_set_effect_shader_variable_real"))
+		{
+			float values[4];
+			short component;
+
+			for (component = 0; component < 4; component++)
+				values[component] = opensauce_real_argument(arguments[2 + component]);
+			opensauce_postprocess_set_variable_real(index, (short)arguments[1], values,
+				opensauce_real_argument(arguments[6]));
+		}
+		else if (!strcmp(name, "pp_bloom_set_maximum_color"))
+		{
+			float color[3];
+
+			color[0] = opensauce_real_argument(arguments[0]);
+			color[1] = opensauce_real_argument(arguments[1]);
+			color[2] = opensauce_real_argument(arguments[2]);
+			opensauce_postprocess_bloom_set_maximum_color(color, opensauce_real_argument(arguments[3]));
+		}
+		else if (!strcmp(name, "pp_bloom_set_exposure"))
+		{
+			opensauce_postprocess_bloom_set_exposure(opensauce_real_argument(arguments[0]),
+				opensauce_real_argument(arguments[1]));
+		}
+		return;
+	}
+#endif
 	if (!strncmp(name, "pp_", 3))
 	{
 		short instance = (short)arguments[0];
@@ -654,7 +733,7 @@ static void opensauce_script_missing(
 			opensauce_script_effect_instances[instance].fade = opensauce_real_argument(arguments[2]);
 		else if (!strcmp(name, "pp_get_effect_instance_current_fade"))
 			*value = opensauce_real_result(valid ? opensauce_script_effect_instances[instance].fade : 0.f);
-		opensauce_script_log_once(function, "is kept, not drawn: no post-processing yet (fades end at once)");
+		opensauce_script_log_once(function, "is kept, not drawn: this build or map draws no post-processing (fades end at once)");
 		return;
 	}
 	opensauce_script_log_once(function, "does nothing yet: this game has no part for it (it returns as though "

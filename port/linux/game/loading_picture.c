@@ -14,8 +14,12 @@ loading.tga under that name: port/linux/src/xiso.c, XisoExtractor.java),
 else the disc's loading.tga, else Chupathingy's. A picture is used only if
 progress_bar.c can read it (an uncompressed 24-bit TGA of 320 by 240).
 
-A console's build leaves this out (HALO_CONSOLE_NO_LOADING_PICTURE,
-halo_console_features.h): it shows the disc's picture, as the Xbox did.
+The Xbox 360 and the Wii U have it too, the setting on by default as on
+the desktop: the disc's picture when their maps folder has it, else
+Chupathingy's (a maps folder copied without loading.tga showed a black
+loading screen). The original Xbox's build leaves this out
+(HALO_CONSOLE_NO_LOADING_PICTURE, halo_console_features.h): it shows the
+disc's picture, as the Xbox did.
 */
 
 #ifndef HALO_CONSOLE_NO_LOADING_PICTURE
@@ -106,6 +110,10 @@ void loading_picture_path(
 			return;
 		/* (the disc's loading.tga, copied by progress_bar_initialize) */
 		loading_picture_file('z', "loading.tga", path, size);
+		if (loading_picture_usable(path))
+			return;
+		/* (the disc's own, when the utility drive has no copy of it) */
+		loading_picture_file('d', "loading.tga", path, size);
 		if (loading_picture_usable(path))
 			return;
 	}

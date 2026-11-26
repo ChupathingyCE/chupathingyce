@@ -9,6 +9,7 @@
 #include "tag_files/tag_groups.h"
 #include "text/text_group.h"
 #include "mcc_pause.h"
+#include "mcc_cache.h"
 #include "mcc_ui.h"
 #include <stdint.h>
 #include <stdlib.h>
@@ -61,6 +62,10 @@ typedef char mcc_pause_child_size[sizeof(struct mcc_pause_child) == 0x50 ? 1 : -
 typedef char mcc_pause_child_offset[offsetof(struct mcc_pause_widget, children) == 0x3E0 ? 1 : -1];
 
 enum { MCC_PAUSE_MAX_TAGS = 512, MCC_PAUSE_ARENA_BYTES = 2 * 1024 * 1024 };
+/* a text box's game data input that shows the campaign's objective
+ * (ui_widget_game_data_input_functions.c, solo_game_objective_text), and the
+ * most inputs a widget of the map's is read for (the Xbox's have one or two) */
+enum { MCC_PAUSE_OBJECTIVE_INPUT = 18, MCC_PAUSE_MAXIMUM_INPUTS = 32 };
 enum { SOLO, COOP_HOST, COOP_CLIENT, MP_LOCAL, MP_HOST, MP_CLIENT, MODE_COUNT };
 enum { LABEL_RESUME, LABEL_REVERT, LABEL_SAVE_QUIT, LABEL_LEAVE, LABEL_SETTINGS,
     LABEL_END, LABEL_OBJECTIVES, LABEL_CONFIRM_REVERT, LABEL_CONFIRM_RESTART,
@@ -424,7 +429,7 @@ static long mcc_pause_screen(short mode, short layout)
         if (widget && input) {
             widget->font.index = mcc_pause.assets.small_font[layout];
             widget->color[1] = 0.0f; widget->color[2] = 0.5f;
-            input->function = 18; /* Native objective text, driven by the scenario. */
+            input->function = MCC_PAUSE_OBJECTIVE_INPUT; /* Native objective text, driven by the scenario. */
             widget->inputs.count = 1; widget->inputs.address = xbox_address(input);
         }
         children[child_count] = caption; xs[child_count] = layout == MCC_PAUSE_QUARTER ? 28 : 302;
@@ -503,7 +508,21 @@ boolean mcc_pause_owns(long handle) { return mcc_pause_definition(handle) != NUL
 boolean mcc_pause_text_wrap_needed(long handle)
 {
     struct mcc_pause_widget const *widget = mcc_pause_definition(handle);
-    return widget && (!strcmp(widget->name, "objective") || !strcmp(widget->name, "confirmation_text"));
+    struct mcc_pause_input const *inputs;
+    long input;
+    if (widget) return !strcmp(widget->name, "objective") || !strcmp(widget->name, "confirmation_text");
+    /* An MCC map's own campaign pause screen (the Xbox menus' pause is the
+     * map's): the text box that shows the objective. MCC wraps it, and an MCC
+     * campaign's objectives are written for that, a line too long for the
+     * box and no |n of their own (#1827). Other maps keep the Xbox's. */
+    if (handle == NONE || !mcc_cache_tags_loaded()) return FALSE;
+    widget = tag_get('DeLa', handle);
+    if (!widget || widget->type != 1 || widget->inputs.count <= 0 ||
+        widget->inputs.count > MCC_PAUSE_MAXIMUM_INPUTS || !widget->inputs.address) return FALSE;
+    inputs = xbox_pointer(widget->inputs.address);
+    for (input = 0; input < widget->inputs.count; ++input)
+        if (inputs[input].function == MCC_PAUSE_OBJECTIVE_INPUT) return TRUE;
+    return FALSE;
 }
 long mcc_pause_select(boolean campaign, boolean network, boolean host, boolean teams, short local_count, boolean first_player)
 {

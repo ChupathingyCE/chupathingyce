@@ -12,6 +12,7 @@ tag data is read into memory of exactly its size.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../game/content_bytes.h"
 
 /* ---------- constants */
 
@@ -54,12 +55,6 @@ enum
 
 /* ---------- private code */
 
-static unsigned int read_32(const unsigned char *bytes)
-{
-	return (unsigned int)bytes[0] | (unsigned int)bytes[1] << 8 | (unsigned int)bytes[2] << 16 |
-		(unsigned int)bytes[3] << 24;
-}
-
 static int refuse(char *error, int error_size, const char *format, ...)
 {
 	va_list arguments;
@@ -97,29 +92,29 @@ static int check_tags(const unsigned char *tags, unsigned int size, unsigned int
 	unsigned int count, scenario, index;
 	long instances;
 
-	if (read_32(tags + TAG_HEADER_SIGNATURE) != TAG_SIGNATURE)
+	if (content_u32le(tags + TAG_HEADER_SIGNATURE) != TAG_SIGNATURE)
 		return refuse(error, error_size, "its tag data has no tag header");
-	count = read_32(tags + TAG_HEADER_COUNT);
+	count = content_u32le(tags + TAG_HEADER_COUNT);
 	if (!count || count > MAXIMUM_TAG_COUNT)
 		return refuse(error, error_size, "it says it has %u tags", count);
-	instances = tag_offset(read_32(tags + TAG_HEADER_INSTANCES), count * INSTANCE_SIZE, size);
+	instances = tag_offset(content_u32le(tags + TAG_HEADER_INSTANCES), count * INSTANCE_SIZE, size);
 	if (instances < 0 || instances % 4)
 		return refuse(error, error_size, "its list of tags is not in its tag data");
 	for (index = 0; index < count; index++)
 	{
 		const unsigned char *instance = tags + instances + (unsigned long)index * INSTANCE_SIZE;
-		unsigned int group = read_32(instance + INSTANCE_GROUP);
-		long name = tag_offset(read_32(instance + INSTANCE_NAME), 1, size);
+		unsigned int group = content_u32le(instance + INSTANCE_GROUP);
+		long name = tag_offset(content_u32le(instance + INSTANCE_NAME), 1, size);
 		unsigned int room;
 
-		if ((read_32(instance + INSTANCE_HANDLE) & 0xffff) != index)
+		if ((content_u32le(instance + INSTANCE_HANDLE) & 0xffff) != index)
 			return refuse(error, error_size, "tag %u has another tag's handle", index);
 		if (name < 0)
 			return refuse(error, error_size, "tag %u's name is not in its tag data", index);
 		room = size - (unsigned int)name;
 		if (!memchr(tags + name, 0, room < MAXIMUM_TAG_NAME_LENGTH ? room : MAXIMUM_TAG_NAME_LENGTH))
 			return refuse(error, error_size, "tag %u's name does not end", index);
-		if (read_32(instance + INSTANCE_INDEXED))
+		if (content_u32le(instance + INSTANCE_INDEXED))
 		{
 			if (group != GROUP_BITMAP && group != GROUP_SOUND && group != GROUP_FONT && group != GROUP_STRINGS &&
 				group != GROUP_HUD_TEXT)
@@ -130,22 +125,22 @@ static int check_tags(const unsigned char *tags, unsigned int size, unsigned int
 		}
 		else if (group == GROUP_BSP)
 		{
-			if (read_32(instance + INSTANCE_DATA))
+			if (content_u32le(instance + INSTANCE_DATA))
 				return refuse(error, error_size, "structure BSP tag %u is placed in the tag data", index);
 		}
-		else if (tag_offset(read_32(instance + INSTANCE_DATA), 4, size) < 0)
+		else if (tag_offset(content_u32le(instance + INSTANCE_DATA), 4, size) < 0)
 			return refuse(error, error_size, "tag %u's data is not in its tag data", index);
 	}
-	scenario = read_32(tags + TAG_HEADER_SCENARIO);
+	scenario = content_u32le(tags + TAG_HEADER_SCENARIO);
 	if ((scenario & 0xffff) >= count ||
-		read_32(tags + instances + (unsigned long)(scenario & 0xffff) * INSTANCE_SIZE + INSTANCE_HANDLE) != scenario ||
-		read_32(tags + instances + (unsigned long)(scenario & 0xffff) * INSTANCE_SIZE + INSTANCE_GROUP) !=
+		content_u32le(tags + instances + (unsigned long)(scenario & 0xffff) * INSTANCE_SIZE + INSTANCE_HANDLE) != scenario ||
+		content_u32le(tags + instances + (unsigned long)(scenario & 0xffff) * INSTANCE_SIZE + INSTANCE_GROUP) !=
 			GROUP_SCENARIO)
 	{
 		return refuse(error, error_size, "its scenario is not one of its tags");
 	}
-	if (read_32(tags + TAG_HEADER_VERTEX_DATA_SIZE) > read_32(tags + TAG_HEADER_MODEL_DATA_SIZE) ||
-		!within(read_32(tags + TAG_HEADER_MODEL_DATA_OFFSET), read_32(tags + TAG_HEADER_MODEL_DATA_SIZE), file_size))
+	if (content_u32le(tags + TAG_HEADER_VERTEX_DATA_SIZE) > content_u32le(tags + TAG_HEADER_MODEL_DATA_SIZE) ||
+		!within(content_u32le(tags + TAG_HEADER_MODEL_DATA_OFFSET), content_u32le(tags + TAG_HEADER_MODEL_DATA_SIZE), file_size))
 	{
 		return refuse(error, error_size, "its model data is not in the file");
 	}
@@ -188,8 +183,8 @@ int map_quick_check(map_archive_read_proc read, void *context, unsigned int file
 		return refuse(error, error_size, "it is too small to be a map");
 	if (!map_archive_check_header(header, file_size, name, 0, error, error_size))
 		return 0;
-	tag_data_offset = read_32(header + HEADER_TAG_DATA_OFFSET);
-	tag_data_size = read_32(header + HEADER_TAG_DATA_SIZE_OFFSET);
+	tag_data_offset = content_u32le(header + HEADER_TAG_DATA_OFFSET);
+	tag_data_size = content_u32le(header + HEADER_TAG_DATA_SIZE_OFFSET);
 	if (tag_data_size < TAG_HEADER_SIZE)
 		return refuse(error, error_size, "its tag data is too small");
 	if (tag_data_size > MAP_QUICK_CHECK_TAG_CACHE_SIZE)

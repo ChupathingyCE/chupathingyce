@@ -45,6 +45,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "stubbs_engine.h"
 #include "stubbs_possession.h"
 #include "stubbs_functions.h"
+#include "content_bytes.h"
 
 #ifndef HALO_CONSOLE_NO_STUBBS
 
@@ -128,15 +129,6 @@ static void stubbs_possession_forget_all(
 
 	for (index = 0; index < MAXIMUM_STUBBS_LOCAL_PLAYERS; index++)
 		stubbs_possession_forget(index);
-}
-
-static long stubbs_read_long(
-	unsigned char const *address)
-{
-	long value;
-
-	csmemcpy(&value, address, 4);
-	return value;
 }
 
 static struct stubbs_possessable_definition const *stubbs_possessable_definition_get(
@@ -238,8 +230,8 @@ void stubbs_possession_note_unit_definition(
 		stubbs_possession_forget_all();
 	}
 	stubbs_possessable_definitions_noted = TRUE;
-	count = stubbs_read_long(unit + STUBBS_UNIT_SEATS_OFFSET);
-	address = (unsigned long)stubbs_read_long(unit + STUBBS_UNIT_SEATS_OFFSET + 4);
+	count = content_s32(unit + STUBBS_UNIT_SEATS_OFFSET);
+	address = (unsigned long)content_s32(unit + STUBBS_UNIT_SEATS_OFFSET + 4);
 	if (count <= 0 || count > MAXIMUM_STUBBS_UNIT_SEATS ||
 		stubbs_possessable_definition_count >= MAXIMUM_STUBBS_POSSESSABLE_DEFINITIONS)
 	{
@@ -263,7 +255,7 @@ void stubbs_possession_note_unit_definition(
 			struct stubbs_possessable_definition *noted =
 				&stubbs_possessable_definitions[stubbs_possessable_definition_count++];
 
-			noted->definition_index = stubbs_read_long(instance + 0x0C);
+			noted->definition_index = content_s32(instance + 0x0C);
 			csmemcpy(noted->marker_name, seat + STUBBS_UNIT_SEAT_MARKER_OFFSET, TAG_STRING_LENGTH);
 			noted->marker_name[TAG_STRING_LENGTH] = 0;
 			if (!noted->marker_name[0])

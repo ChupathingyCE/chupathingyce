@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Callable, List, Optional
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import OPTIMISATION, RENAME_STUB_SCRIPT, ffmpeg_build, lto_flags, march_flag
+from .linux_build import OPTIMISATION, ffmpeg_build, lto_flags, march_flag
 from .lp64_build import (
     LINUX_PORT_CONFIG,
     Lp64Build,
@@ -274,9 +274,5 @@ def generate_unix64_build(n: Writer, sln: Any) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule=f"{name}_copy", inputs=Path("port/assets/network/brokers.txt"))
-    # halo, which starts chupathingy (port/linux/src/rename_stub.h; TODO(after
-    # 0.9.x): remove)
-    stub = build_dir / "halo"
-    n.build(outputs=stub, rule=f"{name}_copy", inputs=RENAME_STUB_SCRIPT)
-    n.build(outputs=name, rule="phony", inputs=[output, brokers, stub])
+    n.build(outputs=name, rule="phony", inputs=[output, brokers])
     n.newline()

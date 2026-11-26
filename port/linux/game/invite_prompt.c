@@ -10,7 +10,11 @@ map when the game list knows them (browser_screen_invite_game), drawn and
 driven by code as Online Games is (browser_screen.c).
 
 A (Enter, or a click on YES) joins it; B (Escape, a click on NO or the
-right button) leaves it, and that invite is not asked about again this run.
+right button) leaves it, and that invite is not asked about again, in this
+run or the next (private/invites_declined.txt keeps the last few, as hashes:
+an invite's code joins its game, so it is never written), so one left on
+the clipboard does not ask at every start. A Yes is not kept: an invite
+copied again after a join that failed asks again.
 In a game with no menu up, a line at the top of the screen says the invite
 is waiting, and the question is asked once a menu (the pause menu) is up.
 
@@ -30,8 +34,14 @@ typing begins again.
 #include "../src/ui_overlay.h"
 #include "halo_ui_pointer.h"
 #include "halo_join_reasons.h"
+#include "../src/port_folders.h"
+
+#include <stdio.h>
 
 void platform_log(char const *format, ...);
+const char *platform_folder(enum port_folder folder);
+/* (port/third_party/monocypher, which internet play links) */
+void crypto_blake2b(unsigned char *hash, size_t hash_size, unsigned char const *message, size_t message_size);
 int platform_take_clipboard_invite(char *text, int size);
 void platform_text_field(int typing);
 int p2p_join_invite(char const *text);
@@ -57,8 +67,11 @@ enum
 	/* the dialog takes no A this soon after it opens (the A that opened
 	the pause menu, or a key still down) */
 	OPEN_SETTLE = 400,
-	/* the invites answered No, kept for this run */
+	/* the invites answered No, kept across runs */
 	MAXIMUM_DECLINED = 8,
+	/* an invite's code's hash, as it is kept, and in hex */
+	INVITE_HASH_SIZE = 32,
+	INVITE_HASH_TEXT_SIZE = INVITE_HASH_SIZE * 2 + 1,
 	INVITE_TEXT_SIZE = 256,
 	/* the invite's code as it is compared (after "halo://join/") */
 	INVITE_CODE_SIZE = 160,
@@ -119,9 +132,11 @@ static struct
 	char map[64];
 	/* the prompts' places, for the pointer (NO, then YES) */
 	float no_x0, no_x1, yes_x0, yes_x1;
-	/* the invites answered No */
-	char declined[MAXIMUM_DECLINED][INVITE_CODE_SIZE];
+	/* the hashes of the invites answered No (private/invites_declined.txt),
+	and whether that file has been read */
+	char declined[MAXIMUM_DECLINED][INVITE_HASH_TEXT_SIZE];
 	short declined_next;
+	boolean declined_read;
 	/* asking for a locked invite's password (p2p_locked_invite_waiting): what
 	is typed, and whether the last one was wrong */
 	boolean password;
@@ -165,16 +180,100 @@ static void invite_code(
 	code[length] = 0;
 }
 
+/* the hash of an invite's code, in hex, as the invites declined are kept
+(the code itself joins the game, so it is never kept); empty with no code */
+static void invite_hash(
+	char const *text,
+	char *hash_text)
+{
+	/* (the code after a tag of its own, so the hash is this file's alone) */
+	static char const tag[] = "chupathingy invite declined ";
+	char tagged[sizeof(tag) + INVITE_CODE_SIZE];
+	unsigned char hash[INVITE_HASH_SIZE];
+	short index;
+
+	hash_text[0] = 0;
+	csmemcpy(tagged, tag, sizeof(tag) - 1);
+	invite_code(text, tagged + sizeof(tag) - 1, INVITE_CODE_SIZE);
+	if (!tagged[sizeof(tag) - 1])
+		return;
+	crypto_blake2b(hash, sizeof(hash), (unsigned char const *)tagged, strlen(tagged));
+	for (index = 0; index < INVITE_HASH_SIZE; index++)
+		snprintf(hash_text + index * 2, 3, "%02x", hash[index]);
+}
+
+/* the file of the invites declined, in the save root's private/; FALSE with
+none */
+static boolean invite_declined_path(
+	char *path,
+	long size)
+{
+	char const *folder = platform_folder(_port_folder_private);
+
+	return folder && folder[0] && snprintf(path, (size_t)size, "%s/invites_declined.txt", folder) < size;
+}
+
+/* the invites declined in earlier runs, read once: a hash a line, oldest
+first */
+static void invite_declined_read(
+	void)
+{
+	char path[512];
+	char line[INVITE_HASH_TEXT_SIZE + 2];
+	FILE *file;
+
+	if (invite_prompt.declined_read)
+		return;
+	invite_prompt.declined_read = TRUE;
+	if (!invite_declined_path(path, sizeof(path)) || !(file = fopen(path, "r")))
+		return;
+	while (fgets(line, sizeof(line), file))
+	{
+		line[strcspn(line, "\r\n")] = 0;
+		if (strlen(line) != INVITE_HASH_TEXT_SIZE - 1)
+			continue;
+		memcpy(invite_prompt.declined[invite_prompt.declined_next], line, INVITE_HASH_TEXT_SIZE);
+		invite_prompt.declined_next = (short)((invite_prompt.declined_next + 1) % MAXIMUM_DECLINED);
+	}
+	fclose(file);
+}
+
+/* an invite answered No: kept, with the others, for this run and the next */
+static void invite_declined_add(
+	char const *text)
+{
+	char path[512];
+	FILE *file;
+	short index;
+
+	invite_declined_read();
+	invite_hash(text, invite_prompt.declined[invite_prompt.declined_next]);
+	if (!invite_prompt.declined[invite_prompt.declined_next][0])
+		return;
+	invite_prompt.declined_next = (short)((invite_prompt.declined_next + 1) % MAXIMUM_DECLINED);
+	if (!invite_declined_path(path, sizeof(path)) || !(file = fopen(path, "w")))
+		return;
+	for (index = 0; index < MAXIMUM_DECLINED; index++)
+	{
+		char const *hash = invite_prompt.declined[(invite_prompt.declined_next + index) % MAXIMUM_DECLINED];
+
+		if (hash[0])
+			fprintf(file, "%s\n", hash);
+	}
+	fclose(file);
+}
+
 static boolean invite_declined(
 	char const *text)
 {
-	char code[INVITE_CODE_SIZE];
+	char hash[INVITE_HASH_TEXT_SIZE];
 	short index;
 
-	invite_code(text, code, sizeof(code));
-	for (index = 0; code[0] && index < MAXIMUM_DECLINED; index++)
+	invite_declined_read();
+	invite_hash(text, hash);
+	for (index = 0; hash[0] && index < MAXIMUM_DECLINED; index++)
 	{
-		if (!strcmp(invite_prompt.declined[index], code))
+		if (!strcmp(invite_prompt.declined[index], hash))
 			return TRUE;
 	}
 	return FALSE;
@@ -202,9 +301,7 @@ static void answer(
 	}
 	else
 	{
-		invite_code(invite_prompt.invite, invite_prompt.declined[invite_prompt.declined_next],
-			INVITE_CODE_SIZE);
-		invite_prompt.declined_next = (short)((invite_prompt.declined_next + 1) % MAXIMUM_DECLINED);
+		invite_declined_add(invite_prompt.invite);
 		platform_log("Internet play: the invite on the clipboard is not joined");
 	}
 	invite_prompt.invite[0] = 0;
@@ -635,6 +732,32 @@ void invite_prompt_render(
 	x = prompt(UI_BUTTON_A, "=YES", x, PROMPT_Y, question_box);
 	invite_prompt.yes_x1 = x + 6;
 	ui_overlay_layer(0);
+}
+
+#else
+
+#include "cseries.h"
+
+/* (a build without the game browser has no overlay to ask on, and its host
+asks nothing (network_server_manager.c's mcc_would_drop): should anything
+ask, the answer is yes at once, and there is nothing to take back) */
+void invite_prompt_ask(
+	char const *title,
+	char const *question,
+	char const *detail,
+	void (*answer_function)(boolean yes))
+{
+	(void)title;
+	(void)question;
+	(void)detail;
+	if (answer_function)
+		answer_function(TRUE);
+}
+
+void invite_prompt_ask_cancel(
+	void (*answer_function)(boolean yes))
+{
+	(void)answer_function;
 }
 
 #endif

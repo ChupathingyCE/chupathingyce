@@ -3962,8 +3962,11 @@ static struct delta_peer_card *identity_elsewhere(struct delta_peer *peer, int m
 		{
 			continue;
 		}
+		/* (a device ID is a key's, the same on any network; an account is
+		the pair of its network and its ID) */
 		if (!memcmp(card->identity.device_id, identity->device_id, sizeof(identity->device_id)) ||
-			!memcmp(card->identity.account, identity->account, sizeof(identity->account)))
+			(!memcmp(card->identity.account, identity->account, sizeof(identity->account)) &&
+			!strcmp(card->identity.network, identity->network)))
 		{
 			return card;
 		}
@@ -3978,8 +3981,8 @@ static delta_u32 next_generation(struct delta_peer *peer)
 }
 
 /* (the host) a machine's moderation told of a card (NULL: withdrawn), and
-the roles said again. Only a bound proof reaches it: one that is not is
-the name alone, never a role or a ban */
+the roles said again. Only a bound proof of this machine's own network
+reaches it: any other is the name alone, never a role or a ban */
 static void host_identity_changed(struct delta_peer *peer, int machine_index, int local_player,
 	const struct delta_peer_identity *identity)
 {
@@ -3988,7 +3991,7 @@ static void host_identity_changed(struct delta_peer *peer, int machine_index, in
 	if (peer->moderation_host->machine_identity)
 	{
 		peer->moderation_host->machine_identity(peer->moderation_host->context, machine_index, local_player,
-			identity && identity->bound ? identity : NULL);
+			identity && identity->bound && !identity->other_network ? identity : NULL);
 	}
 	peer->moderation_roles_dirty = 1;
 }
@@ -4039,8 +4042,9 @@ static int host_store_card(struct delta_peer *peer, delta_u32 now, int machine_i
 	card->identity = *identity;
 	card->generation = next_generation(peer);
 	card->checked_time = now;
-	say(peer, "Delta Peer: machine %d's player %d is verified%s%s%s", machine_index, proof->local_player,
-		identity->handle[0] ? " as @" : " (no profile)", identity->handle, identity->bound ? "" : " (shown only)");
+	say(peer, "Delta Peer: machine %d's player %d is verified%s%s%s%s%s", machine_index, proof->local_player,
+		identity->handle[0] ? " as @" : " (no profile)", identity->handle, identity->other_network ? ":" : "",
+		identity->other_network ? identity->network : "", identity->bound ? "" : " (shown only)");
 	host_identity_changed(peer, machine_index, proof->local_player, identity);
 	return 1;
 }

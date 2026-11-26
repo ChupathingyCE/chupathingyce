@@ -1183,15 +1183,6 @@ static void ce_transport_stop_locked(void)
 	}
 }
 
-static int ce_transport_peer_count_locked(void)
-{
-	int index, count = 0;
-
-	for (index = 0; index < CE_MAXIMUM_PEERS; index++)
-		count += transport.peers[index].state != PEER_FREE;
-	return count;
-}
-
 /* ---------- the locked entries */
 
 void ce_transport_set_game(const char *name, const char *map, int maximum_players)
@@ -1231,16 +1222,6 @@ void ce_transport_stop(void)
 	pthread_mutex_lock(&transport_mutex);
 	ce_transport_stop_locked();
 	pthread_mutex_unlock(&transport_mutex);
-}
-
-int ce_transport_peer_count(void)
-{
-	int result;
-
-	pthread_mutex_lock(&transport_mutex);
-	result = ce_transport_peer_count_locked();
-	pthread_mutex_unlock(&transport_mutex);
-	return result;
 }
 
 int ce_transport_next_event(struct ce_event *event)

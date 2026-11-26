@@ -142,8 +142,8 @@ def main() -> int:
     if app.exists():
         shutil.rmtree(app)
     (app / "usr/lib").mkdir(parents=True)
-    # (not the halo stub beside the game in the zip, port/rename_stub/halo.sh:
-    # an AppImage is started by its own file's name)
+    # (not a halo stub an older build left beside the game: an AppImage is
+    # started by its own file's name)
     shutil.copytree(args.build, app / "usr/bin", symlinks=True, ignore=shutil.ignore_patterns("halo"))
     # (the notices again, with the AppImage's own runtime, which appimagetool
     # puts at the start of the file: tools/third_party_notices.py)

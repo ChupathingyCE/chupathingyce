@@ -35,6 +35,10 @@ const char *settings_row_key(const struct settings_row *row);
 /* whether a change takes a restart to show (the setup screen's NEEDS A
 RESTART) */
 int settings_row_restart(const struct settings_row *row);
+/* whether a change takes a restart to show once the game is running (the
+Guide's NEEDS A RESTART): settings_row_restart's, and the settings the
+game reads as it starts (clips), which the setup screen sets in time */
+int settings_row_restart_in_game(const struct settings_row *row);
 /* its value, as the row shows it ("ON", "BORDERLESS", "1920x1080") */
 void settings_row_value(const struct settings_row *row, char *text, int size);
 /* the next value (step 1) or the one before (-1), written to config.toml;
@@ -58,5 +62,34 @@ void settings_rows_set_steam_link_action(void (*action)(void));
 in its SETTINGS only then (guide_workshop.c, each frame) */
 void settings_rows_set_workshop_offered(int offered);
 int settings_key_change(const char *key, int step);
+
+/* ---------- the Guide's SETTINGS pages (guide.c), which the setup
+screen's Settings follows too (launcher.c: a tab for each but ABOUT) */
+
+enum
+{
+	SETTINGS_PAGE_DISPLAY,
+	SETTINGS_PAGE_SOUND,
+	SETTINGS_PAGE_GAME,
+	SETTINGS_PAGE_GUIDE,
+	SETTINGS_PAGE_ABOUT,
+	NUMBER_OF_SETTINGS_PAGES,
+
+	/* the page a row no page lists goes on, at its end */
+	SETTINGS_PAGE_OTHER = SETTINGS_PAGE_GAME,
+};
+
+/* the pages' names, in order ("DISPLAY", ...) */
+const char *const *settings_page_names(void);
+/* a page's lines, NULL ended: "#" and a caption that heads a block, "="
+and a line of information (=version, =platform), else a row by its key (a
+setting's config.toml key, or one of the Guide's own: "@devices", "@link",
+"@logs0", "@logs1", "@setup", "@about") */
+const char *const *settings_page_lines(int page);
+/* the page that lists key, or -1 for none */
+int settings_key_page(const char *key);
+/* the row of a key in any group, as this build shows it (settings_row_at's
+rule), or NULL */
+const struct settings_row *settings_row_for_key(const char *key);
 
 #endif

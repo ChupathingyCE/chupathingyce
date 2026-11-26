@@ -157,8 +157,11 @@ void physical_memory_allocate(
 
 	physical_memory_map_globals.texture_cache_base_address = XPhysicalAlloc(TEXTURE_CACHE_SIZE, TEXTURE_CACHE_MAXIMUM_ADDRESS, 0, PAGE_READWRITE | PAGE_WRITECOMBINE);
 	PHYSICAL_MEMORY_LOG("texture cache", TEXTURE_CACHE_SIZE, physical_memory_map_globals.texture_cache_base_address);
+	/* (port: said plainly on the halt screen: a desktop build's cache is
+	448 MB, which Windows can refuse to commit) */
 #line 55 "c:\\halo\\SOURCE\\cache\\physical_memory_map.c"
-	match_assert(__FILE__, __LINE__, physical_memory_map_globals.texture_cache_base_address);
+	match_vassert(__FILE__, __LINE__, physical_memory_map_globals.texture_cache_base_address,
+		"Not enough memory for the texture cache");
 
 	physical_memory_map_globals.sound_cache_base_address = SOUND_CACHE_ALLOCATE(SOUND_CACHE_SIZE, SOUND_CACHE_MAXIMUM_ADDRESS);
 	PHYSICAL_MEMORY_LOG("sound cache", SOUND_CACHE_SIZE, physical_memory_map_globals.sound_cache_base_address);

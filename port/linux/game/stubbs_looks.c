@@ -16,6 +16,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "objects/objects.h"
 
 #include <string.h>
+#include "content_bytes.h"
 
 #ifndef HALO_CONSOLE_NO_STUBBS
 
@@ -50,23 +51,6 @@ static unsigned char *looks_host(unsigned long address, unsigned long length)
 	if (address < STUBBS_XBOX_TAG_CACHE_BASE || offset > looks_size || length > looks_size - offset)
 		return NULL;
 	return looks_base + offset;
-}
-
-static unsigned long looks_read32(unsigned char const *address)
-{
-	unsigned long value = 0;
-
-	memcpy(&value, address, 4);
-	return value;
-}
-
-/* a tag index (a datum index: NONE is all ones) */
-static long looks_read_index(unsigned char const *address)
-{
-	int value;
-
-	memcpy(&value, address, 4);
-	return value;
 }
 
 static struct
@@ -141,8 +125,8 @@ void stubbs_looks_convert_tags(
 	looks_size = tag_data_size;
 	unit_hud_image_effect_count = 0;
 	unit_hud_count = 0;
-	instances = looks_read32(looks_base);
-	count = looks_read32(looks_base + 0x0C);
+	instances = content_u32(looks_base);
+	count = content_u32(looks_base + 0x0C);
 	/* (no more instances than the tag data could hold, before the
 	multiply: a 32-bit long could wrap on a bad count) */
 	if (count > (unsigned long)tag_data_size / TAG_INSTANCE_SIZE)
@@ -153,43 +137,43 @@ void stubbs_looks_convert_tags(
 	for (index = 0; index < count; index++)
 	{
 		unsigned char *instance = instance_table + index * TAG_INSTANCE_SIZE;
-		unsigned long group = looks_read32(instance + TAG_INSTANCE_GROUP_OFFSET);
-		unsigned long address = looks_read32(instance + TAG_INSTANCE_ADDRESS_OFFSET);
+		unsigned long group = content_u32(instance + TAG_INSTANCE_GROUP_OFFSET);
+		unsigned long address = content_u32(instance + TAG_INSTANCE_ADDRESS_OFFSET);
 		unsigned char *definition;
 
 		if (group == 'unhi' && (definition = looks_host(address, STUBBS_UNIT_HUD_IMAGE_EFFECT_OFFSET + 0x10)) != NULL)
 		{
 			unsigned char *reference = definition + STUBBS_UNIT_HUD_IMAGE_EFFECT_OFFSET;
-			long image_effect = looks_read_index(reference + TAG_REFERENCE_INDEX_OFFSET);
+			long image_effect = content_s32(reference + TAG_REFERENCE_INDEX_OFFSET);
 
-			if (looks_read32(reference) == 'imef' && image_effect != NONE &&
+			if (content_u32(reference) == 'imef' && image_effect != NONE &&
 				unit_hud_image_effect_count < MAXIMUM_UNIT_HUD_IMAGE_EFFECTS)
 			{
 				unit_hud_image_effects[unit_hud_image_effect_count].unit_hud_interface =
-					looks_read_index(instance + TAG_INSTANCE_INDEX_OFFSET);
+					content_s32(instance + TAG_INSTANCE_INDEX_OFFSET);
 				unit_hud_image_effects[unit_hud_image_effect_count].image_effect = image_effect;
 				unit_hud_image_effect_count++;
 			}
 		}
 		else if ((group == 'bipd' || group == 'vehi') &&
 			(definition = looks_host(address, STUBBS_UNIT_HUDS_OFFSET + 0x0C)) != NULL &&
-			looks_read32(definition + STUBBS_UNIT_HUDS_OFFSET) > 0 && unit_hud_count < MAXIMUM_UNIT_HUDS)
+			content_u32(definition + STUBBS_UNIT_HUDS_OFFSET) > 0 && unit_hud_count < MAXIMUM_UNIT_HUDS)
 		{
-			unsigned char const *reference = looks_host(looks_read32(definition + STUBBS_UNIT_HUDS_OFFSET + 4), 0x10);
+			unsigned char const *reference = looks_host(content_u32(definition + STUBBS_UNIT_HUDS_OFFSET + 4), 0x10);
 
-			if (reference && looks_read32(reference) == 'unhi')
+			if (reference && content_u32(reference) == 'unhi')
 			{
-				unit_huds[unit_hud_count].unit = looks_read_index(instance + TAG_INSTANCE_INDEX_OFFSET);
-				unit_huds[unit_hud_count].unit_hud_interface = looks_read_index(reference + TAG_REFERENCE_INDEX_OFFSET);
+				unit_huds[unit_hud_count].unit = content_s32(instance + TAG_INSTANCE_INDEX_OFFSET);
+				unit_huds[unit_hud_count].unit_hud_interface = content_s32(reference + TAG_REFERENCE_INDEX_OFFSET);
 				unit_hud_count++;
 			}
 		}
 		else if (group == 'scen' &&
 			(definition = looks_host(address, STUBBS_SCENERY_VEGETATION_OFFSET + 0x10)) != NULL &&
-			looks_read32(definition + STUBBS_SCENERY_VEGETATION_OFFSET) == 'vege')
+			content_u32(definition + STUBBS_SCENERY_VEGETATION_OFFSET) == 'vege')
 		{
-			stubbs_vegetation_note(looks_read_index(instance + TAG_INSTANCE_INDEX_OFFSET),
-				looks_read_index(definition + STUBBS_SCENERY_VEGETATION_OFFSET + TAG_REFERENCE_INDEX_OFFSET));
+			stubbs_vegetation_note(content_s32(instance + TAG_INSTANCE_INDEX_OFFSET),
+				content_s32(definition + STUBBS_SCENERY_VEGETATION_OFFSET + TAG_REFERENCE_INDEX_OFFSET));
 		}
 	}
 	stubbs_mode_log("%d unit HUD interfaces name an image effect, %d units a HUD", unit_hud_image_effect_count, unit_hud_count);

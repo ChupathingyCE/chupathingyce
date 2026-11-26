@@ -46,7 +46,7 @@ listed; the game's own library's (what its Workshop got) always are, with
 WORKSHOP_OWN_ITEMS_ALWAYS_LISTED (workshop_decisions.h) */
 static int steam_folders_enabled(void)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	return 0;
 #else
 	return config_boolean("game.workshop_maps");
@@ -56,7 +56,7 @@ static int steam_folders_enabled(void)
 /* (1: Steam's folders too; 2: the game's own library alone; 0: none) */
 static int discovery_enabled(void)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	return 0;
 #else
 	return steam_folders_enabled() ? 1 : WORKSHOP_OWN_ITEMS_ALWAYS_LISTED ? 2 : 0;

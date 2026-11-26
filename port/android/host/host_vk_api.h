@@ -24,8 +24,6 @@ the game, after SDL's video is up */
 int host_vk_startup(const char *vk_driver, int validation, char *line, size_t size);
 /* the renderer's commands (vk_commands.h), run during the call */
 void host_vk_submit(const void *commands, uint32_t size);
-/* the highest submission number the GPU has finished */
-uint32_t host_vk_retired(void);
 /* the shader service (host_vk_shaders.c): find returns a handle (1 or more)
 of the shader's module, or 0 and writes a VK_SHADER_STATUS_* to *status_out;
 compile queues GLSL (copied during the call) for the compile thread */

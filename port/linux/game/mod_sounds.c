@@ -14,7 +14,7 @@ where the last of them does, and every value the game divides by or steps
 through against what the game takes; a file that is not is said and left
 out. Its samples (16-bit PCM, Xbox ADPCM or Ogg Vorbis, mono or stereo at
 22 or 44 kHz) are made what this build plays as a Custom Edition map's
-sounds are (ce_resources.c, ce_vorbis.c): Xbox ADPCM as it is, 16-bit PCM
+sounds are (ce_resources.c, content_vorbis.c): Xbox ADPCM as it is, 16-bit PCM
 in the host's byte order (the file's is big-endian), Ogg Vorbis decoded to
 PCM; mono at 22 kHz, stereo at its own rate, as the Xbox's channels take
 them (sound_manager.c), so they play through the map's channels as its
@@ -67,7 +67,7 @@ builds' Xbox addresses in the tags, and its own PCM and Ogg Vorbis path.
 /* the game's (port) */
 char *tag_get_name(long tag_index);
 /* a Custom Edition map's Ogg Vorbis sounds' decoder and resampler
-(port/linux/game/ce_vorbis.c) */
+(port/linux/game/content_vorbis.c) */
 int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sample_rate, short **samples);
 int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int wanted);
 void ce_vorbis_free(short *samples);
@@ -332,7 +332,7 @@ static real permutation_length(
 /* The permutation's samples `data` (`size` bytes of `compression`,
 `channels` channels at `rate`) as this build plays them at `encoded_rate`:
 Xbox ADPCM as it is, 16-bit PCM in the host's order (the file's is
-big-endian), Ogg Vorbis decoded to PCM (ce_vorbis.c), at half or twice the
+big-endian), Ogg Vorbis decoded to PCM (content_vorbis.c), at half or twice the
 rate brought to it. A buffer of the game's allocator of *made_bytes, its
 compression in *made_compression; NULL with *reason when they cannot be. */
 static byte *samples_make(
@@ -390,7 +390,7 @@ static byte *samples_make(
 		for (index = 0; index < size / 2; index++)
 			made[index] = (short)(((unsigned)data[index * 2] << 8) | data[index * 2 + 1]);
 		/* (mono at 44 kHz comes down to the 22 kHz the Xbox's channels take,
-		through ce_vorbis.c's half-band low pass, in place) */
+		through content_vorbis.c's half-band low pass, in place) */
 		if (rate != encoded_rate)
 		{
 			int halved;
@@ -413,7 +413,7 @@ static byte *samples_make(
 	}
 	else
 	{
-		/* (ce_vorbis.c allocates with the C library's malloc, not the game's:
+		/* (content_vorbis.c allocates with the C library's malloc, not the game's:
 		its samples are copied into the game's memory and freed with
 		ce_vorbis_free, on every path) */
 		short *decoded = NULL;

@@ -163,6 +163,7 @@ WIRED = {
     "load game menu delete request", "load game menu delete finish",
     "controls screen init", "controls begin binding", "controls screen change set", "controls screen defaults",
     "controls update menu", "profile manager select", "direct ip connect go", "ss edit server password",
+    "direct ip connect init", "direct ip connect update", "direct ip edit field",
     "gamespy screen update", "gamespy select item", "gamespy select button", "gamespy select header",
 }
 
@@ -574,9 +575,8 @@ def draw_titles() -> list:
 
 def write_settings() -> None:
     """the settings screens tools/port_settings.py writes"""
-    for name, lines in [*port_settings.settings_files().items(), *port_settings.multiplayer_files().items()]:
-        (CE / name).write_text("\n".join(lines))
-    (MENUS / "chupathingy" / "settings_pages.xml").write_text("\n".join(port_settings.chupathingy_settings_pages()))
+    for path, text in port_settings.generated_files().items():
+        (MENUS / path).write_text(text)
 
 
 def main() -> None:
