@@ -1647,8 +1647,8 @@ static boolean ce_resources_place_read(
 		if (resource->size < ce_resource_minimum_size(instance->group_tag) ||
 			!ce_range_within(resource->offset, resource->size, map->file_size))
 		{
-			return ce_refuse("%s's resource (%lu bytes at %lu) is not in %s.map", name, resource->size,
-				resource->offset, ce_resource_map_names[type]);
+			return ce_refuse("%s's resource (%lu bytes at %lu) is not in %s.map", name, (unsigned long)resource->size,
+				(unsigned long)resource->offset, ce_resource_map_names[type]);
 		}
 		if (next > end_free || resource->size > end_free - next)
 		{
