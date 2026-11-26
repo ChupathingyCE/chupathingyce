@@ -1,5 +1,6 @@
 /* MCC resource cache reader. The on-disk header and twelve-byte entries are
- * decoded explicitly; no CE resource state or readers are shared. */
+ * the game's one resource map reader's (content_resource_map.h); MCC's own
+ * rules for them, and its files and shared sets, are here. */
 #ifndef HALO_MCC
 #include "../include/halo_port_features.h"
 #endif
@@ -18,7 +19,7 @@
 #include <string.h>
 #include <errno.h>
 #include "mcc_host_memory.h"
-#include "content_bytes.h"
+#include "content_resource_map.h"
 unsigned long system_milliseconds(void);
 
 /* Logging includes the game's allocation macros. This reader owns libc
@@ -56,7 +57,8 @@ static int mcc_resource_compare(void const *a,void const *b)
 static int mcc_resource_open(struct mcc_resource_file *file,unsigned type,char const *level,char const *explicit_path,
     char *reason,size_t reason_size)
 {
-    unsigned char header[16],entry[12];
+    unsigned char header[CONTENT_RESOURCE_HEADER_SIZE],entry[CONTENT_RESOURCE_ENTRY_SIZE];
+    struct content_resource_header map;
     uint32_t names,index,count,names_bytes,i;
     long length;
     char path[128];
@@ -72,10 +74,11 @@ static int mcc_resource_open(struct mcc_resource_file *file,unsigned type,char c
     }
     if (fseek(file->stream,0,SEEK_END) || (length=ftell(file->stream))<16 ||
         fseek(file->stream,0,SEEK_SET) || fread(header,1,16,file->stream)!=16) goto failed;
-    names=content_u32le(header+4);index=content_u32le(header+8);count=content_u32le(header+12);
-    if (content_u32le(header)!=type || names<16 || index<names || index>(uint32_t)length ||
-        !count || count>MCC_RESOURCE_METADATA_LIMIT/sizeof(*file->items) ||
-        count>((uint32_t)length-index)/12) goto failed;
+    content_resource_header_read(header,&map);
+    names=map.paths_offset;index=map.table_offset;count=map.count;
+    if (map.type!=type || names<CONTENT_RESOURCE_HEADER_SIZE || !count ||
+        count>MCC_RESOURCE_METADATA_LIMIT/sizeof(*file->items) ||
+        !content_resource_header_within(&map,(uint32_t)length)) goto failed;
     names_bytes=index-names;
     if (!names_bytes || names_bytes>MCC_RESOURCE_METADATA_LIMIT) goto failed;
     file->names=malloc(names_bytes);file->items=malloc(count*sizeof(*file->items));
@@ -87,8 +90,10 @@ static int mcc_resource_open(struct mcc_resource_file *file,unsigned type,char c
         fread(file->names,1,names_bytes,file->stream)!=names_bytes) goto failed;
     for (i=0;i<count;i++) {
         struct mcc_resource_item *item=&file->items[i];
-        if (fread(entry,1,12,file->stream)!=12) goto failed;
-        item->name=content_u32le(entry);item->size=content_u32le(entry+4);item->offset=content_u32le(entry+8);
+        struct content_resource_entry read;
+        if (fread(entry,1,sizeof(entry),file->stream)!=sizeof(entry)) goto failed;
+        content_resource_entry_read(entry,&read);
+        item->name=read.path_offset;item->size=read.size;item->offset=read.offset;
         if (item->name>=names_bytes || !memchr(file->names+item->name,0,
             names_bytes-item->name<320 ? names_bytes-item->name : 320) ||
             item->offset<16 || item->offset>names || item->size>names-item->offset) goto failed;
