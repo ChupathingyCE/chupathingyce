@@ -15,8 +15,9 @@ licensed, as the user chooses (see `LICENSE`), vendored unchanged from
   chunk had no buffer to copy to or offset).
 - `stb_image_write.h` v1.16 (same commit as stb_truetype): PNG encoding,
   for the player's screenshots (`port/linux/src/capture.c`).
-- `stb_vorbis.c` v1.22 (same commit): Ogg Vorbis decoding, for Halo PC's
-  sounds in Custom Edition maps (`port/linux/game/ce_vorbis.c`).
+- `stb_vorbis.c` v1.22 (same commit): Ogg Vorbis decoding, compiled once in
+  `port/linux/game/content_vorbis.c` for Halo PC's sounds in Custom Edition
+  maps and for MCC maps' sounds.
   Not unchanged: a map's sounds come from anyone, so its setup parsing is
   bounded where upstream's v1.22 is not (each change marked `ChupathingyCE`
   in the file): allocation sizes that would overflow refused, the vendor and
