@@ -246,7 +246,7 @@ static char save_drive_folder[32];
                              str(SRC / "steam_workshop.c"), str(files),
                              str(SRC / "mcc_manifest.c"),
                              str(SRC / "mcc_local_package.c"),
-                             str(ROOT / "port/linux/game/mcc_sha256.c"),
+                             str(ROOT / "port/linux/game/content_sha256.c"),
                              *([str(registry)] if windows else []),
                              *(["-ladvapi32"] if windows and not mock_registry else []),
                              "-o", str(exe)], capture_output=True, text=True)

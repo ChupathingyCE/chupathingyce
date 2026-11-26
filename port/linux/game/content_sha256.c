@@ -1,19 +1,21 @@
-/* Streaming SHA-256 for MCC content identity. Adapted from this repository's
- * CC0 p2p_crypto.c (FIPS 180-4); no changes to the transport crypto. */
-#ifndef HALO_MCC
-#include "../include/halo_port_features.h"
-#endif
-/* Halo MCC maps (halo_port_features.h, above), and Custom Edition maps' checked
-reads (port/linux/game/ce_map_checks.c): a console with neither builds this to
-nothing */
-#if !defined(HALO_MCC) || HALO_MCC || defined(HALO_CUSTOM_EDITION)
-#include "mcc_sha256.h"
+/*
+CONTENT_SHA256.C
+
+The game's one SHA-256 (content_sha256.h): FIPS 180-4, adapted from this
+repository's CC0 p2p_crypto.c, with the processor's own SHA-256 instructions
+where it has them. Map identity and MCC content digests are on the wire, so
+every copy of it the loaders, internet play, Delta and the updater had is a
+wrapper of this one now (p2p_crypto.c, identity.c, playlist_manifest.c,
+update_manifest.c; content_sha256.h's names).
+*/
+
+#include "content_sha256.h"
 #if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
 #include <stdlib.h>
 #endif
 #include <string.h>
 
-static const unsigned int mcc_sha256_constants[64] =
+static const unsigned int content_sha256_constants[64] =
 {
 	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
 	0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -27,7 +29,7 @@ static const unsigned int mcc_sha256_constants[64] =
 
 #define ROTATE_RIGHT(value, count) (((value) >> (count)) | ((value) << (32 - (count))))
 
-static void mcc_sha256_block(uint32_t *state, const unsigned char *block)
+static void content_sha256_block(uint32_t *state, const unsigned char *block)
 {
 	unsigned int words[64];
 	unsigned int a, b, c, d, e, f, g, h;
@@ -53,7 +55,7 @@ static void mcc_sha256_block(uint32_t *state, const unsigned char *block)
 	{
 		unsigned int s1 = ROTATE_RIGHT(e, 6) ^ ROTATE_RIGHT(e, 11) ^ ROTATE_RIGHT(e, 25);
 		unsigned int choice = (e & f) ^ (~e & g);
-		unsigned int first = h + s1 + choice + mcc_sha256_constants[index] + words[index];
+		unsigned int first = h + s1 + choice + content_sha256_constants[index] + words[index];
 		unsigned int s0 = ROTATE_RIGHT(a, 2) ^ ROTATE_RIGHT(a, 13) ^ ROTATE_RIGHT(a, 22);
 		unsigned int majority = (a & b) ^ (a & c) ^ (b & c);
 		unsigned int second = s0 + majority;
@@ -66,13 +68,13 @@ static void mcc_sha256_block(uint32_t *state, const unsigned char *block)
 }
 
 /* blocks (count of 64 bytes) of data into the state */
-typedef void (*mcc_sha256_blocks_function)(uint32_t *state, const unsigned char *data, size_t count);
+typedef void (*content_sha256_blocks_function)(uint32_t *state, const unsigned char *data, size_t count);
 
-static void mcc_sha256_blocks_portable(uint32_t *state, const unsigned char *data, size_t count)
+static void content_sha256_blocks_portable(uint32_t *state, const unsigned char *data, size_t count)
 {
 	while (count--)
 	{
-		mcc_sha256_block(state, data);
+		content_sha256_block(state, data);
 		data += 64;
 	}
 }
@@ -81,16 +83,16 @@ static void mcc_sha256_blocks_portable(uint32_t *state, const unsigned char *dat
 extensions (Intel since Goldmont and Ice Lake, AMD since Zen) and ARMv8's
 (every Apple silicon Mac, nearly every 64-bit ARM phone, board and server).
 Each is compiled for its instructions alone and used only when the
-processor says it has them (mcc_sha256_blocks_choose); the same digest as
+processor says it has them (content_sha256_blocks_choose); the same digest as
 the portable code, which every other processor and the consoles use. */
 #if (defined(__x86_64__) || defined(__i386__)) && (defined(__clang__) || defined(__GNUC__)) && \
 	!defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
-#define MCC_SHA256_X86 1
+#define CONTENT_SHA256_X86 1
 #include <cpuid.h>
 #include <immintrin.h>
 
 __attribute__((target("sha,sse4.1")))
-static void mcc_sha256_blocks_x86(uint32_t *state, const unsigned char *data, size_t count)
+static void content_sha256_blocks_x86(uint32_t *state, const unsigned char *data, size_t count)
 {
 	const __m128i byte_swap = _mm_set_epi64x(0x0c0d0e0f08090a0bULL, 0x0405060700010203ULL);
 	__m128i state0, state1, saved0, saved1, message, message0, message1, message2, message3, swap;
@@ -103,7 +105,7 @@ static void mcc_sha256_blocks_x86(uint32_t *state, const unsigned char *data, si
 	state0 = _mm_alignr_epi8(swap, state1, 8);
 	state1 = _mm_blend_epi16(state1, swap, 0xF0);
 
-#define MCC_SHA256_X86_ROUNDS(k3, k2, k1, k0, words) \
+#define CONTENT_SHA256_X86_ROUNDS(k3, k2, k1, k0, words) \
 	message = _mm_add_epi32((words), _mm_set_epi64x((long long)(((unsigned long long)(k3) << 32) | (k2)), \
 		(long long)(((unsigned long long)(k1) << 32) | (k0)))); \
 	state1 = _mm_sha256rnds2_epu32(state1, state0, message); \
@@ -111,7 +113,7 @@ static void mcc_sha256_blocks_x86(uint32_t *state, const unsigned char *data, si
 	state0 = _mm_sha256rnds2_epu32(state0, state1, message)
 	/* (the schedule's next four words, into to: from it and the twelve after
 	it, next, third and last) */
-#define MCC_SHA256_X86_SCHEDULE(to, next, third, last) \
+#define CONTENT_SHA256_X86_SCHEDULE(to, next, third, last) \
 	to = _mm_add_epi32(_mm_sha256msg1_epu32(to, next), _mm_alignr_epi8(last, third, 4)); \
 	to = _mm_sha256msg2_epu32(to, last)
 
@@ -124,41 +126,41 @@ static void mcc_sha256_blocks_x86(uint32_t *state, const unsigned char *data, si
 		message2 = _mm_shuffle_epi8(_mm_loadu_si128((const __m128i *)(data + 32)), byte_swap);
 		message3 = _mm_shuffle_epi8(_mm_loadu_si128((const __m128i *)(data + 48)), byte_swap);
 
-		MCC_SHA256_X86_ROUNDS(0xe9b5dba5, 0xb5c0fbcf, 0x71374491, 0x428a2f98, message0);
-		MCC_SHA256_X86_ROUNDS(0xab1c5ed5, 0x923f82a4, 0x59f111f1, 0x3956c25b, message1);
-		MCC_SHA256_X86_ROUNDS(0x550c7dc3, 0x243185be, 0x12835b01, 0xd807aa98, message2);
-		MCC_SHA256_X86_ROUNDS(0xc19bf174, 0x9bdc06a7, 0x80deb1fe, 0x72be5d74, message3);
-		MCC_SHA256_X86_SCHEDULE(message0, message1, message2, message3);
-		MCC_SHA256_X86_ROUNDS(0x240ca1cc, 0x0fc19dc6, 0xefbe4786, 0xe49b69c1, message0);
-		MCC_SHA256_X86_SCHEDULE(message1, message2, message3, message0);
-		MCC_SHA256_X86_ROUNDS(0x76f988da, 0x5cb0a9dc, 0x4a7484aa, 0x2de92c6f, message1);
-		MCC_SHA256_X86_SCHEDULE(message2, message3, message0, message1);
-		MCC_SHA256_X86_ROUNDS(0xbf597fc7, 0xb00327c8, 0xa831c66d, 0x983e5152, message2);
-		MCC_SHA256_X86_SCHEDULE(message3, message0, message1, message2);
-		MCC_SHA256_X86_ROUNDS(0x14292967, 0x06ca6351, 0xd5a79147, 0xc6e00bf3, message3);
-		MCC_SHA256_X86_SCHEDULE(message0, message1, message2, message3);
-		MCC_SHA256_X86_ROUNDS(0x53380d13, 0x4d2c6dfc, 0x2e1b2138, 0x27b70a85, message0);
-		MCC_SHA256_X86_SCHEDULE(message1, message2, message3, message0);
-		MCC_SHA256_X86_ROUNDS(0x92722c85, 0x81c2c92e, 0x766a0abb, 0x650a7354, message1);
-		MCC_SHA256_X86_SCHEDULE(message2, message3, message0, message1);
-		MCC_SHA256_X86_ROUNDS(0xc76c51a3, 0xc24b8b70, 0xa81a664b, 0xa2bfe8a1, message2);
-		MCC_SHA256_X86_SCHEDULE(message3, message0, message1, message2);
-		MCC_SHA256_X86_ROUNDS(0x106aa070, 0xf40e3585, 0xd6990624, 0xd192e819, message3);
-		MCC_SHA256_X86_SCHEDULE(message0, message1, message2, message3);
-		MCC_SHA256_X86_ROUNDS(0x34b0bcb5, 0x2748774c, 0x1e376c08, 0x19a4c116, message0);
-		MCC_SHA256_X86_SCHEDULE(message1, message2, message3, message0);
-		MCC_SHA256_X86_ROUNDS(0x682e6ff3, 0x5b9cca4f, 0x4ed8aa4a, 0x391c0cb3, message1);
-		MCC_SHA256_X86_SCHEDULE(message2, message3, message0, message1);
-		MCC_SHA256_X86_ROUNDS(0x8cc70208, 0x84c87814, 0x78a5636f, 0x748f82ee, message2);
-		MCC_SHA256_X86_SCHEDULE(message3, message0, message1, message2);
-		MCC_SHA256_X86_ROUNDS(0xc67178f2, 0xbef9a3f7, 0xa4506ceb, 0x90befffa, message3);
+		CONTENT_SHA256_X86_ROUNDS(0xe9b5dba5, 0xb5c0fbcf, 0x71374491, 0x428a2f98, message0);
+		CONTENT_SHA256_X86_ROUNDS(0xab1c5ed5, 0x923f82a4, 0x59f111f1, 0x3956c25b, message1);
+		CONTENT_SHA256_X86_ROUNDS(0x550c7dc3, 0x243185be, 0x12835b01, 0xd807aa98, message2);
+		CONTENT_SHA256_X86_ROUNDS(0xc19bf174, 0x9bdc06a7, 0x80deb1fe, 0x72be5d74, message3);
+		CONTENT_SHA256_X86_SCHEDULE(message0, message1, message2, message3);
+		CONTENT_SHA256_X86_ROUNDS(0x240ca1cc, 0x0fc19dc6, 0xefbe4786, 0xe49b69c1, message0);
+		CONTENT_SHA256_X86_SCHEDULE(message1, message2, message3, message0);
+		CONTENT_SHA256_X86_ROUNDS(0x76f988da, 0x5cb0a9dc, 0x4a7484aa, 0x2de92c6f, message1);
+		CONTENT_SHA256_X86_SCHEDULE(message2, message3, message0, message1);
+		CONTENT_SHA256_X86_ROUNDS(0xbf597fc7, 0xb00327c8, 0xa831c66d, 0x983e5152, message2);
+		CONTENT_SHA256_X86_SCHEDULE(message3, message0, message1, message2);
+		CONTENT_SHA256_X86_ROUNDS(0x14292967, 0x06ca6351, 0xd5a79147, 0xc6e00bf3, message3);
+		CONTENT_SHA256_X86_SCHEDULE(message0, message1, message2, message3);
+		CONTENT_SHA256_X86_ROUNDS(0x53380d13, 0x4d2c6dfc, 0x2e1b2138, 0x27b70a85, message0);
+		CONTENT_SHA256_X86_SCHEDULE(message1, message2, message3, message0);
+		CONTENT_SHA256_X86_ROUNDS(0x92722c85, 0x81c2c92e, 0x766a0abb, 0x650a7354, message1);
+		CONTENT_SHA256_X86_SCHEDULE(message2, message3, message0, message1);
+		CONTENT_SHA256_X86_ROUNDS(0xc76c51a3, 0xc24b8b70, 0xa81a664b, 0xa2bfe8a1, message2);
+		CONTENT_SHA256_X86_SCHEDULE(message3, message0, message1, message2);
+		CONTENT_SHA256_X86_ROUNDS(0x106aa070, 0xf40e3585, 0xd6990624, 0xd192e819, message3);
+		CONTENT_SHA256_X86_SCHEDULE(message0, message1, message2, message3);
+		CONTENT_SHA256_X86_ROUNDS(0x34b0bcb5, 0x2748774c, 0x1e376c08, 0x19a4c116, message0);
+		CONTENT_SHA256_X86_SCHEDULE(message1, message2, message3, message0);
+		CONTENT_SHA256_X86_ROUNDS(0x682e6ff3, 0x5b9cca4f, 0x4ed8aa4a, 0x391c0cb3, message1);
+		CONTENT_SHA256_X86_SCHEDULE(message2, message3, message0, message1);
+		CONTENT_SHA256_X86_ROUNDS(0x8cc70208, 0x84c87814, 0x78a5636f, 0x748f82ee, message2);
+		CONTENT_SHA256_X86_SCHEDULE(message3, message0, message1, message2);
+		CONTENT_SHA256_X86_ROUNDS(0xc67178f2, 0xbef9a3f7, 0xa4506ceb, 0x90befffa, message3);
 
 		state0 = _mm_add_epi32(state0, saved0);
 		state1 = _mm_add_epi32(state1, saved1);
 		data += 64;
 	}
-#undef MCC_SHA256_X86_ROUNDS
-#undef MCC_SHA256_X86_SCHEDULE
+#undef CONTENT_SHA256_X86_ROUNDS
+#undef CONTENT_SHA256_X86_SCHEDULE
 
 	/* (back to ABCD and EFGH) */
 	swap = _mm_shuffle_epi32(state0, 0x1B);
@@ -169,7 +171,7 @@ static void mcc_sha256_blocks_x86(uint32_t *state, const unsigned char *data, si
 	_mm_storeu_si128((__m128i *)&state[4], state1);
 }
 
-static int mcc_sha256_x86_available(void)
+static int content_sha256_x86_available(void)
 {
 	unsigned int eax, ebx, ecx, edx;
 
@@ -187,28 +189,28 @@ vector to ask) */
 #if defined(__aarch64__) && defined(__LP64__) && (defined(__clang__) || defined(__GNUC__)) && \
 	!defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && \
 	(defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__))
-#define MCC_SHA256_ARM 1
+#define CONTENT_SHA256_ARM 1
 #include <arm_neon.h>
 /* (the C library's, declared here: the game's units see the system's
 headers through the port's own, which sys/auxv.h does not go with) */
 #if defined(__linux__)
 unsigned long getauxval(unsigned long type);
-#define MCC_SHA256_AT_HWCAP 16
+#define CONTENT_SHA256_AT_HWCAP 16
 #elif defined(__FreeBSD__)
 int elf_aux_info(int type, void *buffer, int size);
-#define MCC_SHA256_AT_HWCAP 25
+#define CONTENT_SHA256_AT_HWCAP 25
 #endif
 /* (HWCAP_SHA2, on Linux and FreeBSD alike) */
-#define MCC_SHA256_HWCAP_SHA2 (1ul << 6)
+#define CONTENT_SHA256_HWCAP_SHA2 (1ul << 6)
 
 #if defined(__clang__)
-#define MCC_SHA256_ARM_TARGET __attribute__((target("sha2")))
+#define CONTENT_SHA256_ARM_TARGET __attribute__((target("sha2")))
 #else
-#define MCC_SHA256_ARM_TARGET __attribute__((target("+crypto")))
+#define CONTENT_SHA256_ARM_TARGET __attribute__((target("+crypto")))
 #endif
 
-MCC_SHA256_ARM_TARGET
-static void mcc_sha256_blocks_arm(uint32_t *state, const unsigned char *data, size_t count)
+CONTENT_SHA256_ARM_TARGET
+static void content_sha256_blocks_arm(uint32_t *state, const unsigned char *data, size_t count)
 {
 	uint32x4_t state0 = vld1q_u32(&state[0]);
 	uint32x4_t state1 = vld1q_u32(&state[4]);
@@ -225,7 +227,7 @@ static void mcc_sha256_blocks_arm(uint32_t *state, const unsigned char *data, si
 		for (index = 0; index < 16; index++)
 		{
 			uint32x4_t words = message[index & 3];
-			uint32x4_t added = vaddq_u32(words, vld1q_u32((const uint32_t *)&mcc_sha256_constants[index * 4]));
+			uint32x4_t added = vaddq_u32(words, vld1q_u32((const uint32_t *)&content_sha256_constants[index * 4]));
 
 			if (index < 12)
 			{
@@ -244,68 +246,68 @@ static void mcc_sha256_blocks_arm(uint32_t *state, const unsigned char *data, si
 	vst1q_u32(&state[4], state1);
 }
 
-static int mcc_sha256_arm_available(void)
+static int content_sha256_arm_available(void)
 {
 #if defined(__APPLE__)
 	/* (every 64-bit Apple processor has them, from the A7 and every Apple
 	silicon Mac) */
 	return 1;
 #elif defined(__linux__)
-	return (getauxval(MCC_SHA256_AT_HWCAP) & MCC_SHA256_HWCAP_SHA2) != 0;
+	return (getauxval(CONTENT_SHA256_AT_HWCAP) & CONTENT_SHA256_HWCAP_SHA2) != 0;
 #else
 	unsigned long capabilities = 0;
 
-	return elf_aux_info(MCC_SHA256_AT_HWCAP, &capabilities, (int)sizeof(capabilities)) == 0 &&
-		(capabilities & MCC_SHA256_HWCAP_SHA2) != 0;
+	return elf_aux_info(CONTENT_SHA256_AT_HWCAP, &capabilities, (int)sizeof(capabilities)) == 0 &&
+		(capabilities & CONTENT_SHA256_HWCAP_SHA2) != 0;
 #endif
 }
 #endif
 
-static mcc_sha256_blocks_function mcc_sha256_blocks_chosen;
+static content_sha256_blocks_function content_sha256_blocks_chosen;
 
 /* the processor's SHA-256 instructions, or the portable code: asked once
 (two threads asking at once choose the same) */
-static mcc_sha256_blocks_function mcc_sha256_blocks_choose(void)
+static content_sha256_blocks_function content_sha256_blocks_choose(void)
 {
-	mcc_sha256_blocks_function chosen = mcc_sha256_blocks_chosen;
+	content_sha256_blocks_function chosen = content_sha256_blocks_chosen;
 
 	if (chosen)
 		return chosen;
-	chosen = mcc_sha256_blocks_portable;
-#ifdef MCC_SHA256_X86
-	if (mcc_sha256_x86_available())
-		chosen = mcc_sha256_blocks_x86;
+	chosen = content_sha256_blocks_portable;
+#ifdef CONTENT_SHA256_X86
+	if (content_sha256_x86_available())
+		chosen = content_sha256_blocks_x86;
 #endif
-#ifdef MCC_SHA256_ARM
-	if (mcc_sha256_arm_available())
-		chosen = mcc_sha256_blocks_arm;
+#ifdef CONTENT_SHA256_ARM
+	if (content_sha256_arm_available())
+		chosen = content_sha256_blocks_arm;
 #endif
 #if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
 	/* (MCC_SHA256_PORTABLE set: the portable code, to compare and time; a
 	console has no environment, and only the portable code) */
 	if (getenv("MCC_SHA256_PORTABLE"))
-		chosen = mcc_sha256_blocks_portable;
+		chosen = content_sha256_blocks_portable;
 #endif
-	mcc_sha256_blocks_chosen = chosen;
+	content_sha256_blocks_chosen = chosen;
 	return chosen;
 }
 
-const char *mcc_sha256_implementation(void)
+const char *content_sha256_implementation(void)
 {
-	mcc_sha256_blocks_function chosen = mcc_sha256_blocks_choose();
+	content_sha256_blocks_function chosen = content_sha256_blocks_choose();
 
-#ifdef MCC_SHA256_X86
-	if (chosen == mcc_sha256_blocks_x86)
+#ifdef CONTENT_SHA256_X86
+	if (chosen == content_sha256_blocks_x86)
 		return "x86 SHA extensions";
 #endif
-#ifdef MCC_SHA256_ARM
-	if (chosen == mcc_sha256_blocks_arm)
+#ifdef CONTENT_SHA256_ARM
+	if (chosen == content_sha256_blocks_arm)
 		return "ARMv8 SHA-256 instructions";
 #endif
 	return "portable";
 }
 
-void mcc_sha256_begin(struct mcc_sha256 *context)
+void content_sha256_begin(struct content_sha256 *context)
 {
 	static const unsigned int initial[8] =
 	{
@@ -317,50 +319,50 @@ void mcc_sha256_begin(struct mcc_sha256 *context)
 	context->used = 0;
 }
 
-void mcc_sha256_add(struct mcc_sha256 *context, const void *data, int size)
+void content_sha256_add(struct content_sha256 *context, const void *data, size_t size)
 {
 	const unsigned char *bytes = data;
 
-	if (size <= 0)
+	if (!size)
 		return;
-	context->length += (unsigned long long)size;
+	context->length += (uint64_t)size;
 	/* (a block begun before, filled first) */
 	if (context->used)
 	{
-		int count = 64 - context->used < size ? 64 - context->used : size;
+		size_t count = (size_t)(64 - context->used) < size ? (size_t)(64 - context->used) : size;
 
-		memcpy(context->block + context->used, bytes, (size_t)count);
-		context->used += count;
+		memcpy(context->block + context->used, bytes, count);
+		context->used += (int)count;
 		bytes += count;
 		size -= count;
 		if (context->used < 64)
 			return;
-		mcc_sha256_blocks_choose()(context->state, context->block, 1);
+		content_sha256_blocks_choose()(context->state, context->block, 1);
 		context->used = 0;
 	}
 	/* (whole blocks straight from the data: a map's tags are megabytes) */
 	if (size >= 64)
 	{
-		mcc_sha256_blocks_choose()(context->state, bytes, (size_t)size / 64);
-		bytes += size & ~63;
+		content_sha256_blocks_choose()(context->state, bytes, size / 64);
+		bytes += size & ~(size_t)63;
 		size &= 63;
 	}
-	memcpy(context->block, bytes, (size_t)size);
-	context->used = size;
+	memcpy(context->block, bytes, size);
+	context->used = (int)size;
 }
 
-void mcc_sha256_end(struct mcc_sha256 *context, unsigned char *digest)
+void content_sha256_end(struct content_sha256 *context, unsigned char digest[CONTENT_SHA256_SIZE])
 {
-	unsigned long long bits = context->length * 8;
+	uint64_t bits = context->length * 8;
 	unsigned char length[8];
 	int index;
 
 	for (index = 0; index < 8; index++)
 		length[index] = (unsigned char)(bits >> (56 - index * 8));
-	mcc_sha256_add(context, "\x80", 1);
+	content_sha256_add(context, "\x80", 1);
 	while (context->used != 56)
-		mcc_sha256_add(context, "", 1);
-	mcc_sha256_add(context, length, 8);
+		content_sha256_add(context, "", 1);
+	content_sha256_add(context, length, 8);
 	for (index = 0; index < 8; index++)
 	{
 		digest[index * 4] = (unsigned char)(context->state[index] >> 24);
@@ -370,4 +372,11 @@ void mcc_sha256_end(struct mcc_sha256 *context, unsigned char *digest)
 	}
 }
 
-#endif /* HALO_MCC || HALO_CUSTOM_EDITION */
+void content_sha256(const void *data, size_t size, unsigned char digest[CONTENT_SHA256_SIZE])
+{
+	struct content_sha256 context;
+
+	content_sha256_begin(&context);
+	content_sha256_add(&context, data, size);
+	content_sha256_end(&context, digest);
+}

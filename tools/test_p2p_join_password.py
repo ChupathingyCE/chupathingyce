@@ -41,6 +41,7 @@ def test_p2p_join_password(tmp_path):
          "-I", str(ROOT / "port" / "linux" / "src"), "-I", str(monocypher),
          str(ROOT / "port" / "linux" / "tests" / "p2p_join_password_test.c"),
          str(ROOT / "port" / "linux" / "src" / "p2p_crypto.c"),
+         str(ROOT / "port" / "linux" / "game" / "content_sha256.c"),
          str(monocypher / "monocypher.c"), str(monocypher / "monocypher-ed25519.c"),
          "-o", str(binary)],
         capture_output=True, text=True,

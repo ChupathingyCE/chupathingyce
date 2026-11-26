@@ -43,7 +43,7 @@ int main(int argc,char **argv) {
  for(i=0;i<32;i++)printf("%02x",digest[i]);return 0;
 }
 ''')
-    return compile_tool(work, [source, ROOT / "port/linux/game/mcc_sha256.c"])
+    return compile_tool(work, [source, ROOT / "port/linux/game/content_sha256.c"])
 
 
 @pytest.mark.parametrize("data", [b"", b"abc", b"a" * 55, b"a" * 56, b"a" * 64,

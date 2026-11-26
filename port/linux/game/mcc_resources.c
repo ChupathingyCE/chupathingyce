@@ -8,7 +8,7 @@
 #include "mcc_loading.h"
 #include "mcc_resources.h"
 #include "mcc_identity.h"
-#include "mcc_sha256.h"
+#include "content_sha256.h"
 #include "mcc_package.h"
 #include "mcc_errors.h"
 #include "cseries.h"
@@ -405,32 +405,32 @@ int mcc_resources_checksum(struct mcc_runtime *runtime,unsigned resources,uint32
 }
 
 /* Length/type framing keeps file boundaries distinct without including paths. */
-static void mcc_fingerprint_file_header(struct mcc_sha256 *hash, unsigned type, uint64_t size)
+static void mcc_fingerprint_file_header(struct content_sha256 *hash, unsigned type, uint64_t size)
 {
     unsigned char header[9];
     unsigned i;
     header[0]=(unsigned char)type;
     for (i=0;i<8;i++) header[i+1]=(unsigned char)(size>>(i*8));
-    mcc_sha256_add(hash,header,sizeof(header));
+    content_sha256_add(hash,header,sizeof(header));
 }
 
 int mcc_resources_fingerprint(struct mcc_runtime *runtime,unsigned char digest[32])
 {
-    struct mcc_sha256 hash;
+    struct content_sha256 hash;
     unsigned char buffer[32768];
     uint32_t offset,bytes;
     unsigned type;
     struct mcc_resource_file *resource;
     long size;
     if (!runtime || !runtime->source.read || runtime->source.size>0x7fffffffu) return 0;
-    mcc_sha256_begin(&hash);
-    mcc_sha256_add(&hash,"GulchCE MCC content v1",sizeof("GulchCE MCC content v1")-1);
+    content_sha256_begin(&hash);
+    content_sha256_add(&hash,"GulchCE MCC content v1",sizeof("GulchCE MCC content v1")-1);
     mcc_fingerprint_file_header(&hash,0,runtime->source.size);
     for (offset=0;offset<runtime->source.size;offset+=bytes) {
         bytes=(uint32_t)(runtime->source.size-offset);
         if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
         if (!runtime->source.read(runtime->source.context,offset,bytes,buffer)) return 0;
-        mcc_sha256_add(&hash,buffer,(int)bytes);
+        content_sha256_add(&hash,buffer,(int)bytes);
         mcc_loading_pulse();
     }
     for (type=1;type<=2;type++) {
@@ -443,11 +443,11 @@ int mcc_resources_fingerprint(struct mcc_runtime *runtime,unsigned char digest[3
             bytes=(uint32_t)size-offset;
             if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
             if (fread(buffer,1,bytes,resource->stream)!=bytes) return 0;
-            mcc_sha256_add(&hash,buffer,(int)bytes);
+            content_sha256_add(&hash,buffer,(int)bytes);
             mcc_loading_pulse();
         }
     }
-    mcc_sha256_end(&hash,digest);
+    content_sha256_end(&hash,digest);
     return 1;
 }
 

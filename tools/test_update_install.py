@@ -163,7 +163,7 @@ def builds(keys, tmp_path_factory):
              f"-DHALO_UPDATE_TEST_PRERELEASE_KEY={prerelease_key}", "-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg",
              "-Iport/linux/src", "-Iport/third_party/zlib", "-Iport/third_party/monocypher",
              f"-I{MBEDTLS / 'include'}", "-o", str(program), "tools/update_install_check.c",
-             "port/linux/src/posix_update.c", "port/linux/src/update_manifest.c",
+             "port/linux/src/posix_update.c", "port/linux/src/update_manifest.c", "port/linux/game/content_sha256.c",
              "port/linux/src/update_signature.c", *library, *sdl_libraries, "-lpthread"],
             capture_output=True, text=True, cwd=ROOT)
         assert built.returncode == 0, built.stderr

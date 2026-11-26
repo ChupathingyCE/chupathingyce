@@ -606,7 +606,7 @@ are not an MCC implementation dependency. The independent components are:
 | `port/linux/game/mcc_maps.c` | Catalog, display identities, names and descriptions. |
 | `port/linux/game/mcc_cache_format.c` | Portable little-endian version-13 reader and file-range audit. |
 | `port/linux/game/mcc_cache.c` | MCC path admission, read-only file lifetime, conversion and streaming dispatch. |
-| `port/linux/game/mcc_identity.c`, `mcc_sha256.c` and `mcc_precache.c` | SHA-256 session content checks, local package resolution and metadata-based readiness caching. |
+| `port/linux/game/mcc_identity.c`, `content_sha256.c` and `mcc_precache.c` | SHA-256 session content checks, local package resolution and metadata-based readiness caching. |
 | `port/linux/game/mcc_main.c` | MCC load-failure recovery through the native main-menu lifecycle. |
 | `port/linux/game/mcc_ui.c` and `mcc_ui_network.inl` | MCC in-map widget actions, settings routing, checkpoint/quit behavior and synchronized network restarts. |
 | `port/linux/game/mcc_pause.c` and `mcc_pause_runtime.c` | Generated stock-style pause layouts, objective display, independent UI art and atomic publication/lifetime of the appended tags. |
