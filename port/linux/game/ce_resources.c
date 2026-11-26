@@ -2746,7 +2746,7 @@ plays on PCM channels: sound_preferences.c), those whose samples are in
 sounds.map and those whose samples are in the map itself (kokiriforest's and
 rainbow road's ambience, most of mermaids_plaza's sounds, which this engine
 played as noise when they were left as they were): each permutation's
-samples decoded (ce_vorbis.c) into z:\ce_sounds.pcm, where they are then
+samples decoded (content_vorbis.c) into z:\ce_sounds.pcm, where they are then
 read from, and the sound and its permutations marked uncompressed. Their
 channels and rate stay the sound's (an Ogg of others is left as it was,
 which the game does not play). Each permutation's samples are read from

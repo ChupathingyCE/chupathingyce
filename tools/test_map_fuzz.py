@@ -87,7 +87,7 @@ CUSTOM_EDITION = [
 TARGETS = {
     "xbox": ("MAP_FUZZ_XBOX", VALIDATOR),
     "ce": ("MAP_FUZZ_CE", CUSTOM_EDITION),
-    "vorbis": ("MAP_FUZZ_VORBIS", ["port/linux/game/ce_vorbis.c"]),
+    "vorbis": ("MAP_FUZZ_VORBIS", ["port/linux/game/content_vorbis.c"]),
     # (a campaign map read for Forge's AI characters: forge_ai_tags.c)
     "forge_ai": ("MAP_FUZZ_FORGE_AI", [
         "port/linux/game/forge_ai_tags.c",
