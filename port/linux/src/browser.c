@@ -4431,11 +4431,6 @@ static int json_name(char *out, int size, const unsigned short *name, int length
 	return game_report_json_name(out, size, name, length);
 }
 
-int browser_json_name(char *out, int size, const unsigned short *name, int length)
-{
-	return json_name(out, size, name, length);
-}
-
 /* a line's tag: its player's address's hash with the invite (the host's
 own report) */
 static int report_line_tag(const struct browser_report_player *player, void *context, char *tag)
@@ -5361,23 +5356,6 @@ void browser_follow_listings(int on)
 		browser.anchors_wanted = 1;
 		pthread_mutex_unlock(&browser_lock);
 	}
-}
-
-int browser_game_peer(const char *invite, unsigned long *address)
-{
-	unsigned char identifier[P2P_IDENTIFIER_SIZE];
-	int index;
-
-	/* (the invite: the host's identifier, then the token) */
-	for (index = 0; index < P2P_IDENTIFIER_SIZE; index++)
-	{
-		unsigned int byte;
-
-		if (sscanf(invite + 2 * index, "%2x", &byte) != 1)
-			return 0;
-		identifier[index] = (unsigned char)byte;
-	}
-	return p2p_peer_address(identifier, address);
 }
 
 int browser_join(const char *invite, int open)

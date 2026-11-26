@@ -146,15 +146,6 @@ static void older_copies_delete(const char *name, const char *kept)
 	CloseHandle(find);
 }
 
-/* ---------- public code */
-
-unsigned int map_compressed_file_version(const char *path)
-{
-	unsigned char header[MAP_COMPRESSED_HEADER_SIZE];
-
-	return header_read(path, header, NULL) ? map_compressed_version(header) : 0;
-}
-
 int map_compressed_file_expand(const char *source, const char *destination, char *error, int error_size)
 {
 	struct map_compressed_io io;
