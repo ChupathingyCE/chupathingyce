@@ -27,6 +27,7 @@ packs never take these paths.
 #include "physics/collision_model_definitions.h"
 #include "scenario/scenario_definitions.h"
 #include "units/unit_definitions.h"
+#include "ai/actor_definitions.h"
 #include "stubbs_mode.h"
 #include "stubbs_engine.h" /* (its special attacks, before the rewrite) */
 #include "stubbs_possession.h" /* (its possession seat, before the rewrite) */
@@ -119,6 +120,35 @@ static struct
 	/* grenade velocity, type and count */
 	{ 0x2C0, 0x324, 0x08 },
 };
+
+/* an actor variant: Stubbs's is 0x4C bytes longer than Halo's. Up to its
+major upgrade it is Halo's; then it has 0x64 bytes of its own (two more
+actor variant references, at 0x34 and 0x70, and two reals at 0x44) where
+Halo has 0x18 unused, and from its movement switching on it is Halo's again,
+0x4C bytes on: its weapon at 0xB0 (Halo's 0x64), its equipment at 0x20C
+(Halo's 0x1C0). So found in all 148 actor variants of the twelve levels
+(Sigmmma's reclaimer, GPL-3.0, reads Stubbs's as Halo's) */
+enum
+{
+	HALO_ACTOR_VARIANT_SIZE = 0x238,
+	STUBBS_ACTOR_VARIANT_SIZE = 0x284,
+	ACTOR_VARIANT_STUBBS_OWN_OFFSET = 0x34,
+	HALO_ACTOR_VARIANT_MOVEMENT_OFFSET = 0x4C,
+	STUBBS_ACTOR_VARIANT_MOVEMENT_OFFSET = 0x98,
+};
+typedef char stubbs_actor_variant_size_assert[
+	sizeof(struct actor_variant_definition) == HALO_ACTOR_VARIANT_SIZE &&
+	offsetof(struct actor_variant_definition, movement_switching) == HALO_ACTOR_VARIANT_MOVEMENT_OFFSET &&
+	STUBBS_ACTOR_VARIANT_SIZE - STUBBS_ACTOR_VARIANT_MOVEMENT_OFFSET ==
+		HALO_ACTOR_VARIANT_SIZE - HALO_ACTOR_VARIANT_MOVEMENT_OFFSET ? 1 : -1];
+
+static void stubbs_actor_variant_convert(unsigned char *definition)
+{
+	memmove(definition + HALO_ACTOR_VARIANT_MOVEMENT_OFFSET, definition + STUBBS_ACTOR_VARIANT_MOVEMENT_OFFSET,
+		HALO_ACTOR_VARIANT_SIZE - HALO_ACTOR_VARIANT_MOVEMENT_OFFSET);
+	memset(definition + ACTOR_VARIANT_STUBBS_OWN_OFFSET, 0,
+		HALO_ACTOR_VARIANT_MOVEMENT_OFFSET - ACTOR_VARIANT_STUBBS_OWN_OFFSET);
+}
 
 /* the tags being converted (stubbs_mode_convert_tags) */
 static unsigned char *stubbs_tags_base;
@@ -840,6 +870,7 @@ void stubbs_mode_convert_tags(
 	long converted_collision = 0;
 	long converted_sounds = 0;
 	long converted_weapon_huds = 0;
+	long converted_actor_variants = 0;
 
 	if (!stubbs_mode_active() || tag_data_size < 0x28)
 		return;
@@ -904,6 +935,17 @@ void stubbs_mode_convert_tags(
 			converted_animations += stubbs_animation_convert(base, tag_data_size, address);
 			continue;
 		}
+		if (group == 'actv')
+		{
+			unsigned char *variant = stubbs_host(base, tag_data_size, address, STUBBS_ACTOR_VARIANT_SIZE);
+
+			if (variant)
+			{
+				stubbs_actor_variant_convert(variant);
+				converted_actor_variants++;
+			}
+			continue;
+		}
 		if (group == 'wphi')
 		{
 			unsigned char *hud = stubbs_host(base, tag_data_size, address, WPHI_SIZE);
@@ -931,6 +973,7 @@ void stubbs_mode_convert_tags(
 	stubbs_mode_log("%ld sounds of classes Halo lacks played as the nearest class before", converted_sounds);
 	stubbs_mode_log("%ld collision models' materials and regions rewritten in Halo's layout", converted_collision);
 	stubbs_mode_log("%ld weapon HUDs' image effects left out of their screen effects", converted_weapon_huds);
+	stubbs_mode_log("%ld actor variants rewritten in Halo's layout", converted_actor_variants);
 	{
 		unsigned long needed = stubbs_animations_each(base, tag_data_size, instances, count,
 			stubbs_animation_data_measure, NULL);
