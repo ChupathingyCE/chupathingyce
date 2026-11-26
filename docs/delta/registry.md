@@ -217,9 +217,9 @@ A version word below 0xFF00: a network version.
 | 2 | 0x01 | `distributed` | the distributed netcode (always set) | the game protocol | in use |
 | 2 | 0x02 | `in_progress` | the game is under way | the game protocol | in use |
 | 2 | 0x04 | `dedicated` | a dedicated server (version 39 and later); the old Delta layout's flag before that | the game protocol | in use |
-| 2 | 0x08 | `mcc` | the host plays the MCC network protocol's join and settings record ([peer.md](peer.md#mcc-games)) | the MCC network protocol (from GulchCE) | in use, in no Chupathingy release |
+| 2 | 0x08 | `mcc` | the host plays the MCC network protocol's join and settings record ([peer.md](peer.md#mcc-games)) | the MCC network protocol (from GulchCE) | reserved: used by older GulchCE builds; no current build sets them |
 | 3 |  | `kind` | the game's kind (version 37 and later), 0 before | the game protocol | in use |
-| 4 |  | `mcc_version` | with the flag 0x08, the MCC network protocol's version | the MCC network protocol (from GulchCE) | in use, in no Chupathingy release |
+| 4 |  | `mcc_version` | with the flag 0x08, the MCC network protocol's version | the MCC network protocol (from GulchCE) | reserved: used by older GulchCE builds; no current build sets them |
 | 5 to 16 |  |  | zero, but for the old Delta layout ([peer.md](peer.md#the-old-layout)) |  | reserved |
 | 17 to 25 |  | `delta_tag` | the Delta tag ([peer.md](peer.md#the-tag)): layout 1 a build of Chupathingy's code and its wire, layout 2 another project's host ([Projects](#projects)) | Delta | in use |
 

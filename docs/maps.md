@@ -19,7 +19,7 @@ On Windows, Mac and Linux the first-start screen is part of a setup screen that 
 It opens by itself when your Xbox maps are missing. To open it any other time:
 
 - hold **Shift** (or **Back**/**View** on a controller) while the game starts,
-- pick **ADVANCED SETUP** in the game's settings, or
+- pick **ADVANCED SETUP** in the game's settings (**SETUP** in the Xbox menus), or
 - start the game with `--setup`.
 
 In Steam Deck Game Mode it only opens when you ask for it.
@@ -356,3 +356,8 @@ own movies too: put them in a `bink` folder beside its `ui.map`
 the pack doesn't have plays from the game's own `bink` folder. A pack folder
 needs a name of 1 to 8 letters and digits, other than `ce`, `md`, `pc`, `de`,
 `fr`, `es` and `it`.
+
+## SPV3
+
+SPV3's maps go in `maps_spv3`, beside `maps`. It's early, and it has its
+own page: [docs/spv3.md](spv3.md).
