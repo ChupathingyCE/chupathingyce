@@ -94,7 +94,9 @@ release r220 (the "custom edition full shared" package) in `maps_ce` instead of
 the stock ones; keep a copy of yours. Maps with their own HUD use theirs.
 HUD meters made in the Xbox's channel order, such as halopc-restored's Xbox
 order meters or a custom HUD whose meters are flagged "use Xbox shading", draw
-that way.
+that way. A weapon HUD element placed from its own anchor (MCC's field, which
+Chimera reads too), such as halopc-restored's sniper scope ticks and range
+numbers, is drawn from it: a corner or the middle of the screen.
 
 **Playing with OpenCE players.** OpenCE plays Custom Edition maps from
 a `custom_maps` folder. A game on a Custom Edition map is named the same way

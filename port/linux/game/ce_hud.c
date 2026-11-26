@@ -68,6 +68,7 @@ hud_definitions.hpp agrees).
 #include "ce_map_checks.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
+#include "interface/hud_definitions.h"
 #include "rasterizer/rasterizer_swizzle.h"
 #include "rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h"
 
@@ -251,6 +252,9 @@ static struct
 	byte const *xbox_bitmaps;
 } ce_hud_button_icon_groups[4];
 static long ce_hud_button_icon_group_count;
+/* a Custom Edition map's HUD is loaded: its weapon HUD elements' own
+anchors are honored (ce_hud_child_anchor) */
+static boolean ce_hud_child_anchors;
 
 /* ---------- private code */
 
@@ -986,6 +990,7 @@ void ce_hud_tags_loaded(
 			break;
 		}
 	}
+	ce_hud_child_anchors = TRUE;
 	error(_error_silent, "Custom Edition maps: %ld HUD placements at half their scale or less, %ld meter bitmaps sampled in "
 		"Halo PC's channels", ce_hud_placements_halved, ce_hud_meter_bitmap_count);
 	ce_tags_guard_end();
@@ -1000,6 +1005,22 @@ void ce_hud_tags_unloaded(
 {
 	ce_hud_meter_bitmap_count = 0;
 	ce_hud_button_icon_group_count = 0;
+	ce_hud_child_anchors = FALSE;
+}
+
+/* a weapon HUD element's own anchor (the "anchor" MCC put in its header's
+pad: 0 from its parent's, 1 to 9 the nine anchors) on the Custom Edition
+map loaded: the corner it is drawn from (_hud_anchor_top_left to
+_hud_anchor_center), or NONE to keep its parent's. As Chimera reads them
+(SnowyMouse's, GPL-3.0; its behavior, not its code): the four corners and
+the middle. The middles of the edges (6 to 9), which the Xbox's renderer
+has no case for, and any other value keep the parent's, as they did */
+short ce_hud_child_anchor(
+	short child_anchor)
+{
+	if (!ce_hud_child_anchors || child_anchor < 1 || child_anchor > _hud_anchor_center + 1)
+		return NONE;
+	return (short)(child_anchor - 1);
 }
 
 /* the blocks of a weapon HUD interface's crosshairs or overlays, and their
