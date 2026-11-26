@@ -19,9 +19,6 @@ from .ninja_syntax import Writer
 from .version import VERSION_SOURCES, identity_defines, release_build, version
 
 PORT_DIR = Path("port/linux")
-# the halo that starts chupathingy, beside it in the Linux and FreeBSD builds
-# (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
-RENAME_STUB_SCRIPT = Path("port/rename_stub/halo.sh")
 PORT_CONFIG = PORT_DIR / "port.json"
 # the Xbox SDK declarations the game and the platform layer use, in place of
 # the SDK's headers (port/include/xdk/README.md)
@@ -1048,9 +1045,5 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule="linux_copy", inputs=Path("port/assets/network/brokers.txt"))
-    # halo, which starts chupathingy, for what started the game by its old
-    # name (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
-    stub = build_dir / "halo"
-    n.build(outputs=stub, rule="linux_copy", inputs=RENAME_STUB_SCRIPT)
-    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator, stub, *sdl_outputs])
+    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator, *sdl_outputs])
     n.newline()
