@@ -31,7 +31,8 @@ blank, and on a multiplayer map no screen pauses the game (a network game's
 clock runs on). On the desktop builds a frame of one of ui.map's pictures is
 made from ui.map's copy in the cache instead, as the main menu's build found
 it (ui_frame_make), so that the settings' pictures show in a game as they do
-from the main menu.
+from the main menu; also where the map has a picture of that name, as an MCC
+or Custom Edition map has (MCC's or Halo PC's own, a keyboard and a mouse).
 */
 
 #include "cseries.h"
@@ -1115,9 +1116,14 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 		long width = data->width, height = data->height;
 
 		/* (a frame of the map's: a copy of its bitmap, which the texture cache
-		loads from the map as its own; in a game map that has not got it, one
-		made from ui.map's copy in the cache, or nothing) */
-		if (data->map && build.game_map && tag_loaded(BITMAP_GROUP_TAG, data->map) == NONE)
+		loads from the map as its own; in a game map, one made from ui.map's
+		copy in the cache, else the map's own if it has one, else nothing.
+		ui.map's first: an MCC or Custom Edition map has a bitmap of the same
+		name, MCC's or Halo PC's picture (a keyboard where ui.map's is the
+		on-screen keyboard, a mouse where it is the player colors)) */
+		boolean map_frame = data->map != NULL;
+
+		if (data->map && build.game_map)
 		{
 #ifdef UI_FRAMES_FROM_CACHE
 			if (ui_frame_make(bitmap, data, tag_index))
@@ -1129,10 +1135,14 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 				return group;
 			memset(bitmap, 0, sizeof(*bitmap));
 #endif
-			png = BLANK_PNG;
-			width = height = PLACEHOLDER_SIZE;
+			if (tag_loaded(BITMAP_GROUP_TAG, data->map) == NONE)
+			{
+				map_frame = FALSE;
+				png = BLANK_PNG;
+				width = height = PLACEHOLDER_SIZE;
+			}
 		}
-		else if (data->map)
+		if (map_frame)
 		{
 			long group_index = map_tag(BITMAP_GROUP_TAG, data->map, source->file, source->line);
 			struct bitmap_group *group_source;
