@@ -1,16 +1,12 @@
 #ifndef MCC_SHA256_H
 #define MCC_SHA256_H
-#include <stdint.h>
-struct mcc_sha256 {
-    uint32_t state[8];
-    unsigned char block[64];
-    uint64_t length;
-    int used;
-};
-void mcc_sha256_begin(struct mcc_sha256 *context);
-void mcc_sha256_add(struct mcc_sha256 *context, void const *data, int size);
-void mcc_sha256_end(struct mcc_sha256 *context, unsigned char digest[32]);
-/* which code hashes: the processor's SHA-256 instructions or the portable code
-(MCC_SHA256_PORTABLE set in the environment: the portable code) */
-const char *mcc_sha256_implementation(void);
+/* MCC's name for the game's one SHA-256 (content_sha256.h), kept for a release
+for code outside this repository that still uses it */
+#include "content_sha256.h"
+#define mcc_sha256 content_sha256
+#define mcc_sha256_begin content_sha256_begin
+/* (as before: a size of zero or less adds nothing) */
+void mcc_sha256_add(struct content_sha256 *context, void const *data, int size);
+#define mcc_sha256_end content_sha256_end
+#define mcc_sha256_implementation content_sha256_implementation
 #endif

@@ -142,7 +142,7 @@ def reader(keys, tmp_path_factory):
     program = folder / "reader"
     built = subprocess.run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1", "-g",
                             f"-DHALO_DELTA_TEST_KEY={primary}", f"-DHALO_DELTA_TEST_RECOVERY_KEY={recovery}",
-                            "-I", str(SRC), "-I", str(MONOCYPHER), str(driver), str(SRC / "playlist_manifest.c"),
+                            "-I", str(SRC), "-I", str(MONOCYPHER), str(driver), str(SRC / "playlist_manifest.c"), str(ROOT / "port/linux/game/content_sha256.c"),
                             str(MONOCYPHER / "monocypher.c"), str(MONOCYPHER / "monocypher-ed25519.c"),
                             "-o", str(program)], capture_output=True, text=True)
     assert built.returncode == 0, built.stderr[-4000:]

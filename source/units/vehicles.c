@@ -373,7 +373,8 @@ void vehicle_hover(
 	long vehicle_index,
 	boolean hover)
 {
-	if (vehicle_index!=NONE)
+	/* port: a vehicle deleted since the script had it is none (#1861) */
+	if (object_try_and_get(vehicle_index))
 	{
 		struct vehicle_datum *vehicle = vehicle_datum_get(vehicle_index);
 
@@ -1519,6 +1520,15 @@ static void update_human_plane_physics(
 		throttle = throttle*throttle;
 
 		factor = !TEST_FLAG(vehicle->vehicle.flags, 2) ? (TEST_FLAG(vehicle->vehicle.flags, 3) ? 1.0f : 0.75f) : 0.25f;
+#ifndef HALO_CONSOLE_NO_FORGE
+		/* (port: a Pelican or dropship a player flies in Forge climbs,
+		holds and descends as a player's: port/linux/game/forge_flyable.inc) */
+		{
+			real forge_flyable_lift(long vehicle_index, real factor);
+
+			factor = forge_flyable_lift(vehicle_index, factor);
+		}
+#endif
 		factor *= 1.0f-throttle;
 		interpolate_scalar(&vehicle->vehicle.hover, factor*vehicle->unit.seat_power[0], 0.05f);
 
@@ -1610,6 +1620,15 @@ static void update_human_plane_physics(
 		scale_vector3d(&torque, vehicle->unit.seat_power[0], &torque);
 
 		physics_update(vehicle_index, NULL, mass_points, &force, &torque);
+#ifndef HALO_CONSOLE_NO_FORGE
+		/* (port: a Pelican or dropship a player flies in Forge kept from
+		passing through the ground: port/linux/game/forge_flyable.inc) */
+		{
+			void forge_flyable_sweep(long vehicle_index);
+
+			forge_flyable_sweep(vehicle_index);
+		}
+#endif
 	}
 
 	create_pelican_effect(vehicle_index);

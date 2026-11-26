@@ -25,7 +25,6 @@ boolean mcc_cache_read(long tag, long offset, long bytes, void *out);
 boolean mcc_cache_bsp_load(struct scenario_structure_bsp_reference const *reference,
     void **header, void **structure);
 void mcc_cache_bsp_unload(void);
-short mcc_cache_part_palette(void const *buffer, byte const **nodes);
 boolean mcc_cache_bitmap_valid(struct bitmap_data *bitmap);
 void const *mcc_cache_bitmap_pixels(struct bitmap_data const *bitmap, unsigned long *bytes, int *coverage);
 /* the CRC-32 of a HUD sheet's first mip level as the map stores it (the

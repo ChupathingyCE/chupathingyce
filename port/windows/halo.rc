@@ -29,18 +29,10 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "CompanyName", "ChupathingyCE"
-#ifdef HALO_RENAME_STUB
-            // (halo.exe, which starts chupathingy.exe: port/rename_stub/halo_stub.c)
-            VALUE "FileDescription", "Chupathingy (starts chupathingy.exe)"
-            VALUE "FileVersion", HALO_RC_VERSION_STRING
-            VALUE "InternalName", "halo"
-            VALUE "OriginalFilename", "halo.exe"
-#else
             VALUE "FileDescription", "Chupathingy"
             VALUE "FileVersion", HALO_RC_VERSION_STRING
             VALUE "InternalName", "chupathingy"
             VALUE "OriginalFilename", "chupathingy.exe"
-#endif
             VALUE "ProductName", "Chupathingy"
             VALUE "ProductVersion", HALO_RC_VERSION_STRING
         END

@@ -114,46 +114,8 @@ static short mcc_hud_button_index(struct icon_hud_element_definition const *icon
 
 static struct bitmap_data const *mcc_hud_button_bitmap(short index)
 {
-    static char const *names[]={"ui\\shell\\bitmaps\\a_butn","ui\\shell\\bitmaps\\b_butn",
-        "ui\\shell\\bitmaps\\x_butn","ui\\shell\\bitmaps\\y_butn",
-        "mcc\\buttons\\black","mcc\\buttons\\white"};
-    static char const *classic_names[]={"ui\\hud\\buttons\\classic_a","ui\\hud\\buttons\\classic_b",
-        "ui\\hud\\buttons\\classic_x","ui\\hud\\buttons\\classic_y",
-        "ui\\hud\\buttons\\classic_black","ui\\hud\\buttons\\classic_white"};
-    static char const *gem_names[]={"ui\\hud\\buttons\\gem_a","ui\\hud\\buttons\\gem_b",
-        "ui\\hud\\buttons\\gem_x","ui\\hud\\buttons\\gem_y",
-        "mcc\\buttons\\black","mcc\\buttons\\white"};
-    long asset;
-    struct bitmap_data *bitmap;
-    short style;
-    if (index<0 || index>=14 || (index>=6 && !config_boolean("display.high_res_hud"))) return NULL;
-#ifndef HALO_MCC_HIRES_BUTTONS
     /* port: (until our high-res HUD takes placeholders: hud_hires_register_placeholder) */
-    (void)names; (void)classic_names; (void)gem_names; (void)asset; (void)bitmap; (void)style;
-    return NULL;
-#endif
-    /* Keep the established MCC low-res path; the style belongs to High-Res HUD. */
-    style=config_boolean("display.high_res_hud") ? controller_glyph_style() : 2;
-    if (style>=3) style=0;
-    if (style!=mcc_buttons_style) {
-        mcc_hud_glyphs_dispose();
-        mcc_buttons_style=style;
-    }
-    if (mcc_buttons[index].attempted) return mcc_buttons[index].bitmap;
-    mcc_buttons[index].attempted=TRUE;
-    for (asset=0;asset<hud_hires_asset_count();asset++) {
-        if (strcmp(hud_hires_asset_tag(asset),index>=6 ? hud_button_control_name(index) : style==0 ? classic_names[index] :
-            style==1 ? gem_names[index] : names[index])) continue;
-        /* Reuse OpenCE's embedded hand-drawn buttons. The placeholder has
-         * the embedded layout, independent of the MCC sprite sheet. */
-        bitmap=bitmap_2d_new(index>=6 ? 64 : 32,index>=6 ? 64 : 32,0,11);
-        if (!bitmap) return NULL;
-        if (!rasterizer_bitmap_new(bitmap)) {bitmap_delete(bitmap);return NULL;}
-        hud_hires_register_placeholder(asset,xbox_pointer(bitmap->hardware_format));
-        mcc_buttons[index].asset=asset;
-        mcc_buttons[index].bitmap=bitmap;
-        return bitmap;
-    }
+    (void)index;
     return NULL;
 }
 

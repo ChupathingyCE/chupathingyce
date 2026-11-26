@@ -27,9 +27,6 @@ strnlen() cannot collide with the game's own), which hides glibc's M_*.
 #define M_SQRT1_2 0.707106781186547524401
 #endif
 
-double _hypot(double x, double y);
-double _copysign(double x, double y);
-
 /* sin, pow and the rest, the same on every port */
 #include "../../include/halo_math.h"
 

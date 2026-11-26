@@ -34,6 +34,8 @@ without one it proves as the copy's own account.
 #include "../src/delta_profile.h"
 #include "../src/delta_peer.h"
 #include "../src/identity.h"
+#include "../src/networks.h"
+#include "../src/developer_flames_rules.h"
 #include "halo_profile_screen.h"
 
 #include <stdio.h>
@@ -50,6 +52,10 @@ struct network_game *network_game_client_get_game(struct network_game_client *cl
 short network_game_client_get_local_machine_index(void);
 /* (cseries_windows.h's) */
 unsigned long system_milliseconds(void);
+
+/* the mark after another network's player's name where their domain has no
+room ("Milenko:" for Milenko:example.org) */
+#define OTHER_NETWORK_MARK ((wchar_t)':')
 
 enum
 {
@@ -232,6 +238,13 @@ static boolean verified_name(
 	*looks_like = FALSE;
 	if (!identity->handle[0])
 		return FALSE;
+	/* (another network's player: the proof's capitals, else the handle; never
+	the site's card, which is this network's, nor a clan tag) */
+	if (identity->other_network)
+	{
+		snprintf(name, (size_t)name_size, "%s", identity->tag[0] ? identity->tag : identity->handle);
+		return TRUE;
+	}
 	for (index = 0; index < PLAYER_ID_SIZE; index++)
 	{
 		hex[2 * index] = digits[identity->account[index] >> 4];
@@ -428,6 +441,42 @@ boolean profile_names_verified(
 		verified_name(&identity, text, (int)sizeof(text), clan, (int)sizeof(clan), &looks_like) && !looks_like;
 }
 
+boolean profile_names_developer(
+	long player_index)
+{
+	struct network_game *game;
+	struct network_player const *player;
+	struct delta_peer_identity identity;
+	struct developer_flames_card card;
+	char text[64], clan[16];
+	boolean looks_like = FALSE;
+
+	memset(&card, 0, sizeof(card));
+	card.option_on = config_boolean("display.developer_flames");
+	card.names_on = config_boolean("display.profile_names");
+	card.on_delta = profile_screen_available() && delta_peer_game_on_delta();
+	if (!card.option_on || !card.names_on || !card.on_delta)
+		return FALSE;
+	game = current_game();
+	if (!game || player_index < 0 || player_index >= (long)NUMBEROF(game->players))
+		return FALSE;
+	player = &game->players[player_index];
+	/* (a card this copy checked, its player shown by their verified name
+	exactly where the Delta mark would be: profile_names_verified) */
+	card.checked = network_player_is_valid(player) &&
+		delta_peer_game_player_identity(player->machine_index, player->controller_index, &identity);
+	if (!card.checked)
+		return FALSE;
+	card.name_shown = verified_name(&identity, text, (int)sizeof(text), clan, (int)sizeof(clan), &looks_like);
+	card.looks_like = looks_like;
+	card.other_network = identity.other_network;
+	/* (bound proofs only: an unbound card could be another game's, replayed
+	by the host) */
+	card.bound = identity.bound;
+	card.capabilities = (unsigned long)identity.capabilities;
+	return developer_flames_card_shows(&card) ? TRUE : FALSE;
+}
+
 /* (profile_names_player's) a verified name and its clan tag into name,
 fitted to its column */
 static boolean profile_names_player_unmarked(
@@ -437,9 +486,36 @@ static boolean profile_names_player_unmarked(
 	wchar_t *name,
 	long size)
 {
-	wchar_t whole[64];
+	wchar_t whole[NETWORKS_NAME_MOST + 8];
 
-	(void)identity;
+	/* (another network's player: Name:domain where the column has room for
+	it all; else the name alone, cut if it must be, and the mark that says
+	another network's, OTHER_NETWORK_MARK, so it never reads as one of this
+	network's players) */
+	if (identity->other_network && identity->network[0])
+	{
+		wchar_t own[24], cut[24];
+		long room = (size - 1) * 10, used, index;
+
+		wide_from_utf8(text, own, NUMBEROF(own));
+		used = wide_length(own);
+		for (index = 0; own[index]; index++)
+			whole[index] = own[index];
+		whole[used] = ':';
+		wide_from_utf8(identity->network, whole + used + 1, NUMBEROF(whole) - used - 1);
+		if (wide_length(whole) <= size - 1 && text_width(whole) <= room)
+		{
+			fit(whole, name, size);
+			return name[0] != 0;
+		}
+		fit_room(own, cut, size - 1, room - character_width(OTHER_NETWORK_MARK));
+		used = wide_length(cut);
+		for (index = 0; index < used && index < size - 2; index++)
+			name[index] = cut[index];
+		name[index++] = OTHER_NETWORK_MARK;
+		name[index] = 0;
+		return name[0] != 0;
+	}
 	if (clan[0])
 	{
 		wchar_t tag[24];

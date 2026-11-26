@@ -1581,6 +1581,11 @@ jobs:
           python tools/test_light_storage.py
           python tools/test_rendered_lights_storage.py
 
+      # (what the game removes beside itself as the old name, on Windows'
+      # compiler and C library: tools/test_rename_stub.py)
+      - name: Test the old name's clean-up
+        run: python tools/test_rename_stub.py
+
       - name: Compile cache
         run: ccache --show-stats
 

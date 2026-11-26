@@ -232,10 +232,6 @@ through an invite). */
 int browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
 	const struct browser_report_player *players, int count, const char *extra);
 
-/* a player's name as a JSON string, appended to out (UTF-8, quoted and
-escaped); returns its length */
-int browser_json_name(char *out, int size, const unsigned short *name, int length);
-
 /* the hosted game's Steam Workshop item (an MCC map's: its id and title, ""
 for none), for the announcement's workshop_id and workshop_title, and the
 map's own name for players without it ("Blood Gulch" for a file named 20,
@@ -366,10 +362,6 @@ invite browser_get_games gives as its key hash alone) opened: its joinable
 invite in code (BROWSER_INVITE_LENGTH + 1 at least) when password is its
 own. 1 opened, 0 the wrong password, -1 its listing is no longer heard */
 int browser_unlock_game(const char *invite, const char *password, char *code, int size);
-
-/* whether a listed game's host is an internet play peer of this machine
-(joining it, or joined): its address in the game's network then */
-int browser_game_peer(const char *invite, unsigned long *address);
 
 /* joins a listed game: its invite, as an invite link would (p2p.c). open:
 the listing is a public game's without a password (not one a password

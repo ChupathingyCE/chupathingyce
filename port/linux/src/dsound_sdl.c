@@ -70,6 +70,7 @@ chooses stereo or 5.1 (port_config.c).
 #include "port_config.h"
 #include "thread_stop.h"
 #include "capture.h"
+#include "../game/content_audio.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -406,42 +407,7 @@ static float lowpass_coefficient(float gain, float cosine)
 	return (b - sqrtf(b * b - a * a)) / a;
 }
 
-/* ---------- decoding */
-
-static const int ima_index_table[16] =
-{
-	-1, -1, -1, -1, 2, 4, 6, 8,
-	-1, -1, -1, -1, 2, 4, 6, 8,
-};
-
-static const int ima_step_table[89] =
-{
-	7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45,
-	50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209, 230,
-	253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876, 963,
-	1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327,
-	3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442,
-	11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
-	32767,
-};
-
-static int ima_expand(int nibble, int *predictor, int *index)
-{
-	int step = ima_step_table[*index];
-	int difference = step >> 3;
-
-	if (nibble & 1) difference += step >> 2;
-	if (nibble & 2) difference += step >> 1;
-	if (nibble & 4) difference += step;
-	if (nibble & 8) difference = -difference;
-	*predictor += difference;
-	if (*predictor > 32767) *predictor = 32767;
-	if (*predictor < -32768) *predictor = -32768;
-	*index += ima_index_table[nibble];
-	if (*index < 0) *index = 0;
-	if (*index > 88) *index = 88;
-	return *predictor;
-}
+/* ---------- decoding (IMA ADPCM's step: content_audio.c) */
 
 /* Xbox ADPCM: per block, a 4-byte header per channel (first sample, step
 index), then 4-byte groups of eight nibbles, low nibble first, alternating
@@ -485,9 +451,9 @@ static short *decode_adpcm(const unsigned char *source, unsigned long size, unsi
 					/* nibble n codes sample n + 1 */
 					unsigned long sample = group * 8 + byte * 2 + 1;
 
-					output[sample * channels + channel] = (short)ima_expand(nibbles[byte] & 0xf, &predictor, &index);
+					output[sample * channels + channel] = (short)content_ima_expand(nibbles[byte] & 0xf, &predictor, &index);
 					if (sample + 1 < XBOX_ADPCM_BLOCK_SAMPLES)
-						output[(sample + 1) * channels + channel] = (short)ima_expand(nibbles[byte] >> 4, &predictor, &index);
+						output[(sample + 1) * channels + channel] = (short)content_ima_expand(nibbles[byte] >> 4, &predictor, &index);
 				}
 			}
 		}
@@ -2373,7 +2339,7 @@ of some other count is an interface's outputs more likely than speakers
 around the room, so it plays stereo. Android plays stereo */
 static unsigned long choose_output_channels(SDL_AudioDeviceID device)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB) || defined(HALO_ARM64_GUEST)
+#if defined(HALO_ANDROID) || defined(HALO_ARM64_GUEST)
 	(void)device;
 	return 2;
 #else

@@ -19,7 +19,7 @@ from typing import Any, List, Optional
 
 from .bgfx_build import BgfxTarget, bgfx_build, bgfx_available, bgfx_include_flags
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import (OPTIMISATION, RENAME_STUB_SCRIPT, compile_launcher, ffmpeg_build, linux_sysroot, lto_flags, march_flag,
+from .linux_build import (OPTIMISATION, compile_launcher, ffmpeg_build, linux_sysroot, lto_flags, march_flag,
                           portable_sdl)
 from .lp64_build import (
     LINUX_PORT_CONFIG,
@@ -160,9 +160,5 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule="linux64_copy", inputs=Path("port/assets/network/brokers.txt"))
-    # halo, which starts chupathingy (port/linux/src/rename_stub.h; TODO(after
-    # 0.9.x): remove)
-    stub = build_dir / "halo"
-    n.build(outputs=stub, rule="linux64_copy", inputs=RENAME_STUB_SCRIPT)
-    n.build(outputs="linux64", rule="phony", inputs=[output, brokers, stub, *sdl_outputs])
+    n.build(outputs="linux64", rule="phony", inputs=[output, brokers, *sdl_outputs])
     n.newline()

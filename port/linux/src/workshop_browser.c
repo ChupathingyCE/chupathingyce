@@ -394,7 +394,7 @@ items but never downloads them; Linux without MCC from Steam), with the
 client still tried for the list and the subscriptions */
 static int bridge_backend(void)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	return STEAM_BRIDGE_BACKEND_NONE;
 #else
 	int backend = steam_bridge_backend();
@@ -402,7 +402,8 @@ static int bridge_backend(void)
 	/* (MCC from the Steam client: the client subscribes, unless the game's
 	own Steam download is here, which installs on every platform) */
 	if (backend == STEAM_BRIDGE_BACKEND_STEAMCMD && workshop.client_mcc_count > 0 &&
-		(!steam_link_available() || config_boolean("debug.workshop_steamcmd")))
+		(!steam_link_available() || config_boolean("debug.workshop_steamcmd")) &&
+		!steam_bridge_platform_client_blocked())
 		return STEAM_BRIDGE_BACKEND_CLIENT;
 	return backend;
 #endif
@@ -426,21 +427,6 @@ static int link_offered(void)
 {
 	return steam_link_available() && !config_boolean("debug.workshop_steamcmd") &&
 		bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD;
-}
-
-static void link_row_make(void)
-{
-	struct workshop_browser_item *item = &workshop.link_row;
-
-	memset(item, 0, sizeof(*item));
-	snprintf(item->id, sizeof(item->id), "link");
-	snprintf(item->title, sizeof(item->title), "Link Steam");
-	snprintf(item->kind, sizeof(item->kind), "Steam");
-	snprintf(item->description, sizeof(item->description), "Downloads need your Steam account.\nLINK goes to "
-		"Settings: scan the code there with the Steam app.\nThe game never sees your password.");
-	item->size = -1;
-	item->setup = WORKSHOP_ROW_LINK;
-	item->step = WORKSHOP_STEP_TO_DO;
 }
 
 /* the items of Steam's page (not the installed ones found beside it, nor setup rows) */
@@ -1205,7 +1191,13 @@ static unsigned char *shrink(const unsigned char *pixels, int width, int height,
 static unsigned char *picture_decode(unsigned char *data, int size, int *width, int *height,
 	struct preview_failure *failure)
 {
+	/* (the pictures' decoder, posix_ui_font.c, is the game browser's: none
+	without it, as workshop_browser_cached_picture) */
+#ifdef HALO_GAME_BROWSER
 	unsigned char *pixels = data ? posix_ui_image_decode(data, size, width, height) : NULL;
+#else
+	unsigned char *pixels = NULL;
+#endif
 
 	if (data && !pixels)
 		failure_say(failure, 0, 0, 0, "it couldn't be decoded (%d bytes)", size);
@@ -1287,7 +1279,9 @@ static void *preview_thread(void *context)
 		small = shrink(pixels, width, height, &small_width, &small_height);
 		if (!small)
 			failure_say(&failure, 1, 0, 0, "out of memory (%dx%d)", width, height);
+#ifdef HALO_GAME_BROWSER
 		posix_ui_image_free(pixels);
+#endif
 	}
 	pthread_mutex_lock(&workshop.lock);
 	snprintf(preview.id, sizeof(preview.id), "%s", job->id);
@@ -1390,7 +1384,7 @@ static int local_preview(const char *id, char *path, int size)
 
 const unsigned char *workshop_browser_preview(int index, int *width, int *height, int *serial)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	(void)index; (void)width; (void)height; (void)serial;
 	return NULL;
 #else
@@ -1455,20 +1449,13 @@ const unsigned char *workshop_browser_preview(int index, int *width, int *height
 #endif
 }
 
-int workshop_browser_preview_missing(int index)
-{
-	const struct workshop_browser_item *item = workshop_browser_item(index);
-
-	return item && !item->setup && preview_cache_failed(&preview.cache, item->id);
-}
-
 /* the picture of any Workshop item, by its id (a game's MCC map, mcc_maps\<id>\<map>, in Online
 Games): its own installed picture, else the one kept in the cache, else Steam's (its details asked
 for, then the picture, kept in the cache): one at a time, a failed id again only once its wait is over. RGBA
 pixels as workshop_browser_preview's; NULL until there is one */
 const unsigned char *workshop_browser_picture_of(const char *id, int *width, int *height, int *serial)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	(void)id; (void)width; (void)height; (void)serial;
 	return NULL;
 #else
@@ -2077,7 +2064,7 @@ static void own_library(void)
 
 /* ---------- WORKSHOP FOLDER: the system's folder picker */
 
-#if !defined(HALO_ANDROID) && !defined(HALO_WEB) && !defined(HALO_IOS) && !defined(HALO_CONSOLE) && !defined(HALO_SERVER)
+#if !defined(HALO_ANDROID) && !defined(HALO_IOS) && !defined(HALO_CONSOLE) && !defined(HALO_SERVER)
 #include <SDL3/SDL_dialog.h>
 #include <SDL3/SDL_atomic.h>
 
@@ -2139,30 +2126,14 @@ void workshop_browser_folder_follow(void)
 }
 #endif
 
-int workshop_browser_mcc_present(void)
-{
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
-	return 0;
-#else
-	own_library();
-	libraries_look(0);
-	return workshop.mcc_count > 0;
-#endif
-}
-
 int workshop_browser_offered(void)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	return 0;
 #else
 	/* (every desktop: the list works before setup, whose rows say what's needed) */
 	return 1;
 #endif
-}
-
-int workshop_browser_bridge_backend(void)
-{
-	return bridge_backend();
 }
 
 int workshop_browser_bridge_status(void)
@@ -2174,7 +2145,7 @@ int workshop_browser_bridge_status(void)
 
 void workshop_browser_own_library(void)
 {
-#if !defined(HALO_ANDROID) && !defined(HALO_WEB)
+#if !defined(HALO_ANDROID)
 	own_library();
 #endif
 }
@@ -2445,26 +2416,6 @@ const char *workshop_browser_search(void)
 	return workshop.search;
 }
 
-int workshop_browser_filter_offered(int filter)
-{
-	int index;
-
-	for (index = 0; filter != WORKSHOP_FILTER_ALL && index < workshop.count; index++)
-	{
-		const struct workshop_browser_item *item = &workshop.items[index];
-
-		/* (Multiplayer and Campaign: Steam's page's own items) */
-		if (!item->setup && ((filter == WORKSHOP_FILTER_MULTIPLAYER && !item->local &&
-			(item->tags & WORKSHOP_TAG_MULTIPLAYER)) ||
-			(filter == WORKSHOP_FILTER_CAMPAIGN && !item->local && (item->tags & WORKSHOP_TAG_CAMPAIGN)) ||
-			(filter == WORKSHOP_FILTER_INSTALLED && item->state == WORKSHOP_ITEM_INSTALLED)))
-		{
-			return 1;
-		}
-	}
-	return filter == WORKSHOP_FILTER_ALL;
-}
-
 /* (another page of Steam's: asked for, or taken from the pages kept) */
 static void list_again(void);
 
@@ -2679,6 +2630,13 @@ void workshop_browser_link_follow(void)
 	{
 		steam_bridge_open(bridge_uses_steamcmd());
 	}
+	/* (open since before the link, waiting on that sign-in: begun again, so
+	that the GET asked for once linked goes, not "Failed") */
+	else if (steam_bridge_sign_in_needed())
+	{
+		platform_log("Workshop: Steam linked; the bridge connects again");
+		steam_bridge_restart(bridge_uses_steamcmd());
+	}
 }
 
 int workshop_browser_open_in_steam(int index)
@@ -2869,6 +2827,10 @@ int workshop_browser_cancel(int index)
 		if (!strcmp(pending_gets[slot], item->id))
 			pending_gets[slot][0] = 0;
 	}
+	/* (the Steam client's subscription undone if the GET made it: the
+	client stops downloading as the game's own download does) */
+	if (bridge_ready())
+		steam_bridge_cancel(item->id);
 	steam_link_cancel_get(item->id);
 	failed_clear(item->id);
 	platform_log("Workshop: item %s's GET cancelled", item->id);
@@ -3255,7 +3217,23 @@ void workshop_join_cancel(void)
 	if (joining.state == WORKSHOP_JOIN_LINKING)
 		steam_link_cancel();
 	if (joining.state == WORKSHOP_JOIN_CONNECTING || joining.state == WORKSHOP_JOIN_DOWNLOADING)
-		steam_bridge_close();
+	{
+		/* (asked of Steam: the Steam client's subscription undone if this
+		join made it, so the client stops downloading too, and the game's
+		own download stopped and its part deleted, as the tab's CANCEL;
+		the item was missing when the join asked, so this is never an
+		update's copy) */
+		if (joining.asked)
+		{
+			if (bridge_ready())
+				steam_bridge_cancel(joining.id);
+			if (link_offered())
+				steam_link_cancel_get(joining.id);
+			platform_log("Workshop: the join's item %s cancelled", joining.id);
+		}
+		if (!workshop.tab_open)
+			steam_bridge_close();
+	}
 	joining.state = WORKSHOP_JOIN_IDLE;
 }
 
@@ -3291,7 +3269,12 @@ int workshop_browser_cached_picture(const char *level, struct mcc_preview_image 
 	posix_directory_close(directory);
 	if (!found || !(data = file_read(path, &size)))
 		return 0;
+	/* (the pictures' decoder, posix_ui_font.c, is the game browser's) */
+#ifdef HALO_GAME_BROWSER
 	pixels = picture_bytes(data, size) ? posix_ui_image_decode(data, size, &width, &height) : NULL;
+#else
+	pixels = NULL;
+#endif
 	free(data);
 	if (!pixels)
 		return 0;
@@ -3308,7 +3291,9 @@ int workshop_browser_cached_picture(const char *level, struct mcc_preview_image 
 		image->width = (unsigned)width;
 		image->height = (unsigned)height;
 	}
+#ifdef HALO_GAME_BROWSER
 	posix_ui_image_free(pixels);
+#endif
 	return image->pixels != NULL;
 }
 #endif /* HALO_MCC */

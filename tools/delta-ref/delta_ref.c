@@ -261,6 +261,36 @@ int dref_roster_entry(const uint8_t *payload, int size, int index, struct dref_r
 	return 1;
 }
 
+int dref_roster_write(uint8_t *out, int out_size, uint32_t session, const struct dref_roster *roster,
+	const struct dref_roster_entry *entries, int count)
+{
+	uint8_t *p;
+	int total, index;
+
+	if (!out || !roster || count < 0 || count > ROSTER_MOST || (count && !entries))
+		return 0;
+	total = DREF_HEADER_SIZE + ROSTER_FIXED + count * ROSTER_ENTRY;
+	if (out_size < total)
+		return 0;
+	p = out + DREF_HEADER_SIZE;
+	zero(p, total - DREF_HEADER_SIZE);
+	put32(p, roster->room_capabilities);
+	p[4] = roster->room_players;
+	p[8] = (uint8_t)count;
+	for (index = 0; index < count; index++)
+	{
+		uint8_t *entry = p + ROSTER_FIXED + index * ROSTER_ENTRY;
+
+		entry[0] = entries[index].machine_index;
+		entry[1] = (uint8_t)(entries[index].flags & 0x03);
+		put32(entry + 4, entries[index].capabilities);
+		if (entries[index].flags & 0x02)
+			key_write(entry + 8, &entries[index].key);
+	}
+	header_write(out, DREF_MAJOR, DREF_ROSTER, total - DREF_HEADER_SIZE, session);
+	return total;
+}
+
 uint32_t dref_capabilities_clean(uint32_t capabilities)
 {
 	return capabilities & ~(uint32_t)DREF_CAPS_NEVER_SAID;
@@ -409,22 +439,37 @@ static int wire_text(const uint8_t *text, int length)
 		text[index] <= 'z';
 }
 
+/* the tag's check: 0xA5 xor its eight bytes before */
+static uint8_t tag_check(const uint8_t *tag)
+{
+	uint8_t check = 0xA5;
+	int index;
+
+	for (index = 0; index < DREF_TAG_SIZE - 1; index++)
+		check ^= tag[index];
+	return check;
+}
+
 int dref_advert_read(const uint8_t *reserved, int size, struct dref_advert *advert)
 {
 	const uint8_t *tag;
-	uint8_t check = 0xA5;
-	int index;
+	int tagged;
 
 	zero(advert, (int)sizeof(*advert));
 	if (!reserved || size < DREF_RESERVED_SIZE)
 		return 0;
 	tag = reserved + DREF_TAG_OFFSET;
 	advert->version = get16(reserved + DREF_RESERVED_VERSION);
+	/* (a Content Evolved modded game: its bytes are all its own) */
+	if (advert->version >= DREF_MODDED_VERSION)
+	{
+		advert->modded = 1;
+		return 1;
+	}
 	advert->flags = reserved[DREF_RESERVED_FLAGS];
 	advert->kind = reserved[DREF_RESERVED_KIND];
-	for (index = 0; index < DREF_TAG_SIZE - 1; index++)
-		check ^= tag[index];
-	if (tag[0] == 'D' && tag[1] == 'L' && tag[3] == 1 && tag[8] == check && wire_bytes(tag + 4, &advert->wire) &&
+	tagged = tag[0] == 'D' && tag[1] == 'L' && tag[8] == tag_check(tag);
+	if (tagged && tag[3] == DREF_TAG_LAYOUT_WIRE && wire_bytes(tag + 4, &advert->wire) &&
 		wire_bytes(tag + 6, &advert->oldest) && !wire_older(&advert->wire, &advert->oldest))
 	{
 		advert->has_tag = 1;
@@ -434,6 +479,16 @@ int dref_advert_read(const uint8_t *reserved, int size, struct dref_advert *adve
 	}
 	zero(&advert->wire, (int)sizeof(advert->wire));
 	zero(&advert->oldest, (int)sizeof(advert->oldest));
+	/* (layout 2: another project's host, joined by its number; byte 7 of
+	the tag is reserved and read as nothing) */
+	if (tagged && tag[3] == DREF_TAG_LAYOUT_PROJECT && tag[4] > DREF_PROJECT_CHUPATHINGY)
+	{
+		advert->project = tag[4];
+		advert->project_version = get16(tag + 5);
+		advert->major = tag[2];
+		advert->speaks_delta = 1;
+		return 1;
+	}
 	/* (the old layout, hosts before chupa-39a: the flag 0x04, which from
 	OpenCE's 39 is its dedicated flag, so from 39 it counts only with a
 	wire ID after the major at byte 3) */
@@ -460,6 +515,28 @@ void dref_advert_write(uint8_t *reserved, unsigned version, unsigned flags, unsi
 	put16(reserved + DREF_RESERVED_VERSION, version);
 	reserved[DREF_RESERVED_FLAGS] = (uint8_t)flags;
 	reserved[DREF_RESERVED_KIND] = (uint8_t)kind;
+}
+
+int dref_advert_write_project(uint8_t *reserved, unsigned version, unsigned flags, unsigned kind, unsigned project,
+	unsigned project_version)
+{
+	uint8_t *tag = reserved + DREF_TAG_OFFSET;
+
+	dref_advert_write(reserved, version, flags, kind);
+	if (project <= DREF_PROJECT_CHUPATHINGY || project > 255 || project_version > 0xFFFF ||
+		version >= DREF_MODDED_VERSION)
+	{
+		return 0;
+	}
+	tag[0] = 'D';
+	tag[1] = 'L';
+	tag[2] = DREF_MAJOR;
+	tag[3] = DREF_TAG_LAYOUT_PROJECT;
+	tag[4] = (uint8_t)project;
+	put16(tag + 5, project_version);
+	tag[7] = 0;
+	tag[8] = tag_check(tag);
+	return 1;
 }
 
 int dref_join_mark(uint16_t *name, int count)

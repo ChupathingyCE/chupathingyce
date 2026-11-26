@@ -6,18 +6,9 @@ platform dependency.
 */
 
 #include "delta_wire.h"
+#include "../game/content_bytes.h"
 
 /* ---------- little-endian fields */
-
-static unsigned short read_u16(const unsigned char *data)
-{
-	return (unsigned short)(data[0] | (data[1] << 8));
-}
-
-static delta_u32 read_u32(const unsigned char *data)
-{
-	return (delta_u32)data[0] | ((delta_u32)data[1] << 8) | ((delta_u32)data[2] << 16) | ((delta_u32)data[3] << 24);
-}
 
 static void write_u16(unsigned char *data, unsigned int value)
 {
@@ -95,9 +86,9 @@ int delta_wire_read_header(const unsigned char *data, int size, struct delta_wir
 		return 0;
 	header->major = data[2];
 	header->type = data[3];
-	header->length = read_u16(data + 4);
+	header->length = content_u16le(data + 4);
 	/* (bytes 6 and 7 are reserved: sent as zeros, never read) */
-	header->session = read_u32(data + 8);
+	header->session = content_u32le(data + 8);
 	return header->length == size - DELTA_WIRE_HEADER_SIZE;
 }
 
@@ -198,14 +189,14 @@ int delta_wire_read_hello(const unsigned char *payload, int size, struct delta_w
 	length = payload[7];
 	if (length > DELTA_WIRE_BUILD_SIZE || size < DELTA_WIRE_HELLO_SIZE + length)
 		return 0;
-	hello->capabilities = read_u32(payload);
-	hello->legacy_version = read_u16(payload + 4);
+	hello->capabilities = content_u32le(payload);
+	hello->legacy_version = content_u16le(payload + 4);
 	hello->machine_index = payload[6];
-	hello->legacy_table_serial = read_u32(payload + 8);
+	hello->legacy_table_serial = content_u32le(payload + 8);
 	delta_wire_read_key(payload + 12, &hello->key);
 	read_text(payload + DELTA_WIRE_HELLO_SIZE, length, hello->build);
 	if (size >= DELTA_WIRE_HELLO_SIZE + length + DELTA_WIRE_MODES_SIZE)
-		hello->modes = read_u32(payload + DELTA_WIRE_HELLO_SIZE + length);
+		hello->modes = content_u32le(payload + DELTA_WIRE_HELLO_SIZE + length);
 	return 1;
 }
 
@@ -248,15 +239,15 @@ int delta_wire_read_welcome(const unsigned char *payload, int size, struct delta
 	length = payload[11];
 	if (length > DELTA_WIRE_BUILD_SIZE || size < DELTA_WIRE_WELCOME_SIZE + length)
 		return 0;
-	welcome->capabilities = read_u32(payload);
-	welcome->agreed = read_u32(payload + 4);
-	welcome->legacy_version = read_u16(payload + 8);
+	welcome->capabilities = content_u32le(payload);
+	welcome->agreed = content_u32le(payload + 4);
+	welcome->legacy_version = content_u16le(payload + 8);
 	welcome->host_machine_index = payload[10];
-	welcome->legacy_table_serial = read_u32(payload + 12);
+	welcome->legacy_table_serial = content_u32le(payload + 12);
 	delta_wire_read_key(payload + 16, &welcome->key);
 	read_text(payload + DELTA_WIRE_WELCOME_SIZE, length, welcome->build);
 	if (size >= DELTA_WIRE_WELCOME_SIZE + length + DELTA_WIRE_MODES_SIZE)
-		welcome->modes = read_u32(payload + DELTA_WIRE_WELCOME_SIZE + length);
+		welcome->modes = content_u32le(payload + DELTA_WIRE_WELCOME_SIZE + length);
 	return 1;
 }
 
@@ -310,7 +301,7 @@ int delta_wire_read_roster(const unsigned char *payload, int size, struct delta_
 	{
 		return 0;
 	}
-	roster->room_capabilities = read_u32(payload);
+	roster->room_capabilities = content_u32le(payload);
 	roster->room_players = payload[4];
 	roster->count = (unsigned char)count;
 	for (index = 0; index < count; index++)
@@ -321,9 +312,9 @@ int delta_wire_read_roster(const unsigned char *payload, int size, struct delta_
 
 		out->machine_index = entry[0];
 		out->flags = entry[1];
-		out->capabilities = read_u32(entry + 4);
+		out->capabilities = content_u32le(entry + 4);
 		delta_wire_read_key(entry + 8, &out->key);
-		out->profile_revision = read_u32(entry + 16);
+		out->profile_revision = content_u32le(entry + 16);
 		for (byte = 0; byte < DELTA_WIRE_PLAYER_ID_SIZE; byte++)
 			out->player_id[byte] = entry[20 + byte];
 	}
@@ -372,7 +363,7 @@ int delta_wire_read_profile(const unsigned char *payload, int size, struct delta
 	clear(profile, (int)sizeof(*profile));
 	if (!payload || size < DELTA_WIRE_PROFILE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	profile->revision = read_u32(payload);
+	profile->revision = content_u32le(payload);
 	for (byte = 0; byte < DELTA_WIRE_PLAYER_ID_SIZE; byte++)
 		profile->player_id[byte] = payload[4 + byte];
 	return 1;
@@ -437,10 +428,10 @@ int delta_wire_read_table(const unsigned char *payload, int size, struct delta_w
 	clear(table, (int)sizeof(*table));
 	if (!payload || size < DELTA_WIRE_TABLE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	table->serial = read_u32(payload);
-	table->total = read_u32(payload + 4);
-	table->offset = read_u32(payload + 8);
-	table->length = read_u16(payload + 12);
+	table->serial = content_u32le(payload);
+	table->total = content_u32le(payload + 4);
+	table->offset = content_u32le(payload + 8);
+	table->length = content_u16le(payload + 12);
 	if (!table->serial || table->serial == DELTA_WIRE_TABLE_NONE || !table->length ||
 		table->length != table_piece(table->total, table->offset) || size < DELTA_WIRE_TABLE_SIZE + table->length)
 	{
@@ -480,7 +471,7 @@ int delta_wire_read_table_have(const unsigned char *payload, int size, delta_u32
 	*serial = 0;
 	if (!payload || size < DELTA_WIRE_TABLE_HAVE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	*serial = read_u32(payload);
+	*serial = content_u32le(payload);
 	return 1;
 }
 
@@ -549,8 +540,8 @@ int delta_wire_read_map(const unsigned char *payload, int size, struct delta_wir
 		return 0;
 	map->family = payload[0];
 	map->flags = payload[1];
-	map->size_low = read_u32(payload + 4);
-	map->size_high = read_u32(payload + 8);
+	map->size_low = content_u32le(payload + 4);
+	map->size_high = content_u32le(payload + 8);
 	for (index = 0; index < DELTA_WIRE_MAP_HASH_SIZE; index++)
 		map->hash[index] = payload[12 + index];
 	for (index = 0; index < length; index++)
@@ -633,19 +624,19 @@ int delta_wire_traits_valid(const struct delta_wire_traits *traits)
 
 static void read_player_traits(const unsigned char *data, struct delta_wire_player_traits *traits)
 {
-	traits->health = read_u16(data);
-	traits->damage = read_u16(data + 2);
-	traits->resistance = read_u16(data + 4);
-	traits->speed = read_u16(data + 6);
+	traits->health = content_u16le(data);
+	traits->damage = content_u16le(data + 2);
+	traits->resistance = content_u16le(data + 4);
+	traits->speed = content_u16le(data + 6);
 	traits->shields = data[8];
 	traits->highlight = data[9];
 }
 
 static void read_player_movement(const unsigned char *data, struct delta_wire_player_traits *traits)
 {
-	traits->jump = read_u16(data);
-	traits->gravity = read_u16(data + 2);
-	traits->melee = read_u16(data + 4);
+	traits->jump = content_u16le(data);
+	traits->gravity = content_u16le(data + 2);
+	traits->melee = content_u16le(data + 4);
 }
 
 static void write_player_movement(unsigned char *data, const struct delta_wire_player_traits *traits)
@@ -854,8 +845,8 @@ int delta_wire_read_mod_state(const unsigned char *payload, int size, struct del
 	state->role = payload[0];
 	/* (flags a build does not know are dropped) */
 	state->actions = (unsigned char)(payload[1] & DELTA_WIRE_MOD_STATE_KNOWN);
-	state->permissions = read_u32(payload + 4);
-	state->ban_minutes = read_u32(payload + 8);
+	state->permissions = content_u32le(payload + 4);
+	state->ban_minutes = content_u32le(payload + 8);
 	return 1;
 }
 
@@ -895,10 +886,10 @@ int delta_wire_read_mod_action(const unsigned char *payload, int size, struct de
 	{
 		return 0;
 	}
-	action->sequence = read_u32(payload);
+	action->sequence = content_u32le(payload);
 	action->action = payload[4];
 	action->target = payload[5];
-	action->minutes = read_u16(payload + 6);
+	action->minutes = content_u16le(payload + 6);
 	action->reason_length = length;
 	copy_bytes(action->signature, payload + 12, DELTA_WIRE_MODERATION_SIGNATURE_SIZE);
 	read_moderation_text(payload + DELTA_WIRE_MOD_ACTION_SIZE, length, action->reason,
@@ -946,7 +937,7 @@ int delta_wire_read_mod_result(const unsigned char *payload, int size, struct de
 	length = payload[5];
 	if (length > DELTA_WIRE_MODERATION_TEXT_SIZE || size < DELTA_WIRE_MOD_RESULT_SIZE + length)
 		return 0;
-	result->sequence = read_u32(payload);
+	result->sequence = content_u32le(payload);
 	result->ok = (unsigned char)(payload[4] ? 1 : 0);
 	read_moderation_text(payload + DELTA_WIRE_MOD_RESULT_SIZE, length, result->text, DELTA_WIRE_MODERATION_TEXT_SIZE);
 	return 1;
@@ -1021,7 +1012,7 @@ int delta_wire_read_mod_bind(const unsigned char *payload, int size, struct delt
 	{
 		return 0;
 	}
-	bind->request = read_u32(payload);
+	bind->request = content_u32le(payload);
 	read_moderation_text(payload + DELTA_WIRE_MOD_BIND_SIZE, account, bind->account, DELTA_WIRE_MODERATION_NAME_SIZE);
 	read_moderation_text(payload + DELTA_WIRE_MOD_BIND_SIZE + account, server, bind->server,
 		DELTA_WIRE_MODERATION_NAME_SIZE);
@@ -1057,7 +1048,7 @@ int delta_wire_read_mod_bind_answer(const unsigned char *payload, int size, stru
 	clear(answer, (int)sizeof(*answer));
 	if (!payload || size < DELTA_WIRE_MOD_BIND_ANSWER_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	answer->request = read_u32(payload);
+	answer->request = content_u32le(payload);
 	answer->accepted = (unsigned char)(payload[4] ? 1 : 0);
 	copy_bytes(answer->key, payload + 8, DELTA_WIRE_MODERATION_KEY_SIZE);
 	copy_bytes(answer->signature, payload + 40, DELTA_WIRE_MODERATION_SIGNATURE_SIZE);
@@ -1151,7 +1142,7 @@ int delta_wire_read_chat_config(const unsigned char *payload, int size, struct d
 		return 0;
 	config->mode = payload[0];
 	config->flags = payload[1];
-	config->mute_seconds = read_u32(payload + 4);
+	config->mute_seconds = content_u32le(payload + 4);
 	return 1;
 }
 
@@ -1190,7 +1181,7 @@ int delta_wire_read_chat_say(const unsigned char *payload, int size, struct delt
 	{
 		return 0;
 	}
-	say->sequence = read_u32(payload);
+	say->sequence = content_u32le(payload);
 	say->scope = payload[4];
 	say->length = length;
 	copy_bytes((unsigned char *)say->text, payload + DELTA_WIRE_CHAT_SAY_SIZE, length);
@@ -1240,7 +1231,7 @@ int delta_wire_read_chat_line(const unsigned char *payload, int size, struct del
 	{
 		return 0;
 	}
-	line->line = read_u32(payload);
+	line->line = content_u32le(payload);
 	line->kind = payload[4];
 	line->scope = payload[5];
 	line->speaker_machine = payload[6];
@@ -1290,9 +1281,9 @@ int delta_wire_read_chat_refused(const unsigned char *payload, int size, struct 
 	clear(refused, (int)sizeof(*refused));
 	if (!payload || size < DELTA_WIRE_CHAT_REFUSED_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	refused->sequence = read_u32(payload);
+	refused->sequence = content_u32le(payload);
 	refused->reason = payload[4];
-	refused->paused_seconds = read_u16(payload + 6);
+	refused->paused_seconds = content_u16le(payload + 6);
 	return 1;
 }
 
@@ -1319,7 +1310,7 @@ int delta_wire_read_team_request(const unsigned char *payload, int size, struct 
 	clear(request, (int)sizeof(*request));
 	if (!payload || size < DELTA_WIRE_TEAM_REQUEST_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	request->sequence = read_u32(payload);
+	request->sequence = content_u32le(payload);
 	request->player = payload[4];
 	request->team = payload[5];
 	return team_valid(request->team, 1);
@@ -1345,10 +1336,10 @@ int delta_wire_read_team_result(const unsigned char *payload, int size, struct d
 	clear(result, (int)sizeof(*result));
 	if (!payload || size < DELTA_WIRE_TEAM_RESULT_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	result->sequence = read_u32(payload);
+	result->sequence = content_u32le(payload);
 	result->result = payload[4];
 	result->team = payload[5];
-	result->seconds = read_u16(payload + 6);
+	result->seconds = content_u16le(payload + 6);
 	return result->result <= _delta_team_refused_last && team_valid(result->team, 0);
 }
 
@@ -1396,7 +1387,7 @@ int delta_wire_read_report(const unsigned char *payload, int size, struct delta_
 	clear(report, (int)sizeof(*report));
 	if (!payload || size < DELTA_WIRE_REPORT_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	report->sequence = read_u32(payload);
+	report->sequence = content_u32le(payload);
 	report->target_machine = payload[4];
 	report->target_player = payload[5];
 	report->reason = payload[6];
@@ -1427,7 +1418,7 @@ int delta_wire_read_report_result(const unsigned char *payload, int size, struct
 	clear(result, (int)sizeof(*result));
 	if (!payload || size < DELTA_WIRE_REPORT_RESULT_SHORT_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	result->sequence = read_u32(payload);
+	result->sequence = content_u32le(payload);
 	result->result = payload[4];
 	/* (flags a build does not know are dropped) */
 	result->flags = (unsigned char)(payload[5] & DELTA_WIRE_REPORT_SEND_CLIP);
@@ -1510,7 +1501,7 @@ int delta_wire_read_lobby_ready(const unsigned char *payload, int size, struct d
 	clear(ready, (int)sizeof(*ready));
 	if (!payload || size < DELTA_WIRE_LOBBY_READY_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	ready->sequence = read_u32(payload);
+	ready->sequence = content_u32le(payload);
 	ready->player = payload[4];
 	ready->ready = payload[5];
 	if (ready->ready > 1 || ready->player >= DELTA_WIRE_LOBBY_PLAYERS)
@@ -1541,7 +1532,7 @@ int delta_wire_read_lobby_state(const unsigned char *payload, int size, struct d
 	if (!payload || size < DELTA_WIRE_LOBBY_STATE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD || !payload[0])
 		return 0;
 	state->flags = (unsigned char)(payload[1] & DELTA_WIRE_LOBBY_KNOWN_FLAGS);
-	state->generation = read_u32(payload + 4);
+	state->generation = content_u32le(payload + 4);
 	copy(state->ready, payload + 8, DELTA_WIRE_LOBBY_READY_BYTES);
 	if (!state->generation)
 	{
@@ -1635,7 +1626,7 @@ int delta_wire_read_voice_up(const unsigned char *payload, int size, struct delt
 	*packet = 0;
 	if (!payload || size < DELTA_WIRE_VOICE_UP_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	up->sequence = read_u16(payload);
+	up->sequence = content_u16le(payload);
 	up->length = payload[2];
 	up->channel = payload[3];
 	up->hears = (unsigned char)(payload[4] & DELTA_VOICE_CHANNELS);
@@ -1699,7 +1690,7 @@ int delta_wire_read_voice_down(const unsigned char *payload, int size, struct de
 	*packet = 0;
 	if (!payload || size < DELTA_WIRE_VOICE_DOWN_SIZE + 1 || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	down->sequence = read_u16(payload);
+	down->sequence = content_u16le(payload);
 	down->speaker_machine = payload[2];
 	down->speaker_player = payload[3];
 	down->route = payload[4];
@@ -1754,8 +1745,8 @@ int delta_wire_read_voice_config(const unsigned char *payload, int size, struct 
 	config->channels = (unsigned char)(payload[1] & DELTA_VOICE_KNOWN_CONFIG);
 	config->flags = (unsigned char)(payload[2] & DELTA_VOICE_CONFIG_MUTED);
 	config->kbps = payload[3];
-	config->proximity = read_u16(payload + 4);
-	config->mute_seconds = read_u32(payload + 8);
+	config->proximity = content_u16le(payload + 4);
+	config->mute_seconds = content_u32le(payload + 8);
 	if (!voice_config_valid(config))
 	{
 		clear(config, (int)sizeof(*config));
@@ -1803,10 +1794,10 @@ int delta_wire_read_unit_vitals(const unsigned char *payload, int size, struct d
 		const unsigned char *entry = payload + DELTA_WIRE_UNIT_VITALS_SIZE + index * DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE;
 		struct delta_wire_unit_vital *vital = &vitals->entries[index];
 
-		vital->object = read_u32(entry);
+		vital->object = content_u32le(entry);
 		vital->flags = entry[4];
-		vital->body = read_u16(entry + 6);
-		vital->shield = read_u16(entry + 8);
+		vital->body = content_u16le(entry + 6);
+		vital->shield = content_u16le(entry + 8);
 		if (vital->flags & ~DELTA_WIRE_VITALS_FLAGS)
 			return 0;
 	}
@@ -1857,8 +1848,8 @@ int delta_wire_read_object_names(const unsigned char *payload, int size, struct 
 	names->total = names->first = names->count = 0;
 	if (!payload || size < DELTA_WIRE_OBJECT_NAMES_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	names->total = read_u16(payload);
-	names->first = read_u16(payload + 2);
+	names->total = content_u16le(payload);
+	names->first = content_u16le(payload + 2);
 	names->count = payload[4];
 	if (!object_names_valid(names) ||
 		size < DELTA_WIRE_OBJECT_NAMES_SIZE + names->count * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE)
@@ -1871,12 +1862,12 @@ int delta_wire_read_object_names(const unsigned char *payload, int size, struct 
 		const unsigned char *entry = payload + DELTA_WIRE_OBJECT_NAMES_SIZE + index * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE;
 		struct delta_wire_object_name *name = &names->entries[index];
 
-		name->object = read_u32(entry);
-		name->name = read_u16(entry + 4);
+		name->object = content_u32le(entry);
+		name->name = content_u16le(entry + 4);
 		name->flags = (unsigned char)(entry[6] & DELTA_WIRE_NAME_FLAGS);
 		name->vitals_flags = entry[7];
-		name->body = read_u16(entry + 8);
-		name->shield = read_u16(entry + 10);
+		name->body = content_u16le(entry + 8);
+		name->shield = content_u16le(entry + 10);
 		if (name->name >= DELTA_WIRE_MAXIMUM_OBJECT_NAMES || (name->vitals_flags & ~DELTA_WIRE_VITALS_FLAGS))
 		{
 			names->total = names->first = names->count = 0;
@@ -1943,7 +1934,7 @@ int delta_wire_read_badge(const unsigned char *payload, int size, struct delta_w
 	clear(badge, (int)sizeof(*badge));
 	if (!payload || size < DELTA_WIRE_BADGE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
-	length = read_u16(payload + 96);
+	length = content_u16le(payload + 96);
 	if (length > DELTA_WIRE_BADGE_CERTIFICATE_SIZE || size < DELTA_WIRE_BADGE_SIZE + length)
 		return 0;
 	copy_bytes(badge->nonce, payload, DELTA_WIRE_BADGE_NONCE_SIZE);
@@ -2117,7 +2108,7 @@ static int read_proof_fields(const unsigned char *fields, int body_offset, int s
 	}
 	/* (flags this build doesn't know are kept: they are signed) */
 	proof->flags = fields[0];
-	proof->time = read_u32(fields + 4);
+	proof->time = content_u32le(fields + 4);
 	copy_bytes(proof->signature, body, DELTA_WIRE_IDENTITY_SIGNATURE_SIZE);
 	copy_bytes(proof->issuer, body + 64, DELTA_WIRE_IDENTITY_ISSUER_SIZE);
 	copy_bytes(proof->certificate, body + 176, certificate);

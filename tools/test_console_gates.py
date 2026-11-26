@@ -61,7 +61,13 @@ XBOX_EXPECTED = {
     "HALO_CONSOLE_NO_STUBBS",
     "HALO_CONSOLE_NO_DEBUG_CAMERA_KEYS",
     "HALO_CONSOLE_NO_FORGE",
+    "HALO_CONSOLE_NO_LOADING_PICTURE",
 }
+
+# what the 360 and the Wii U keep that the other consoles leave out:
+# Chupathingy's loading picture, for a maps folder without loading.tga
+# (port/linux/game/loading_picture.c)
+BIG_ENDIAN_KEPT = {"HALO_CONSOLE_NO_LOADING_PICTURE"}
 
 
 def gates(defines):
@@ -187,8 +193,14 @@ def test_the_xbox_gets_its_switches():
 def test_every_console_gets_the_every_console_switches(console):
     """what the Switch alone gets is what the headers give every console
     (their lists of every console's switch): each console gets it too"""
-    missing = gates(CONSOLES["switch"]) - gates(CONSOLES[console])
+    kept = BIG_ENDIAN_KEPT if console in ("xbox360", "wiiu") else set()
+    missing = gates(CONSOLES["switch"]) - gates(CONSOLES[console]) - kept
     assert not missing, "{} misses {}".format(console, sorted(missing))
+
+
+@pytest.mark.parametrize("console", ["xbox360", "wiiu"])
+def test_the_360_and_the_wii_u_have_chupathingys_loading_picture(console):
+    assert not BIG_ENDIAN_KEPT & gates(CONSOLES[console])
 
 
 @pytest.mark.parametrize("console", ["xbox", "xbox360", "wiiu"])
@@ -339,3 +351,30 @@ def test_the_xbox_calls_only_the_menu_hooks_it_has():
         for name in set(re.findall(r"\bpc_menu_\w+", result.stdout)) - XBOX_PC_MENU_HOOKS:
             unanswered.setdefault(name, []).append(path.relative_to(ROOT).as_posix())
     assert unanswered == {}, "the Xbox build calls desktop menu hooks it doesn't have: {}".format(unanswered)
+
+
+def wire_samples(defines):
+    """whether network_distributed.h's gate keeps the wire's samples for
+    these defines"""
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if not compiler:
+        pytest.skip("no C compiler")
+    header = (ROOT / "port" / "linux" / "game" / "network_distributed.h").read_text()
+    start = header.index("#if defined(HALO_NETWORK_WIRE_CAPTURE)")
+    gate = header[start:header.index("#endif", start) + len("#endif")]
+    command = [compiler, "-E", "-dM", "-x", "c", "-"] + ["-D" + define for define in defines]
+    result = subprocess.run(command, input=gate + "\n", capture_output=True, text=True, check=True)
+    return any(line.split()[1] == "HALO_NETWORK_WIRE_SAMPLES"
+               for line in result.stdout.splitlines() if line.startswith("#define "))
+
+
+@pytest.mark.parametrize("console", ["xbox360", "wiiu"])
+def test_the_wire_self_test_is_a_developer_tool(console):
+    """the big-endian consoles' wire self-test (network_wire_self_test) and
+    its samples are in a build with its developer tools only (#1902); the
+    little-endian capture build keeps them, the desktop has neither"""
+    assert not wire_samples(CONSOLES[console])
+    assert wire_samples(CONSOLES[console] + ["HALO_CONSOLE_DEBUG_TOOLS"])
+    assert wire_samples(DESKTOP + ["HALO_NETWORK_WIRE_CAPTURE"])
+    assert not wire_samples(DESKTOP)
+    assert not wire_samples(CONSOLES["xbox"] + ["HALO_CONSOLE_DEBUG_TOOLS"])

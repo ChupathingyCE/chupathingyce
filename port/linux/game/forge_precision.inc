@@ -15,7 +15,11 @@ Forge's precision tools (included by forge.c, for its statics):
   the camera, the object keeps it) and where it is let go; a new hold starts
   with none. The HUD says the mode and its step.
 - POSITION: the properties' readout of where the object or marker held is,
-  in metres (a world unit is 3.048 m).
+  in meters (a world unit is 3.048 m).
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 /* ---------- constants */

@@ -93,6 +93,11 @@ symbols in this file:
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_player.h" /* port: port/linux/game/stubbs_image_effects.c */
+#include "opensauce_postprocess.h" /* port: port/linux/game/opensauce_postprocess.c */
+#ifdef HALO_DEVELOPER_FLAMES
+/* port: a verified developer's blue flame (port/linux/game/developer_flames.c) */
+void developer_flames_render(void);
+#endif
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 #include "cutscene/cinematics.h"
 #endif
@@ -878,10 +883,22 @@ static void render_window(
 		}
 #endif
 		HALO_PERF_RENDER_PART(_halo_perf_render_effects);
+		/* port: an OpenSauce map's post-processing before what is alpha
+		blended (port/linux/game/opensauce_postprocess.c; a no-op on every
+		other map) */
+		if (rasterizer_target == _render_target_primary)
+		{
+			opensauce_postprocess_render_stage(_opensauce_pp_stage_pre_alpha_blended, rasterizer_frustum,
+				rasterizer_camera->viewport_bounds.x0, rasterizer_camera->viewport_bounds.y0,
+				rasterizer_camera->viewport_bounds.x1, rasterizer_camera->viewport_bounds.y1);
+		}
 		/* (port: the weather's sprites left out in weather_particle_systems.c,
 		after its update) */
 		weather_particle_systems_render();
 		render_particles();
+#ifdef HALO_DEVELOPER_FLAMES
+		developer_flames_render();
+#endif
 		particle_systems_render();
 		render_contrails_normal();
 #ifdef HALO_SHADER_PREP
@@ -922,6 +939,10 @@ static void render_window(
 		(display.anti_aliasing), before the HUD and menus are drawn over it */
 		if (rasterizer_target == _render_target_primary)
 		{
+			/* (and its post-processing before the HUD) */
+			opensauce_postprocess_render_stage(_opensauce_pp_stage_pre_hud, rasterizer_frustum,
+				rasterizer_camera->viewport_bounds.x0, rasterizer_camera->viewport_bounds.y0,
+				rasterizer_camera->viewport_bounds.x1, rasterizer_camera->viewport_bounds.y1);
 			halo_screen_tone_map(
 				rasterizer_camera->viewport_bounds.x0,
 				rasterizer_camera->viewport_bounds.y0,
@@ -940,10 +961,24 @@ static void render_window(
 			/* (the HUD in the interface's units: interface_draw_screen) */
 			interface_draw_screen();
 			rasterizer_screen_flash();
+			/* port: an OpenSauce map's post-processing after the HUD, and after
+			the menus */
+			if (rasterizer_target == _render_target_primary)
+			{
+				opensauce_postprocess_render_stage(_opensauce_pp_stage_pre_ui, rasterizer_frustum,
+					rasterizer_camera->viewport_bounds.x0, rasterizer_camera->viewport_bounds.y0,
+					rasterizer_camera->viewport_bounds.x1, rasterizer_camera->viewport_bounds.y1);
+			}
 			render_interface_bounds(&rasterizer_camera->viewport_bounds, &bounds);
 			render_interface_begin(TRUE);
 			render_ui_widgets(local_player_index, &bounds);
 			render_interface_end(TRUE);
+			if (rasterizer_target == _render_target_primary)
+			{
+				opensauce_postprocess_render_stage(_opensauce_pp_stage_post_ui, rasterizer_frustum,
+					rasterizer_camera->viewport_bounds.x0, rasterizer_camera->viewport_bounds.y0,
+					rasterizer_camera->viewport_bounds.x1, rasterizer_camera->viewport_bounds.y1);
+			}
 		}
 	}
 

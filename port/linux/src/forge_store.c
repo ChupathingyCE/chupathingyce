@@ -15,6 +15,10 @@ fails its checks; a failing one is kept as .bad), the new one renamed in.
 Whatever fails, the temporary file is deleted and the old one is where it
 was. Before writing, the disk must have the file's size and
 FORGE_STORE_SPACE_MARGIN free.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "port_folders.h"

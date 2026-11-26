@@ -91,10 +91,8 @@ whose file of that name is one the library knows as the pack's), else in the
 pack's own; FALSE if it does not fit */
 boolean map_pack_file_path(char const *pack, char const *file, char *path, long size);
 
-/* a pack's folder (maps_<pack>), its name (the library's, else "the
-maps_<pack> pack"), and its tag in the menus (the library's, else its name
-in capitals) */
-void map_pack_folder(char const *pack, char *folder, long size);
+/* a pack's name (the library's, else "the maps_<pack> pack"), and its tag
+in the menus (the library's, else its name in capitals) */
 void map_pack_title(char const *pack, char *title, long size);
 void map_pack_tag(char const *pack, char *tag, long size);
 

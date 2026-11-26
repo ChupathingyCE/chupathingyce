@@ -82,12 +82,6 @@ folder, saved mission identity or network map name is renamed.
    the generated `posix.h` guest bridge.
 6. [mcc_menu_preview.c](../../port/linux/game/mcc_menu_preview.c):
    `mcc_menu_preview_draw` owns texture caching, centered cropping and clipping.
-7. [mcc_menu_text.c](../../port/linux/game/mcc_menu_text.c):
-   `mcc_menu_text_draw` measures package text in the active font, wraps it at
-   word boundaries and breaks oversized words. It uses the existing small font
-   when necessary and an ellipsis when the fixed panel still cannot fit it.
-   MCC-only PC list callbacks also use `mcc_menu_text_row` to fit a single-line
-   label beside the navigation arrows; the catalog title itself is unchanged.
 
 The minimal hooks in [ui_widget.c](../../source/interface/ui_widget.c) are
 necessary because the shared widget renderer otherwise treats a picture's

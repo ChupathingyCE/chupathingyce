@@ -261,7 +261,8 @@ boolean hs_unit_can_see_object(
 	boolean result;
 
 	result = FALSE;
-	if (object_index != NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		real_point3d target_point;
 
@@ -477,7 +478,8 @@ void hs_object_create(
 void hs_object_destroy(
 	long object_index)
 {
-	if (object_index != NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		if (!object_is_or_contains_player(object_index))
 		{
@@ -617,7 +619,8 @@ void hs_object_set_shield(
 	long object_index,
 	real shield_vitality)
 {
-	if (object_index != NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		struct object_datum *object;
 
@@ -638,7 +641,8 @@ void hs_object_set_permutation(
 	char const *region_name,
 	char const *permutation_name)
 {
-	if (object_index != NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		struct object_datum *object;
 		struct object_definition *object_definition;
@@ -693,7 +697,9 @@ void hs_objects_predict(
 	object_index = object_list_get_first(object_list_index, &reference_index);
 	while (object_index != NONE)
 	{
-		object_predict(object_index);
+		/* port: a listed object deleted since is passed over (#1861) */
+		if (object_try_and_get(object_index))
+			object_predict(object_index);
 		object_index = object_list_get_next(object_list_index, &reference_index);
 	}
 
@@ -755,7 +761,8 @@ void hs_effect_new_from_object_marker(
 {
 	if (effect_definition_index != NONE)
 	{
-		if (object_index != NONE)
+		/* port: an object deleted since the script had it is none (#1861) */
+		if (object_try_and_get(object_index))
 		{
 			struct object_marker marker;
 
@@ -811,7 +818,8 @@ void hs_damage_object(
 	long damage_effect_index,
 	long object_index)
 {
-	if (object_index != NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		struct damage_data damage;
 
@@ -947,7 +955,8 @@ static void hs_object_orient(
 	boolean set_position,
 	boolean set_facing)
 {
-	if (object_index != NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		struct object_datum *object;
 		struct scenario_cutscene_flag *flag;

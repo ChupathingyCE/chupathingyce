@@ -192,6 +192,9 @@ long invite_prompt_ask_cancel(void);
 long invite_prompt_ask_cancel(void) { return 0; }
 long late_join_player_added(void);
 long late_join_player_added(void) { return 0; }
+/* (network co-op's campaign progress: port/linux/game/coop_progress.c) */
+long coop_progress_client_level_started(void);
+long coop_progress_client_level_started(void) { return 0; }
 long main_get_difficulty(void);
 long main_get_difficulty(void) { return 0; }
 long main_load_ui_scenario(void);
@@ -304,6 +307,8 @@ long object_iterator_new(void);
 long object_iterator_new(void) { return 0; }
 long object_iterator_next(void);
 long object_iterator_next(void) { return 0; }
+long p2p_hosting_has_password(void);
+long p2p_hosting_has_password(void) { return 0; }
 long p2p_set_game_listing(void);
 long p2p_set_game_listing(void) { return 0; }
 long p2p_set_game_player_counts(void);

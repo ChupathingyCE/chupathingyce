@@ -12,6 +12,7 @@ docs/server-badges.md).
 #include "monocypher-ed25519.h"
 
 #include <string.h>
+#include "../game/content_bytes.h"
 
 /* (a certificate's magic, and the labels before what each key signs) */
 static const char certificate_label[] = "chupathingy server badge v1\n";
@@ -22,12 +23,6 @@ static const char announce_label[] = "chupathingy server badge announce v1\n";
 
 static const char *const tier_names[] = { "", "official", "developer", "community" };
 typedef char tier_names_check[sizeof(tier_names) / sizeof(*tier_names) == NUMBER_OF_SERVER_BADGE_TIERS ? 1 : -1];
-
-static unsigned int read_u32(const unsigned char *data)
-{
-	return (unsigned int)data[0] | (unsigned int)data[1] << 8 | (unsigned int)data[2] << 16 |
-		(unsigned int)data[3] << 24;
-}
 
 /* whether a signature is key's, of message: never for a key of small order
 (anyone can sign for one) or all zeros (no key) */
@@ -69,8 +64,8 @@ int server_badge_parse(const unsigned char *certificate, int size, struct server
 		badge->label[index] = (char)character;
 	}
 	badge->tier = certificate[5];
-	badge->issued = read_u32(certificate + 8);
-	badge->expires = read_u32(certificate + 12);
+	badge->issued = content_u32le(certificate + 8);
+	badge->expires = content_u32le(certificate + 12);
 	if (badge->expires <= badge->issued)
 		return 0;
 	memcpy(badge->server_key, certificate + 16, SERVER_BADGE_KEY_SIZE);

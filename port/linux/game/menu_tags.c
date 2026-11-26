@@ -28,11 +28,17 @@ A campaign or multiplayer map gets them too, for its in-game pause menu's
 SETTINGS (pause_patch): there the map's tags they name that it has not
 (ui.map's pictures, sounds and screens) are none, a missing picture drawn
 blank, and on a multiplayer map no screen pauses the game (a network game's
-clock runs on).
+clock runs on). On the desktop builds a frame of one of ui.map's pictures is
+made from ui.map's copy in the cache instead, as the main menu's build found
+it (ui_frame_make), so that the settings' pictures show in a game as they do
+from the main menu; also where the map has a picture of that name, as an MCC
+or Custom Edition map has (MCC's or Halo PC's own, a keyboard and a mouse).
 */
 
 #include "cseries.h"
+#include "cseries_windows.h"
 #include "bitmaps/bitmap_group.h"
+#include "bitmaps/bitmaps.h"
 #include "tag_files/tag_groups.h"
 #include "cache/cache_files.h"
 #include "text/text_group.h"
@@ -72,6 +78,11 @@ int config_boolean(char const *name);
 /* cache_files.c's (port) */
 void *cache_files_tag_instances(long *count);
 void cache_files_set_tag_instances(void *instances, long count);
+/* (the desktop builds: ui.map's pictures made in a game map from its copy
+in the cache, ui_frame_make) */
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+#define UI_FRAMES_FROM_CACHE
+#endif
 
 /* the game's (port) */
 char *tag_get_name(long tag_index);
@@ -106,8 +117,9 @@ and RESTART: pause_patch) */
 #define CUSTOM_CHANGE_SETTINGS_BUTTON "ui\\shell\\multiplayer_game\\pause_game\\change_settings_button"
 /* the tags pause_patch adds: six buttons and their texts, and the middle
 and bottom parts of the stock box's pieces, a widget and a bitmap each (the
-campaign's has six pieces) */
-#define PAUSE_PATCH_TAGS (12 + 4 * 6)
+campaign's has six pieces); on a joined co-op machine, two players' screen's
+own copy of the box and its pieces (pause_box_unshare) and their parts too */
+#define PAUSE_PATCH_TAGS (12 + 4 * 6 + 1 + 6 + 4 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -123,7 +135,11 @@ enum
 {
 	_bitmap_type_2d = 0,
 	_bitmap_format_a8r8g8b8 = 11,
+	_bitmap_format_dxt1 = 14,
+	_bitmap_format_dxt5 = 16,
 	_bitmap_has_power_of_two_dimensions_bit = 0,
+	_bitmap_compressed_bit = 1,
+	_bitmap_allocated_bit = 6,
 };
 
 enum
@@ -477,6 +493,13 @@ static struct
 	/* (display.menus "chupathingy": its main menu, the Xbox's screens after a
 	network game) */
 	boolean chupathingy;
+#ifdef HALO_GAME_BROWSER
+	/* System Link's list, which ends with a DIRECT IP row, and the screen
+	that row opens (system_link_direct_ip_patch) */
+	boolean system_link_direct_ip;
+	long system_link_list;
+	long system_link_direct_ip_screen;
+#endif
 	char root[300];
 #ifdef HALO_64BIT
 	/* the name of an empty reference, inside the Xbox address space as the
@@ -506,6 +529,39 @@ static struct
 	/* a campaign map's (its pause screen's): the game stays paused */
 	boolean campaign_map;
 } build;
+
+#ifdef UI_FRAMES_FROM_CACHE
+/* ui.map's frames that the menu files name, as the main menu's build found
+them (each picture's fields), and the ui.map they are of (its checksum): in
+a game map, which has not got them, each is made from ui.map's copy in the
+cache (ui_frame_make). Kept from one map to the next, found again at each
+main menu */
+#define MAXIMUM_UI_FRAMES 64
+#define UI_FRAME_NAME_SIZE 192
+/* (the most of a frame's pixels read: a 1024 square's 32 bits) */
+#define MAXIMUM_UI_FRAME_BYTES (4 * 1024 * 1024)
+/* ui.map's copy in the cache: the main menu's cache file, which no game map
+is copied into (cache_files_windows.c's cache_files_initialize and
+cached_map_file_get_path), and where its header says its length, name and
+checksum (the Xbox's cache file header) */
+#define UI_MAP_CACHE_FILE "z:\\cache002.map"
+#define UI_MAP_HEADER_SIZE 0x800
+#define UI_MAP_HEADER_LENGTH_OFFSET 0x08
+#define UI_MAP_HEADER_NAME_OFFSET 0x20
+#define UI_MAP_HEADER_NAME_SIZE 0x20
+#define UI_MAP_HEADER_CHECKSUM_OFFSET 0x64
+static struct
+{
+	unsigned long checksum;
+	long count;
+	struct ui_frame
+	{
+		char map[UI_FRAME_NAME_SIZE];
+		long index;
+		struct bitmap_data bitmap;
+	} frames[MAXIMUM_UI_FRAMES];
+} ui_frames;
+#endif
 
 /* ---------- private code */
 
@@ -898,6 +954,147 @@ static long spinner_split(struct halo_menu_widget const *widget, boolean values,
 	return count;
 }
 
+/* a frame of ui.map's scaled to a size of the file's: the texture stays
+ui.map's, drawn smaller or larger (ui_widget.c, pc_menu_frame_placement) */
+static void frame_placement_add(struct bitmap_data const *bitmap, struct halo_menu_frame const *data)
+{
+	if (data->width > 0 && data->height > 0 && data->width <= 2048 && data->height <= 2048)
+	{
+		struct menu_frame_placement *placements = realloc(menu_tags.placements,
+			(menu_tags.placement_count + 1) * sizeof(*menu_tags.placements));
+
+		if (placements)
+		{
+			menu_tags.placements = placements;
+			placements[menu_tags.placement_count].bitmap = bitmap;
+			placements[menu_tags.placement_count].x = (short)PIN(data->x, -2048, 2048);
+			placements[menu_tags.placement_count].y = (short)PIN(data->y, -2048, 2048);
+			placements[menu_tags.placement_count].width = (short)data->width;
+			placements[menu_tags.placement_count].height = (short)data->height;
+			placements[menu_tags.placement_count].texel_y = 0;
+			menu_tags.placement_count++;
+		}
+	}
+}
+
+#ifdef UI_FRAMES_FROM_CACHE
+/* size bytes at offset of ui.map's copy in the cache, if it is still the
+ui.map of that checksum, and they are all in it */
+static boolean ui_map_read(unsigned long checksum, long offset, long size, void *buffer)
+{
+	byte header[UI_MAP_HEADER_SIZE];
+	HANDLE file = CreateFileA(UI_MAP_CACHE_FILE, GENERIC_READ, FILE_SHARE_READ, NULL,
+		OPEN_EXISTING, 0, NULL);
+	unsigned long bytes_read = 0, header_checksum;
+	long length;
+	boolean result = FALSE;
+
+	if (file == INVALID_HANDLE_VALUE)
+		return FALSE;
+	if (ReadFile(file, header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header))
+	{
+		memcpy(&length, header + UI_MAP_HEADER_LENGTH_OFFSET, sizeof(length));
+		memcpy(&header_checksum, header + UI_MAP_HEADER_CHECKSUM_OFFSET, sizeof(header_checksum));
+		header[UI_MAP_HEADER_NAME_OFFSET + UI_MAP_HEADER_NAME_SIZE - 1] = 0;
+		if (!strcmp((char const *)header + UI_MAP_HEADER_NAME_OFFSET, "ui") && header_checksum == checksum &&
+			offset >= UI_MAP_HEADER_SIZE && size > 0 && length > 0 && offset <= length - size &&
+			SetFilePointer(file, offset, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER &&
+			ReadFile(file, buffer, (unsigned long)size, &bytes_read, NULL) && bytes_read == (unsigned long)size)
+		{
+			result = TRUE;
+		}
+	}
+	CloseHandle(file);
+	return result;
+}
+
+/* the main menu's build: a frame of ui.map's, as it found it, noted for the
+game maps' builds (ui_frame_make) */
+static void ui_frame_note(struct halo_menu_frame const *data, struct bitmap_data const *bitmap)
+{
+	long index;
+
+	if (strlen(data->map) >= UI_FRAME_NAME_SIZE)
+		return;
+	for (index = 0; index < ui_frames.count; index++)
+	{
+		if (ui_frames.frames[index].index == data->index && !strcmp(ui_frames.frames[index].map, data->map))
+			return;
+	}
+	if (ui_frames.count >= MAXIMUM_UI_FRAMES)
+		return;
+	strcpy(ui_frames.frames[ui_frames.count].map, data->map);
+	ui_frames.frames[ui_frames.count].index = data->index;
+	memcpy(&ui_frames.frames[ui_frames.count].bitmap, bitmap, sizeof(*bitmap));
+	ui_frames.count++;
+}
+
+/* a game map's build: a frame of ui.map's, which the map has not got, made
+a texture of its own from ui.map's copy in the cache, as the main menu's
+build found it. Only a 2D picture of DXT blocks (ui.map's pictures are),
+which are stored as they are drawn; its fields are the cache's (ui.map's
+own data), so they are checked. FALSE if it can't be: drawn blank */
+static boolean ui_frame_make(struct bitmap_data *bitmap, struct halo_menu_frame const *data, long tag_index)
+{
+	struct ui_frame const *frame = NULL;
+	long index, size;
+	void *pixels;
+
+	for (index = 0; index < ui_frames.count && !frame; index++)
+	{
+		if (ui_frames.frames[index].index == data->index && !strcmp(ui_frames.frames[index].map, data->map))
+			frame = &ui_frames.frames[index];
+	}
+	if (!frame)
+		return FALSE;
+	memcpy(bitmap, &frame->bitmap, sizeof(*bitmap));
+	if (bitmap->type != _bitmap_type_2d || bitmap->depth != 1 ||
+		!TEST_FLAG(bitmap->flags, _bitmap_compressed_bit) ||
+		bitmap->format < _bitmap_format_dxt1 || bitmap->format > _bitmap_format_dxt5 ||
+		bitmap->width < 4 || bitmap->height < 4 || bitmap->width > 2048 || bitmap->height > 2048 ||
+		(bitmap->width & (bitmap->width - 1)) || (bitmap->height & (bitmap->height - 1)) ||
+		bitmap->mipmap_count < 0 || bitmap->mipmap_count > 11)
+	{
+		return FALSE;
+	}
+	/* (its pixels its own, not the texture cache's) */
+	bitmap->flags = (short)(FLAG(_bitmap_has_power_of_two_dimensions_bit) | FLAG(_bitmap_compressed_bit) |
+		FLAG(_bitmap_allocated_bit));
+	bitmap->tag_index = tag_index;
+	bitmap->cache_block_index = NONE;
+	bitmap->base_address = XBOX_NULL;
+	bitmap->hardware_format = XBOX_NULL;
+	size = bitmap_get_pixel_data_size(bitmap);
+	if (size <= 0 || size > MAXIMUM_UI_FRAME_BYTES || size > frame->bitmap.pixels_size ||
+		frame->bitmap.pixels_offset < 0)
+	{
+		return FALSE;
+	}
+	pixels = allocate(size);
+	if (!pixels || !ui_map_read(ui_frames.checksum, frame->bitmap.pixels_offset, size, pixels))
+		return FALSE;
+	bitmap->base_address = XBOX_ADDRESS(pixels);
+	if (!rasterizer_bitmap_new(bitmap))
+	{
+		bitmap->hardware_format = XBOX_NULL;
+		return FALSE;
+	}
+	rasterizer_bitmap_changed(bitmap);
+	{
+		struct bitmap_data **bitmaps = realloc(menu_tags.bitmaps, (menu_tags.bitmap_count + 1) * sizeof(*menu_tags.bitmaps));
+
+		if (!bitmaps)
+		{
+			rasterizer_bitmap_delete(bitmap);
+			return FALSE;
+		}
+		menu_tags.bitmaps = bitmaps;
+		menu_tags.bitmaps[menu_tags.bitmap_count++] = bitmap;
+	}
+	return TRUE;
+}
+#endif
+
 static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 {
 	struct bitmap_group *group = allocate(sizeof(struct bitmap_group));
@@ -926,14 +1123,33 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 		long width = data->width, height = data->height;
 
 		/* (a frame of the map's: a copy of its bitmap, which the texture cache
-		loads from the map as its own; in a game map that has not got it,
-		nothing) */
-		if (data->map && build.game_map && tag_loaded(BITMAP_GROUP_TAG, data->map) == NONE)
+		loads from the map as its own; in a game map, one made from ui.map's
+		copy in the cache, else the map's own if it has one, else nothing.
+		ui.map's first: an MCC or Custom Edition map has a bitmap of the same
+		name, MCC's or Halo PC's picture (a keyboard where ui.map's is the
+		on-screen keyboard, a mouse where it is the player colors)) */
+		boolean map_frame = data->map != NULL;
+
+		if (data->map && build.game_map)
 		{
-			png = BLANK_PNG;
-			width = height = PLACEHOLDER_SIZE;
+#ifdef UI_FRAMES_FROM_CACHE
+			if (ui_frame_make(bitmap, data, tag_index))
+			{
+				frame_placement_add(bitmap, data);
+				continue;
+			}
+			if (build.failed)
+				return group;
+			memset(bitmap, 0, sizeof(*bitmap));
+#endif
+			if (tag_loaded(BITMAP_GROUP_TAG, data->map) == NONE)
+			{
+				map_frame = FALSE;
+				png = BLANK_PNG;
+				width = height = PLACEHOLDER_SIZE;
+			}
 		}
-		else if (data->map)
+		if (map_frame)
 		{
 			long group_index = map_tag(BITMAP_GROUP_TAG, data->map, source->file, source->line);
 			struct bitmap_group *group_source;
@@ -947,27 +1163,13 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 				return group;
 			}
 			memcpy(bitmap, XBOX_POINTER(struct bitmap_data, group_source->bitmaps.address) + data->index, sizeof(*bitmap));
+#ifdef UI_FRAMES_FROM_CACHE
+			if (!build.game_map)
+				ui_frame_note(data, bitmap);
+#endif
 			bitmap->cache_block_index = NONE;
 			bitmap->base_address = XBOX_NULL;
-			/* (scaled to a size of the file's: the texture stays the map's,
-			drawn smaller or larger, ui_widget.c) */
-			if (data->width > 0 && data->height > 0 && data->width <= 2048 && data->height <= 2048)
-			{
-				struct menu_frame_placement *placements = realloc(menu_tags.placements,
-					(menu_tags.placement_count + 1) * sizeof(*menu_tags.placements));
-
-				if (placements)
-				{
-					menu_tags.placements = placements;
-					placements[menu_tags.placement_count].bitmap = bitmap;
-					placements[menu_tags.placement_count].x = (short)PIN(data->x, -2048, 2048);
-					placements[menu_tags.placement_count].y = (short)PIN(data->y, -2048, 2048);
-					placements[menu_tags.placement_count].width = (short)data->width;
-					placements[menu_tags.placement_count].height = (short)data->height;
-					placements[menu_tags.placement_count].texel_y = 0;
-					menu_tags.placement_count++;
-				}
-			}
+			frame_placement_add(bitmap, data);
 			continue;
 		}
 
@@ -1623,8 +1825,6 @@ port/assets/menus/chupathingy) */
 enum
 {
 	_menus_xbox,
-	/* (Gearbox's Halo PC menus, retired as a menu set: menus_chosen) */
-	_menus_pc,
 	_menus_chupathingy,
 };
 
@@ -2110,7 +2310,8 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 	struct ui_widget_child_reference *grown = allocate(3 * count * sizeof(struct ui_widget_child_reference));
 	short split = PAUSE_BOX_SPLIT, key = PAUSE_BOX_KEY;
 
-	if (!grown || count > 6)
+	/* (a shorter box keeps some of its plain middle) */
+	if (!grown || count > 6 || key - split + grow <= 0)
 		return;
 	/* (every piece tall enough first: all of them drawn taller, or none) */
 	for (piece = 0; piece < count; piece++)
@@ -2156,6 +2357,72 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 	box->child_widgets.address = XBOX_ADDRESS(grown);
 	box->child_widgets.count = 3 * count;
 	box->bounds.y1 = (short)(box->bounds.y1 + grow);
+}
+
+/* the screen's stock box (pause_box_stock), its child index; NONE if it has none */
+static long pause_screen_box_child(long screen_tag)
+{
+	struct ui_widget_definition const *definition = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+	struct ui_widget_child_reference const *children = xbox_pointer(definition->child_widgets.address);
+	long child;
+
+	for (child = definition->child_widgets.count - 1; child >= 0; child--)
+	{
+		if (children[child].widget_tag.index != NONE &&
+			tag_get(UI_WIDGET_DEFINITION_TAG, children[child].widget_tag.index) &&
+			pause_box_stock(tag_get(UI_WIDGET_DEFINITION_TAG, children[child].widget_tag.index)))
+		{
+			return child;
+		}
+	}
+	return NONE;
+}
+
+/* the screen's own copy of a stock box it shares with another screen (the
+campaign's one and two player pause screens share theirs), its pieces
+copied too: pause_box_grow cuts the pieces it draws taller, so each screen's
+list can make its own box taller or shorter. FALSE if it isn't copied */
+static boolean pause_box_unshare(struct cache_file_tag_instance *instances, long screen_tag, long shared_tag)
+{
+	struct ui_widget_definition *definition = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+	struct ui_widget_child_reference *children = xbox_pointer(definition->child_widgets.address);
+	long box_child = pause_screen_box_child(screen_tag);
+	struct ui_widget_definition *box;
+	struct ui_widget_child_reference *pieces;
+	long piece, box_tag;
+
+	if (box_child == NONE || children[box_child].widget_tag.index != shared_tag)
+		return FALSE;
+	box = allocate(sizeof(*box));
+	if (!box)
+		return FALSE;
+	memcpy(box, tag_get(UI_WIDGET_DEFINITION_TAG, shared_tag), sizeof(*box));
+	pieces = allocate(box->child_widgets.count * (long)sizeof(*pieces));
+	if (!pieces)
+		return FALSE;
+	memcpy(pieces, xbox_pointer(box->child_widgets.address), box->child_widgets.count * sizeof(*pieces));
+	for (piece = 0; piece < box->child_widgets.count; piece++)
+	{
+		struct ui_widget_definition *copy;
+		long piece_tag;
+
+		if (pieces[piece].widget_tag.index == NONE)
+			continue;
+		copy = allocate(sizeof(*copy));
+		if (!copy)
+			return FALSE;
+		memcpy(copy, tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index), sizeof(*copy));
+		piece_tag = next_tag();
+		/* (by the piece's own name, which pause_box_stock knows it by) */
+		instance_set(instances, UI_WIDGET_DEFINITION_TAG, piece_tag, tag_get_name(pieces[piece].widget_tag.index), "",
+			copy);
+		reference_set(&pieces[piece].widget_tag, UI_WIDGET_DEFINITION_TAG, piece_tag);
+	}
+	box->child_widgets.address = XBOX_ADDRESS(pieces);
+	box_tag = next_tag();
+	instance_set(instances, UI_WIDGET_DEFINITION_TAG, box_tag, "pause/box", "", box);
+	reference_set(&children[box_child].widget_tag, UI_WIDGET_DEFINITION_TAG, box_tag);
+	return TRUE;
 }
 
 /* a screen's pause list, found by its RESUME GAME, else the button before
@@ -2242,7 +2509,9 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 		else
 			children[child].vertical_offset -= *grow / 2;
 	}
-	if (box_child != NONE && !*box_grown && *grow > 0)
+	/* (or shorter: a joined co-op machine's list loses REVERT and RESTART,
+	and its key would otherwise sit above an empty band of the box) */
+	if (box_child != NONE && !*box_grown && *grow != 0)
 	{
 		/* (trimmed first: the box's taller parts are copies of its pieces) */
 		pause_box_trim(tag_get(UI_WIDGET_DEFINITION_TAG, children[box_child].widget_tag.index));
@@ -2273,6 +2542,15 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 		game_connection() != GAME_CONNECTION_NETWORK_SERVER;
 	if (solo_screen != NONE)
 	{
+		/* (two players' screen on a joined machine loses rows of its own:
+		its own box, before either screen's is made taller or shorter) */
+		if (pause_coop_joined && split_screen != NONE && pause_screen_box_child(solo_screen) != NONE)
+		{
+			struct ui_widget_definition const *solo = tag_get(UI_WIDGET_DEFINITION_TAG, solo_screen);
+
+			pause_box_unshare(instances, split_screen, XBOX_POINTER(struct ui_widget_child_reference const,
+				solo->child_widgets.address)[pause_screen_box_child(solo_screen)].widget_tag.index);
+		}
 		if (settings || pause_controls_offered() || pause_guide_offered() || pause_coop_joined)
 			pause_screen_patch(instances, solo_screen, NONE, FALSE, settings, FALSE, &patched_list, &grow, &box_grown);
 		/* (and two players' on a joined machine: only those rows out) */
@@ -2367,18 +2645,15 @@ static void pause_patch_xbox(void)
 main menu's note says how to open DELTA instead, guide.c)
 
 With it, each main menu has DELTA (DELTA over it, on PARTY: a party started, friends
-invited, the party brought to a game), in every menu set: the row in
-chupathingy/main_menu.xml put in the main menu's list before QUIT here, in
-the Chupathingy menus' and Gearbox's (its list is tools/ce_menus.py's, from
-the PC version's tags), and DELTA in Gearbox's Multiplayer button bar. The
-lists are patched as the menus load, so a change shows the next time they
-do. The Xbox's main menu stays the Xbox's (its
+invited, the party brought to a game): the row in
+chupathingy/main_menu.xml put in the Chupathingy menus' main menu list
+before QUIT here. The list is patched as the menus load, so a change shows
+the next time they do. The Xbox's main menu stays the Xbox's (its
 rows are ui.map's pictures): there DELTA is the Multiplayer menu's row
 (ui_widget.c), the key and the Guide button. Not on the consoles (no DELTA
 there yet) nor with split screen's players (DELTA is the first player's). */
 
 #define DELTA_ROW "chupathingy/main_menu_delta"
-#define GEARBOX_MAIN_MENU_LIST "main_menu/main_menu_select_list"
 
 /* (delta.menu_item, as it is when the menus load: a change shows the
 next time they do) */
@@ -2430,13 +2705,12 @@ static boolean list_row_insert(struct ui_widget_definition *list, long at, long 
 	return TRUE;
 }
 
-/* the main menu (Gearbox's or the Chupathingy menus' list): the DELTA row
-before QUIT */
+/* the Chupathingy menus' main menu list: the DELTA row before QUIT */
 #define CHUPATHINGY_MAIN_MENU_LIST "chupathingy/main_menu_list"
 
 static void main_menu_delta_patch(void)
 {
-	long list = widget_named(menus_chosen() == _menus_chupathingy ? CHUPATHINGY_MAIN_MENU_LIST : GEARBOX_MAIN_MENU_LIST);
+	long list = widget_named(CHUPATHINGY_MAIN_MENU_LIST);
 	long row = widget_named(DELTA_ROW);
 	struct ui_widget_definition *definition;
 
@@ -2450,47 +2724,13 @@ static void main_menu_delta_patch(void)
 	}
 }
 
-/* Gearbox's Multiplayer menu: DELTA in its button bar, left of BACK (its
-list has no room for another row) */
-#define DELTA_BUTTON "chupathingy/button_delta"
-#define GEARBOX_MULTIPLAYER_BAR "main_menu/multiplayer_type_select/multiplayer_type_button_bar"
-
-static void multiplayer_delta_patch_gearbox(void)
-{
-	long bar = widget_named(GEARBOX_MULTIPLAYER_BAR), button = widget_named(DELTA_BUTTON);
-	struct ui_widget_definition *definition;
-	struct ui_widget_child_reference *children, *grown;
-	long count, child;
-
-	if (!main_menu_delta_offered() || bar == NONE || button == NONE)
-		return;
-	definition = tag_get(UI_WIDGET_DEFINITION_TAG, build.widget_tags[bar]);
-	count = definition ? definition->child_widgets.count : 0;
-	grown = count > 0 ? allocate((count + 1) * sizeof(*grown)) : NULL;
-	if (!grown)
-	{
-		platform_log("menus: the Multiplayer menu's DELTA not added");
-		return;
-	}
-	children = xbox_pointer(definition->child_widgets.address);
-	/* (first, so left and right go DELTA, BACK as they read) */
-	grown[0] = children[0];
-	reference_set(&grown[0].widget_tag, UI_WIDGET_DEFINITION_TAG, build.widget_tags[button]);
-	grown[0].horizontal_offset = (short)(children[0].horizontal_offset - 130);
-	for (child = 0; child < count; child++)
-		grown[child + 1] = children[child];
-	definition->child_widgets.address = XBOX_ADDRESS(grown);
-	definition->child_widgets.count = count + 1;
-}
-
 /* which display.menus asks for, in any case; a value that is none of them
 is said once in the log, and is the Xbox's. Gearbox's menus ("gearbox", or
 the older "pc") are no longer a menu set to choose: those values are the
 Xbox's too, and the player is told once, in the main
 menu's note (guide.c's _toast_menus_retired). Their screens, built from port/assets/menus/ce, stay
 in the game: the Chupathingy menus are made of many of them, and the rest
-are kept for extra screens (the _menus_pc paths here, which nothing chooses
-now) */
+are kept for extra screens */
 static short menus_chosen(void)
 {
 	static boolean said;
@@ -2531,7 +2771,7 @@ short pc_menus_set(
 {
 	short menus = menus_chosen();
 
-	return menus == _menus_pc ? 1 : menus == _menus_chupathingy ? 2 : 0;
+	return menus == _menus_chupathingy ? 2 : 0;
 }
 
 /* whether the Chupathingy menus are up */
@@ -2572,6 +2812,168 @@ static void host_setup_patch(void)
 			reference_set(&handlers[index].widget_tag, UI_WIDGET_DEFINITION_TAG, setup);
 	}
 }
+
+#ifdef HALO_GAME_BROWSER
+/* ---------- the Chupathingy menus' System Link: DIRECT IP
+
+System Link's list ends with a DIRECT IP row, and X opens it too: the
+Custom Edition menus' DIRECT IP screen, a game joined by its address
+(port/linux/game/direct_join.c). X's prompt, "X =DIRECT IP"
+(chupathingy/prompts.xml), sits left of CREATE GAME's in the screen's
+button bar. A handler and a child are added to the Xbox's screen as it
+loads; the Xbox menus keep it as it is (display.menus "xbox"). The handler
+goes where the screen's Y (CREATE GAME) is handled. The row is the list's
+code, for the list pc_menus_direct_ip_list names: its text and place
+(ui_widget_game_data_input_functions.c, server_list_menu_update) and its A
+(ui_widget_event_handler_functions.c). */
+
+#define SYSTEM_LINK_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\server_list_screen"
+#define SYSTEM_LINK_DIRECT_IP PC_MENU_TAG_PREFIX "main_menu\\multiplayer_type_select\\direct_ip\\direct_ip_screen"
+#define SYSTEM_LINK_DIRECT_IP_PROMPT PC_MENU_TAG_PREFIX "chupathingy\\system_link\\direct_ip"
+/* (the event types' places: menu_tags' EVENTS, x and y) */
+#define SYSTEM_LINK_EVENT_X 2
+#define SYSTEM_LINK_EVENT_Y 3
+/* where the prompt goes (the menus' 640x480), left of CREATE GAME's */
+#define SYSTEM_LINK_PROMPT_X 40
+#define SYSTEM_LINK_PROMPT_Y 414
+/* the list's message while it looks for games, and how far apart its rows
+are */
+#define SYSTEM_LINK_MESSAGE "\\looking_for_servers_text"
+#define SYSTEM_LINK_ROW 32
+
+static boolean handles_event(struct ui_widget_definition const *definition, short event_type)
+{
+	struct ui_widget_event_handler_reference const *handlers = xbox_pointer(definition->event_handlers.address);
+	long index;
+
+	for (index = 0; index < definition->event_handlers.count; index++)
+	{
+		if (handlers[index].event_type == event_type)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static void system_link_direct_ip_patch(void)
+{
+	long screen_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, SYSTEM_LINK_SCREEN);
+	long direct_ip = tag_loaded(UI_WIDGET_DEFINITION_TAG, SYSTEM_LINK_DIRECT_IP);
+	long prompt = tag_loaded(UI_WIDGET_DEFINITION_TAG, SYSTEM_LINK_DIRECT_IP_PROMPT);
+	struct ui_widget_definition *screen, *handler_owner;
+	struct ui_widget_child_reference const *children;
+	struct ui_widget_child_reference *grown_children;
+	struct ui_widget_event_handler_reference const *handlers;
+	struct ui_widget_event_handler_reference *grown_handlers;
+	long index, list = NONE;
+
+	if (screen_tag == NONE || direct_ip == NONE || prompt == NONE)
+	{
+		platform_log("menus: System Link's DIRECT IP not added (its screens are not as expected)");
+		return;
+	}
+	screen = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+	children = xbox_pointer(screen->child_widgets.address);
+	/* the handler beside Y's: the screen's, else its first child's that
+	has it (the list of games, which gets the DIRECT IP row) */
+	handler_owner = screen;
+	if (!handles_event(screen, SYSTEM_LINK_EVENT_Y))
+	{
+		for (index = 0; index < screen->child_widgets.count; index++)
+		{
+			struct ui_widget_definition *child;
+
+			if (children[index].widget_tag.index == NONE)
+				continue;
+			child = tag_get(UI_WIDGET_DEFINITION_TAG, children[index].widget_tag.index);
+			if (handles_event(child, SYSTEM_LINK_EVENT_Y))
+			{
+				handler_owner = child;
+				list = children[index].widget_tag.index;
+				break;
+			}
+		}
+	}
+	if (list != NONE && handler_owner->type == _widget_type_column_list)
+	{
+		menu_tags.system_link_direct_ip = TRUE;
+		menu_tags.system_link_list = list;
+		menu_tags.system_link_direct_ip_screen = direct_ip;
+	}
+	/* (added already: this map's tags were patched) */
+	for (index = 0; index < screen->child_widgets.count; index++)
+	{
+		if (children[index].widget_tag.index == prompt)
+			return;
+	}
+	/* "Looking for games..." a row lower, under the DIRECT IP row, which is
+	the list's first while no game is found */
+	if (menu_tags.system_link_direct_ip && handler_owner->extended_description_widget.index != NONE)
+	{
+		struct ui_widget_definition *description =
+			tag_get(UI_WIDGET_DEFINITION_TAG, handler_owner->extended_description_widget.index);
+		struct ui_widget_child_reference *parts = xbox_pointer(description->child_widgets.address);
+
+		for (index = 0; index < description->child_widgets.count; index++)
+		{
+			char const *name = parts[index].widget_tag.index != NONE ? tag_get_name(parts[index].widget_tag.index) : NULL;
+
+			if (name && strstr(name, SYSTEM_LINK_MESSAGE))
+				parts[index].vertical_offset += SYSTEM_LINK_ROW;
+		}
+	}
+	if (handles_event(handler_owner, SYSTEM_LINK_EVENT_X))
+	{
+		platform_log("menus: System Link's DIRECT IP not added (its X is taken)");
+		return;
+	}
+	handlers = xbox_pointer(handler_owner->event_handlers.address);
+	grown_handlers = allocate((handler_owner->event_handlers.count + 1) * (long)sizeof(*grown_handlers));
+	grown_children = allocate((screen->child_widgets.count + 1) * (long)sizeof(*grown_children));
+	if (!grown_handlers || !grown_children)
+		return;
+	if (handler_owner->event_handlers.count)
+		memcpy(grown_handlers, handlers, handler_owner->event_handlers.count * sizeof(*grown_handlers));
+	{
+		struct ui_widget_event_handler_reference *added = &grown_handlers[handler_owner->event_handlers.count];
+
+		memset(added, 0, sizeof(*added));
+		added->event_type = SYSTEM_LINK_EVENT_X;
+		SET_FLAG(added->flags, _event_handler_open_widget_bit, TRUE);
+		reference_set(&added->widget_tag, UI_WIDGET_DEFINITION_TAG, direct_ip);
+		reference_clear(&added->sound_effect, SOUND_TAG);
+	}
+	handler_owner->event_handlers.address = XBOX_ADDRESS(grown_handlers);
+	handler_owner->event_handlers.count++;
+	memcpy(grown_children, children, screen->child_widgets.count * sizeof(*grown_children));
+	{
+		struct ui_widget_child_reference *added = &grown_children[screen->child_widgets.count];
+
+		memset(added, 0, sizeof(*added));
+		reference_set(&added->widget_tag, UI_WIDGET_DEFINITION_TAG, prompt);
+		strncpy(added->name, "direct_ip", sizeof(added->name) - 1);
+		added->horizontal_offset = SYSTEM_LINK_PROMPT_X;
+		added->vertical_offset = SYSTEM_LINK_PROMPT_Y;
+	}
+	screen->child_widgets.address = XBOX_ADDRESS(grown_children);
+	screen->child_widgets.count++;
+	platform_log("menus: System Link has DIRECT IP (%s)", menu_tags.system_link_direct_ip ? "its row and X" : "X");
+}
+
+/* System Link's list that ends with a DIRECT IP row (the Chupathingy menus'),
+NONE for none */
+long pc_menus_direct_ip_list(
+	void)
+{
+	return menu_tags.loaded && menu_tags.system_link_direct_ip ? menu_tags.system_link_list : NONE;
+}
+
+/* the DIRECT IP screen that row opens */
+long pc_menus_direct_ip_screen(
+	void)
+{
+	return menu_tags.loaded && menu_tags.system_link_direct_ip ? menu_tags.system_link_direct_ip_screen : NONE;
+}
+#endif
 
 #ifdef HALO_GAME_BROWSER
 /* ---------- the Xbox's menus' game type editor: the game modes layer's rows
@@ -2924,6 +3326,14 @@ void menu_tags_loaded(
 	memset(&build, 0, sizeof(build));
 	build.menus = menus;
 	build.game_map = game_map;
+#ifdef UI_FRAMES_FROM_CACHE
+	/* (ui.map's frames found again, of this ui.map) */
+	if (!game_map)
+	{
+		ui_frames.count = 0;
+		ui_frames.checksum = cache_files_get_checksum();
+	}
+#endif
 	build.campaign_map = game_map && tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) != NONE;
 	widget_count = menus->widget_count;
 	build.widget_tags = malloc((widget_count + 1) * sizeof(long));
@@ -3035,13 +3445,13 @@ void menu_tags_loaded(
 	menu_tags.loaded = TRUE;
 	menu_tags.chupathingy = menus_chosen() == _menus_chupathingy;
 	if (menu_tags.chupathingy && !game_map)
-		host_setup_patch();
-	if (menus_chosen() == _menus_pc && !game_map)
 	{
-		main_menu_delta_patch();
-		multiplayer_delta_patch_gearbox();
+		host_setup_patch();
+#ifdef HALO_GAME_BROWSER
+		system_link_direct_ip_patch();
+#endif
 	}
-	else if (menus_chosen() == _menus_chupathingy && !game_map)
+	if (menus_chosen() == _menus_chupathingy && !game_map)
 		main_menu_delta_patch();
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);
