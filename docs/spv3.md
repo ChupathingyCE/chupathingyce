@@ -84,8 +84,6 @@ All 22 levels and the menu load. SPV3's Lua scripts run.
 
 Not working yet:
 
-- There's no first-person weapon on screen
-  ([#1782](https://github.com/ChupathingyCE/chupathingyce/issues/1782)).
 - A flat blue box shows at the crosshair
   ([#1781](https://github.com/ChupathingyCE/chupathingyce/issues/1781)).
 - Enemies don't transform
