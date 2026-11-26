@@ -373,7 +373,11 @@ with their authors credited in each commit.
   `port/linux/game/lua_opensauce.c`); its cache header, tag definitions and
   memory upgrades, the reference for how OpenSauce maps are read and
   checked (`port/linux/game/opensauce_map.c`,
-  `port/linux/game/tag_schema_opensauce.c`).
+  `port/linux/game/tag_schema_opensauce.c`); its post-processing (effects,
+  shader parameters, render stages, G-buffer formats and its bloom shader),
+  the reference for how OpenSauce maps' post-processing is drawn
+  (`port/linux/game/opensauce_postprocess.c`,
+  `port/linux/src/opensauce_postprocess_gl.inl`).
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, Lua, tomlc17, musl's maths,

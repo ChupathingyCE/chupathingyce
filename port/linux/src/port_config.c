@@ -383,6 +383,12 @@ static const struct config_setting config_settings[] =
 		"instead of clipping it. The glows the game draws (teleporters, light\n"
 		"fixtures, energy shields, plasma bolts, the weapon's displays) go\n"
 		"past white. false draws into 8 bits a channel, as the Xbox does." },
+	{ "display.opensauce_post_processing", _config_boolean, "true", "HALO_OPENSAUCE_POST_PROCESSING",
+		_environment_value, _platform_desktop,
+		"Draw the post-processing an OpenSauce map carries (SPV3's look: its\n"
+		"bloom, tone mapping, depth of field, ambient occlusion, visor and the\n"
+		"rest of its effects), with the OpenGL renderer. Only maps that have it\n"
+		"change; false draws them without it, for performance." },
 	{ "display.hdr_output", _config_boolean, "false", "HALO_HDR_OUTPUT", _environment_value, _platform_desktop,
 		"With display.hdr, send HDR to a display that has it (the operating\n"
 		"system's HDR must be on): the bgfx renderer's HDR10 swap chain, or\n"
