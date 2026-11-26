@@ -149,6 +149,10 @@ SCREENS = {
                  "The reticle's size. 100% is the Xbox's.", None),
                 ("WEAPON MODEL:", "display.first_person_weapon", ON_OFF,
                  "Draw your weapon and arms. Off hides them.", None),
+                # (port/linux/game/first_person_body.c: off by default, and
+                # off by itself on maps that draw their own, SPV3's)
+                ("FIRST-PERSON LEGS:", "display.first_person_legs", ON_OFF,
+                 "See your own legs when you look down.\nMaps with their own (SPV3) keep theirs.", None),
             ]),
             ("advanced", "ADVANCED", "Shadows, lighting and detail.", [
                 # (out of the main list, so that its rows sit 24 apart as

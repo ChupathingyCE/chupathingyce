@@ -117,6 +117,7 @@ symbols in this file:
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_looks.h" /* port: port/linux/game/stubbs_looks.c */
 #include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
+#include "first_person_body.h" /* port: display.first_person_legs (port/linux/game/first_person_body.c) */
 
 /* ---------- constants */
 
@@ -580,8 +581,17 @@ static void render_object_list(
 	{
 		struct object_datum *object = object_get(object_index);
 		short region_count; /* port: the regions an object's permutations cover */
+		/* port: display.first_person_legs: the view's own unit drawn as its
+		body below the view (its legs and lower torso), without what it
+		holds; its shadow whole (port/linux/game/first_person_body.c) */
+		boolean first_person_body = FALSE;
 
-		if (!object_is_first_person_camera(object_index) || render.camera.mirrored)
+		if (!render.camera.mirrored && object_is_first_person_camera(object_index))
+		{
+			first_person_body = first_person_body_shown(object_index);
+		}
+
+		if (!object_is_first_person_camera(object_index) || render.camera.mirrored || first_person_body)
 		{
 			struct render_model_effect model_effect;
 
@@ -720,7 +730,9 @@ static void render_object_list(
 					render_model(
 						definition->object.model.index,
 						level_of_detail_pixels,
-						object_get_node_matrices(object_index),
+						first_person_body
+							? first_person_body_node_matrices(object_index)
+							: object_get_node_matrices(object_index),
 						object_get_region_permutations(object_index, &region_count),
 						object_get_change_colors(object_index),
 						object_get_function_values(object_index),
@@ -756,7 +768,7 @@ static void render_object_list(
 				}
 			}
 
-			if (!data->shadow && object->object.first_widget_index != NONE)
+			if (!data->shadow && object->object.first_widget_index != NONE && !first_person_body)
 			{
 				struct render_animation animation;
 
@@ -765,7 +777,7 @@ static void render_object_list(
 				widgets_render(object_index, data->lighting, &animation);
 			}
 
-			if (object->object.first_child_object_index != NONE)
+			if (object->object.first_child_object_index != NONE && (data->shadow || !first_person_body))
 			{
 				render_object_list(
 					data,
@@ -1238,7 +1250,10 @@ static void render_object(
 	{
 		struct object_datum *object = object_get(data->object_index);
 
-		if (!object_is_first_person_camera(data->object_index) &&
+		/* (port: display.first_person_legs casts the view's own unit's
+		shadow as everyone else's: port/linux/game/first_person_body.c) */
+		if ((!object_is_first_person_camera(data->object_index) ||
+				(!render.camera.mirrored && first_person_body_shown(data->object_index))) &&
 			!TEST_FLAG(object->object.flags, _object_shadowless_bit) &&
 			(!TEST_FLAG(object->object.flags, _object_invisible_bit) ||
 				object->object.first_child_object_index != NONE))

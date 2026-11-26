@@ -88,6 +88,9 @@ boolean lua_execute_script_running = FALSE;
 /* the objects scripts posed since the last tick */
 static long lua_posed_objects[LUA_MAXIMUM_POSED_OBJECTS];
 static short lua_posed_object_count = 0;
+/* whether a script posed an object since the map loaded
+(lua_scripting_map_poses_objects) */
+static boolean lua_map_poses_objects = FALSE;
 
 static struct
 {
@@ -832,6 +835,8 @@ void lua_scripting_map_load(
 	char map[0x20 + 1];
 	int index;
 
+	lua_map_poses_objects = FALSE;
+
 	if (!lua_enabled())
 	{
 		if (lua_script_count)
@@ -907,6 +912,7 @@ void lua_scripting_map_unload(
 {
 	if (lua_script_count)
 		lua_close_kind(_lua_script_map);
+	lua_map_poses_objects = FALSE;
 }
 
 void lua_scripting_pretick(
@@ -989,6 +995,7 @@ void lua_scripting_note_posed(
 {
 	short index;
 
+	lua_map_poses_objects = TRUE;
 	for (index = 0; index < lua_posed_object_count; index++)
 	{
 		if (lua_posed_objects[index] == object_index)
@@ -1001,6 +1008,12 @@ void lua_scripting_note_posed(
 	}
 	lua_log_once("posed full", "more than %d objects posed by scripts in a tick: the rest are drawn as the ticks left "
 		"them", LUA_MAXIMUM_POSED_OBJECTS);
+}
+
+boolean lua_scripting_map_poses_objects(
+	void)
+{
+	return lua_map_poses_objects;
 }
 
 boolean lua_scripting_object_posed(

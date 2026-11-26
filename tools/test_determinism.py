@@ -28,6 +28,11 @@ knobs change only what is drawn, so the hashes must still agree. A replay
 counts as a local game for them (render.c's render_tuning), so every one
 goes as far as it can.
 
+With --first-person-legs the recording is made with display.first_person_legs
+off and both replays with it on (port/linux/game/first_person_body.c): the
+player's own body is only drawn, so the hashes must still agree, and each
+replay's log must say it was drawn.
+
 Needs a Linux (or macOS) build and the stock Xbox maps (NTSC). CI has no
 maps, so under pytest the check is skipped unless HALO_DETERMINISM_BINARY
 and HALO_DETERMINISM_MAPS name a build and a maps folder. Nothing reaches
@@ -279,7 +284,7 @@ def compare(first_name, first, second_name, second):
 
 
 def run_check(binary, maps, work, game_map=DEFAULT_MAP, ticks=DEFAULT_TICKS, seed=DEFAULT_SEED, local_players=1,
-              air_turn_aim=False, tuning_most=False, safe_zones=False):
+              air_turn_aim=False, tuning_most=False, safe_zones=False, first_person_legs=False):
     """Records a game and replays it twice. Returns (problems, ticks compared).
     With air_turn_aim the recording is made with the host's 180 glitch fix on
     (network.air_turn_aim) and the replays are run with it off in their own
@@ -288,7 +293,9 @@ def run_check(binary, maps, work, game_map=DEFAULT_MAP, ticks=DEFAULT_TICKS, see
     (TUNING_MOST), the recording as retail. With safe_zones the recording
     lays split screen out as the Xbox does (display.hud_safe_zone "xbox")
     and the replays with each view's window in its middle ("pc"): only the
-    drawing moves, so the hashes must agree."""
+    drawing moves, so the hashes must agree. With first_person_legs the
+    recording is made with display.first_person_legs off and the replays
+    with it on."""
     os.makedirs(work, exist_ok=True)
     inputs = os.path.join(os.path.abspath(work), "inputs.bin")
     started = time.time()
@@ -299,6 +306,9 @@ def run_check(binary, maps, work, game_map=DEFAULT_MAP, ticks=DEFAULT_TICKS, see
     if safe_zones:
         record_env = dict(record_env or {}, HALO_HUD_SAFE_ZONE="xbox")
         replay_env = dict(replay_env or {}, HALO_HUD_SAFE_ZONE="pc")
+    if first_person_legs:
+        record_env = dict(record_env or {}, HALO_FIRST_PERSON_LEGS="false")
+        replay_env = dict(replay_env or {}, HALO_FIRST_PERSON_LEGS="true")
     record = play(binary, maps, work, "record", "record", inputs, game_map, ticks, seed, local_players,
         extra_env=record_env)
     replay_a = play(binary, maps, work, "replay-a", "replay", inputs, game_map, ticks, seed, local_players,
@@ -316,6 +326,11 @@ def run_check(binary, maps, work, game_map=DEFAULT_MAP, ticks=DEFAULT_TICKS, see
                 text = output.read()
             if b"thinning=4(hand)" not in text or b"effects=minimal(hand)" not in text:
                 raise RuntimeError(f"{name}: didn't draw with the tuning at its most")
+    if first_person_legs:
+        for name in ("replay-a", "replay-b"):
+            with open(os.path.join(work, name, "out.log"), "rb") as output:
+                if b"first-person legs: drawn" not in output.read():
+                    raise RuntimeError(f"{name}: didn't draw the first-person legs")
     runs = {name: read_hashes(path) for name, path in
         (("record", record), ("replay-a", replay_a), ("replay-b", replay_b))}
     problems = []
@@ -368,6 +383,21 @@ def test_determinism_with_the_tuning_at_its_most(tmp_path):
     assert not problems, "\n".join(problems)
 
 
+def test_determinism_with_first_person_legs(tmp_path):
+    """pytest: replays drawn with display.first_person_legs on agree with a
+    recording drawn with it off, tick for tick (needs a build and maps, as
+    above)."""
+    import pytest
+
+    binary = os.environ.get("HALO_DETERMINISM_BINARY")
+    maps = os.environ.get("HALO_DETERMINISM_MAPS")
+    if not binary or not maps or not os.path.exists(binary) or \
+            not os.path.exists(os.path.join(maps, f"{DEFAULT_MAP}.map")):
+        pytest.skip("no build or maps (HALO_DETERMINISM_BINARY, HALO_DETERMINISM_MAPS)")
+    problems, _ = run_check(binary, maps, str(tmp_path), first_person_legs=True)
+    assert not problems, "\n".join(problems)
+
+
 def test_recording_keeps_the_host_rule():
     """No build needed: the recording's header carries the host's rule after
     the seed, and a replay sets it over its own settings (determinism_check.c)."""
@@ -392,6 +422,8 @@ def main():
         help="record with network.air_turn_aim on, replay with it off: the replays must keep the recording's")
     parser.add_argument("--tuning-most", action="store_true",
         help="record with the retail drawing, replay with every [tuning] drawing knob at its most: they must agree")
+    parser.add_argument("--first-person-legs", action="store_true",
+        help="record with display.first_person_legs off, replay with it on: they must agree")
     parser.add_argument("--safe-zones", action="store_true",
         help="record with display.hud_safe_zone \"xbox\", replay with \"pc\" (split screen windows centered): "
         "they must agree")
@@ -401,7 +433,7 @@ def main():
         return 0
     try:
         problems, count = run_check(args.binary, args.maps, args.work, args.map, args.ticks, args.seed,
-            args.local_players, args.air_turn_aim, args.tuning_most, args.safe_zones)
+            args.local_players, args.air_turn_aim, args.tuning_most, args.safe_zones, args.first_person_legs)
     except RuntimeError as error:
         log(str(error))
         return 1
