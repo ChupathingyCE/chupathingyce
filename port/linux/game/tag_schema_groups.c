@@ -9,6 +9,7 @@ The tag groups' schemas (tag_schema.h), from each tag_schema_*.c.
 #include "cseries.h"
 #include "cache/physical_memory_map.h"
 #include "tag_schema.h"
+#include "game/game_globals.h"
 
 #include <string.h>
 
@@ -39,7 +40,10 @@ struct tag_schema_layout const tag_schema_xbox_layout =
 mode has rewritten their tags in the Xbox layout: the Xbox layout, but for
 the maxima Stubbs's tools went past where the game has no array of that
 size: a model's shaders (his characters have up to 35; the 32 is Halo's
-tools', and the game reads them by the block's count) */
+tools', and the game reads them by the block's count); and, where the build
+has room for them (HALO_STUBBS_LIMITS), his material types: the globals'
+materials, a material effect's and a projectile's responses to them, and
+each material type field */
 enum
 {
 	STUBBS_MAXIMUM_SHADERS_PER_MODEL = 64,
@@ -56,6 +60,17 @@ static long tag_schema_stubbs_field_maximum(
 	{
 		return STUBBS_MAXIMUM_SHADERS_PER_MODEL;
 	}
+#ifdef HALO_STUBBS_LIMITS
+	if (maximum == NUMBER_OF_HALO_MATERIAL_TYPES && field->name &&
+		((field->type == _tag_schema_block &&
+			(!strcmp(field->name, "materials") || !strcmp(field->name, "material_responses"))) ||
+		(field->type == _tag_schema_enum &&
+			(!strcmp(field->name, "material_type") || !strcmp(field->name, "shield_material_type") ||
+			!strcmp(field->name, "runtime_physics_material_type") || !strcmp(field->name, "runtime_material_type")))))
+	{
+		return NUMBER_OF_MATERIAL_TYPES;
+	}
+#endif
 	return maximum;
 }
 
