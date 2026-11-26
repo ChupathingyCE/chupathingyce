@@ -1042,7 +1042,7 @@ void opensauce_postprocess_render_stage(int stage, struct render_frustum const *
 		if (!pp.logged_unavailable)
 		{
 			pp.logged_unavailable = TRUE;
-			pp_log("not drawn: only the OpenGL renderer draws it yet");
+			pp_log("not drawn: only the OpenGL and bgfx renderers draw it");
 		}
 		return;
 	}

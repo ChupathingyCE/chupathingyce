@@ -655,10 +655,13 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 			{
 				/* tex0 to tex3 at their stages, the Light effects'
 				occlusion volumes at 4 and 5 (in the vertex shader too, which
-				declares them first: BG_PLASMA_STAGE); others in order */
+				declares them first: BG_PLASMA_STAGE), OpenSauce's effects'
+				pp_s0 to pp_s15 at their registers (opensauce_postprocess_bgfx.inl);
+				others in order */
 				int binding = strncmp(name, "tex", 3) == 0 && name[3] >= '0' && name[3] <= '3' && !name[4] ?
 					name[3] - '0' : strncmp(name, "plasma_occ_texture", 18) == 0 && (name[18] == '0' || name[18] == '1') &&
-					!name[19] ? BG_PLASMA_STAGE + name[18] - '0' : sampler_next;
+					!name[19] ? BG_PLASMA_STAGE + name[18] - '0' :
+					strncmp(name, "pp_s", 4) == 0 && name[4] >= '0' && name[4] <= '9' ? atoi(name + 4) : sampler_next;
 
 				sampler_next = binding + 1;
 				if (bg_vulkan)
