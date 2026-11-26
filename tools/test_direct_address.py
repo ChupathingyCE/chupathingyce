@@ -75,3 +75,28 @@ def test_direct_ip_functions_wired():
     for name in ("direct ip connect init", "direct ip connect update", "direct ip edit field"):
         assert f"`{name}`" not in table
         assert f'"{name}"' in menu
+
+
+def test_system_link_row_chupathingy_only():
+    """System Link's DIRECT IP row (#1880) is the Chupathingy menus' only:
+    menu_tags.c names the list (pc_menus_direct_ip_list) only from
+    system_link_direct_ip_patch, which runs only for the Chupathingy menus;
+    the Xbox menus' list stays the Xbox's (the row's own checks:
+    tools/harness/tests/test_system_link_direct_ip.py). Its A opens DIRECT
+    IP, X still does, and A never starts a game from it."""
+    tags = (ROOT / "port/linux/game/menu_tags.c").read_text()
+    calls = [m.start() for m in re.finditer(r"\bsystem_link_direct_ip_patch\(\);", tags)]
+    assert len(calls) == 1
+    guard = tags.rfind("if (menu_tags.chupathingy && !game_map)", 0, calls[0])
+    assert guard != -1 and calls[0] - guard < 200
+    assert tags.count("menu_tags.system_link_direct_ip = TRUE;") == 1
+    assert "added->event_type = SYSTEM_LINK_EVENT_X;" in tags
+    handlers = (ROOT / "source/interface/ui_widget_event_handler_functions.c").read_text()
+    join = handlers[handlers.index("static boolean network_game_join_game_from_server_list(\n\tstruct widget_instance *widget,\n\tstruct event_record *event,\n\tboolean *widget_deleted)\n{"):]
+    join = join[:join.index("\n}\n")]
+    assert "if (!server && system_link_direct_ip_chosen(widget))" in join
+    start = handlers[handlers.index("static boolean start_network_game_if_no_advertised_servers(\n\tstruct widget_instance *widget,\n\tstruct event_record *event,\n\tboolean *widget_deleted)\n{"):]
+    start = start[:start.index("\n}\n")]
+    assert start.index("if (system_link_direct_ip_chosen(widget))") < start.index("network_game_start_new_server(")
+    update = (ROOT / "source/interface/ui_widget_game_data_input_functions.c").read_text()
+    assert 'L"DIRECT IP"' in update
