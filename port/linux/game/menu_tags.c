@@ -1815,8 +1815,6 @@ port/assets/menus/chupathingy) */
 enum
 {
 	_menus_xbox,
-	/* (Gearbox's Halo PC menus, retired as a menu set: menus_chosen) */
-	_menus_pc,
 	_menus_chupathingy,
 };
 
@@ -2637,18 +2635,15 @@ static void pause_patch_xbox(void)
 main menu's note says how to open DELTA instead, guide.c)
 
 With it, each main menu has DELTA (DELTA over it, on PARTY: a party started, friends
-invited, the party brought to a game), in every menu set: the row in
-chupathingy/main_menu.xml put in the main menu's list before QUIT here, in
-the Chupathingy menus' and Gearbox's (its list is tools/ce_menus.py's, from
-the PC version's tags), and DELTA in Gearbox's Multiplayer button bar. The
-lists are patched as the menus load, so a change shows the next time they
-do. The Xbox's main menu stays the Xbox's (its
+invited, the party brought to a game): the row in
+chupathingy/main_menu.xml put in the Chupathingy menus' main menu list
+before QUIT here. The list is patched as the menus load, so a change shows
+the next time they do. The Xbox's main menu stays the Xbox's (its
 rows are ui.map's pictures): there DELTA is the Multiplayer menu's row
 (ui_widget.c), the key and the Guide button. Not on the consoles (no DELTA
 there yet) nor with split screen's players (DELTA is the first player's). */
 
 #define DELTA_ROW "chupathingy/main_menu_delta"
-#define GEARBOX_MAIN_MENU_LIST "main_menu/main_menu_select_list"
 
 /* (delta.menu_item, as it is when the menus load: a change shows the
 next time they do) */
@@ -2700,13 +2695,12 @@ static boolean list_row_insert(struct ui_widget_definition *list, long at, long 
 	return TRUE;
 }
 
-/* the main menu (Gearbox's or the Chupathingy menus' list): the DELTA row
-before QUIT */
+/* the Chupathingy menus' main menu list: the DELTA row before QUIT */
 #define CHUPATHINGY_MAIN_MENU_LIST "chupathingy/main_menu_list"
 
 static void main_menu_delta_patch(void)
 {
-	long list = widget_named(menus_chosen() == _menus_chupathingy ? CHUPATHINGY_MAIN_MENU_LIST : GEARBOX_MAIN_MENU_LIST);
+	long list = widget_named(CHUPATHINGY_MAIN_MENU_LIST);
 	long row = widget_named(DELTA_ROW);
 	struct ui_widget_definition *definition;
 
@@ -2720,47 +2714,13 @@ static void main_menu_delta_patch(void)
 	}
 }
 
-/* Gearbox's Multiplayer menu: DELTA in its button bar, left of BACK (its
-list has no room for another row) */
-#define DELTA_BUTTON "chupathingy/button_delta"
-#define GEARBOX_MULTIPLAYER_BAR "main_menu/multiplayer_type_select/multiplayer_type_button_bar"
-
-static void multiplayer_delta_patch_gearbox(void)
-{
-	long bar = widget_named(GEARBOX_MULTIPLAYER_BAR), button = widget_named(DELTA_BUTTON);
-	struct ui_widget_definition *definition;
-	struct ui_widget_child_reference *children, *grown;
-	long count, child;
-
-	if (!main_menu_delta_offered() || bar == NONE || button == NONE)
-		return;
-	definition = tag_get(UI_WIDGET_DEFINITION_TAG, build.widget_tags[bar]);
-	count = definition ? definition->child_widgets.count : 0;
-	grown = count > 0 ? allocate((count + 1) * sizeof(*grown)) : NULL;
-	if (!grown)
-	{
-		platform_log("menus: the Multiplayer menu's DELTA not added");
-		return;
-	}
-	children = xbox_pointer(definition->child_widgets.address);
-	/* (first, so left and right go DELTA, BACK as they read) */
-	grown[0] = children[0];
-	reference_set(&grown[0].widget_tag, UI_WIDGET_DEFINITION_TAG, build.widget_tags[button]);
-	grown[0].horizontal_offset = (short)(children[0].horizontal_offset - 130);
-	for (child = 0; child < count; child++)
-		grown[child + 1] = children[child];
-	definition->child_widgets.address = XBOX_ADDRESS(grown);
-	definition->child_widgets.count = count + 1;
-}
-
 /* which display.menus asks for, in any case; a value that is none of them
 is said once in the log, and is the Xbox's. Gearbox's menus ("gearbox", or
 the older "pc") are no longer a menu set to choose: those values are the
 Xbox's too, and the player is told once, in the main
 menu's note (guide.c's _toast_menus_retired). Their screens, built from port/assets/menus/ce, stay
 in the game: the Chupathingy menus are made of many of them, and the rest
-are kept for extra screens (the _menus_pc paths here, which nothing chooses
-now) */
+are kept for extra screens */
 static short menus_chosen(void)
 {
 	static boolean said;
@@ -2801,7 +2761,7 @@ short pc_menus_set(
 {
 	short menus = menus_chosen();
 
-	return menus == _menus_pc ? 1 : menus == _menus_chupathingy ? 2 : 0;
+	return menus == _menus_chupathingy ? 2 : 0;
 }
 
 /* whether the Chupathingy menus are up */
@@ -3481,12 +3441,7 @@ void menu_tags_loaded(
 		system_link_direct_ip_patch();
 #endif
 	}
-	if (menus_chosen() == _menus_pc && !game_map)
-	{
-		main_menu_delta_patch();
-		multiplayer_delta_patch_gearbox();
-	}
-	else if (menus_chosen() == _menus_chupathingy && !game_map)
+	if (menus_chosen() == _menus_chupathingy && !game_map)
 		main_menu_delta_patch();
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);

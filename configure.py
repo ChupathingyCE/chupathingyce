@@ -73,9 +73,6 @@ parser.add_argument(
     "HALO_RENDERER=bgfx chooses at run time (OpenGL is the default). It fetches bgfx, bx and bimg at pinned "
     "commits into build/bgfx",
 )
-# (--renderer=bgfx, from when only a macOS build made for it had the renderer:
-# kept for the scripts that still ask for it; --renderer=gl leaves it out)
-parser.add_argument("--renderer", choices=["gl", "bgfx"], help=argparse.SUPPRESS)
 parser.add_argument(
     "--console-limits",
     action="store_true",
@@ -163,10 +160,6 @@ parser.add_argument(
     "Physics they need (port/third_party/jolt, C++17): for a toolchain that cannot build Jolt. The setting and "
     "its menu rows are left out too",
 )
-# (the default since every desktop build plays the movies; kept for the
-# scripts that still ask for it)
-parser.add_argument("--with-ffmpeg", dest="with_ffmpeg", action="store_true", help=argparse.SUPPRESS)
-parser.set_defaults(with_ffmpeg=True)
 add_console_arguments(parser)
 for port in console_ports:
     if hasattr(port.module, "add_arguments"):
@@ -190,7 +183,7 @@ sln = SimpleNamespace(
     window_rebase=args.window_rebase,
     packaged=args.packaged,
     port_lto=args.lto,
-    with_bgfx=args.with_bgfx and args.renderer != "gl",
+    with_bgfx=args.with_bgfx,
     port_portable=args.portable,
     port_pgo=args.pgo,
     port_pgo_profile=args.pgo_profile,
