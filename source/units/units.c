@@ -10408,7 +10408,7 @@ static short unit_animation_update(
 	short result;
 
 	/* port: Stubbs's animations' effects (Stubbs mode only) */
-	stubbs_mode_animation_effect(unit_index, animation_graph_index, animation);
+	stubbs_engine_animation_effect(unit_index, animation_graph_index, animation);
 	result = animation_update_internal(
 		1,
 		animation_graph_index,

@@ -28,9 +28,7 @@ packs never take these paths.
 #include "scenario/scenario_definitions.h"
 #include "units/unit_definitions.h"
 #include "ai/actor_definitions.h"
-#include "effects/effects.h"
 #include "models/model_animation_definitions.h"
-#include "objects/objects.h"
 #include "stubbs_mode.h"
 #include "stubbs_engine.h" /* (its special attacks, before the rewrite) */
 #include "stubbs_possession.h" /* (its possession seat, before the rewrite) */
@@ -437,17 +435,8 @@ enum
 	ANIMATION_GRAPH_SOUND_REFERENCE_SIZE = 0x14,
 	ANIMATION_GRAPH_SOUND_REFERENCE_EFFECT_OFFSET = 0x10,
 };
-/* (Halo's element, model_animations.c's: its unused long holds the effect) */
-struct stubbs_animation_sound_reference
-{
-	struct tag_reference sound;
-	long effect;
-};
-typedef char stubbs_animation_sound_reference_assert[
-	offsetof(struct animation_graph, sound_references) == ANIMATION_GRAPH_SOUND_REFERENCES_OFFSET &&
-	sizeof(struct stubbs_animation_sound_reference) == ANIMATION_GRAPH_SOUND_REFERENCE_SIZE &&
-	offsetof(struct stubbs_animation_sound_reference, effect) == ANIMATION_GRAPH_SOUND_REFERENCE_EFFECT_OFFSET ?
-	1 : -1];
+typedef char stubbs_animation_sound_references_offset_assert[
+	offsetof(struct animation_graph, sound_references) == ANIMATION_GRAPH_SOUND_REFERENCES_OFFSET ? 1 : -1];
 
 static boolean stubbs_tag_is(unsigned char *base, unsigned long size, long handle, unsigned long group)
 {
@@ -1129,31 +1118,4 @@ void stubbs_mode_convert_structure_bsp(
 	for (index = 0; index < clusters_count; index++)
 		memset(clusters + index * CLUSTER_SIZE + CLUSTER_SURFACE_INDICES_OFFSET, 0, 12);
 	stubbs_mode_log("structure bsp: %lu clusters' surface indices left empty", clusters_count);
-}
-
-void stubbs_mode_animation_effect(
-	long object_index,
-	long animation_graph_index,
-	struct animation_state const *state)
-{
-	struct animation_graph const *graph;
-	struct animation const *animation;
-	struct stubbs_animation_sound_reference const *reference;
-
-	if (!stubbs_mode_active() || animation_graph_index == NONE || !state ||
-		(graph = animation_graph_definition_get(animation_graph_index)) == NULL ||
-		!VALID_INDEX(state->index, graph->animations.count))
-	{
-		return;
-	}
-	animation = TAG_BLOCK_GET_ELEMENT(&graph->animations, state->index, struct animation);
-	if (animation->sound_index == NONE || animation->private_sound_frame_index != state->frame_index ||
-		!VALID_INDEX(animation->sound_index, graph->sound_references.count))
-	{
-		return;
-	}
-	reference = TAG_BLOCK_GET_ELEMENT(&graph->sound_references, animation->sound_index,
-		struct stubbs_animation_sound_reference);
-	if (reference->sound.index == NONE && reference->effect != NONE && reference->effect != 0)
-		effect_new_from_object(reference->effect, object_index, object_index, NONE, 0.f, 0.f, NULL, NULL);
 }

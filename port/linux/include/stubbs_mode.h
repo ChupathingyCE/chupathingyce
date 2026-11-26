@@ -41,10 +41,6 @@ void stubbs_mode_set_file_reader(boolean (*read)(long offset, long size, void *b
 read from the map file (tag_validate.c) */
 boolean stubbs_mode_owns_data(void const *address, long size);
 
-/* an animation's effect where Halo would play its sound, this frame (state:
-before it advances; units.c): Stubbs's graphs name effects there */
-struct animation_state;
-void stubbs_mode_animation_effect(long object_index, long animation_graph_index, struct animation_state const *state);
 
 /* a Stubbs structure BSP just read (its header at bsp_base, size bytes)
 rewritten where Halo's differs, before its schema check */
