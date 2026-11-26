@@ -56,8 +56,11 @@ takes the address as a hint, which every caller here checks it got) */
 #include <stdlib.h>
 #include <SDL3/SDL.h>
 
-/* what a 32-bit Windows is told, where the window can't be reserved */
-#define XBOX_MEMORY_NEEDS_64_BIT "This build needs 64-bit Windows. For 32-bit systems, use Chupathingy32."
+/* what a 32-bit Windows is told, where the window can't be reserved, and
+where to get the build that runs there */
+#define XBOX_MEMORY_CHUPATHINGY32 "github.com/ChupathingyCE/chupathingy32/releases"
+#define XBOX_MEMORY_NEEDS_64_BIT "This build needs 64-bit Windows. For a 32-bit PC, get Chupathingy32: " \
+	XBOX_MEMORY_CHUPATHINGY32
 #endif
 
 #ifdef HALO_64BIT
@@ -289,8 +292,22 @@ static void contiguous_arena_reserve(void)
 #if defined(_WIN32) && !defined(HALO_SERVER)
 		/* (32-bit Windows gives a program 2 GB, all below the window: the
 		game would only run out of memory as it starts) */
-		platform_log("%s", XBOX_MEMORY_NEEDS_64_BIT);
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", XBOX_MEMORY_NEEDS_64_BIT, NULL);
+		{
+			/* (SDL_OpenURL itself: platform_open_url leaves the page for the
+			main loop, which never runs past here) */
+			static const SDL_MessageBoxButtonData buttons[] =
+			{
+				{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Quit" },
+				{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Open page" },
+			};
+			SDL_MessageBoxData box = { SDL_MESSAGEBOX_ERROR, NULL, "Chupathingy", XBOX_MEMORY_NEEDS_64_BIT,
+				SDL_arraysize(buttons), buttons, NULL };
+			int answer = 0;
+
+			platform_log("%s", XBOX_MEMORY_NEEDS_64_BIT);
+			if (SDL_ShowMessageBox(&box, &answer) && answer == 1 && !SDL_OpenURL("https://" XBOX_MEMORY_CHUPATHINGY32))
+				platform_log("could not open the web browser: %s", SDL_GetError());
+		}
 		exit(EXIT_FAILURE);
 #endif
 #endif
