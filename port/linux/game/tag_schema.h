@@ -338,6 +338,8 @@ extern struct tag_schema_group const tag_schema_scenario_groups[];
 
 /* the Xbox's maps' layout (tag_schema_groups.c): tag_schema_group_lists */
 extern struct tag_schema_layout const tag_schema_xbox_layout;
+/* Stubbs mode's maps, rewritten in the Xbox layout (tag_schema_groups.c) */
+extern struct tag_schema_layout const tag_schema_stubbs_layout;
 
 #ifdef HALO_CUSTOM_EDITION
 /* Halo PC's (Custom Edition's and HaloMD's maps), tag_schema_pc.c: its own

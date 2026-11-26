@@ -1950,7 +1950,8 @@ boolean tag_validate_tags(
 	long file_length,
 	char const *map_name)
 {
-	return tag_validate_tags_layout(&tag_schema_xbox_layout, tag_header, tag_data_size, file_length, map_name);
+	return tag_validate_tags_layout(stubbs_mode_active() ? &tag_schema_stubbs_layout : &tag_schema_xbox_layout,
+		tag_header, tag_data_size, file_length, map_name);
 }
 
 static boolean validate_tags_once(
@@ -2076,7 +2077,8 @@ boolean tag_validate_other_tags(
 	memcpy(kept->claims, tag_validate_claims, sizeof(kept->claims));
 	memcpy(kept->shared_roots, tag_validate_shared_roots, sizeof(kept->shared_roots));
 	kept->copies = tag_validate_copies;
-	valid = tag_validate_tags_layout(&tag_schema_xbox_layout, tag_header, tag_data_size, file_length, map_name);
+	valid = tag_validate_tags_layout(stubbs_mode_active() ? &tag_schema_stubbs_layout : &tag_schema_xbox_layout,
+		tag_header, tag_data_size, file_length, map_name);
 	tag_validate_globals = kept->globals;
 	memcpy(tag_validate_shared_tags, kept->shared_tags, sizeof(kept->shared_tags));
 	memcpy(tag_validate_shared_bsp, kept->shared_bsp, sizeof(kept->shared_bsp));
