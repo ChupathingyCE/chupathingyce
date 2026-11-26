@@ -740,7 +740,8 @@ void object_beautify(
 	long object_index,
 	boolean beautiful)
 {
-	if (object_index!=NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		SET_FLAG(object_get(object_index)->object.flags, _object_movie_star_bit, beautiful);
 	}
@@ -847,7 +848,8 @@ void object_scripting_set_collideable(
 	long object_index,
 	boolean collideable)
 {
-	if (object_index!=NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		struct object_datum *object = object_get(object_index);
 		SET_FLAG(object->object.flags, _object_no_collisions_bit, !collideable);
@@ -1892,7 +1894,8 @@ void objects_scripting_set_scale(
 	real scale,
 	short interpolation_frame_count)
 {
-	if (object_index!=NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		struct object_datum *object = object_get(object_index);
 		object->object.scale = scale;
@@ -3197,8 +3200,9 @@ void objects_scripting_detach(
 	long parent_object_index,
 	long child_object_index)
 {
+	/* port: an object deleted since the script had it is none (#1861) */
 	if (parent_object_index!=NONE &&
-		child_object_index!=NONE &&
+		object_try_and_get(child_object_index) &&
 		object_get(child_object_index)->object.parent_object_index == parent_object_index)
 	{
 		network_coop_note_detach(parent_object_index, child_object_index);
@@ -4345,8 +4349,9 @@ void objects_scripting_attach(
 	long child_object_index,
 	char const *child_marker_name)
 {
-	if (parent_object_index!=NONE &&
-		child_object_index !=NONE &&
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(parent_object_index) &&
+		object_try_and_get(child_object_index) &&
 		object_get(child_object_index)->object.parent_object_index==NONE)
 	{
 		network_coop_note_attach(parent_object_index, parent_marker_name, child_object_index, child_marker_name);

@@ -487,8 +487,12 @@ static boolean opensauce_script_data(
 			for (object_index = object_list_get_first(arguments[0], &reference); object_index != NONE;
 				object_index = object_list_get_next(arguments[0], &reference))
 			{
-				real distance = distance3d(object_get_origin(object_index, &origin), &destination);
+				real distance;
 
+				/* (a listed object deleted since is passed over: #1861) */
+				if (!object_try_and_get(object_index))
+					continue;
+				distance = distance3d(object_get_origin(object_index, &origin), &destination);
 				if (minimum < 0.f || distance < minimum)
 					minimum = distance;
 			}
