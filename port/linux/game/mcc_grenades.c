@@ -25,6 +25,7 @@
 #include "units/units.h"
 #include "units/unit_definitions.h"
 #include <string.h>
+#include "content_bytes.h"
 
 struct mcc_grenade_inventory {long handle;unsigned char counts[2];};
 static struct mcc_grenade_inventory mcc_grenade_inventories[MAXIMUM_OBJECTS_PER_MAP];
@@ -254,11 +255,6 @@ void mcc_grenades_hud(short local_player,long unit)
         hud_draw_weapon_overlays(local_player,&hud->absolute,&hud->overlays,overlays,*flash,flags,local_player_count()>1);
 }
 
-static uint32_t mcc_grenade_u32(unsigned char const *p)
-{
-    return p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);
-}
-
 uint32_t mcc_grenades_snapshot(void *out,uint32_t capacity)
 {
     unsigned i,count=0;
@@ -294,7 +290,7 @@ int mcc_grenades_snapshot_validate(void const *in,uint32_t bytes)
     memset(seen,0,sizeof(seen));
     for (i=0;i<count;i++) {
         unsigned char const *record=data+8+i*8;
-        uint32_t handle=mcc_grenade_u32(record),index=handle&0xFFFF;
+        uint32_t handle=content_u32le(record),index=handle&0xFFFF;
         if (handle==0xFFFFFFFFu || index>=MAXIMUM_OBJECTS_PER_MAP || seen[index] ||
             record[4]>127 || record[5]>127 || record[6] || record[7]) return 0;
         seen[index]=1;
@@ -310,13 +306,13 @@ int mcc_grenades_restore(void const *in,uint32_t bytes)
     count=data[6]|((unsigned)data[7]<<8);
     for (i=0;i<count;i++) {
         unsigned char const *record=data+8+i*8;
-        if (!unit_try_and_get((long)mcc_grenade_u32(record)) ||
+        if (!unit_try_and_get((long)content_u32le(record)) ||
             (record[4] && mcc_grenades_type_count()<3) || (record[5] && mcc_grenades_type_count()<4)) return 0;
     }
     mcc_grenades_reset();
     for (i=0;i<count;i++) {
         unsigned char const *record=data+8+i*8;
-        uint32_t handle=mcc_grenade_u32(record);
+        uint32_t handle=content_u32le(record);
         struct mcc_grenade_inventory *inventory=&mcc_grenade_inventories[handle&0xFFFF];
         inventory->handle=(long)handle;inventory->counts[0]=record[4];inventory->counts[1]=record[5];
     }

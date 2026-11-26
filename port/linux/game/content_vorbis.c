@@ -23,6 +23,7 @@ above): a build with neither builds this to nothing) */
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "content_bytes.h"
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Weverything"
@@ -523,11 +524,6 @@ https://github.com/xiph/vorbis/blob/v1.3.7/lib/codebook.c
 #include "mcc_loading.h"
 #include "mcc_host_memory.h"
 
-static uint32_t mcc_ogg_u32(unsigned char const *p)
-{
-    return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;
-}
-
 /* The pull decoder does not verify page checksums. Validate the complete bounded
  * permutation first, including EOS, so a truncated/damaged packet is not made
  * acceptable by the narrow empty-book compatibility rule. */
@@ -555,18 +551,18 @@ static int mcc_ogg_validate(unsigned char const *bytes, uint32_t size, uint32_t 
         if (length>size-offset || (count && !!(page[5]&1)!=continued)) return 0;
         if (!offset) {
             if (!(page[5]&2)) return 0;
-            serial=mcc_ogg_u32(page+14);sequence=mcc_ogg_u32(page+18);
-        } else if ((page[5]&2) || mcc_ogg_u32(page+14)!=serial || mcc_ogg_u32(page+18)!=sequence) return 0;
+            serial=content_u32le(page+14);sequence=content_u32le(page+18);
+        } else if ((page[5]&2) || content_u32le(page+14)!=serial || content_u32le(page+18)!=sequence) return 0;
         for (i=0;i<length;i++) {
             unsigned char value=i>=22 && i<26 ? 0 : page[i];
             crc=(crc<<8)^table[(crc>>24)^value];
         }
-        if (crc!=mcc_ogg_u32(page+22)) return 0;
+        if (crc!=content_u32le(page+22)) return 0;
         /* A page without a completed packet has no granule. All other known
          * positions must progress; EOS cannot trim an earlier page's audio. */
-        if (mcc_ogg_u32(page+6)!=0xFFFFFFFFu || mcc_ogg_u32(page+10)!=0xFFFFFFFFu) {
-            if (mcc_ogg_u32(page+10) || mcc_ogg_u32(page+6)<previous_granule) return 0;
-            previous_granule=mcc_ogg_u32(page+6);
+        if (content_u32le(page+6)!=0xFFFFFFFFu || content_u32le(page+10)!=0xFFFFFFFFu) {
+            if (content_u32le(page+10) || content_u32le(page+6)<previous_granule) return 0;
+            previous_granule=content_u32le(page+6);
         }
         /* Ogg permits zero-segment pages (including a separate EOS page). With
          * no lacing entries no packet begins or ends, so retain pending state.
@@ -577,8 +573,8 @@ static int mcc_ogg_validate(unsigned char const *bytes, uint32_t size, uint32_t 
         }
         ended=(page[5]&4)!=0;
         if (ended) {
-            if (continued || mcc_ogg_u32(page+10)) return 0;
-            *frames=mcc_ogg_u32(page+6);
+            if (continued || content_u32le(page+10)) return 0;
+            *frames=content_u32le(page+6);
             if (!count) {
                 if (!last_end) return 0;
                 *payload_end=last_end;*final_page=last_page;

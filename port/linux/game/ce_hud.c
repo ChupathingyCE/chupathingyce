@@ -77,6 +77,7 @@ hud_definitions.hpp agrees).
 
 #include <stdio.h>
 #include <stdlib.h>
+#include "content_bytes.h"
 
 /* ---------- constants */
 
@@ -264,17 +265,11 @@ unsigned long ce_resources_allocate(unsigned long size);
 unsigned long ce_resources_free_mark(void);
 void ce_resources_free_to(unsigned long mark);
 
-static unsigned long ce_hud_read_long(
-	byte const *data)
-{
-	return *(unsigned long const *)data;
-}
-
 /* the bitmap group a tag reference names in this map's tags, or NULL */
 static byte *ce_hud_bitmap_group(
 	byte const *reference)
 {
-	long tag_index = (long)ce_hud_read_long(reference + TAG_REFERENCE_INDEX_OFFSET);
+	long tag_index = (long)content_u32(reference + TAG_REFERENCE_INDEX_OFFSET);
 	struct ce_tag_instance *instance;
 
 	if (tag_index == -1 || (tag_index & 0xffff) >= ce_hud_tag_count)
@@ -292,10 +287,10 @@ static byte *ce_hud_block_elements(
 	unsigned long element_size,
 	long *count)
 {
-	unsigned long address = ce_hud_read_long(block + TAG_BLOCK_ADDRESS_OFFSET);
+	unsigned long address = content_u32(block + TAG_BLOCK_ADDRESS_OFFSET);
 	byte *elements;
 
-	*count = (long)ce_hud_read_long(block + TAG_BLOCK_COUNT_OFFSET);
+	*count = (long)content_u32(block + TAG_BLOCK_COUNT_OFFSET);
 	if (*count <= 0 || !address)
 		return NULL;
 	elements = *count <= CE_HUD_MAXIMUM_ELEMENTS ? ce_loaded_pointer(address, (unsigned long)*count * element_size) :
@@ -404,8 +399,8 @@ static void ce_hud_meter_bitmap(
 	bitmap_group = ce_hud_bitmap_group(element + ELEMENT_BITMAP_OFFSET);
 	if (!bitmap_group)
 		return;
-	count = (long)ce_hud_read_long(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET + TAG_BLOCK_COUNT_OFFSET);
-	address = ce_hud_read_long(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET + TAG_BLOCK_ADDRESS_OFFSET);
+	count = (long)content_u32(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET + TAG_BLOCK_COUNT_OFFSET);
+	address = content_u32(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET + TAG_BLOCK_ADDRESS_OFFSET);
 	if (count <= 0 || !address)
 		return;
 	bitmaps = count <= CE_HUD_MAXIMUM_BITMAPS ? ce_loaded_pointer(address, (unsigned long)count * BITMAP_SIZE) : NULL;

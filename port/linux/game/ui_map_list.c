@@ -185,6 +185,7 @@ static void ce_map_tidy_name(
 #include <xtl.h>
 #endif
 #include <stdlib.h>
+#include "content_bytes.h"
 
 /* ---------- constants */
 
@@ -962,11 +963,6 @@ enum
 	SCENARIO_READ_SIZE = 0x358,
 };
 
-static unsigned long little_long(unsigned char const *bytes)
-{
-	return bytes[0] | (bytes[1] << 8) | ((unsigned long)bytes[2] << 16) | ((unsigned long)bytes[3] << 24);
-}
-
 static boolean map_file_details(
 	short family,
 	char const *file,
@@ -984,21 +980,21 @@ static boolean map_file_details(
 		return FALSE;
 	if (fread(header, sizeof(header), 1, stream) == 1 && !memcmp(header, "daeh", 4))
 	{
-		tag_data = little_long(header + MAP_FILE_TAG_DATA_OFFSET);
+		tag_data = content_u32le(header + MAP_FILE_TAG_DATA_OFFSET);
 		if (!fseek(stream, (long)tag_data, SEEK_SET) && fread(index, sizeof(index), 1, stream) == 1)
 		{
-			tag_array = little_long(index) - MAP_FILE_TAG_BASE_ADDRESS;
-			scenario_index = little_long(index + 4) & 0xFFFF;
-			if (scenario_index < little_long(index + 12) &&
+			tag_array = content_u32le(index) - MAP_FILE_TAG_BASE_ADDRESS;
+			scenario_index = content_u32le(index + 4) & 0xFFFF;
+			if (scenario_index < content_u32le(index + 12) &&
 				!fseek(stream, (long)(tag_data + tag_array + scenario_index * MAP_FILE_TAG_SIZE), SEEK_SET) &&
 				fread(tag, sizeof(tag), 1, stream) == 1 && !memcmp(tag, "rncs", 4))
 			{
-				scenario_address = little_long(tag + MAP_FILE_TAG_DATA_ADDRESS) - MAP_FILE_TAG_BASE_ADDRESS;
+				scenario_address = content_u32le(tag + MAP_FILE_TAG_DATA_ADDRESS) - MAP_FILE_TAG_BASE_ADDRESS;
 				if (!fseek(stream, (long)(tag_data + scenario_address), SEEK_SET) &&
 					fread(scenario, sizeof(scenario), 1, stream) == 1)
 				{
-					*spawns = (long)little_long(scenario + SCENARIO_PLAYER_STARTING_LOCATIONS_COUNT);
-					*vehicles = (long)little_long(scenario + SCENARIO_VEHICLES_COUNT);
+					*spawns = (long)content_u32le(scenario + SCENARIO_PLAYER_STARTING_LOCATIONS_COUNT);
+					*vehicles = (long)content_u32le(scenario + SCENARIO_VEHICLES_COUNT);
 					read = *spawns >= 0 && *spawns < 4096 && *vehicles >= 0 && *vehicles < 4096;
 				}
 			}
