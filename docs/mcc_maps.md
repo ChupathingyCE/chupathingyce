@@ -615,7 +615,7 @@ are not an MCC implementation dependency. The independent components are:
 | `port/linux/game/mcc_geometry.c` | New model descriptors, model vertex/index conversion, external BSP vertex streams and node palettes. |
 | `port/linux/game/mcc_audio.c` | MCC sound decoding, resampling and Xbox ADPCM encoding into an MCC virtual stream. |
 | `port/linux/game/mcc_resources.c` | MCC-only resource selection, dependency fingerprints, indexed reads and file lifetime. |
-| `port/linux/game/mcc_vorbis.c` | Private namespaced Vorbis decoder, bounded Ogg validation and empty residue vector compatibility. |
+| `port/linux/game/content_vorbis.c` (`mcc_vorbis_decode`) | MCC's Vorbis decoder over the game's one stb_vorbis: bounded Ogg validation and empty residue vector compatibility. |
 | `port/linux/game/mcc_bitmaps.c` | MCC pixel layout, BC7 decoding and shader/HUD channel normalization into an MCC virtual stream. |
 | `port/linux/game/mcc_texture_cache.c` and `port/linux/src/mcc_texture_bridge.c` | Direct bindings of checked MCC pixel allocations and lazy GPU textures, independent of the Xbox/CE staging cache. |
 | `port/linux/game/mcc_tags.c` | MCC metadata, shader-type, HUD placement and widget normalization. |

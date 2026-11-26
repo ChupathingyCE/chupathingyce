@@ -34,6 +34,7 @@ compiled with the macOS build's flags, as the game's own units are):
                     ce_resources.c's reader of resource maps fuzzed through
                     the same checks and load.
   MAP_FUZZ_VORBIS   an Ogg Vorbis stream through ce_vorbis_decode (stb_vorbis),
+                    and mcc_vorbis_decode where the build has MCC maps,
                     as a Custom Edition sound's permutation is decoded.
   MAP_FUZZ_FORGE_AI a campaign map as Forge's AI characters read one into a
                     multiplayer map (port/linux/game/forge_ai_tags.c): the
@@ -247,6 +248,18 @@ int ce_vorbis_resample_piece(short **samples, int frames, int channels, int rate
 int ce_vorbis_edges(const unsigned char *data, int size, int count, int whole, int *channels, int *sample_rate,
 	short *head, int *head_frames, short *tail, int *tail_frames);
 void ce_vorbis_free(short *samples);
+#ifdef MAP_FUZZ_VORBIS
+#include "halo_port_features.h"
+/* (MCC's decoder, over the same stb_vorbis: content_vorbis.c, where the build
+has MCC maps) */
+int mcc_vorbis_decode(unsigned char const *bytes, uint32_t size, uint32_t frame_limit,
+	short **samples, uint32_t *frames, uint32_t *rate, int *channels);
+void mcc_vorbis_free(short *samples);
+void mcc_loading_pulse(void);
+void mcc_loading_pulse(void)
+{
+}
+#endif
 
 /* ---------- globals */
 
@@ -1776,6 +1789,23 @@ int LLVMFuzzerTestOneInput(unsigned char const *data, size_t size)
 			}
 		}
 		ce_vorbis_free(samples);
+#if HALO_MCC
+		/* (and through MCC's decoder, its pages checked first) */
+		{
+			short *pcm = NULL;
+			uint32_t mcc_frames = 0, mcc_rate = 0;
+			int mcc_channels = 0;
+
+			if (mcc_vorbis_decode(data, (uint32_t)size, 0x1000000u, &pcm, &mcc_frames, &mcc_rate, &mcc_channels) && pcm)
+			{
+				volatile short sink = pcm[(size_t)mcc_frames * (size_t)mcc_channels - 1];
+
+				(void)sink;
+			}
+			if (pcm)
+				mcc_vorbis_free(pcm);
+		}
+#endif
 	}
 #else
 #ifdef MAP_FUZZ_CE
