@@ -3025,7 +3025,14 @@ HRESULT WINAPI D3DDevice_GetDepthStencilSurface(D3DSurface **result)
 	return S_OK;
 }
 
+#ifdef HALO_CONSOLE_NO_GPU_TRACE
+/* (the trace of a frame's draws, debug.gpu_trace_frame: a developer's tool,
+left out of a console's build without them) */
+#define trace_frame() FALSE
+#define trace_draw(kind, type, count, first_vertex) ((void)0)
+#else
 static BOOL trace_frame(void);
+#endif
 
 void WINAPI D3DDevice_SetRenderTarget(D3DSurface *render_target, D3DSurface *depth_stencil)
 {
@@ -5205,6 +5212,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 
 /* ---------- tracing (debug.gpu_trace_frame) */
 
+#ifndef HALO_CONSOLE_NO_GPU_TRACE
 static BOOL trace_frame(void)
 {
 	static long frame = -2;
@@ -5216,11 +5224,12 @@ static BOOL trace_frame(void)
 
 static void trace_draw(const char *kind, D3DPRIMITIVETYPE type, unsigned long count, const float *first_vertex)
 {
-	struct vertex_shader_object *program = current_program();
+	struct vertex_shader_object *program;
 	DWORD *rs = D3D__RenderState;
 
 	if (!trace_frame())
 		return;
+	program = current_program();
 	platform_log("%s type %d count %lu vs %lu (decl %lu) vp %lu,%lu %lux%lu z%.2f-%.2f zen %lu zw %lu zf %lx blend %lu %lx/%lx cull %lx cw %08lx tm %05lx cc %lx fin %08lx/%08lx at %lu/%lx",
 		kind, type, count, program ? program->id : 0, device.vertex_shader ? device.vertex_shader->id : 0,
 		device.viewport.X, device.viewport.Y, device.viewport.Width, device.viewport.Height,
@@ -5297,6 +5306,7 @@ static void trace_draw(const char *kind, D3DPRIMITIVETYPE type, unsigned long co
 		}
 	}
 }
+#endif
 
 
 /* Mesa's GL thread queues a glBufferSubData of up to 8 KB; a larger one
