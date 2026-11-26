@@ -843,8 +843,8 @@ enum
 	_icon_use_equipment,
 	_icon_rotate_weapons,
 	_icon_rotate_grenades,
-	_icon_crouch,
 	_icon_zoom,
+	_icon_crouch,
 	_icon_accept,
 	_icon_back,
 	_icon_move,
@@ -1834,8 +1834,8 @@ static char button_mappings[_icon_custom_1 - _icon_action] =
 	4,		/* use-equipment -> melee */
 	3,		/* rotate-weapons -> switch weapons */
 	1,		/* rotate-grenades -> switch grenades */
+	11,		/* zoom -> zoom (port: zoom before crouch, as retail's tags and table) */
 	10,		/* crouch -> crouch */
-	11,		/* zoom -> zoom */
 	_icon_a_button,		/* accept */
 	_icon_b_button,		/* back */
 	_icon_left_stick,	/* move */
@@ -6789,6 +6789,34 @@ static boolean ui_widget_port_text_wrap(
 }
 
 
+/* a text box's text, in its own block of the widget pool, made as big as
+the string needs. port: when the pool can't give it a bigger block, the text
+box keeps the block and the text it had. The Xbox's code dropped the block
+(never given back) and kept the "<out of memory>" string in its place, which
+the next frame handed back to the pool as if it were a block of its own: a
+halt in stack_memory_pool.c in builds that check (#1832) */
+static void widget_instance_text_box_text_set(
+	struct widget_instance *widget,
+	wchar_t const *string,
+	unsigned long length)
+{
+	wchar_t *text = pool_resize_pointer(
+		widget_memory_pool,
+		widget->parameters.text_box.text,
+		2 * length + 2,
+		"c:\\halo\\SOURCE\\interface\\ui_widget.c",
+		4421);
+
+	if (text)
+	{
+		widget->parameters.text_box.text = text;
+		csmemcpy(text, string, 2 * length);
+		text[length] = 0;
+	}
+
+	return;
+}
+
 static void widget_instance_render_text_box(
 	struct widget_instance *widget,
 	struct ui_widget_definition *definition,
@@ -6903,21 +6931,7 @@ static void widget_instance_render_text_box(
 				string = (wchar_t *)spinner_extras[extra].descriptions[item];
 		}
 		length = ustrlen(string);
-		widget->parameters.text_box.text = pool_resize_pointer(
-			widget_memory_pool,
-			widget->parameters.text_box.text,
-			2 * length + 2,
-			"c:\\halo\\SOURCE\\interface\\ui_widget.c",
-			4421);
-		if (widget->parameters.text_box.text)
-		{
-			csmemcpy(widget->parameters.text_box.text, string, 2 * length);
-			widget->parameters.text_box.text[length] = 0;
-		}
-		else
-		{
-			widget->parameters.text_box.text = L"<out of memory>";
-		}
+		widget_instance_text_box_text_set(widget, string, length);
 	}
 	text = &widget->parameters.text_box.text;
 	if (!*text || !**text)
@@ -7329,7 +7343,9 @@ static void widget_instance_render_spinner_list(
 				rasterizer_draw_unicode_string(&bounds, &clip, NULL, 0, item_text);
 			}
 		}
-		if (definition->text_label_string_list.index != NONE)
+		/* port: none to give back when the pool had no room for it (the
+		Xbox's code gave back the NULL: an "invalid pointer" halt, #1832) */
+		if (definition->text_label_string_list.index != NONE && item_text)
 			dispose_pointer(widget_memory_pool, item_text);
 	}
 

@@ -609,12 +609,37 @@ static int cmd_update(unsigned long long id)
 	return cmd_subscribe(id);
 }
 
+/* CANCEL: taken out of the queue, or its steamcmd ended if it is the one downloading */
+static int cmd_cancel(unsigned long long id)
+{
+	char text[STEAM_BRIDGE_ID_SIZE];
+	struct steam_bridge_item *item;
+	int index;
+
+	snprintf(text, sizeof(text), "%llu", id);
+	for (index = 0; index < cmd.queue_count; index++)
+	{
+		if (!strcmp(cmd.queue[index], text))
+		{
+			memmove(cmd.queue[index], cmd.queue[index + 1], sizeof(cmd.queue[0]) * (size_t)(cmd.queue_count - index - 1));
+			cmd.queue_count--;
+			break;
+		}
+	}
+	if (cmd.job == JOB_ITEM && !strcmp(cmd.job_id, text))
+		job_end(0);
+	if ((item = known(text)) != NULL && item->state != STEAM_BRIDGE_ITEM_INSTALLED)
+		item->state = STEAM_BRIDGE_ITEM_NONE;
+	return 1;
+}
+
 const struct steam_bridge_backend steam_bridge_cmd_backend =
 {
 	cmd_connect,
 	cmd_disconnect,
 	cmd_subscribe,
-	NULL,
+	/* (no subscriptions here: its unsubscribe is a CANCEL's) */
+	cmd_cancel,
 	cmd_query,
 	cmd_tick,
 	cmd_needs_sign_in,

@@ -366,6 +366,15 @@ HALO_CONSOLE_MARKER_LOOKUPS
 	when the marker it names bears the name asked for, and they are
 	forgotten as a map's tags go (scenario_tags_unload), so the answers
 	are the search's own. From Lord BirchWood's work
+HALO_CONSOLE_COLLISION_CACHES
+	the collision tests' caches (#1559), with the same answers: a
+	location's weather and water read from a table by cluster, made once a
+	bsp (scenario_get_current, source/scenario/wind.c, #1620); the sound
+	obstruction rays stop at the first thing they meet and keep a repeated
+	ray's structure test (collision_test_vector_obstructed,
+	source/physics/collisions.c, #1624; its memo 21 KB of statics). The
+	desktop builds read the tags and test every ray in full until they opt
+	in. From Lord BirchWood's Vita port
 HALO_CONSOLE_XBOX_MAP_SIZES
 	a console that plays the Xbox's own maps only (no Custom Edition or
 	Halo PC maps): tables the desktop builds size for those maps are sized
@@ -511,6 +520,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
 #endif
 
 /* (xbox_address.h read first, with the window at its default: the units
@@ -542,6 +552,7 @@ would disagree about where the heap starts) */
 #define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
 #endif
 
 #if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
@@ -591,6 +602,7 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
 /* (its shadow maps: 512x512 at most, beside the screen in its 10 MB of EDRAM;
 d3d8_gl.c) */
 #define HALO_CONSOLE_SHADOW_MAP_MAXIMUM 512

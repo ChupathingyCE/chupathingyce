@@ -2631,10 +2631,17 @@ void hs_evaluate_object_cast_up(
 	}
 	else if (*object_index!=NONE)
 	{
-		struct object_datum *object = object_get(*object_index);
+		/* port: an object a script kept after it was deleted casts to
+		none, as a none object does, rather than halting the game
+		(#1829); a live object is cast as before */
+		struct object_datum *object = object_try_and_get(*object_index);
 		short object_type = function_index-_hs_function_inspect;
 
-		if (TEST_FLAG((short)hs_object_type_masks[object_type], object->object.type))
+		if (!object)
+		{
+			hs_return(thread_index, NONE);
+		}
+		else if (TEST_FLAG((short)hs_object_type_masks[object_type], object->object.type))
 		{
 			hs_return(thread_index, *object_index);
 		}
