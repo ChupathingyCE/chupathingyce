@@ -9,7 +9,7 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 | Platform | Download | Notes |
 | --- | --- | --- |
 | Windows (64-bit) | `chupathingyce-windows64-release.zip` | Windows 10 or later, 64-bit. |
-| Windows (32-bit, older PCs) | `chupathingyce-windows-release.zip` | Windows 10 or later. |
+| Windows (32-bit) | `chupathingyce-windows-release.zip` | Windows 10 or later, 64-bit. On a 32-bit Windows PC, use [Chupathingy32](https://github.com/ChupathingyCE/chupathingy32/releases). |
 | Linux (64-bit), AppImage | `chupathingyce-linux64-release.AppImage` | One file: make it executable and run it. glibc 2.31 or later. Updates itself. |
 | Linux (64-bit) | `chupathingyce-linux64-release.zip` | glibc 2.31 or later (Debian 11, Ubuntu 20.04). Brings its own SDL3. See [port/linux/README.md](../port/linux/README.md). |
 | Linux (32-bit, older systems) | `chupathingyce-linux-release.zip` | glibc 2.31 or later (32-bit). Brings its own SDL3. See [port/linux/README.md](../port/linux/README.md). |

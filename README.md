@@ -82,7 +82,7 @@ Download the latest release from the [Releases page](https://github.com/Chupathi
 | Android 9 or later, 64-bit | `chupathingyce-android64-release.zip` |
 | FreeBSD | `chupathingyce-freebsd64-release.zip` |
 
-Step-by-step setup for each system, including the Steam Deck, is in [docs/install.md](docs/install.md#getting-started). Older 32-bit PCs and the Linux zip are there too.
+Step-by-step setup for each system, including the Steam Deck, is in [docs/install.md](docs/install.md#getting-started). The 32-bit builds and the Linux zip are there too. On a 32-bit Windows PC, use [Chupathingy32](https://github.com/ChupathingyCE/chupathingy32/releases).
 
 The game checks for updates when it starts and asks before installing one. It only installs updates we've signed. On a Mac, it opens the download page instead.
 
