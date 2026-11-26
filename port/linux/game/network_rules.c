@@ -10,7 +10,6 @@ The rules of network_rules.h.
 
 #include <string.h>
 #include "content_bytes.h"
-#include "content_bytes.h"
 
 typedef char network_rules_layout_kinds_fit[sizeof(((struct network_rules_layout *)0)->dropped) ==
 	DELTA_LAYOUT_KIND_BYTES ? 1 : -1];
