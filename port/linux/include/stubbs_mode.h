@@ -41,7 +41,6 @@ void stubbs_mode_set_file_reader(boolean (*read)(long offset, long size, void *b
 read from the map file (tag_validate.c) */
 boolean stubbs_mode_owns_data(void const *address, long size);
 
-
 /* a Stubbs structure BSP just read (its header at bsp_base, size bytes)
 rewritten where Halo's differs, before its schema check */
 void stubbs_mode_convert_structure_bsp(void *bsp_base, unsigned long size);
