@@ -17,7 +17,6 @@ void mcc_identity_host_clear(void);
 settings record, over a fragment of it */
 void mcc_identity_host_overlay(char const *map, long record_size, long name_offset, long offset, long length,
     unsigned char *data);
-void const *mcc_identity_host_settings(void const *game, long bytes, struct network_game *copy);
 /* port: (network_distributed.c) the host's identity as OpenCE's admission
 hold carries it (196 bytes: the 128-byte map name field with its Workshop
 tail, the content and metadata digests, the checksum left zero): 0 while

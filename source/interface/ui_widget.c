@@ -2292,9 +2292,7 @@ void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget)
 
 /* (MCC maps offered in every game of a build that has them, offline and
 hosted: a network game on one is hosted at the newest MCC-capable OpenCE
-number over the usual wire, network_game_server_mcc_version. MCC's own record
-and messages, HALO_MCC_NETWORK in mcc_identity.c and network_distributed.c,
-are no build's) */
+number over the usual wire, network_game_server_mcc_version) */
 static boolean ui_widget_port_mcc_offered(void)
 {
 	return TRUE;
