@@ -9,6 +9,9 @@ OBJECTS.C
 #include "mcc_object_names.h" /* port: port/linux/game/mcc_object_names.c */
 #include "mcc_objects.h" /* port: port/linux/game/mcc_objects.c */
 #include "stubbs_regions.h" /* port: port/linux/game/stubbs_regions.c */
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#endif
 
 #include "damage.h"
 #include "light_definitions.h"
@@ -5236,6 +5239,21 @@ static short object_find_region_permutations_available_with_variant(
 			struct model_region_permutation);
 		if (!TEST_FLAG(permutation->flags, _model_region_permutation_cannot_be_chosen_randomly_bit))
 		{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+			/* port: Stubbs's permutations' variant numbers are masks of the
+			variants they go with (a robot's mailbot chest 2, the hand every
+			robot but two shares 107, a part of all of them -1): one goes with
+			a variant that has any of its bits, and any goes at random
+			(Stubbs mode only: port/linux/game/stubbs_mode.c) */
+			if (stubbs_mode_active())
+			{
+				if (variant_number==NONE || (permutation->variant_number & variant_number))
+				{
+					available_indices[result++] = i;
+				}
+				continue;
+			}
+#endif
 			if (permutation->variant_number==variant_number ||
 				variant_number==NONE && permutation->variant_number< 100)
 			{
@@ -5307,6 +5325,15 @@ static short object_determine_variant_number(
 				region_permutations[region_index],
 				struct model_region_permutation
 			)->variant_number;
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+			/* port: in Stubbs's masks, the first chosen part's own variant (a
+			part of all of them, -1, says none): its lowest bit, which every
+			other region's parts are then chosen by (Stubbs mode only) */
+			if (stubbs_mode_active())
+			{
+				result = result==NONE ? 0 : (short)(result & -result);
+			}
+#endif
 		}
 	}
 
