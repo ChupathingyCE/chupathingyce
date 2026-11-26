@@ -105,6 +105,16 @@ int platform_gamepad_describe(int index, char *name, size_t size)
 	return -1;
 }
 
+/* (player 1's controller, for ADD PLAYERS: the server has no players' own) */
+void platform_gamepad_make_first(int port)
+{
+	(void)port;
+}
+
+void platform_gamepad_first_reset(void)
+{
+}
+
 int halo_input_from_name(const char *name)
 {
 	(void)name;

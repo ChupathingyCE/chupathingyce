@@ -187,6 +187,8 @@ tools/test_settings_layout.py
 tools/test_settings_pages.py
 tools/test_social.py
 tools/test_sound_cache_platforms.py
+tools/test_sound_listener_leave.py
+tools/test_split_screen_join.py
 tools/test_spv3_survey.py
 tools/test_steam_bridge.py
 tools/test_steam_content.py

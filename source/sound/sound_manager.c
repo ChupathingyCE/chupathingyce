@@ -3952,6 +3952,49 @@ void sound_idle(
 	return;
 }
 
+/* port: a local player who leaves a game under way (split screen's Quit:
+the others play on) takes their listener with them, and a sound they were
+the nearest listener of kept that listener's index: its next use
+(update_channels, source_distance_squared as another sound looks for a
+channel) asserted the listener valid. When the listeners change, such a
+sound goes to the first listener still valid, and refresh_sounds then
+gives it the nearest; with none valid, nothing is moved, as before */
+static void sounds_leave_invalid_listeners(
+	void)
+{
+	static long valid_listeners = 0;
+	long valid = 0;
+	short first_valid = NONE;
+	short listener_index;
+	long sound_index;
+
+	for (listener_index = MAXIMUM_NUMBER_OF_LOCAL_PLAYERS - 1; listener_index >= 0; listener_index--)
+	{
+		if (listener_get(listener_index)->valid)
+		{
+			valid |= 1L << listener_index;
+			first_valid = listener_index;
+		}
+	}
+	if (valid == valid_listeners)
+		return;
+	valid_listeners = valid;
+	if (first_valid == NONE)
+		return;
+	for (sound_index = data_next_index(sound_data, NONE);
+		sound_index != NONE;
+		sound_index = data_next_index(sound_data, sound_index))
+	{
+		struct sound_datum *sound = sound_get(sound_index);
+
+		if (sound->listener_index >= 0 && sound->listener_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS &&
+			!listener_get(sound->listener_index)->valid)
+		{
+			sound->listener_index = first_valid;
+		}
+	}
+}
+
 static void refresh_listener(
 	void)
 {
@@ -4069,6 +4112,8 @@ static void refresh_listener(
 			listener->valid = FALSE;
 		}
 	}
+	/* port: (sounds_leave_invalid_listeners) */
+	sounds_leave_invalid_listeners();
 
 	properties.forward = *global_forward3d;
 	properties.up = *global_up3d;

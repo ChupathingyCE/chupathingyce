@@ -48,5 +48,11 @@ boolean lobby_screen_preview_open(struct browser_game const *game,
 boolean lobby_screen_preview_active(void);
 /* the preview's answer: 1 JOIN THE GAME, -1 B (back to the list), 0 none yet */
 int lobby_screen_preview_answer(void);
+/* the preview's ADD PLAYERS: System Link's SELECT PROFILE is up over it,
+and a picked quarter's last A (TRUE: back to the preview; FALSE: a player
+is still picking) */
+boolean lobby_screen_adding_players(void);
+struct widget_instance;
+boolean lobby_screen_add_players_finish(struct widget_instance *screen, short controller);
 
 #endif

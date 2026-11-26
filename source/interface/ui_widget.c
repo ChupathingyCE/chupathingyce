@@ -728,6 +728,11 @@ boolean lobby_screen_active(void);
 void lobby_screen_update(boolean menu_open);
 void lobby_screen_process(void);
 void lobby_screen_render(void);
+/* (the preview's ADD PLAYERS: System Link's SELECT PROFILE over it) */
+boolean lobby_screen_adding_players(void);
+boolean lobby_screen_add_players_finish(struct widget_instance *screen, short controller);
+boolean lobby_screen_add_players_back(struct widget_instance *screen, short controller,
+	struct widget_instance const *widget, boolean *widget_gone);
 void lobby_screen_pointer(struct halo_ui_pointer const *pointer);
 /* the menus' pointer, while it is up (its own taps and clicks) */
 void browser_screen_pointer(struct halo_ui_pointer const *pointer);
@@ -4485,6 +4490,66 @@ short ui_widget_online_games_description(
 }
 #endif
 
+/* port: an event handler's "replace with other widget", the new widget
+(loaded beside it) put in the widget's place among its parent and siblings,
+the widget unlinked to be deleted; the Xbox's did it in
+event_handler_dispatch, which still does, and ui_widget_port_replace too */
+static void widget_instance_take_place_of(
+	struct widget_instance *new_widget,
+	struct widget_instance *widget)
+{
+	struct widget_instance *parent = widget->parent;
+	struct widget_instance *next = widget->next;
+	struct widget_instance *previous = widget->previous;
+	long widget_index;
+
+	if (new_widget->previous)
+		new_widget->previous->next = NULL;
+	new_widget->previous = NULL;
+	new_widget->parent = NULL;
+	new_widget->horizontal_offset += widget->horizontal_offset;
+	new_widget->vertical_offset += widget->vertical_offset;
+	if (parent)
+	{
+		new_widget->parent = parent;
+		if (parent->child == widget)
+			parent->child = new_widget;
+		if (parent->focused_child == widget)
+			parent->focused_child = new_widget;
+	}
+	if (next)
+	{
+		match_assert(
+			"c:\\halo\\SOURCE\\interface\\ui_widget.c",
+			3721,
+			next->previous == widget);
+		next->previous = new_widget;
+	}
+	new_widget->next = next;
+	if (previous)
+	{
+		match_assert(
+			"c:\\halo\\SOURCE\\interface\\ui_widget.c",
+			3728,
+			previous->next == widget);
+		previous->next = new_widget;
+	}
+	new_widget->previous = previous;
+	for (widget_index = 0;
+		widget_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS;
+		widget_index++)
+	{
+		if (widget_globals.active_widgets[widget_index] == new_widget)
+		{
+			widget_globals.active_widgets[widget_index] = NULL;
+			break;
+		}
+	}
+	widget->previous = NULL;
+	widget->next = NULL;
+	widget->parent = NULL;
+}
+
 static void event_handler_dispatch(
 	struct widget_instance *widget,
 	struct ui_widget_definition *definition,
@@ -4700,6 +4765,27 @@ static void event_handler_dispatch(
 		/* port: not from a widget its function deleted (it went back:
 		menu_functions.c's profile_save_changes), which the Xbox's opened
 		from regardless */
+#ifdef HALO_GAME_BROWSER
+		/* port: SELECT PROFILE over a game's preview (lobby_screen.c's ADD
+		PLAYERS): its last A goes back to the preview, not on to System
+		Link's game list */
+		if (TEST_FLAG(handler->flags, _event_handler_open_widget_bit) &&
+			!widget_deleted && lobby_screen_adding_players() &&
+			handler->widget_tag.index != NONE &&
+			handler->widget_tag.index == tag_loaded(UI_WIDGET_DEFINITION_TAG,
+				"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\server_list_screen"))
+		{
+			if (lobby_screen_add_players_finish(widget_instance_get_topmost_parent(widget),
+				event ? event->controller_index : NONE))
+			{
+				ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+				widget_instance_go_back_to_previous(widget);
+				widget_deleted = TRUE;
+			}
+			*calling_widget_deleted = widget_deleted;
+			return;
+		}
+#endif
 		/* MCC New Game can synchronously close every widget. Finish the event
 		with its deletion result before any navigation can reuse that tree. */
 		{
@@ -4742,58 +4828,11 @@ static void event_handler_dispatch(
 
 			if (new_widget)
 			{
-				struct widget_instance *parent = widget->parent;
-				struct widget_instance *next = widget->next;
-				struct widget_instance *previous = widget->previous;
-				long widget_index;
-
-				if (new_widget->previous)
-					new_widget->previous->next = NULL;
-				new_widget->previous = NULL;
-				new_widget->parent = NULL;
-				new_widget->horizontal_offset += widget->horizontal_offset;
-				new_widget->vertical_offset += widget->vertical_offset;
-				if (parent)
-				{
-					new_widget->parent = parent;
-					if (parent->child == widget)
-						parent->child = new_widget;
-					if (parent->focused_child == widget)
-						parent->focused_child = new_widget;
-				}
-				if (next)
-				{
-					match_assert(
-						"c:\\halo\\SOURCE\\interface\\ui_widget.c",
-						3721,
-						next->previous == widget);
-					next->previous = new_widget;
-				}
-				new_widget->next = next;
-				if (previous)
-				{
-					match_assert(
-						"c:\\halo\\SOURCE\\interface\\ui_widget.c",
-						3728,
-						previous->next == widget);
-					previous->next = new_widget;
-				}
-				new_widget->previous = previous;
-				for (widget_index = 0;
-					widget_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS;
-					widget_index++)
-				{
-					if (widget_globals.active_widgets[widget_index] == new_widget)
-					{
-						widget_globals.active_widgets[widget_index] = NULL;
-						break;
-					}
-				}
+				/* port: widget_instance_take_place_of, which
+				ui_widget_port_replace shares */
+				widget_instance_take_place_of(new_widget, widget);
 				if (audio_feedback == _ui_audio_feedback_none)
 					audio_feedback = _ui_audio_feedback_forward;
-				widget->previous = NULL;
-				widget->next = NULL;
-				widget->parent = NULL;
 				close_current = TRUE;
 			}
 			else
@@ -5188,6 +5227,26 @@ boolean ui_widget_port_dispatch_event(
 	}
 	return found;
 }
+
+#ifdef HALO_GAME_BROWSER
+/* port: the widget replaced by the tag's, as an event handler's "replace
+with other widget" does it (lobby_screen.c's ADD PLAYERS: a quarter of
+SELECT PROFILE back to its "press A to join"): the new widget, or NULL
+when the tag did not load and the widget is kept */
+struct widget_instance *ui_widget_port_replace(
+	struct widget_instance *widget,
+	long tag_index)
+{
+	struct widget_instance *new_widget = ui_widget_load_by_name_or_tag(NULL, tag_index, widget,
+		widget->local_player_index, NONE, NONE, NONE);
+
+	if (!new_widget)
+		return NULL;
+	widget_instance_take_place_of(new_widget, widget);
+	ui_widget_delete(widget);
+	return new_widget;
+}
+#endif
 
 /* port: the number of a list's focused item: among all its children, but
 in the PC version's lists (port/assets/menus) among those that take events,
@@ -10243,6 +10302,27 @@ static void widget_instance_process_one_event_recursive(
 			{
 				handled_by_event_handler = TRUE;
 			}
+#ifdef HALO_GAME_BROWSER
+			/* port: SELECT PROFILE over a game's preview (lobby_screen.c's
+			ADD PLAYERS): B with a joined quarter empties that quarter alone
+			(the screen stays); with an empty one it goes back, as the
+			Xbox's did; when the B came to the quarter itself or a widget
+			inside it, that widget went with it and is not used again */
+			if (!handled_by_event_handler && event->data.button.index == _widget_event_b_button)
+			{
+				boolean widget_gone = FALSE;
+
+				if (lobby_screen_add_players_back(widget_instance_get_topmost_parent(widget),
+					event->controller_index, widget, &widget_gone))
+				{
+					audio_feedback = _ui_audio_feedback_back;
+					event_handled = TRUE;
+					handled_by_event_handler = TRUE;
+					if (widget_gone)
+						widget_deleted = TRUE;
+				}
+			}
+#endif
 			if (!handled_by_event_handler)
 			{
 				widget_instance_go_back_to_previous(widget);
