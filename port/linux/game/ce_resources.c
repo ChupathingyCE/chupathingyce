@@ -45,6 +45,7 @@ for one not there) they are found in Custom Edition's by their tags' paths
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
 #include "ce_map_checks.h"
+#include "content_resource_map.h"
 #include "content_sha256.h"
 #include "halo_map_families.h"
 #include "halopc_bitmap_offsets.h"
@@ -125,19 +126,12 @@ enum
 
 /* ---------- structures */
 
-struct ce_resource
-{
-	unsigned long path_offset;
-	unsigned long size;
-	unsigned long offset;
-};
-
 struct ce_resource_map
 {
 	HANDLE file;
 	unsigned long file_size;
 	unsigned long count;
-	struct ce_resource *resources;
+	struct content_resource_entry *resources;
 	char *paths;
 	unsigned long paths_size;
 };
@@ -231,7 +225,8 @@ static boolean ce_resource_map_open(
 {
 	struct ce_resource_map *map = &ce_resource_maps[type];
 	char path[256];
-	unsigned long header[4];
+	byte header_bytes[CONTENT_RESOURCE_HEADER_SIZE];
+	struct content_resource_header header;
 	unsigned long file_size, file_size_high = 0;
 	HANDLE file;
 
@@ -249,32 +244,39 @@ static boolean ce_resource_map_open(
 	/* (its type, its paths before its resources' table, the table in the
 	file) */
 	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > 0x7fffffff ||
-		!ce_read(file, 0, header, sizeof(header)) || header[0] != (unsigned long)(type + 1) ||
-		header[3] > CE_MAXIMUM_ELEMENTS || header[1] > header[2] ||
-		!ce_range_within(header[2], header[3] * sizeof(struct ce_resource), file_size))
+		!ce_read(file, 0, header_bytes, sizeof(header_bytes)))
 	{
 		CloseHandle(file);
 		return ce_refuse("%s is not a resource map", path);
 	}
-	map->resources = system_malloc(header[3] * sizeof(struct ce_resource) + 1);
-	if (!map->resources || !ce_read(file, header[2], map->resources, header[3] * sizeof(struct ce_resource)))
+	content_resource_header_read(header_bytes, &header);
+	if (header.type != (unsigned long)(type + 1) || header.count > CE_MAXIMUM_ELEMENTS ||
+		!content_resource_header_within(&header, file_size))
+	{
+		CloseHandle(file);
+		return ce_refuse("%s is not a resource map", path);
+	}
+	map->resources = system_malloc(header.count * sizeof(struct content_resource_entry) + 1);
+	if (!map->resources ||
+		!ce_read(file, header.table_offset, map->resources, header.count * sizeof(struct content_resource_entry)))
 	{
 		system_free(map->resources);
 		map->resources = NULL;
 		CloseHandle(file);
 		return ce_refuse("%s's resources could not be read", path);
 	}
+	content_resource_table_read(map->resources, header.count);
 	/* (the paths, to find a sound's resource by its tag's name) */
-	map->paths_size = header[2] - header[1];
+	map->paths_size = header.table_offset - header.paths_offset;
 	map->paths = map->paths_size ? system_malloc(map->paths_size + 1) : NULL;
-	if (map->paths && ce_read(file, header[1], map->paths, map->paths_size))
+	if (map->paths && ce_read(file, header.paths_offset, map->paths, map->paths_size))
 		map->paths[map->paths_size] = 0;
 	else
 	{
 		system_free(map->paths);
 		map->paths = NULL;
 	}
-	map->count = header[3];
+	map->count = header.count;
 	map->file_size = file_size;
 	map->file = file;
 	return TRUE;
@@ -603,7 +605,7 @@ static byte *ce_retail_read_resource(
 	unsigned long maximum_size,
 	unsigned long *size)
 {
-	struct ce_resource const *resource = &map->resources[resource_index];
+	struct content_resource_entry const *resource = &map->resources[resource_index];
 	byte *copy;
 
 	if (resource->size < minimum_size || resource->size > maximum_size ||
@@ -849,7 +851,7 @@ static int ce_resource_offset_compare(
 	void const *a,
 	void const *b)
 {
-	struct ce_resource const *first = a, *second = b;
+	struct content_resource_entry const *first = a, *second = b;
 
 	if (first->offset != second->offset)
 		return first->offset < second->offset ? -1 : 1;
@@ -871,9 +873,10 @@ static boolean ce_halo_pc_resource_map_open(
 	char const *custom_ending = type == _ce_resource_halo_pc_bitmaps ? "__pixels" : "__permutations";
 	size_t custom_ending_length = strlen(custom_ending);
 	char path[256];
-	unsigned long header[4];
+	byte header_bytes[CONTENT_RESOURCE_HEADER_SIZE];
+	struct content_resource_header header;
 	unsigned long file_size, file_size_high = 0, paths_size, index, kept;
-	struct ce_resource *resources;
+	struct content_resource_entry *resources;
 	char *paths;
 	HANDLE file;
 
@@ -893,20 +896,26 @@ static boolean ce_halo_pc_resource_map_open(
 	/* (its type, its paths after its header and before its table, the
 	table in the file, and no more than 4 MB of paths: Halo PC's are under
 	200 KB) */
-	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > 0x7fffffff ||
-		!ce_read(file, 0, header, sizeof(header)) || header[0] != kind || !header[3] ||
-		header[3] > CE_MAXIMUM_ELEMENTS || header[1] < sizeof(header) || header[1] > header[2] ||
-		header[2] - header[1] > 0x400000 || !ce_range_within(header[2], header[3] * sizeof(struct ce_resource), file_size))
+	memset(&header, 0, sizeof(header));
+	if (file_size != INVALID_FILE_SIZE && !file_size_high && file_size <= 0x7fffffff &&
+		ce_read(file, 0, header_bytes, sizeof(header_bytes)))
+	{
+		content_resource_header_read(header_bytes, &header);
+	}
+	if (header.type != kind || !header.count || header.count > CE_MAXIMUM_ELEMENTS ||
+		header.paths_offset < CONTENT_RESOURCE_HEADER_SIZE || !content_resource_header_within(&header, file_size) ||
+		header.table_offset - header.paths_offset > 0x400000)
 	{
 		error(_error_silent, "HaloMD maps: %s is not a resource map of its kind; it is not read", path);
 		CloseHandle(file);
 		return FALSE;
 	}
-	paths_size = header[2] - header[1];
-	resources = malloc(header[3] * sizeof(struct ce_resource));
+	paths_size = header.table_offset - header.paths_offset;
+	resources = malloc(header.count * sizeof(struct content_resource_entry));
 	paths = malloc(paths_size + 1);
-	if (!resources || !paths || !ce_read(file, header[2], resources, header[3] * sizeof(struct ce_resource)) ||
-		!ce_read(file, header[1], paths, paths_size))
+	if (!resources || !paths ||
+		!ce_read(file, header.table_offset, resources, header.count * sizeof(struct content_resource_entry)) ||
+		!ce_read(file, header.paths_offset, paths, paths_size))
 	{
 		error(_error_silent, "HaloMD maps: %s could not be read; it is not read", path);
 		if (resources)
@@ -917,12 +926,13 @@ static boolean ce_halo_pc_resource_map_open(
 		return FALSE;
 	}
 	paths[paths_size] = 0;
+	content_resource_table_read(resources, header.count);
 	/* (each resource in the file, with a path, and none named as Custom
 	Edition's: a Custom Edition resource map put in maps_pc is not Halo
 	PC's, whose offsets the retail maps give) */
-	for (index = 0, kept = 0; index < header[3]; index++)
+	for (index = 0, kept = 0; index < header.count; index++)
 	{
-		struct ce_resource const *resource = &resources[index];
+		struct content_resource_entry const *resource = &resources[index];
 		size_t length;
 
 		if (resource->path_offset >= paths_size)
@@ -951,7 +961,7 @@ static boolean ce_halo_pc_resource_map_open(
 		return FALSE;
 	}
 	/* (by offset, for ce_halo_pc_resource_is) */
-	qsort(resources, kept, sizeof(struct ce_resource), ce_resource_offset_compare);
+	qsort(resources, kept, sizeof(struct content_resource_entry), ce_resource_offset_compare);
 	map->resources = resources;
 	map->count = kept;
 	map->paths = NULL;
@@ -960,7 +970,7 @@ static boolean ce_halo_pc_resource_map_open(
 	map->file = file;
 	ce_halo_pc_states[which] = _ce_halo_pc_ready;
 	error(_error_silent, "HaloMD maps: Halo PC's own %s.map found (%s, %lu of its %lu resources in it)",
-		ce_resource_map_names[type], path, kept, header[3]);
+		ce_resource_map_names[type], path, kept, (unsigned long)header.count);
 	return TRUE;
 }
 
@@ -1558,7 +1568,7 @@ static boolean ce_resources_place_read(
 		short type = ce_resource_type(instance->group_tag);
 		char const *name = ce_image_tag_name(image, instance);
 		struct ce_resource_map *map;
-		struct ce_resource *resource;
+		struct content_resource_entry *resource;
 		byte *copy;
 		byte const *sound_header = NULL;
 
