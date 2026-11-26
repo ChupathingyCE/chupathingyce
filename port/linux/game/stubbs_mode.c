@@ -620,8 +620,9 @@ static long stubbs_animation_convert(unsigned char *base, unsigned long size, un
 
 /* a weapon class's animations in Halo's order. Stubbs's classes have up to 69
 of their own order (some fewer, the same order cut short: the vehicles'
-seats 67, the zombies' maimed seat 68, the head 61), one set of them for each way of moving (the sets, in
-order: standing, forward, back, left, right, then the four diagonals),
+seats 67, the zombies' maimed seat 68, the head 61), one set of them for
+each way of moving (the sets, in order: standing, forward, back, left,
+right, then the four diagonals),
 where Halo has one list of 55 with a slot for each direction. Their order is
 read from the names of a10's classes ("stand unarmed idle", "... move b",
 "... melee s-l"); slots Halo has and Stubbs doesn't are left empty, which
