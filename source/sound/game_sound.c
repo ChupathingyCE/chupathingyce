@@ -1037,13 +1037,30 @@ void compute_sound_obstruction(
 				source->location.game_location.cluster_index))
 			{
 				real_vector3d listener_to_source;
+#ifndef HALO_CONSOLE_COLLISION_CACHES
 				struct collision_result collision;
+#endif
 
 				source->obstruction = 0.45f;
 				vector_from_points3d(
 					&camera->position,
 					&source->location.position,
 					&listener_to_source);
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+				/* port: only whether the ray meets anything counts: the test
+				stops at the first thing it meets, and a ray asked again keeps
+				its structure test (collisions.c) */
+				if (!collision_test_vector_obstructed(
+					FLAG(_collision_test_front_facing_surfaces_bit) |
+						FLAG(_collision_test_structure_bit) |
+						FLAG(_collision_test_media_bit) |
+						FLAG(_collision_test_objects_bit) |
+						FLAG(_collision_test_objects_scenery_bit) |
+						FLAG(_collision_test_objects_machines_bit),
+					&camera->position,
+					&listener_to_source,
+					NONE))
+#else
 				if (!collision_test_vector(
 					FLAG(_collision_test_front_facing_surfaces_bit) |
 						FLAG(_collision_test_structure_bit) |
@@ -1055,6 +1072,7 @@ void compute_sound_obstruction(
 					&listener_to_source,
 					NONE,
 					&collision))
+#endif
 				{
 					source->obstruction = 0.0f;
 					source->occlusion = 0.0f;
