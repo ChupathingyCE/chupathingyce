@@ -163,7 +163,7 @@ unsigned long map_family_color(short family);
 
 /* the folder a player puts a family's maps in, as the menus tell them
 ("maps_ce", "maps_md", "maps_pc"; "maps" for the Xbox's; a pack's is
-maps_<pack>, map_pack_folder) */
+maps_<pack>) */
 char const *map_family_folder(short family);
 
 /* a family's name in logs and messages ("Custom Edition", "HaloMD",

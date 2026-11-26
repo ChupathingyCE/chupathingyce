@@ -123,9 +123,9 @@ enum
 	a client when it has loaded and once each game: 12 bytes, the header and
 	a 16-bit value (0 stock to 6, 6 each machine's own look from version
 	38) and 16 bits of 0, network_rules.c. 91 as in OpenCE's network version
-	36; a client takes and keeps it, and draws stock, the one this build has
-	(network_shield_effects). A host announcing 36 or later sends it: stock,
-	or from 38 each machine's own (6) */
+	36; a client takes and keeps it, and draws stock, the one this build
+	has. A host announcing 36 or later sends it: stock, or from 38 each
+	machine's own (6) */
 	_distributed_message_shield_effects = 91,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
@@ -282,7 +282,6 @@ boolean distributed_axes_make_valid(real_vector3d *forward, real_vector3d *up);
 /* the vectors in 16 bits a part (struct distributed_vector) */
 void distributed_vector_pack(real_vector3d const *vector, real scale, struct distributed_vector *result);
 void distributed_vector_unpack(struct distributed_vector const *vector, real scale, real_vector3d *result);
-void distributed_unit_vector_unpack(struct distributed_vector const *vector, real_vector3d *result);
 #define DISTRIBUTED_UNIT_SCALE 32767.0f
 #define DISTRIBUTED_VELOCITY_SCALE 1024.0f
 #define DISTRIBUTED_ANGULAR_VELOCITY_SCALE 4096.0f
@@ -304,9 +303,6 @@ later one: a client by its host's advertised version (one not known plays
 by the older rules), a host by the number it announces
 (delta_legacy_announce) */
 boolean network_rules_of_version(unsigned int version);
-/* a client: the host's shield effects (0 stock to 6, message 91), stock
-until it says; this build draws stock whatever they are */
-short network_shield_effects(void);
 
 /* ---------- prototypes/NETWORK_ACTORS.C */
 
