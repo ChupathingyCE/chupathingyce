@@ -7286,7 +7286,7 @@ long network_wire_self_test(
 	long report_size)
 {
 	if (report_size > 0)
-		snprintf(report, (size_t)report_size, "not run (a developer tool: configure.py --console-debug-tools)");
+		snprintf(report, (size_t)report_size, "not checked (debug tools only)");
 	return 0;
 }
 #endif
