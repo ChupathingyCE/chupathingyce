@@ -852,6 +852,12 @@ int opensauce_postprocess_active(void)
 	return pp.loaded && opensauce_map_active();
 }
 
+int opensauce_postprocess_drawn(void)
+{
+	return pp.loaded && opensauce_map_active() && config_boolean("display.opensauce_post_processing") &&
+		halo_opensauce_pp_available();
+}
+
 void opensauce_postprocess_tags_loaded(void *tag_instances, long tag_count)
 {
 	long tag_index;

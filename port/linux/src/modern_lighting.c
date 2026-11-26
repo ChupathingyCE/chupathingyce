@@ -43,6 +43,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "modern_lighting.h"
 #include "port_config.h"
 #include "capture.h"
+#include "opensauce_postprocess.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -96,8 +97,11 @@ const char *halo_ml_setting_note(const char *key)
 	Video Setup's RENDERER chooses it) */
 	if (halo_ml_unavailable())
 		reason = "NEEDS THE OPENGL RENDERER";
+	else if (traced)
+		reason = halo_ml_ray_tracing_reason();
+	/* (a map with its own post-processing: its bloom, not the glow) */
 	else
-		reason = traced ? halo_ml_ray_tracing_reason() : NULL;
+		reason = opensauce_postprocess_drawn() ? "OFF, THE MAP HAS ITS OWN" : NULL;
 	if (!reason)
 		return NULL;
 	snprintf(note, sizeof(note), "%s: %s", traced ? "RAY TRACING" : "GLOW", reason);
@@ -2898,9 +2902,13 @@ void halo_ml_glow_sdr(short x0, short y0, short x1, short y1)
 	}
 }
 
+/* (on a map that draws its own post-processing, OpenSauce's, as SPV3's
+levels: the glow steps aside, not a second bloom over the map's own) */
 int halo_ml_glow_on(void)
 {
 	(void)halo_ml_ray_tracing_mode();
+	if (opensauce_postprocess_drawn())
+		return 0;
 	return lab.glow >= 0 ? lab.glow > 0 : ml.glow;
 }
 
