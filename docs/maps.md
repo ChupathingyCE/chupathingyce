@@ -8,7 +8,10 @@ The first-start screen takes your Xbox disc image. It also accepts your Halo PC 
 `maps_pc`, and the Halo Custom Edition installer (`halocesetup_en_1.00.exe`),
 which fills `maps_ce` (not on Android yet, where **Import maps** takes
 loose `.map` files or a `.zip` of them). Or choose **Make the folders** to get empty `maps`,
-`maps_ce`, `maps_pc` and `maps_md` folders and copy the files in yourself.
+`maps_ce`, `maps_pc` and `maps_md` folders and copy the files in yourself. It also makes `maps_cex`
+(Halo CE+ Xbox), `maps_spv3` (SPV3) and `maps_mcc` (Halo MCC custom maps), each with a short
+`README.txt` that says what goes there. It never replaces a `README.txt` that is already there, and
+it doesn't make `maps_cex` next to `maps_ceplus` or `maps_ce+`, or `maps_mcc` next to `mcc_maps`.
 If you already have a maps folder somewhere else, choose **I already have a maps folder** and pick it.
 
 The folders it makes, and what goes in each, are below.
@@ -356,6 +359,12 @@ own movies too: put them in a `bink` folder beside its `ui.map`
 the pack doesn't have plays from the game's own `bink` folder. A pack folder
 needs a name of 1 to 8 letters and digits, other than `ce`, `md`, `pc`, `de`,
 `fr`, `es` and `it`.
+
+## MCC maps
+
+Halo 1 MCC custom maps go in `maps_mcc`, beside `maps`: a map's `.map` file, or a Steam Workshop
+item's whole folder. The details are on
+[docs/mcc_maps.md](mcc_maps.md), and the Workshop is on [docs/mcc.md](mcc.md).
 
 ## SPV3
 
