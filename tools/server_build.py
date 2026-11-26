@@ -26,11 +26,8 @@ Each writes build/server-<arch>/chupathingyce-server.
 """
 
 import glob
-import hashlib
 import platform
 import sys
-import tarfile
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -53,6 +50,10 @@ from .linux_build import (
 )
 from .lp64_build import Lp64Build, Lp64Host, lp64_configure_inputs, lp64_excluded
 from .ninja_syntax import Writer
+# (SDL's headers: tools/sdl_headers.py; these names stay importable from here,
+# as the console ports' builds import them)
+from .sdl_headers import (SDL_HEADERS_DIR, SDL_INCLUDE, SDL_TARBALL_SHA256, SDL_TARBALL_URL,  # noqa: F401
+                          SDL_VERSION, THIRD_PARTY, fetch_sdl_headers)
 
 SERVER_DIR = Path("server")
 SERVER_PLATFORM_DIR = SERVER_DIR / "platform"
@@ -89,15 +90,6 @@ SERVER_EXCLUDED = {
 }
 SERVER_DEFINES = ["-DHALO_SERVER"]
 OUTPUT_NAME = "chupathingyce-server"
-
-# SDL's headers (its release's source, the same version as the other ports'
-# SDL: android_build.SDL_TAG); only include/ and the license are unpacked
-SDL_VERSION = "3.4.16"
-SDL_TARBALL_URL = f"https://github.com/libsdl-org/SDL/releases/download/release-{SDL_VERSION}/SDL3-{SDL_VERSION}.tar.gz"
-SDL_TARBALL_SHA256 = "7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68"
-THIRD_PARTY = Path("build/server/third_party")
-SDL_HEADERS_DIR = THIRD_PARTY / f"SDL3-{SDL_VERSION}"
-SDL_INCLUDE = SDL_HEADERS_DIR / "include"
 
 # a static program's threads get the stack glibc's do (musl's default is
 # 128 KB; it takes its default from the executable's PT_GNU_STACK)
@@ -170,42 +162,11 @@ def server_march(arch: ServerArch, sln: Any) -> str:
     return march_flag(sln)
 
 
-def fetch_sdl_headers() -> bool:
-    """SDL's headers (once): whether they are there"""
-    if (SDL_INCLUDE / "SDL3" / "SDL.h").is_file():
-        return True
-    THIRD_PARTY.mkdir(parents=True, exist_ok=True)
-    archive = THIRD_PARTY / f"SDL3-{SDL_VERSION}.tar.gz"
-    print(f"Downloading {SDL_TARBALL_URL} (its headers, for the server)")
-    try:
-        with urllib.request.urlopen(SDL_TARBALL_URL) as response, open(archive, "wb") as f:
-            f.write(response.read())
-    except OSError as error:
-        print(f"Server build disabled: cannot fetch SDL's headers ({error})", file=sys.stderr)
-        return False
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    if digest != SDL_TARBALL_SHA256:
-        archive.unlink()
-        raise SystemExit(f"{SDL_TARBALL_URL}: SHA-256 {digest}, not the pinned {SDL_TARBALL_SHA256}")
-    prefix = f"SDL3-{SDL_VERSION}/"
-    with tarfile.open(archive) as tar:
-        members = [m for m in tar.getmembers()
-                   if m.isfile() and (m.name.startswith(prefix + "include/") or m.name == prefix + "LICENSE.txt")]
-        # (only regular files under the prefix; and the extraction filter
-        # where this Python has it)
-        if hasattr(tarfile, "data_filter"):
-            tar.extractall(THIRD_PARTY, members=members, filter="data")
-        else:
-            tar.extractall(THIRD_PARTY, members=members)
-    archive.unlink()
-    return (SDL_INCLUDE / "SDL3" / "SDL.h").is_file()
-
-
 def server_configure_inputs() -> List[Path]:
     """Files whose change must re-run configure.py."""
     if not PORT_CONFIG.is_file():
         return [Path(__file__)]
-    return [Path(__file__), SERVER_PLATFORM_DIR, SERVER_WEBUI_DIR, Path("tools/embed_webui.py"),
+    return [Path(__file__), Path("tools/sdl_headers.py"), SERVER_PLATFORM_DIR, SERVER_WEBUI_DIR, Path("tools/embed_webui.py"),
             *lp64_configure_inputs(), *hud_configure_inputs()]
 
 

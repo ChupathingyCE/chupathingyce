@@ -238,7 +238,7 @@ jobs:
           out android "$(has '^(port/android/|tools/android)')"
           out macos "$(has '^(port/macos/|port/ios/|tools/macos_build\.py$)')"
           out freebsd "$(has '^(port/unix/|tools/unix64_build\.py$)')"
-          out server "$(has '^(server/|tools/server_build\.py$)')"
+          out server "$(has '^(server/|tools/(server_build|sdl_headers)\.py$)')"
           out linux64 "$(has '^(tools/linux64_build\.py$|tools/linux_sysroot\.py$|tools/bgfx-patches/|port/linux/src/(d3d8_bgfx|bgfx_))')"
           # (a pull request of the server's alone builds x64)
           out server_archs '["x64"]'
@@ -1067,7 +1067,7 @@ jobs:
         if: env.CACHE_RESTORE == 'true'
         with:
           path: build/server/third_party
-          key: server-third-party-${{ matrix.arch }}-${{ hashFiles('tools/server_build.py') }}
+          key: server-third-party-${{ matrix.arch }}-${{ hashFiles('tools/server_build.py', 'tools/sdl_headers.py') }}
 
       - name: Release
         run: python3 tools/ci_build.py server-${{ matrix.arch }} release --alpine
@@ -1118,7 +1118,7 @@ jobs:
         if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-1.outputs.cache-hit != 'true' }}
         with:
           path: build/server/third_party
-          key: server-third-party-${{ matrix.arch }}-${{ hashFiles('tools/server_build.py') }}
+          key: server-third-party-${{ matrix.arch }}-${{ hashFiles('tools/server_build.py', 'tools/sdl_headers.py') }}
 
       - uses: actions/cache/save@v4
         if: ${{ success() && env.CACHE_SAVE == 'true' }}
