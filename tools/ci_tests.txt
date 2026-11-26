@@ -76,6 +76,7 @@ tools/test_host_console_objects.py
 tools/test_host_evidence.py
 tools/test_host_fuzz.py
 tools/test_http_url_rules.py
+tools/test_hud_counter_alignment.py
 tools/test_hud_mcc_layout.py
 tools/test_hud_safe_zone.py
 tools/test_identity.py
