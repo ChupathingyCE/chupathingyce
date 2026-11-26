@@ -77,6 +77,7 @@ void platform_log(const char *format, ...) __attribute__((format(printf, 1, 2)))
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "../game/content_bytes.h"
 
 #ifndef O_LARGEFILE
 #define O_LARGEFILE 0
@@ -136,17 +137,6 @@ struct xiso_list
 	int damaged;
 };
 
-static unsigned int read_u16(const unsigned char *bytes)
-{
-	return (unsigned int)bytes[0] | (unsigned int)bytes[1] << 8;
-}
-
-static unsigned int read_u32(const unsigned char *bytes)
-{
-	return (unsigned int)bytes[0] | (unsigned int)bytes[1] << 8 | (unsigned int)bytes[2] << 16 |
-		(unsigned int)bytes[3] << 24;
-}
-
 /* sets the player's reason and returns 0 */
 static int fail(struct xiso_image *image, const char *format, const char *detail)
 {
@@ -191,8 +181,8 @@ static int find_volume(struct xiso_image *image, unsigned int *root_sector, unsi
 		if (image_read(image, (unsigned long long)VOLUME_SECTOR * SECTOR_SIZE, descriptor, sizeof(descriptor)) &&
 			!memcmp(descriptor, volume_magic, sizeof(volume_magic) - 1))
 		{
-			*root_sector = read_u32(descriptor + 20);
-			*root_size = read_u32(descriptor + 24);
+			*root_sector = content_u32le(descriptor + 20);
+			*root_size = content_u32le(descriptor + 24);
 			return 1;
 		}
 	}
@@ -298,8 +288,8 @@ static void walk_tree(const unsigned char *table, unsigned int size, unsigned in
 		return;
 	}
 
-	if (read_u16(entry))
-		walk_tree(table, size, read_u16(entry), depth + 1, prefix, list);
+	if (content_u16le(entry))
+		walk_tree(table, size, content_u16le(entry), depth + 1, prefix, list);
 
 	memcpy(name, entry + ENTRY_HEADER_SIZE, length);
 	name[length] = 0;
@@ -315,8 +305,8 @@ static void walk_tree(const unsigned char *table, unsigned int size, unsigned in
 	}
 	else
 	{
-		found.sector = read_u32(entry + 4);
-		found.size = read_u32(entry + 8);
+		found.sector = content_u32le(entry + 4);
+		found.size = content_u32le(entry + 8);
 		found.directory = (entry[12] & ATTRIBUTE_DIRECTORY) != 0;
 		if (!list_add(list, &found))
 		{
@@ -325,8 +315,8 @@ static void walk_tree(const unsigned char *table, unsigned int size, unsigned in
 		}
 	}
 
-	if (read_u16(entry + 2))
-		walk_tree(table, size, read_u16(entry + 2), depth + 1, prefix, list);
+	if (content_u16le(entry + 2))
+		walk_tree(table, size, content_u16le(entry + 2), depth + 1, prefix, list);
 }
 
 /* adds a directory's entries to list, and with recurse everything in the

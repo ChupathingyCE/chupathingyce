@@ -132,15 +132,6 @@ void *mcc_texture_bridge_register_linear(void const *bitmap,unsigned long format
     return mcc_texture_register(bitmap,format,0,pixels,bytes,width,height,pitch);
 }
 
-/* Metadata-only lookup for loading-time shader selection. No texture upload. */
-BOOL xgpu_mcc_texture_describe(DWORD const *resource,struct xgpu_texture_description *description)
-{
-    struct mcc_gpu_texture *entry;
-    for (entry=mcc_gpu_hardware[mcc_texture_bucket(resource)];entry;entry=entry->hardware_next)
-        if (entry->header==resource) {*description=entry->description;return TRUE;}
-    return FALSE;
-}
-
 BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
     GLuint *texture,GLenum *target,struct xgpu_texture_description *description)
 {
@@ -154,6 +145,10 @@ BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
             GLuint replacement=hud_hires_override_texture(entry->hud_asset,&description->levels);
             if (replacement) {
                 description->hires=TRUE;*texture=replacement;
+                /* (a high-res meter: its coverage and exact segment
+                 * thresholds, as an Xbox map's are: xbox_textures.c) */
+                description->hires_coverage=hud_hires_override_coverage(entry->hud_asset)!=0;
+                description->hires_point_threshold=hud_hires_override_point_threshold(entry->hud_asset)!=0;
                 return TRUE;
             }
             /* Allocation/upload failure retains the original descriptor. */
@@ -245,7 +240,7 @@ void mcc_texture_bridge_dispose(void)
 
 unsigned long mcc_texture_bridge_prepare(void const *bitmap, unsigned long budget)
 {
-#ifndef HALO_GLES
+#ifndef HALO_GL_ES
     struct mcc_gpu_texture *entry;
     for (entry=mcc_gpu_textures[mcc_texture_bucket(bitmap)];entry;entry=entry->next) {
         struct xgpu_texture_description const *description=&entry->description;

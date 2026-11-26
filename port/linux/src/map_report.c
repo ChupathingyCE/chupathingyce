@@ -10,32 +10,25 @@ map_report.h).
 
 #include "delta_wire.h"
 #include "map_report.h"
+#include "../game/content_bytes.h"
+#include "../game/content_map_header.h"
 
 /* the cache header (cache_files.c's struct cache_file_header) */
-#define HEADER_VERSION 0x04
 #define HEADER_BUILD 0x40
 #define HEADER_CHECKSUM 0x64
-#define HEADER_FOOTER 0x7FC
 
 static const char *const family_names[] = { "xbox", "ce", "md", "pc" };
 static const char *const gametype_names[] = { "slayer", "ctf", "oddball", "king", "race" };
 
-static unsigned int read_u32(const unsigned char *data)
-{
-	return (unsigned int)data[0] | ((unsigned int)data[1] << 8) | ((unsigned int)data[2] << 16) |
-		((unsigned int)data[3] << 24);
-}
-
 int map_report_read_header(const unsigned char *header, int size, struct map_report *report)
 {
-	unsigned int version;
+	struct content_map_info map;
 	int index;
 
-	if (!header || size < MAP_REPORT_HEADER_SIZE || memcmp(header, "daeh", 4) || memcmp(header + HEADER_FOOTER, "toof", 4))
+	if (!header || size < MAP_REPORT_HEADER_SIZE || !content_map_probe(header, (size_t)size, &map) || map.footer != 1)
 		return 0;
-	version = read_u32(header + HEADER_VERSION);
-	report->cache_version = (int)(version & 0x7FFFFFFFU);
-	report->header_checksum = read_u32(header + HEADER_CHECKSUM);
+	report->cache_version = (int)(map.version & 0x7FFFFFFFU);
+	report->header_checksum = content_u32le(header + HEADER_CHECKSUM);
 	for (index = 0; index < MAP_REPORT_BUILD_SIZE - 1 && header[HEADER_BUILD + index]; index++)
 		report->build[index] = (char)header[HEADER_BUILD + index];
 	report->build[index] = 0;

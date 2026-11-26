@@ -96,6 +96,8 @@ IOS_FRAMEWORKS = [
     "Foundation", "UIKit", "OpenGLES", "QuartzCore", "CoreGraphics", "CoreVideo", "Metal",
     "CoreAudio", "AudioToolbox", "AVFoundation", "GameController", "CoreMotion", "CoreHaptics",
     "CoreBluetooth", "UniformTypeIdentifiers",
+    # (FFmpeg's h264_videotoolbox encoder, which tools/ffmpeg_build.py enables for every Darwin target)
+    "CoreMedia", "VideoToolbox",
 ]
 IOS_LIBRARIES = ["iconv", "m"]
 

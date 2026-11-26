@@ -159,6 +159,9 @@ symbols in this file:
 #include "memory/data.h"
 #endif
 
+/* port: port/linux/src/port_config.c */
+int config_boolean(char const *name);
+
 /* ---------- constants */
 
 enum
@@ -238,8 +241,8 @@ enum hud_icon_type
 	_icon_use_equipment,
 	_icon_rotate_weapons,
 	_icon_rotate_grenades,
-	_icon_crouch,
 	_icon_zoom,
+	_icon_crouch,
 	_icon_accept,
 	_icon_back,
 	_icon_move,
@@ -499,8 +502,8 @@ static char button_mappings[_icon_custom_1 - _icon_action] =
 	4,
 	3,
 	1,
+	11, /* port: zoom, then crouch, as retail's tags and table have them */
 	10,
-	11,
 	_icon_a_button,
 	_icon_b_button,
 	_icon_left_stick,
@@ -1323,7 +1326,11 @@ void hud_render_timer(
 		}
 	}
 
-	if (time_code_time != NONE)
+	/* port: the time code is a tool of Bungie's: some of the campaign's
+	cutscene scripts turn it on (time_code_show), and the Xbox's game drew
+	no debug text, so the players never saw it. Drawn only with
+	debug.time_code */
+	if (time_code_time != NONE && config_boolean("debug.time_code"))
 	{
 		long stop_time = time_code_stop_time;
 

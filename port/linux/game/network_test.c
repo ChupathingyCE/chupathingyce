@@ -97,7 +97,10 @@ debug.network_test_split_leave has a host with split screen players
 (debug.network_test_local_players) take them out one by one as the game goes
 on, the last first, as Quit on their pause menu does, and with :rejoin join
 each again half that time later, as a player joining the game in progress
-(for #1325, the crash some time after a split screen player leaves).
+(for #1325, the crash some time after a split screen player leaves); with
+:first, player 2 first, so the next game's players are not the first
+controllers in a row; a joining machine with split screen players (join and
+debug.network_test_local_players) takes its own out the same way.
 
 Called from the main loop every frame (main.c).
 */
@@ -115,6 +118,8 @@ network_test_update, which does nothing there */
 #include "networking/network_client_manager.h"
 #include "networking/network_server_manager.h"
 #include "game/game.h"
+#include "halo_port_features.h"
+#include "ai_nav.h" /* port: port/linux/game/ai_nav.c (HALO_AI_NAV_TEST) */
 #include "game/game_engine.h"
 #include "game/game_modes.h" /* the game modes layer's built-ins (swat, hardcore, ...) */
 #include "game/players.h"
@@ -227,6 +232,7 @@ static struct
 	controller who left last (0 none waiting), and those out of the game */
 	real split_leave_seconds;
 	boolean split_rejoin;
+	boolean split_first;
 	long split_leave_time;
 	long split_rejoin_time;
 	short split_left;
@@ -258,7 +264,7 @@ static struct
 	/* debug.network_test_place: where the first local player is put, facing
 	which way (degrees), when (seconds); debug.network_test_camouflage: when
 	every player gets active camouflage, for 20 seconds */
-	char place[96];
+	char place[400];
 	boolean placed;
 	real camouflage_time;
 	real melee_interval;
@@ -477,6 +483,7 @@ static void network_test_read_settings(
 		{
 			network_test.split_leave_seconds = split_seconds;
 			network_test.split_rejoin = strstr(split_leave, ":rejoin") != NULL;
+			network_test.split_first = strstr(split_leave, ":first") != NULL;
 		}
 	}
 	network_test.team_change_interval = (real)config_real("debug.network_test_team_change");
@@ -1258,41 +1265,59 @@ static void network_test_fall(
 /* debug.network_test_place = "<x> <y> <z> <yaw> <pitch>[@<seconds>]": the
 first local player put there, facing that way, that many seconds in (1 if not
 given), once: pictures of one place (a camouflaged weapon against a wall,
-OpenH1 #875) */
+OpenH1 #875). More places after it, split by ";", put the next local players
+(split screen) there, at the first's time: several players posed for a
+picture (developer flames side by side) */
 static void network_test_place(
 	void)
 {
-	float x, y, z, yaw, pitch, seconds = 1.0f;
+	float seconds = 1.0f;
 	char const *at;
-	long player_index = local_player_get_player_index(0);
-	struct player_datum *player;
-	real_point3d position;
-	real_vector3d facing;
+	char const *text = network_test.place;
+	short local_player_index;
 
-	if (network_test.placed || !network_test.place[0] ||
-		sscanf(network_test.place, "%f %f %f %f %f", &x, &y, &z, &yaw, &pitch) != 5)
-	{
+	if (network_test.placed || !network_test.place[0])
 		return;
-	}
 	at = strchr(network_test.place, '@');
 	if (at)
 		seconds = (float)atof(at + 1);
-	if (game_time_get() < (long)(seconds * TICKS_PER_SECOND) || player_index == NONE)
+	if (game_time_get() < (long)(seconds * TICKS_PER_SECOND))
 		return;
-	player = player_get(player_index);
-	if (player->unit_index == NONE)
-		return;
+	for (local_player_index = 0; local_player_index < MAXIMUM_LOCAL_PLAYERS && text; local_player_index++)
+	{
+		float x, y, z, yaw, pitch;
+		long player_index = local_player_get_player_index(local_player_index);
+		struct player_datum *player;
+		real_point3d position;
+		real_vector3d facing;
+
+		if (sscanf(text, "%f %f %f %f %f", &x, &y, &z, &yaw, &pitch) != 5)
+			break;
+		text = strchr(text, ';');
+		if (text)
+			text++;
+		if (player_index == NONE)
+			continue;
+		player = player_get(player_index);
+		if (player->unit_index == NONE)
+		{
+			/* (the first not yet in the game: tried again next tick) */
+			if (!local_player_index)
+				return;
+			continue;
+		}
+		position.x = x;
+		position.y = y;
+		position.z = z;
+		object_set_position(player->unit_index, &position, NULL, NULL);
+		facing.i = cosf(yaw * 0.017453292f) * cosf(pitch * 0.017453292f);
+		facing.j = sinf(yaw * 0.017453292f) * cosf(pitch * 0.017453292f);
+		facing.k = sinf(pitch * 0.017453292f);
+		player_control_set_facing(local_player_index, &facing);
+		platform_log("network test: place: local player %d put at (%.2f %.2f %.2f), facing %.1f %.1f",
+			local_player_index, x, y, z, yaw, pitch);
+	}
 	network_test.placed = TRUE;
-	position.x = x;
-	position.y = y;
-	position.z = z;
-	object_set_position(player->unit_index, &position, NULL, NULL);
-	facing.i = cosf(yaw * 0.017453292f) * cosf(pitch * 0.017453292f);
-	facing.j = sinf(yaw * 0.017453292f) * cosf(pitch * 0.017453292f);
-	facing.k = sinf(pitch * 0.017453292f);
-	player_control_set_facing(0, &facing);
-	platform_log("network test: place: the first local player put at (%.2f %.2f %.2f), facing %.1f %.1f",
-		x, y, z, yaw, pitch);
 }
 
 /* debug.network_test_camouflage: every player keeps active camouflage from
@@ -1459,7 +1484,9 @@ static void network_test_split_update(
 	long now = game_time_get();
 	short controller;
 
-	if (network_test.local_players < 2 || network_test.local_players_added < network_test.local_players ||
+	/* (a joining machine's players are all joined in its lobby) */
+	if (network_test.local_players < 2 ||
+		(network_test.mode == _network_test_host && network_test.local_players_added < network_test.local_players) ||
 		interval <= 0 || now < interval || !global_network_game_client_get())
 	{
 		return;
@@ -1470,10 +1497,24 @@ static void network_test_split_update(
 	if (now >= network_test.split_leave_time)
 	{
 		network_test.split_leave_time = now + interval;
-		for (controller = network_test.local_players - 1; controller > 0; controller--)
+		/* (with :first, player 2 first, the players after them staying) */
+		if (network_test.split_first)
 		{
-			if (!network_test.split_out[controller])
-				break;
+			for (controller = 1; controller < network_test.local_players; controller++)
+			{
+				if (!network_test.split_out[controller])
+					break;
+			}
+			if (controller >= network_test.local_players)
+				controller = 0;
+		}
+		else
+		{
+			for (controller = network_test.local_players - 1; controller > 0; controller--)
+			{
+				if (!network_test.split_out[controller])
+					break;
+			}
 		}
 		if (controller > 0)
 		{
@@ -1661,6 +1702,12 @@ void network_test_update(
 	game's time starts over) */
 	if (game_engine_running() && !main_menu_loaded)
 		network_test.played = TRUE;
+#if HALO_AI_NAV
+	/* (debug: HALO_AI_NAV_TEST, the map's navigation tested in this game:
+	port/linux/game/ai_nav.c) */
+	if (game_engine_running() && !main_menu_loaded)
+		ai_nav_test_update();
+#endif
 	if (game_in_progress() && game_time_get() < network_test.logged_time)
 		network_test.logged_time = 0;
 #ifdef HALO_GAME_BROWSER
@@ -1674,8 +1721,11 @@ void network_test_update(
 	{
 		network_test.logged_time = game_time_get();
 		network_test_log_players();
-		if (network_test.mode == _network_test_host && network_test.split_leave_seconds > 0.0f)
+		if ((network_test.mode == _network_test_host || network_test.mode == _network_test_join) &&
+			network_test.split_leave_seconds > 0.0f)
+		{
 			network_test_split_update();
+		}
 		if (network_test.shoot_interval > 0.0f &&
 			game_time_get() % MAX(1, (long)(network_test.shoot_interval * TICKS_PER_SECOND)) < TICKS_PER_SECOND)
 		{

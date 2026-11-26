@@ -58,7 +58,7 @@ again the next time it is opened. Each byte is hashed once each time: the
 tags as they are read, and then only what copying the resource maps' tags
 in wrote (ce_resources_place: the copies, the tags' addresses, a retail
 map's bitmaps and sounds it changed), not the tags whole again. The hashing uses the processor's SHA-256
-instructions where it has them (mcc_sha256.c). The original Xbox has none,
+instructions where it has them (content_sha256.c). The original Xbox has none,
 and hashes nothing (CE_MAP_HASHED): its maps are checked, not compared
 with the check as they load.
 */
@@ -71,7 +71,7 @@ with the check as they load.
 #include "main/console.h"
 #include "tag_files/tag_groups.h"
 #include "ce_map_checks.h"
-#include "mcc_sha256.h"
+#include "content_sha256.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -254,19 +254,19 @@ static void ce_digest(
 	unsigned long size,
 	byte digest[CE_DIGEST_SIZE])
 {
-	struct mcc_sha256 context;
+	struct content_sha256 context;
 	byte const *at = data;
 
-	mcc_sha256_begin(&context);
+	content_sha256_begin(&context);
 	while (size)
 	{
 		unsigned long chunk = size < 0x40000000UL ? size : 0x40000000UL;
 
-		mcc_sha256_add(&context, at, (int)chunk);
+		content_sha256_add(&context, at, chunk);
 		at += chunk;
 		size -= chunk;
 	}
-	mcc_sha256_end(&context, digest);
+	content_sha256_end(&context, digest);
 }
 
 static boolean ce_file_read(
@@ -1163,8 +1163,10 @@ char const *ce_map_family_name(
 /* an element of a tag block or the bytes of a tag data the game reads
 (tag_groups.c), at an Xbox address: with a Custom Edition map loaded, whose
 tags were checked only as far as the port reads them, not read outside its
-tag cache (where its tags, resources, models and BSP are), but from zeroed
-bytes of their own, and logged; else, as always, the address */
+tag cache (where its tags, resources, models and BSP are) and the room above
+it (where its models' converted parts go once the tag cache is full,
+ce_resources_allocate: SPV3's levels' first-person weapons and arms), but
+from zeroed bytes of their own, and logged; else, as always, the address */
 #define CE_TAGS_SCRATCH_LIMIT 0x40000UL
 #ifdef HALO_CUSTOM_EDITION
 /* (the bounds the consoles' inline TAG_BLOCK_GET_ELEMENT checks: tag_groups.h;
@@ -1191,7 +1193,8 @@ void *ce_tags_pointer(
 	/* (the bounds first: they pass for nearly every read; then the menus'
 	own tags, added to the map's: menu_tags.c) */
 	if (!size || (address >= CE_IMAGE_TAG_CACHE_BASE && size > 0 &&
-		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, (unsigned long)size, CE_IMAGE_TAG_CACHE_SIZE)) ||
+		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, (unsigned long)size,
+			CE_IMAGE_TAG_CACHE_SIZE + CE_CONVERSION_ROOM)) ||
 		!cache_file_tags_are_ce() || pc_menu_owns(address, size))
 	{
 		return xbox_pointer(address);

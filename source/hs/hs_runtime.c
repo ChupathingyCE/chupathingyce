@@ -1337,6 +1337,11 @@ void hs_runtime_port_shift_sleep_times(
 	}
 }
 
+#ifndef HALO_CONSOLE_NO_FORGE
+/* port/linux/game/forge.h's */
+boolean forge_mission_off(void);
+#endif
+
 void hs_runtime_update(
 	void)
 {
@@ -1358,6 +1363,12 @@ void hs_runtime_update(
 			/* port: a court's scripts, off in a Bomb game, which plays the
 			court's game itself (game_engine_bomb.c, bomb_courts) */
 			if (thread->type==_hs_thread_type_script && game_engine_bomb_scripts_off())
+				continue;
+#endif
+#ifndef HALO_CONSOLE_NO_FORGE
+			/* port: a campaign mission's scripts, off in a Forge game on it
+			(port/linux/game/forge_ai.inc), which places its own AI */
+			if (thread->type==_hs_thread_type_script && forge_mission_off())
 				continue;
 #endif
 			if (thread->sleep_until>=0 && thread->sleep_until<=time)
@@ -2620,10 +2631,17 @@ void hs_evaluate_object_cast_up(
 	}
 	else if (*object_index!=NONE)
 	{
-		struct object_datum *object = object_get(*object_index);
+		/* port: an object a script kept after it was deleted casts to
+		none, as a none object does, rather than halting the game
+		(#1829); a live object is cast as before */
+		struct object_datum *object = object_try_and_get(*object_index);
 		short object_type = function_index-_hs_function_inspect;
 
-		if (TEST_FLAG((short)hs_object_type_masks[object_type], object->object.type))
+		if (!object)
+		{
+			hs_return(thread_index, NONE);
+		}
+		else if (TEST_FLAG((short)hs_object_type_masks[object_type], object->object.type))
 		{
 			hs_return(thread_index, *object_index);
 		}

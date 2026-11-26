@@ -955,7 +955,7 @@ boolean network_actors_wire_entries(
 }
 #endif
 
-#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+#ifdef HALO_NETWORK_WIRE_SAMPLES
 /* (network_distributed.h) this module's sample entries */
 word network_actors_wire_sample(
 	byte type,

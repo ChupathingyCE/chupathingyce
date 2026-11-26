@@ -33,7 +33,7 @@ struct watched_item
 {
 	char id[STEAM_BRIDGE_ID_SIZE];
 	unsigned long long value;
-	/* the tab's ask: 1 subscribe, 2 unsubscribe, 3 remove, 4 update; taken by the thread */
+	/* the tab's ask: 1 subscribe, 2 unsubscribe, 3 remove, 4 update, 5 cancel; taken by the thread */
 	int want;
 	/* when the tab last asked about it (system_milliseconds) */
 	unsigned long seen;
@@ -62,7 +62,47 @@ static struct
 	int mcc_state;
 } bridge = { PTHREAD_MUTEX_INITIALIZER };
 
+/* the items this game subscribed to in the Steam client that weren't
+subscribed before (only the worker reads or writes these): a cancel
+unsubscribes only these, never a subscription the player made in Steam */
+static unsigned long long subscribed_here[STEAM_BRIDGE_MAXIMUM_ITEMS];
+static int subscribed_here_count;
+
 /* ---------- private code */
+
+static void subscribed_here_add(unsigned long long value)
+{
+	int index;
+
+	for (index = 0; index < subscribed_here_count; index++)
+	{
+		if (subscribed_here[index] == value)
+			return;
+	}
+	/* (full: the oldest forgotten, so at worst it stays subscribed) */
+	if (subscribed_here_count == STEAM_BRIDGE_MAXIMUM_ITEMS)
+	{
+		memmove(subscribed_here, subscribed_here + 1, sizeof(subscribed_here[0]) * (STEAM_BRIDGE_MAXIMUM_ITEMS - 1));
+		subscribed_here_count--;
+	}
+	subscribed_here[subscribed_here_count++] = value;
+}
+
+/* 1 if the game subscribed to it, and forgotten */
+static int subscribed_here_take(unsigned long long value)
+{
+	int index;
+
+	for (index = 0; index < subscribed_here_count; index++)
+	{
+		if (subscribed_here[index] == value)
+		{
+			subscribed_here[index] = subscribed_here[--subscribed_here_count];
+			return 1;
+		}
+	}
+	return 0;
+}
 
 static int id_value(const char *id, unsigned long long *value)
 {
@@ -182,13 +222,27 @@ static void item_query(const struct steam_bridge_backend *client, const struct s
 static void session(int use_steamcmd)
 {
 	static struct watched_item turn[STEAM_BRIDGE_MAXIMUM_ITEMS];
+	static int blocked_said;
 	const struct steam_bridge_backend *client = &steam_bridge_api_backend;
-	const struct steam_bridge_backend *steamcmd = use_steamcmd ? steamcmd_functions() : NULL;
-	int client_status;
+	const struct steam_bridge_backend *steamcmd;
+	int client_status, steamcmd_status, status, connected = 0, live;
 
-client_status = client->connect();
-	int steamcmd_status = steamcmd ? steamcmd->connect() : STEAM_BRIDGE_FAILED;
-	int status, connected = 0, live;
+	/* (a signed Mac: the client backend skipped before any library is looked
+	for, the downloader in its place; subscribing opens the item's page) */
+	if (steam_bridge_platform_client_blocked())
+	{
+		if (!blocked_said)
+		{
+			blocked_said = 1;
+			platform_log("Steam bridge: the Steam app link is off in signed Mac builds; "
+				"subscribing opens the item's page");
+		}
+		client = NULL;
+		use_steamcmd = 1;
+	}
+	steamcmd = use_steamcmd ? steamcmd_functions() : NULL;
+	client_status = client ? client->connect() : STEAM_BRIDGE_FAILED;
+	steamcmd_status = steamcmd ? steamcmd->connect() : STEAM_BRIDGE_FAILED;
 
 	if (client_status == STEAM_BRIDGE_READY)
 		connected |= CLIENT_BIT;
@@ -214,30 +268,53 @@ client_status = client->connect();
 		"ready");
 	while (live)
 	{
-		int count, index, install;
+		int count, index, install, stopping;
 
 		pthread_mutex_lock(&bridge.lock);
-		if (bridge.stop)
-		{
+		/* (told to stop: a last turn for the cancels asked just before, as
+		a join's CANCEL closes the bridge right after asking) */
+		stopping = bridge.stop;
+		if (stopping)
 			bridge.stopping = 1;
-			pthread_mutex_unlock(&bridge.lock);
-			break;
-		}
 		count = bridge.count;
 		memcpy(turn, bridge.items, sizeof(turn[0]) * (size_t)count);
 		for (index = 0; index < count; index++)
-			bridge.items[index].want = 0;
-		install = bridge.install_wanted;
-		bridge.install_wanted = 0;
+		{
+			if (!stopping || bridge.items[index].want == 5)
+				bridge.items[index].want = 0;
+			else
+				turn[index].want = 0;
+		}
+		install = stopping ? 0 : bridge.install_wanted;
+		if (!stopping)
+			bridge.install_wanted = 0;
 		pthread_mutex_unlock(&bridge.lock);
 		for (index = 0; index < count; index++)
 		{
 			if (turn[index].want == 1)
 			{
 				if (client)
-					client->subscribe(turn[index].value);
+				{
+					struct steam_bridge_item before;
+					int was_subscribed = client->query(turn[index].value, &before) && before.subscribed;
+
+					if (client->subscribe(turn[index].value) && !was_subscribed)
+						subscribed_here_add(turn[index].value);
+				}
 				if (steamcmd)
 					steamcmd->subscribe(turn[index].value);
+			}
+			/* (CANCEL: the client's subscription undone if this game made it,
+			which stops Steam's download; the downloader's download stopped) */
+			else if (turn[index].want == 5)
+			{
+				if (client && subscribed_here_take(turn[index].value))
+				{
+					platform_log("Workshop: item %s cancelled: unsubscribed in Steam", turn[index].id);
+					client->unsubscribe(turn[index].value);
+				}
+				if (steamcmd && steamcmd->unsubscribe)
+					steamcmd->unsubscribe(turn[index].value);
 			}
 			else if (turn[index].want == 2 && client)
 				client->unsubscribe(turn[index].value);
@@ -253,6 +330,8 @@ client_status = client->connect();
 					holder->update(turn[index].value);
 			}
 		}
+		if (stopping)
+			break;
 		if (install && steamcmd && steamcmd->install_mcc)
 			steamcmd->install_mcc();
 		if (client)
@@ -340,13 +419,14 @@ int steam_bridge_backend(void)
 		in by the Steam app's QR; the Steam client only where it isn't built) */
 		if (steam_link_available() && !config_boolean("debug.workshop_steamcmd"))
 			bridge.backend = STEAM_BRIDGE_BACKEND_STEAMCMD;
-		else if (steam_bridge_api_library_paths(paths, 1, 0))
+		/* (a signed Mac: never the client's library, not even paths.steam_api) */
+		else if (!steam_bridge_platform_client_blocked() && steam_bridge_api_library_paths(paths, 1, 0))
 			bridge.backend = STEAM_BRIDGE_BACKEND_CLIENT;
 #ifndef _WIN32
 		else if (steam_bridge_platform_find_steamcmd(path, sizeof(path)))
 			bridge.backend = STEAM_BRIDGE_BACKEND_STEAMCMD;
 		/* (a game's steam_api library is looked for when the tab opens) */
-		else if (steam_bridge_steam_present())
+		else if (!steam_bridge_platform_client_blocked() && steam_bridge_steam_present())
 			bridge.backend = STEAM_BRIDGE_BACKEND_CLIENT;
 #endif
 	}
@@ -393,6 +473,28 @@ void steam_bridge_open(int use_steamcmd)
 	bridge.running = 0;
 	bridge.status = STEAM_BRIDGE_FAILED;
 	pthread_mutex_unlock(&bridge.lock);
+}
+
+void steam_bridge_restart(int use_steamcmd)
+{
+	int running;
+
+	pthread_mutex_lock(&bridge.lock);
+	running = bridge.running;
+	if (running)
+	{
+		/* (its session ends and a new one connects: the items asked for
+		meanwhile wait, as while it first connects) */
+		bridge.use_steamcmd = use_steamcmd;
+		bridge.stop = 1;
+		bridge.reopen = 1;
+		bridge.sign_in = 0;
+		bridge.status = STEAM_BRIDGE_CONNECTING;
+		bridge.connect_time = system_milliseconds();
+	}
+	pthread_mutex_unlock(&bridge.lock);
+	if (!running)
+		steam_bridge_open(use_steamcmd);
 }
 
 void steam_bridge_close(void)
@@ -488,6 +590,11 @@ static int ask(const char *id, int want, int needs)
 		}
 		if (want == 2)
 			item->state.subscribed = 0;
+		if (want == 5)
+		{
+			memset(&item->state, 0, sizeof(item->state));
+			item->state.state = STEAM_BRIDGE_ITEM_NONE;
+		}
 		asked = 1;
 	}
 	pthread_mutex_unlock(&bridge.lock);
@@ -540,6 +647,11 @@ int steam_bridge_remove(const char *id)
 int steam_bridge_update(const char *id)
 {
 	return ask(id, 4, CLIENT_BIT | STEAMCMD_BIT);
+}
+
+int steam_bridge_cancel(const char *id)
+{
+	return ask(id, 5, CLIENT_BIT | STEAMCMD_BIT);
 }
 
 int steam_bridge_can_unsubscribe(void)
@@ -599,13 +711,14 @@ int steam_bridge_mcc_state(void)
 	return state;
 }
 
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 /* ---------- no bridge here: the platform's functions as stand-ins that never work */
 
 void *steam_bridge_platform_library_open(const char *path) { (void)path; return NULL; }
 void *steam_bridge_platform_library_symbol(void *library, const char *name) { (void)library; (void)name; return NULL; }
 void steam_bridge_platform_set_app_id(const char *app_id) { (void)app_id; }
 void steam_bridge_platform_sleep(int milliseconds) { (void)milliseconds; }
+int steam_bridge_platform_client_blocked(void) { return 0; }
 int steam_bridge_platform_find_steamcmd(char *path, int size) { (void)path; (void)size; return 0; }
 int steam_bridge_platform_steamcmd_root(const char *steamcmd, char *root, int size)
 {
@@ -633,6 +746,7 @@ void steam_bridge_test_reset(void)
 	bridge.count = 0;
 	bridge.install_wanted = 0;
 	bridge.mcc_state = 0;
+	subscribed_here_count = 0;
 	pthread_mutex_unlock(&bridge.lock);
 }
 

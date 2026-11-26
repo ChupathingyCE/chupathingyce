@@ -1,0 +1,15 @@
+{
+  "about": "an OpenSauce map's compiled Direct3D 9 effect: read, its shaders turned into GLSL, its preshaders run (opensauce_postprocess_gl.inl)",
+  "harness": "port/linux/tests/d3d9_effect_fuzz.c",
+  "sources": [
+    "port/linux/src/d3d9_effect.c"
+  ],
+  "includes": [
+    "port/linux/src"
+  ],
+  "flags": [
+    "-std=gnu11",
+    "-w"
+  ],
+  "max_len": 65536
+}

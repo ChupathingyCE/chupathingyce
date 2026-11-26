@@ -16,6 +16,10 @@ nothing here is a double, a 64-bit integer, a structure returned or a wide
 character, and every structure is ints, floats and pointers alone; nor a
 long, which the 64-bit builds' game units read as 32 bits
 (tools/lp64_rewrite.py) and this file's as 64.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef __PHYSICS_JOLT_H
@@ -44,6 +48,13 @@ unsigned int physics_jolt_generation(void);
 /* the level mesh kept for the next world made from the same triangles (after
 a checkpoint revert) let go: a map left */
 void physics_jolt_forget_meshes(void);
+/* whether an allocation the C heap refused was made from the world's
+reserve since it was made: the world must go (physics_jolt_destroy); until
+then nothing more is added to it or stepped */
+int physics_jolt_out_of_memory(void);
+/* (the tests) the count-th allocation from now, and every one after it
+until the world goes, refused as the C heap refuses one; 0: none */
+void physics_jolt_refuse_allocations_after(unsigned int count);
 
 /* the level: a static triangle mesh (vertices x y z, the triangles' vertex
 indices counter-clockwise seen from the front); the body's number, -1 none */
@@ -74,10 +85,11 @@ unsigned int physics_jolt_clock_us(void);
 /* ---------- a dead character's ragdoll (ragdolls.c makes its rig)
 
 A body a joint of the body, parents first: its origin and rotation the node's
-at the death (metres, the world), its shape the convex hull of points in its
-own frame (4 or more), else a box of half extents at box_centre turned by
-box_rotation; its mass (kg; the inertia its shape's at that mass). Its joint
-to its parent is at the body's origin:
+at the start (metres, the world), moving at velocity (metres a second) and
+turning at angular_velocity (radians a second, about the world's axes), its
+shape the convex hull of points in its own frame (4 or more), else a box of
+half extents at box_centre turned by box_rotation; its mass (kg; the inertia
+its shape's at that mass). Its joint to its parent is at the body's origin:
 - a hinge: limits[0..1], about axis (parent_axes[0..2] on the parent,
   axes[0..2] on this body), positive turning reference (parent_axes[3..5])
   toward direction (axes[3..5]);
@@ -98,7 +110,7 @@ struct physics_jolt_rig_body
 {
 	int parent;
 	int joint;
-	float position[3], rotation[4], velocity[3];
+	float position[3], rotation[4], velocity[3], angular_velocity[3];
 	float const *points;
 	int point_count;
 	float half[3], box_centre[3], box_rotation[4];
@@ -124,6 +136,12 @@ void physics_jolt_rig_destroy(int ragdoll);
 void physics_jolt_rig_get_body(int ragdoll, int body, float position[3], float rotation[4]);
 /* a body's velocity changed by velocity (metres a second), the ragdoll woken */
 void physics_jolt_rig_add_velocity(int ragdoll, int body, float const velocity[3]);
+/* a body pulled toward position and rotation (metres, the world; x y z w):
+its velocity and spin turned weight of the way (0 to 1) toward those that
+bring it there in dt seconds, the body woken (a death animation's pose the
+ragdoll follows for a moment after it takes over) */
+void physics_jolt_rig_drive(int ragdoll, int body, float const position[3], float const rotation[4], float dt,
+	float weight);
 /* whether Jolt has any of its bodies awake */
 int physics_jolt_rig_active(int ragdoll);
 void physics_jolt_rig_set_active(int ragdoll, int active);

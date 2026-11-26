@@ -101,9 +101,11 @@ def test_only_bound_identities_reach_reports_and_bans():
     # (the server takes Delta Peer's own struct, so the layout can't drift)
     assert '#include "../../port/linux/src/delta_moderation.h"' in moderation
     assert "struct delta_peer_identity\n{" not in moderation and _struct_fields(peer_header, "delta_peer_identity")
-    assert "identity && identity->bound ? identity : NULL" in peer
+    # (and only the home network's: another network's player gets no role or ban)
+    assert "identity && identity->bound && !identity->other_network ? identity : NULL" in peer
     assert "if (identity && !identity->bound)\n\t\tidentity = NULL;" in moderation
     start = peer_game.index("int delta_peer_game_machine_identity_text(")
     assert "!identity.bound" in peer_game[start:peer_game.index("\n}\n", start)]
+    assert "identity.other_network" in peer_game[start:peer_game.index("\n}\n", start)]
     assert "server_moderation_machine_account(" in reports
     assert "delta_peer_game_player_identity" not in reports and "delta_peer_identity(" not in reports

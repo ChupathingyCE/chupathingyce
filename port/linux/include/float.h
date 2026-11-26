@@ -36,9 +36,6 @@ Host <float.h> plus the MSVC x87 control-word interface.
 #define CW_DEFAULT (_RC_NEAR + _PC_53 + _EM_INVALID + _EM_ZERODIVIDE + _EM_OVERFLOW + _EM_UNDERFLOW + _EM_INEXACT + _EM_DENORMAL)
 
 unsigned int _control87(unsigned int new_value, unsigned int mask);
-unsigned int _controlfp(unsigned int new_value, unsigned int mask);
-unsigned int _clearfp(void);
-unsigned int _statusfp(void);
 int _isnan(double value);
 int _finite(double value);
 

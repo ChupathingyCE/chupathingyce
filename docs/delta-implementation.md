@@ -64,6 +64,12 @@ Slayer); `delta_compat_decide` is a client's join decision, by
 `DELTA_WIRE_COMPATIBILITY`'s ranges; `delta_compat_join_mark` and
 `delta_compat_join_marked` write and read the join mark. The consoles take
 the same path (`HALO_CONSOLE_DELTA` or `HALO_CONSOLE_ONLINE_GAMES`).
+`delta_compat_read_project` reads the tag's layout 2, a host of another
+project's code (`DELTA_PROJECTS` in `delta.h`): such a host speaks Delta, so
+the client says HELLO and marks its join, but `delta_compat_decide` leaves
+it to the network number, and the system link list shows the project's
+name (`network_game_client_advertised_game_project`). This build never
+writes layout 2.
 
 ## The protocol setting
 
@@ -129,6 +135,44 @@ in use ... announcing 38", and `sv_status` "Following OpenCE network version
 setting once a published table announces the number. From auto-announce on (below),
 a server follows the signed table's newest hosting number by itself, and
 `HALO_NET_ANNOUNCE` pins an older one: a local table is for tests.
+
+## Networks
+
+The game's side of [federation](delta/federation.md): which network a
+player's certificate belongs to, and showing it. The formats are
+delta-spec's `link.md`, "Networks". Nothing on the wire changes and no
+certificate changes: a certificate's network is the one whose root key
+signed its issuer certificate, so today's read as `chupathingy.org`.
+
+- `port/linux/src/networks.c`: domains, `handle:domain` names, the signed
+  list of networks (read strictly: the size, the signature, then the JSON)
+  and the networks a game trusts. No SDL, so its tests
+  (`tools/test_networks.py`, with delta-spec's test vectors in
+  `port/linux/tests/federation_vectors.json`) build anywhere; it is also a
+  fuzz target (`tools/tests/host_fuzz/networks`).
+- `port/linux/src/networks_game.c`: the home network (`identity_key.h`'s
+  domain and root keys, which nothing changes), the newest signed list
+  (cached as `delta_networks.signed` in the save root, fetched from
+  `network.browser_url`'s `/v1/delta/networks` and `.sig` every few hours),
+  and `network.networks_trust` and `network.networks_block`. The list has
+  its own keys (`networks_key.h`), never the legacy table's. While they are
+  all zero no list is taken or fetched, and a game trusts its home network
+  and its local additions alone.
+- `delta_peer_game.c`'s proof check finds the network first (home first),
+  then checks the chain as before with that network's root keys alone. The
+  home network's revocation list applies to its own players; other
+  networks' aren't read in this version (their 7-day certificates are the
+  limit).
+- A player of another network shows as `Name:domain` wherever verified
+  names show (`profile_names.c`: scoreboard, lobby, chat, postgame, the
+  Guide); where a column is too narrow, as the name alone and a `:`.
+  They get no site card, clan tag, role or ban (moderation hears only of
+  the home network's bound proofs), and no ADD FRIEND in the Guide. One identity is one player by device, or by network and account
+  together.
+- A fork with its own network builds with
+  `-DIDENTITY_HOME_DOMAIN='"its.domain"'` and its own `identity_key.h`.
+- Consoles leave Delta identity out for now
+  (`HALO_CONSOLE_NO_DELTA_IDENTITY`), so this too.
 
 ## In the code
 

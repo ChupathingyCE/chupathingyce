@@ -99,7 +99,6 @@ int ce_transport_packet(const unsigned char *packet, int length, const void *add
 void ce_transport_update(unsigned int now_milliseconds);
 /* every connection told it's closed, and forgotten */
 void ce_transport_stop(void);
-int ce_transport_peer_count(void);
 
 /* ---------- the game's side (any thread) */
 

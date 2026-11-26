@@ -23,8 +23,18 @@ unsigned long physical_memory_get_sound_cache_size(void);
 
 #define SOUND_CACHE_SIZE physical_memory_get_sound_cache_size()
 #endif
+#if !defined(SOUND_CACHE_SIZE) && defined(HALO_PORT_SOUND_CACHE_SIZE)
+/* (the desktop builds': halo_port_capacity.h) */
+#define SOUND_CACHE_SIZE HALO_PORT_SOUND_CACHE_SIZE
+#endif
 #ifndef SOUND_CACHE_SIZE
 #define SOUND_CACHE_SIZE 0x400000
+#endif
+/* (and the sounds it holds at once: the Xbox's 512, or the platform's) */
+#ifdef HALO_PORT_SOUND_CACHE_SOUNDS
+#define SOUND_CACHE_MAXIMUM_SOUNDS HALO_PORT_SOUND_CACHE_SOUNDS
+#else
+#define SOUND_CACHE_MAXIMUM_SOUNDS 512
 #endif
 
 /* ---------- macros */

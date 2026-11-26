@@ -66,10 +66,6 @@ int map_compressed_expand(const struct map_compressed_io *io, unsigned int maxim
 
 Game paths (d:\maps_ce\..., z:\...), any thread. */
 
-/* the version the map file at path has once expanded
-(map_compressed_version), or 0: not a compressed map, or not read */
-unsigned int map_compressed_file_version(const char *path);
-
 /* the compressed map at source expanded into destination (made, or
 replaced): 1, or 0 with why in error and no destination left */
 int map_compressed_file_expand(const char *source, const char *destination, char *error, int error_size);

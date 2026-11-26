@@ -52,6 +52,11 @@ void steam_bridge_platform_sleep(int milliseconds)
 	Sleep((DWORD)milliseconds);
 }
 
+int steam_bridge_platform_client_blocked(void)
+{
+	return 0;
+}
+
 int steam_bridge_platform_is_folder(const char *path)
 {
 	DWORD attributes = GetFileAttributesA(path);

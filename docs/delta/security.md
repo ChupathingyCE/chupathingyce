@@ -37,7 +37,7 @@ everyone (games are public by default). Players who join a public game can
 have their addresses seen by anyone watching that invite. Delta doesn't
 change that. A player who wants to stay private sets `network.host_public =
 false` and sends invites only to people they trust
-([privacy.md](../privacy.md#your-internet-address)).
+([privacy.md](https://github.com/ChupathingyCE/chupathingyce/blob/main/docs/privacy.md#your-internet-address)).
 
 ## Delta Peer
 

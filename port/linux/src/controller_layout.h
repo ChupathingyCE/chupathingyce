@@ -124,11 +124,8 @@ int controller_layout_assign(unsigned char layout[CONTROLLER_ACTION_COUNT], int 
 int controller_layout_movable_action(int action);
 int controller_layout_movable_button(int button);
 
-/* the names: an action's in config.toml ("switch_weapon") and as the
-screens show it ("SWITCH WEAPON"); a button's in config.toml ("RB") */
-const char *controller_layout_action_key(int action);
+/* an action's name as the screens show it ("SWITCH WEAPON") */
 const char *controller_layout_action_title(int action);
-const char *controller_layout_button_key(int button);
 /* a preset's name as the screens show it */
 const char *controller_layout_preset_title(int preset);
 /* a button as a kind of controller labels it: short ("RB", "R1", "Black")
