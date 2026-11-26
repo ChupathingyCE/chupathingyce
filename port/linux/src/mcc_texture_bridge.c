@@ -249,7 +249,7 @@ void mcc_texture_bridge_dispose(void)
 
 unsigned long mcc_texture_bridge_prepare(void const *bitmap, unsigned long budget)
 {
-#ifndef HALO_GLES
+#ifndef HALO_GL_ES
     struct mcc_gpu_texture *entry;
     for (entry=mcc_gpu_textures[mcc_texture_bucket(bitmap)];entry;entry=entry->next) {
         struct xgpu_texture_description const *description=&entry->description;
