@@ -68,9 +68,12 @@ enum
 
 /* ---------- globals */
 
+/* (playlist's lock, apart from it: its initializer is not zeros, and
+would put the whole of it in the data segment instead of bss) */
+static pthread_mutex_t playlist_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static struct
 {
-	pthread_mutex_t lock;
 	struct playlist_status status;
 	volatile int cancel;
 	int running;
@@ -81,7 +84,7 @@ static struct
 	thread (playlist_get) */
 	int remember_count;
 	char remember[PLAYLIST_MANIFEST_FILES][PLAYLIST_MANIFEST_MAP_SIZE];
-} playlist = { PTHREAD_MUTEX_INITIALIZER };
+} playlist;
 
 /* ---------- private code */
 
@@ -89,11 +92,11 @@ static struct
 
 static void finish(int state, const char *message)
 {
-	pthread_mutex_lock(&playlist.lock);
+	pthread_mutex_lock(&playlist_lock);
 	playlist.status.state = state;
 	snprintf(playlist.status.message, sizeof(playlist.status.message), "%s", message ? message : "");
 	playlist.running = 0;
-	pthread_mutex_unlock(&playlist.lock);
+	pthread_mutex_unlock(&playlist_lock);
 }
 
 /* a file's place: the Xbox's maps folder (the game's, by its language), or
@@ -236,9 +239,9 @@ static void *check_thread(void *argument)
 	int index;
 
 	(void)argument;
-	pthread_mutex_lock(&playlist.lock);
+	pthread_mutex_lock(&playlist_lock);
 	snprintf(id, sizeof(id), "%s", playlist.status.playlist);
-	pthread_mutex_unlock(&playlist.lock);
+	pthread_mutex_unlock(&playlist_lock);
 	if (!fetch_manifest(id, error, (int)sizeof(error)))
 	{
 		platform_log("playlist maps: %s: %s", id, error);
@@ -299,23 +302,23 @@ static void *check_thread(void *argument)
 	}
 	platform_log("playlist maps: %s: %d maps; %d files missing (%llu bytes), %d of the player's own, %d other versions",
 		id, status.maps, status.missing, status.missing_bytes, status.own_missing, status.other_versions);
-	pthread_mutex_lock(&playlist.lock);
+	pthread_mutex_lock(&playlist_lock);
 	snprintf(status.playlist, sizeof(status.playlist), "%s", id);
 	snprintf(status.name, sizeof(status.name), "%s", playlist.manifest.name);
 	status.state = PLAYLIST_READY;
 	playlist.status = status;
 	playlist.running = 0;
-	pthread_mutex_unlock(&playlist.lock);
+	pthread_mutex_unlock(&playlist_lock);
 	return NULL;
 }
 
 static void set_progress(const char *name, unsigned int received, unsigned int total)
 {
-	pthread_mutex_lock(&playlist.lock);
+	pthread_mutex_lock(&playlist_lock);
 	snprintf(playlist.status.current, sizeof(playlist.status.current), "%s", name);
 	playlist.status.received = received;
 	playlist.status.current_total = total;
-	pthread_mutex_unlock(&playlist.lock);
+	pthread_mutex_unlock(&playlist_lock);
 }
 
 /* a file from Chupathingy's mirror into partial (its size and hash checked
@@ -504,9 +507,9 @@ static void *download_thread(void *argument)
 			/* (a Custom Edition map: marked as downloaded on the game's thread) */
 			if (!strcmp(file->folder, "maps_ce") && file->map[0])
 			{
-				pthread_mutex_lock(&playlist.lock);
+				pthread_mutex_lock(&playlist_lock);
 				snprintf(playlist.remember[playlist.remember_count++], PLAYLIST_MANIFEST_MAP_SIZE, "%s", file->map);
-				pthread_mutex_unlock(&playlist.lock);
+				pthread_mutex_unlock(&playlist_lock);
 			}
 			done++;
 		}
@@ -516,9 +519,9 @@ static void *download_thread(void *argument)
 			if (!failed++)
 				snprintf(skipped, sizeof(skipped), "%s", error);
 		}
-		pthread_mutex_lock(&playlist.lock);
+		pthread_mutex_lock(&playlist_lock);
 		playlist.status.done = done + failed;
-		pthread_mutex_unlock(&playlist.lock);
+		pthread_mutex_unlock(&playlist_lock);
 	}
 	if (playlist.cancel)
 	{
@@ -581,10 +584,10 @@ int playlist_check_start(const char *id)
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_SERVER)
 	if (!playlist_manifest_id_valid(id))
 		return 0;
-	pthread_mutex_lock(&playlist.lock);
+	pthread_mutex_lock(&playlist_lock);
 	if (playlist.running)
 	{
-		pthread_mutex_unlock(&playlist.lock);
+		pthread_mutex_unlock(&playlist_lock);
 		return 0;
 	}
 	memset(&playlist.status, 0, sizeof(playlist.status));
@@ -592,7 +595,7 @@ int playlist_check_start(const char *id)
 	snprintf(playlist.status.playlist, sizeof(playlist.status.playlist), "%s", id);
 	playlist.cancel = 0;
 	playlist.running = 1;
-	pthread_mutex_unlock(&playlist.lock);
+	pthread_mutex_unlock(&playlist_lock);
 	return start(check_thread);
 #else
 	(void)id;
@@ -603,10 +606,10 @@ int playlist_check_start(const char *id)
 int playlist_download_start(void)
 {
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_SERVER)
-	pthread_mutex_lock(&playlist.lock);
+	pthread_mutex_lock(&playlist_lock);
 	if (playlist.running || playlist.status.state != PLAYLIST_READY || !playlist.status.missing)
 	{
-		pthread_mutex_unlock(&playlist.lock);
+		pthread_mutex_unlock(&playlist_lock);
 		return 0;
 	}
 	playlist.status.state = PLAYLIST_DOWNLOADING;
@@ -614,7 +617,7 @@ int playlist_download_start(void)
 	playlist.status.total = playlist.status.missing;
 	playlist.cancel = 0;
 	playlist.running = 1;
-	pthread_mutex_unlock(&playlist.lock);
+	pthread_mutex_unlock(&playlist_lock);
 	platform_log("playlist maps: downloading %s's %d missing files", playlist.status.playlist, playlist.status.total);
 	return start(download_thread);
 #else
@@ -632,20 +635,20 @@ void playlist_get(struct playlist_status *status)
 	char remember[PLAYLIST_MANIFEST_FILES][PLAYLIST_MANIFEST_MAP_SIZE];
 	int count, index;
 
-	pthread_mutex_lock(&playlist.lock);
+	pthread_mutex_lock(&playlist_lock);
 	*status = playlist.status;
 	count = playlist.remember_count;
 	memcpy(remember, playlist.remember, sizeof(remember[0]) * (size_t)count);
 	playlist.remember_count = 0;
-	pthread_mutex_unlock(&playlist.lock);
+	pthread_mutex_unlock(&playlist_lock);
 	for (index = 0; index < count; index++)
 		map_downloaded_remember(remember[index]);
 }
 
 void playlist_reset(void)
 {
-	pthread_mutex_lock(&playlist.lock);
+	pthread_mutex_lock(&playlist_lock);
 	if (!playlist.running)
 		memset(&playlist.status, 0, sizeof(playlist.status));
-	pthread_mutex_unlock(&playlist.lock);
+	pthread_mutex_unlock(&playlist_lock);
 }
