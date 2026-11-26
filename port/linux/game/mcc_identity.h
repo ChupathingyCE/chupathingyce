@@ -30,7 +30,6 @@ void mcc_identity_disconnect(void);
 char const *mcc_identity_local_name(char const *name);
 int mcc_identity_check(char const *name);
 int mcc_identity_loaded(char const *name, struct mcc_runtime *runtime);
-int mcc_content_probe(char const *name, unsigned char digest[32]);
 /* chester (GulchCE): name's package against the host's digest, with each of
 this machine's base resource sets in turn: 1 and the sets chosen, 0 for no
 match, -1 if it can't be read (reason says why) */

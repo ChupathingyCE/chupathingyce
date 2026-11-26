@@ -325,12 +325,6 @@ int mcc_audio_contains(struct mcc_runtime *runtime,long tag,uint32_t offset,uint
         bytes<=storage->used-(offset-MCC_AUDIO_BASE);
 }
 
-uint32_t mcc_audio_stream_end(struct mcc_runtime *runtime)
-{
-    struct mcc_audio_tags *audio=runtime->audio;
-    return audio && audio->stream_end ? MCC_AUDIO_BASE+audio->stream_end : (uint32_t)runtime->source.size;
-}
-
 void mcc_audio_dispose(struct mcc_runtime *runtime)
 {
     struct mcc_audio_tags *audio=runtime->audio;

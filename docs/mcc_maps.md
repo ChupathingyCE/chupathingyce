@@ -307,24 +307,6 @@ files are the item makers' text: one that is too large (256 KB), too deep, not
 an object, or that names a path leaving its item, refuses that item or map and
 nothing else.
 
-### Workshop collections
-
-Several Workshop items belong to a collection that their makers published as a
-set (a competitive pack, a social pack, a 2v2 set). `workshop_collections.c`
-holds a fixed, curated set of Halo CE collections as data: a name and the ids of
-its items. It does not query current Steam collection membership. Enable
-`game.mcc_collections` (`HALO_MCC_COLLECTIONS=1`, default off) and reopen the
-map list to use these groups. Imported packages can identify their collection
-through `workshop_id.txt`, without Steam. At the
-top of the MCC map menus a collection the player has an item of is a folder
-(`[PRO EDITION]`), before the package folders; it holds the maps of the
-player's items that are in it, by their Workshop titles. An item that is in two
-collections is in both folders; an item in none keeps the package folder of its
-own, named by its title. A collection with no subscribed item has no folder.
-Only the menu changes: levels are still `mcc_maps\<item id>\<map name>`, so
-a host's map and a joiner's messages do not depend on collections. A collection
-the table does not know is shown as its items' own folders.
-
 The two MCC categories show package folders first (alphabetically, in brackets),
 then loose maps. Open a folder to choose one of its levels; the rows omit the
 repeated package suffix, while the selected map's details retain its identity.
@@ -359,8 +341,7 @@ Without campaign metadata enabled, each selected MCC campaign map remains an
 independent scenario. Enable **CAMPAIGN MISSIONS** under Settings > Network
 Setup > Map Sharing > MCC Packages (`game.mcc_campaigns`, default false) to
 use Workshop campaigns' authored mission order and progression. Their missions
-are listed either way. The same screen exposes desktop Steam discovery and
-optional collection folders.
+are listed either way. The same screen exposes desktop Steam discovery.
 
 `ModInfo.json` must identify `Halo1` and `GameModContents.HasCampaign = true`.
 `CampaignInfo.json` supplies an explicit `CampaignMaps` list; each referenced

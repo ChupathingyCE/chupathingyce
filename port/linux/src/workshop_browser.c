@@ -429,21 +429,6 @@ static int link_offered(void)
 		bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD;
 }
 
-static void link_row_make(void)
-{
-	struct workshop_browser_item *item = &workshop.link_row;
-
-	memset(item, 0, sizeof(*item));
-	snprintf(item->id, sizeof(item->id), "link");
-	snprintf(item->title, sizeof(item->title), "Link Steam");
-	snprintf(item->kind, sizeof(item->kind), "Steam");
-	snprintf(item->description, sizeof(item->description), "Downloads need your Steam account.\nLINK goes to "
-		"Settings: scan the code there with the Steam app.\nThe game never sees your password.");
-	item->size = -1;
-	item->setup = WORKSHOP_ROW_LINK;
-	item->step = WORKSHOP_STEP_TO_DO;
-}
-
 /* the items of Steam's page (not the installed ones found beside it, nor setup rows) */
 static int page_item_count(void)
 {
@@ -1464,13 +1449,6 @@ const unsigned char *workshop_browser_preview(int index, int *width, int *height
 #endif
 }
 
-int workshop_browser_preview_missing(int index)
-{
-	const struct workshop_browser_item *item = workshop_browser_item(index);
-
-	return item && !item->setup && preview_cache_failed(&preview.cache, item->id);
-}
-
 /* the picture of any Workshop item, by its id (a game's MCC map, mcc_maps\<id>\<map>, in Online
 Games): its own installed picture, else the one kept in the cache, else Steam's (its details asked
 for, then the picture, kept in the cache): one at a time, a failed id again only once its wait is over. RGBA
@@ -2148,17 +2126,6 @@ void workshop_browser_folder_follow(void)
 }
 #endif
 
-int workshop_browser_mcc_present(void)
-{
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
-	return 0;
-#else
-	own_library();
-	libraries_look(0);
-	return workshop.mcc_count > 0;
-#endif
-}
-
 int workshop_browser_offered(void)
 {
 #if defined(HALO_ANDROID) || defined(HALO_WEB)
@@ -2167,11 +2134,6 @@ int workshop_browser_offered(void)
 	/* (every desktop: the list works before setup, whose rows say what's needed) */
 	return 1;
 #endif
-}
-
-int workshop_browser_bridge_backend(void)
-{
-	return bridge_backend();
 }
 
 int workshop_browser_bridge_status(void)
@@ -2452,26 +2414,6 @@ int workshop_browser_sort(void)
 const char *workshop_browser_search(void)
 {
 	return workshop.search;
-}
-
-int workshop_browser_filter_offered(int filter)
-{
-	int index;
-
-	for (index = 0; filter != WORKSHOP_FILTER_ALL && index < workshop.count; index++)
-	{
-		const struct workshop_browser_item *item = &workshop.items[index];
-
-		/* (Multiplayer and Campaign: Steam's page's own items) */
-		if (!item->setup && ((filter == WORKSHOP_FILTER_MULTIPLAYER && !item->local &&
-			(item->tags & WORKSHOP_TAG_MULTIPLAYER)) ||
-			(filter == WORKSHOP_FILTER_CAMPAIGN && !item->local && (item->tags & WORKSHOP_TAG_CAMPAIGN)) ||
-			(filter == WORKSHOP_FILTER_INSTALLED && item->state == WORKSHOP_ITEM_INSTALLED)))
-		{
-			return 1;
-		}
-	}
-	return filter == WORKSHOP_FILTER_ALL;
 }
 
 /* (another page of Steam's: asked for, or taken from the pages kept) */
