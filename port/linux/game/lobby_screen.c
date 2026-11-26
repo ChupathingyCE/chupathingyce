@@ -958,10 +958,31 @@ static void read_facts(struct network_game const *game)
 	fact_set("Teams", lobby.teams ? "Red vs Blue" : "Free for all");
 }
 
+/* the controller of the host's own player, who has the crown: the host
+machine's first controller's, not a split-screen guest's; NONE with none */
+static short host_player_controller(struct network_game const *game, short host_machine)
+{
+	short controller = NONE;
+	long index;
+
+	for (index = 0; index < (long)NUMBEROF(game->players); index++)
+	{
+		struct network_player const *player = &game->players[index];
+
+		if (network_player_is_valid(player) && (short)player->machine_index == host_machine &&
+			(controller == NONE || (short)player->controller_index < controller))
+		{
+			controller = (short)player->controller_index;
+		}
+	}
+	return controller;
+}
+
 /* the rows from the game's player list */
 static void read_players(struct network_game const *game, short local_machine, short host_machine, boolean hosting)
 {
 	long index;
+	short host_controller = host_player_controller(game, host_machine);
 
 	lobby.count = 0;
 	for (index = 0; index < (long)NUMBEROF(game->players) && lobby.count < MAXIMUM_ROWS; index++)
@@ -1003,7 +1024,7 @@ static void read_players(struct network_game const *game, short local_machine, s
 		row->platform = (short)delta_peer_player_platform((int)index);
 		row->delta = row->platform != _delta_platform_unknown ||
 			delta_peer_game_player_has((int)index, _delta_capability_platform) != 0;
-		row->host = (short)row->machine_index == host_machine;
+		row->host = (short)row->machine_index == host_machine && (short)row->controller_index == host_controller;
 		row->local = (short)row->machine_index == local_machine;
 		row->you = row->local && row->controller_index == 0;
 		row->muted = chat_local_muted(row->machine_index, player->name);
