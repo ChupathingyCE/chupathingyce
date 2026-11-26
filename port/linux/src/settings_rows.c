@@ -67,6 +67,12 @@ enum
 	_in_guide = 1 << SETTINGS_GROUP_GUIDE,
 };
 
+enum
+{
+	/* (a row's restart: 1 everywhere, or this) */
+	_restart_in_game = 2,
+};
+
 struct settings_row
 {
 	unsigned groups;
@@ -77,7 +83,8 @@ struct settings_row
 	value in capitals) */
 	const char *const *choices;
 	const char *const *names;
-	/* a change shows after a restart */
+	/* a change shows after a restart (_restart_in_game: only once the
+	game is running, the Guide's; the setup screen comes before it) */
 	int restart;
 	/* a change shows at once on the window (platform_display_apply) */
 	int window;
@@ -147,6 +154,10 @@ static const char *const reticle_size_names[] = { "50%", "75%", "100%", "125%", 
 /* the crosshair's place (display.crosshair_position) */
 static const char *const crosshair_position_choices[] = { "retail", "lowered", NULL };
 static const char *const crosshair_position_names[] = { "XBOX", "LOWERED", NULL };
+/* clips.seconds' (capture_clips.c keeps 5 to 120) */
+static const char *const clip_length_choices[] = { "10", "15", "30", "60", "90", "120", NULL };
+static const char *const clip_length_names[] = { "10 SECONDS", "15 SECONDS", "30 SECONDS", "60 SECONDS", "90 SECONDS",
+	"120 SECONDS", NULL };
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -190,6 +201,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
 	{ _in_display | _in_guide, "CAMO WEAPON FIX", "display.camo_weapon_fix", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "PLASMA SPARKS", "display.plasma_sparks", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display | _in_guide, "DEVELOPER FLAMES", "display.developer_flames", _kind_toggle, NULL, NULL, 0, 0 },
 #ifdef HALO_PORT_RAGDOLLS
 	{ _in_display | _in_guide, "RAGDOLLS", "display.ragdolls", _kind_toggle, NULL, NULL, 0, 0 },
 #endif
@@ -232,6 +244,10 @@ static const struct settings_row settings_rows[] =
 	folders, and named so: settings_row_label) */
 	{ _in_guide, "WORKSHOP MAPS", "game.workshop_maps", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "MAPS WHEN JOINING", "network.workshop_downloads", _kind_words, NULL, NULL, 0, 0 },
+	/* (clips start once, with the game: capture_clips.c) */
+	{ _in_guide, "CLIPS", "clips.enabled", _kind_toggle, NULL, NULL, _restart_in_game, 0 },
+	{ _in_guide, "CLIP LENGTH", "clips.seconds", _kind_choices, clip_length_choices, clip_length_names,
+	  _restart_in_game, 0 },
 	{ _in_guide, "MISSION ORDER", "game.mcc_campaigns", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FORGE", "game.forge", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
@@ -536,6 +552,7 @@ static const char *const display_lines[] =
 	"#BUTTONS", "input.button_style", "input.button_look", "input.hud_buttons",
 	"#HUD", "display.reticle_scale", "display.crosshair_position", "display.ping_meter", "display.scoreboard_icons",
 	"#EFFECTS", "display.first_person_weapon", "display.camo_weapon_fix", "display.plasma_sparks", "display.ragdolls",
+	"display.developer_flames",
 	NULL
 };
 static const char *const sound_lines[] =
@@ -549,6 +566,7 @@ static const char *const sound_lines[] =
 static const char *const game_lines[] =
 {
 	"game.forge", "game.mods",
+	"#CAPTURE", "clips.enabled", "clips.seconds",
 	"#WORKSHOP", "game.workshop_steam", "paths.steam_downloads", "game.workshop_maps", "network.workshop_downloads",
 	"game.mcc_campaigns",
 	NULL
@@ -626,7 +644,12 @@ const char *settings_row_key(const struct settings_row *row)
 
 int settings_row_restart(const struct settings_row *row)
 {
-	return row->restart;
+	return row->restart == 1;
+}
+
+int settings_row_restart_in_game(const struct settings_row *row)
+{
+	return row->restart != 0;
 }
 
 void settings_row_value(const struct settings_row *row, char *text, int size)

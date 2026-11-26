@@ -1163,8 +1163,10 @@ char const *ce_map_family_name(
 /* an element of a tag block or the bytes of a tag data the game reads
 (tag_groups.c), at an Xbox address: with a Custom Edition map loaded, whose
 tags were checked only as far as the port reads them, not read outside its
-tag cache (where its tags, resources, models and BSP are), but from zeroed
-bytes of their own, and logged; else, as always, the address */
+tag cache (where its tags, resources, models and BSP are) and the room above
+it (where its models' converted parts go once the tag cache is full,
+ce_resources_allocate: SPV3's levels' first-person weapons and arms), but
+from zeroed bytes of their own, and logged; else, as always, the address */
 #define CE_TAGS_SCRATCH_LIMIT 0x40000UL
 #ifdef HALO_CUSTOM_EDITION
 /* (the bounds the consoles' inline TAG_BLOCK_GET_ELEMENT checks: tag_groups.h;
@@ -1191,7 +1193,8 @@ void *ce_tags_pointer(
 	/* (the bounds first: they pass for nearly every read; then the menus'
 	own tags, added to the map's: menu_tags.c) */
 	if (!size || (address >= CE_IMAGE_TAG_CACHE_BASE && size > 0 &&
-		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, (unsigned long)size, CE_IMAGE_TAG_CACHE_SIZE)) ||
+		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, (unsigned long)size,
+			CE_IMAGE_TAG_CACHE_SIZE + CE_CONVERSION_ROOM)) ||
 		!cache_file_tags_are_ce() || pc_menu_owns(address, size))
 	{
 		return xbox_pointer(address);

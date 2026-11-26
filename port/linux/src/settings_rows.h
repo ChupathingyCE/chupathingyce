@@ -35,6 +35,10 @@ const char *settings_row_key(const struct settings_row *row);
 /* whether a change takes a restart to show (the setup screen's NEEDS A
 RESTART) */
 int settings_row_restart(const struct settings_row *row);
+/* whether a change takes a restart to show once the game is running (the
+Guide's NEEDS A RESTART): settings_row_restart's, and the settings the
+game reads as it starts (clips), which the setup screen sets in time */
+int settings_row_restart_in_game(const struct settings_row *row);
 /* its value, as the row shows it ("ON", "BORDERLESS", "1920x1080") */
 void settings_row_value(const struct settings_row *row, char *text, int size);
 /* the next value (step 1) or the one before (-1), written to config.toml;

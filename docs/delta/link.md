@@ -98,7 +98,7 @@ signed by the issuer over `"chupathingy device cert v1\n"` + bytes 0 to
 | 24 | 8 | the issuer's key ID |
 | 32 | 16 | account: the profile's player ID; the copy ID while it has no profile |
 | 48 | 32 | the device's public key |
-| 80 | 4 | capabilities |
+| 80 | 4 | capabilities (bits 0 to 23) and account marks (bits 24 to 31) |
 | 84 | L | the handle, lowercase `a-z 0-9 _ -` |
 | 84 + L | 64 | signature |
 
@@ -114,8 +114,33 @@ pass down a chain: not a device enrolled with a player key, not one
 another device approved. A device of another app (a Delta client,
 [clients.md](clients.md)) gets only the scopes it asked for
 that its app has, and never `devices`. Unknown bits and flags are ignored. A certificate lasts 7 days on desktops and Android and 14 on
-consoles, and the device refreshes it at half its life. The display name,
+consoles (2 days when it carries an account mark, below), and the device
+refreshes it at half its life. The display name,
 emblem and clan aren't in it; they change, and peers fetch them as today.
+
+**Account marks.** The capabilities field's top byte (bits 24 to 31,
+0xFF000000) holds account marks: facts the issuing network vouches for about
+the account. The one mark so far is 0x01000000 `developer`, a developer of
+the issuing network's project ([registry.md](registry.md#device-certificates)).
+- A mark grants nothing: no capability, no permission, and never a role for
+  moderation or bans. It is display data, like the handle it rides with.
+- A mark means something only together with the network whose root keys
+  signed the certificate's issuer. A client draws a mark as its own only
+  from a certificate of its home network (chained to the home network's
+  root keys) that passed the checks of "Verified names"
+  ([peer.md](peer.md#verified-names)) on that client, in a bound proof, and
+  only while its player shows by their verified name. Another network's
+  marks are ignored: its `developer` is that network's own developers, never
+  the home network's (a client could show them labeled with that network
+  instead; Chupathingy ignores them).
+- An issuer sets marks only on a certificate that has `play`. Tokens and
+  scopes never carry them.
+- A certificate that carries a mark lasts 2 days on every platform, so a
+  mark the network takes away is gone from every device of the account
+  within 2 days (and the 10 minutes of grace): a device that doesn't refresh
+  keeps its marked certificate until it expires. Revoking the device is the
+  fast path: it takes the mark away at the next revocation list.
+- Unknown marks are ignored, as unknown bits are. Format 1 is unchanged.
 
 A certificate checks when its issuer's key ID is a trusted CISS's, the
 issuer signed it, it was issued inside the CISS's validity, and now is

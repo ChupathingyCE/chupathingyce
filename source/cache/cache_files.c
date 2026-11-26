@@ -704,6 +704,14 @@ void scenario_tags_unload(
 		hud_hires_tags_unloaded();
 	}
 #endif
+#ifdef HALO_DEVELOPER_FLAMES
+	/* port: and the developer flames this map's flame sprite (developer_flames.c) */
+	{
+		extern void developer_flames_tags_unloaded(void);
+
+		developer_flames_tags_unloaded();
+	}
+#endif
 	sound_cache_close();
 	texture_cache_close();
 #ifndef HALO_CONSOLE_NO_FORGE
@@ -2440,6 +2448,15 @@ long scenario_tags_load(
 				extern void hud_hires_tags_loaded(long scenario_index);
 
 				hud_hires_tags_loaded(cache_file_globals.tag_header->scenario_tag_index);
+			}
+#endif
+#ifdef HALO_DEVELOPER_FLAMES
+			/* port: the map's flame sprite, for a verified developer's helmet
+			(port/linux/game/developer_flames.c) */
+			{
+				extern void developer_flames_tags_loaded(void);
+
+				developer_flames_tags_loaded();
 			}
 #endif
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)

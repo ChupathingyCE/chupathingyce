@@ -637,4 +637,30 @@ void invite_prompt_render(
 	ui_overlay_layer(0);
 }
 
+#else
+
+#include "cseries.h"
+
+/* (a build without the game browser has no overlay to ask on, and its host
+asks nothing (network_server_manager.c's mcc_would_drop): should anything
+ask, the answer is yes at once, and there is nothing to take back) */
+void invite_prompt_ask(
+	char const *title,
+	char const *question,
+	char const *detail,
+	void (*answer_function)(boolean yes))
+{
+	(void)title;
+	(void)question;
+	(void)detail;
+	if (answer_function)
+		answer_function(TRUE);
+}
+
+void invite_prompt_ask_cancel(
+	void (*answer_function)(boolean yes))
+{
+	(void)answer_function;
+}
+
 #endif

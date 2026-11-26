@@ -94,6 +94,10 @@ symbols in this file:
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_player.h" /* port: port/linux/game/stubbs_image_effects.c */
 #include "opensauce_postprocess.h" /* port: port/linux/game/opensauce_postprocess.c */
+#ifdef HALO_DEVELOPER_FLAMES
+/* port: a verified developer's blue flame (port/linux/game/developer_flames.c) */
+void developer_flames_render(void);
+#endif
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 #include "cutscene/cinematics.h"
 #endif
@@ -892,6 +896,9 @@ static void render_window(
 		after its update) */
 		weather_particle_systems_render();
 		render_particles();
+#ifdef HALO_DEVELOPER_FLAMES
+		developer_flames_render();
+#endif
 		particle_systems_render();
 		render_contrails_normal();
 #ifdef HALO_SHADER_PREP

@@ -379,6 +379,16 @@ void game_tick(
 	seconds_per_tick = game_globals->players_are_double_speed
 		? 1.0f / (2 * TICKS_PER_SECOND)
 		: 1.0f / TICKS_PER_SECOND;
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge game's or a layout's effects started when due and its
+	decals laid (port/linux/game/forge_effects.inc); nothing in any other
+	game */
+	{
+		extern void forge_effects_tick(void);
+
+		forge_effects_tick();
+	}
+#endif
 	HALO_PERF_BEGIN(_halo_perf_tick_effects);
 	effects_update(seconds_per_tick);
 	HALO_PERF_END(_halo_perf_tick_effects);
