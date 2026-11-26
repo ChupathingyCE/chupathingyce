@@ -42,10 +42,9 @@ available": the backend starts the GL ES image instead (port/android/VULKAN.md,
 phase 1), and says why in the log.
 
 Only one driver is open in the process: a second call returns the first call's
-result, and a call after host_vk_driver_close() returns NULL. Nothing in the
-host may load the phone's Vulkan driver once a custom one is open (no
-SDL_Vulkan_* calls: SDL would dlopen the system loader). Not thread safe; call
-it from the thread that sets Vulkan up. */
+result. Nothing in the host may load the phone's Vulkan driver once a custom
+one is open (no SDL_Vulkan_* calls: SDL would dlopen the system loader). Not
+thread safe; call it from the thread that sets Vulkan up. */
 PFN_vkGetInstanceProcAddr host_vk_driver_open(const char *setting, char *description, size_t size);
 
 /* After the instance is made (the system loader loads a driver only then): whether the driver asked for is the one
@@ -53,11 +52,5 @@ loaded, in text. libadrenotools hands back the system loader whatever it is give
 own driver without a word when the library will not load, so a custom driver's library must be looked for in the
 process: returns 0 and says so if it is not there. True for the phone's own driver. */
 int host_vk_driver_verify(char *text, size_t size);
-
-/* closes the driver, once, when the process is done with Vulkan: every Vulkan
-object made through it must be destroyed first, and nothing may call into it
-afterwards. The driver cannot be opened again in the same process (libadrenotools'
-hooks stay installed), so host_vk_driver_open() returns NULL from then on. */
-void host_vk_driver_close(void);
 
 #endif

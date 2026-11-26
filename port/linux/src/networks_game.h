@@ -22,8 +22,6 @@ network.networks_trust and network.networks_block.
 /* the list read and the settings taken, and (with list keys and a site)
 the list fetched in the background from now on; once */
 void networks_start(void);
-/* the home network's domain ("chupathingy.org" for Chupathingy's builds) */
-const char *networks_home(void);
 /* the home network's root keys, for this copy's own certificates (count
 of them into *count) */
 const unsigned char (*networks_home_roots(int *count))[NETWORKS_KEY_SIZE];

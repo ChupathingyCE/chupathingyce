@@ -97,7 +97,10 @@ debug.network_test_split_leave has a host with split screen players
 (debug.network_test_local_players) take them out one by one as the game goes
 on, the last first, as Quit on their pause menu does, and with :rejoin join
 each again half that time later, as a player joining the game in progress
-(for #1325, the crash some time after a split screen player leaves).
+(for #1325, the crash some time after a split screen player leaves); with
+:first, player 2 first, so the next game's players are not the first
+controllers in a row; a joining machine with split screen players (join and
+debug.network_test_local_players) takes its own out the same way.
 
 Called from the main loop every frame (main.c).
 */
@@ -229,6 +232,7 @@ static struct
 	controller who left last (0 none waiting), and those out of the game */
 	real split_leave_seconds;
 	boolean split_rejoin;
+	boolean split_first;
 	long split_leave_time;
 	long split_rejoin_time;
 	short split_left;
@@ -479,6 +483,7 @@ static void network_test_read_settings(
 		{
 			network_test.split_leave_seconds = split_seconds;
 			network_test.split_rejoin = strstr(split_leave, ":rejoin") != NULL;
+			network_test.split_first = strstr(split_leave, ":first") != NULL;
 		}
 	}
 	network_test.team_change_interval = (real)config_real("debug.network_test_team_change");
@@ -1479,7 +1484,9 @@ static void network_test_split_update(
 	long now = game_time_get();
 	short controller;
 
-	if (network_test.local_players < 2 || network_test.local_players_added < network_test.local_players ||
+	/* (a joining machine's players are all joined in its lobby) */
+	if (network_test.local_players < 2 ||
+		(network_test.mode == _network_test_host && network_test.local_players_added < network_test.local_players) ||
 		interval <= 0 || now < interval || !global_network_game_client_get())
 	{
 		return;
@@ -1490,10 +1497,24 @@ static void network_test_split_update(
 	if (now >= network_test.split_leave_time)
 	{
 		network_test.split_leave_time = now + interval;
-		for (controller = network_test.local_players - 1; controller > 0; controller--)
+		/* (with :first, player 2 first, the players after them staying) */
+		if (network_test.split_first)
 		{
-			if (!network_test.split_out[controller])
-				break;
+			for (controller = 1; controller < network_test.local_players; controller++)
+			{
+				if (!network_test.split_out[controller])
+					break;
+			}
+			if (controller >= network_test.local_players)
+				controller = 0;
+		}
+		else
+		{
+			for (controller = network_test.local_players - 1; controller > 0; controller--)
+			{
+				if (!network_test.split_out[controller])
+					break;
+			}
 		}
 		if (controller > 0)
 		{
@@ -1700,8 +1721,11 @@ void network_test_update(
 	{
 		network_test.logged_time = game_time_get();
 		network_test_log_players();
-		if (network_test.mode == _network_test_host && network_test.split_leave_seconds > 0.0f)
+		if ((network_test.mode == _network_test_host || network_test.mode == _network_test_join) &&
+			network_test.split_leave_seconds > 0.0f)
+		{
 			network_test_split_update();
+		}
 		if (network_test.shoot_interval > 0.0f &&
 			game_time_get() % MAX(1, (long)(network_test.shoot_interval * TICKS_PER_SECOND)) < TICKS_PER_SECOND)
 		{

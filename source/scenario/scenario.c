@@ -937,7 +937,8 @@ boolean scenario_trigger_volume_test_object(
 {
 	boolean result = FALSE;
 
-	if (object_index != NONE)
+	/* port: an object deleted since a script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 		result = scenario_trigger_volume_test_point(trigger_volume_index, &object_get(object_index)->object.bounding_sphere_center);
 
 	return result;

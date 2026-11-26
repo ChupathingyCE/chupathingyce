@@ -8,7 +8,10 @@ The first-start screen takes your Xbox disc image. It also accepts your Halo PC 
 `maps_pc`, and the Halo Custom Edition installer (`halocesetup_en_1.00.exe`),
 which fills `maps_ce` (not on Android yet, where **Import maps** takes
 loose `.map` files or a `.zip` of them). Or choose **Make the folders** to get empty `maps`,
-`maps_ce`, `maps_pc` and `maps_md` folders and copy the files in yourself.
+`maps_ce`, `maps_pc` and `maps_md` folders and copy the files in yourself. It also makes `maps_cex`
+(Halo CE+ Xbox), `maps_spv3` (SPV3) and `maps_mcc` (Halo MCC custom maps), each with a short
+`README.txt` that says what goes there. It never replaces a `README.txt` that is already there, and
+it doesn't make `maps_cex` next to `maps_ceplus` or `maps_ce+`, or `maps_mcc` next to `mcc_maps`.
 If you already have a maps folder somewhere else, choose **I already have a maps folder** and pick it.
 
 The folders it makes, and what goes in each, are below.
@@ -19,7 +22,7 @@ On Windows, Mac and Linux the first-start screen is part of a setup screen that 
 It opens by itself when your Xbox maps are missing. To open it any other time:
 
 - hold **Shift** (or **Back**/**View** on a controller) while the game starts,
-- pick **ADVANCED SETUP** in the game's settings, or
+- pick **ADVANCED SETUP** in the game's settings (**SETUP** in the Xbox menus), or
 - start the game with `--setup`.
 
 In Steam Deck Game Mode it only opens when you ask for it.
@@ -91,7 +94,9 @@ release r220 (the "custom edition full shared" package) in `maps_ce` instead of
 the stock ones; keep a copy of yours. Maps with their own HUD use theirs.
 HUD meters made in the Xbox's channel order, such as halopc-restored's Xbox
 order meters or a custom HUD whose meters are flagged "use Xbox shading", draw
-that way.
+that way. A weapon HUD element placed from its own anchor (MCC's field, which
+Chimera reads too), such as halopc-restored's sniper scope ticks and range
+numbers, is drawn from it: a corner or the middle of the screen.
 
 **Playing with OpenCE players.** OpenCE plays Custom Edition maps from
 a `custom_maps` folder. A game on a Custom Edition map is named the same way
@@ -356,3 +361,14 @@ own movies too: put them in a `bink` folder beside its `ui.map`
 the pack doesn't have plays from the game's own `bink` folder. A pack folder
 needs a name of 1 to 8 letters and digits, other than `ce`, `md`, `pc`, `de`,
 `fr`, `es` and `it`.
+
+## MCC maps
+
+Halo 1 MCC custom maps go in `maps_mcc`, beside `maps`: a map's `.map` file, or a Steam Workshop
+item's whole folder. The details are on
+[docs/mcc_maps.md](mcc_maps.md), and the Workshop is on [docs/mcc.md](mcc.md).
+
+## SPV3
+
+SPV3's maps go in `maps_spv3`, beside `maps`. It's early, and it has its
+own page: [docs/spv3.md](spv3.md).

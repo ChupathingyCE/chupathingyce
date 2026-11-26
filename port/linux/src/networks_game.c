@@ -315,12 +315,6 @@ void networks_start(void)
 	}
 }
 
-const char *networks_home(void)
-{
-	pthread_once(&networks_once, networks_load);
-	return networks.home;
-}
-
 const unsigned char (*networks_home_roots(int *count))[NETWORKS_KEY_SIZE]
 {
 	pthread_once(&networks_once, networks_load);

@@ -38,6 +38,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "tag_files.h"
 #include "stubbs_mode.h"
 #include "stubbs_engine.h"
+#include "content_bytes.h"
 
 #ifndef HALO_CONSOLE_NO_STUBBS
 
@@ -142,15 +143,6 @@ static void stubbs_engine_forget_players(
 	}
 	for (index = 0; index < MAXIMUM_STUBBS_UNIT_COUNTS; index++)
 		stubbs_unit_counts[index].unit_index = NONE;
-}
-
-static long stubbs_read_long(
-	unsigned char const *address)
-{
-	long value;
-
-	csmemcpy(&value, address, 4);
-	return value;
 }
 
 static struct stubbs_unit_definition const *stubbs_unit_definition_get(
@@ -508,8 +500,8 @@ void stubbs_engine_note_unit_definition(
 	}
 	stubbs_unit_definitions_noted = TRUE;
 	{
-		long definition_index = stubbs_read_long(instance + 0x0C);
-		unsigned long group = (unsigned long)stubbs_read_long(instance);
+		long definition_index = content_s32(instance + 0x0C);
+		unsigned long group = (unsigned long)content_s32(instance);
 
 		if (group == 'bipd' && stubbs_biped_noted_count < MAXIMUM_STUBBS_UNITS_NOTED)
 		{
@@ -523,8 +515,8 @@ void stubbs_engine_note_unit_definition(
 			}
 		}
 	}
-	count = stubbs_read_long(unit + STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET);
-	address = (unsigned long)stubbs_read_long(unit + STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET + 4);
+	count = content_s32(unit + STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET);
+	address = (unsigned long)content_s32(unit + STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET + 4);
 	if (count <= 0 || stubbs_unit_definition_count >= MAXIMUM_STUBBS_UNIT_DEFINITIONS)
 		return;
 	if (count > STUBBS_MAXIMUM_SPECIAL_ATTACKS)
@@ -537,7 +529,7 @@ void stubbs_engine_note_unit_definition(
 	}
 
 	noted = &stubbs_unit_definitions[stubbs_unit_definition_count++];
-	noted->definition_index = stubbs_read_long(instance + 0x0C);
+	noted->definition_index = content_s32(instance + 0x0C);
 	noted->special_attack_count = (short)count;
 	for (index = 0; index < count; index++)
 	{
@@ -546,10 +538,10 @@ void stubbs_engine_note_unit_definition(
 		short cost;
 
 		/* (a tag reference: its group, name, name length and tag index) */
-		attack->object_group = (unsigned long)stubbs_read_long(element + STUBBS_SPECIAL_ATTACK_OBJECT_OFFSET);
-		attack->object_definition_index = stubbs_read_long(element + STUBBS_SPECIAL_ATTACK_OBJECT_OFFSET + 0x0C);
-		attack->ready_effect_index = stubbs_read_long(element + STUBBS_SPECIAL_ATTACK_READY_EFFECT_OFFSET + 0x0C);
-		attack->throw_effect_index = stubbs_read_long(element + STUBBS_SPECIAL_ATTACK_THROW_EFFECT_OFFSET + 0x0C);
+		attack->object_group = (unsigned long)content_s32(element + STUBBS_SPECIAL_ATTACK_OBJECT_OFFSET);
+		attack->object_definition_index = content_s32(element + STUBBS_SPECIAL_ATTACK_OBJECT_OFFSET + 0x0C);
+		attack->ready_effect_index = content_s32(element + STUBBS_SPECIAL_ATTACK_READY_EFFECT_OFFSET + 0x0C);
+		attack->throw_effect_index = content_s32(element + STUBBS_SPECIAL_ATTACK_THROW_EFFECT_OFFSET + 0x0C);
 		csmemcpy(&attack->speed, element + STUBBS_SPECIAL_ATTACK_SPEED_OFFSET, 4);
 		csmemcpy(&cost, element + STUBBS_SPECIAL_ATTACK_COST_OFFSET, 2);
 		attack->cost = cost;

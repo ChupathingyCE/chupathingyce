@@ -4198,15 +4198,6 @@ static void render_row(struct social_row const *row, float x, float y, float wid
 	render_row_marked(row, x, y, width, on, index, NULL);
 }
 
-/* a button of the detail pane (an action) */
-static void render_action(char const *label, float x, float y, float width, boolean on, unsigned int text,
-	short index)
-{
-	ui_style_row(x, y, width, 24, on);
-	ui_overlay_text(UI_FONT_MENU, 10.0f, x + 10, y + 7, UI_ALIGN_LEFT, text, label);
-	target_add(x, y, x + width, y + 24, _target_action, index);
-}
-
 static void render_players(void)
 {
 	short count = (short)guide.players.count, visible, index;

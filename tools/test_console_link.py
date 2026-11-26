@@ -37,7 +37,7 @@ def test_console_link(tmp_path):
          "-D__HALO_LINUX_PLATFORM_H", "-D__HALO_LINUX_POSIX_H", "-include", str(prelude),
          "-I", str(link), "-I", str(ROOT / "port" / "linux" / "src"), "-I", str(monocypher), "-I", str(qrcodegen),
          str(ROOT / "port" / "console" / "tests" / "console_link_test.c"), str(link / "console_link.c"),
-         str(ROOT / "port" / "linux" / "src" / "p2p_crypto.c"), str(qrcodegen / "qrcodegen.c"),
+         str(ROOT / "port" / "linux" / "src" / "p2p_crypto.c"), str(ROOT / "port" / "linux" / "game" / "content_sha256.c"), str(qrcodegen / "qrcodegen.c"),
          str(monocypher / "monocypher.c"), str(monocypher / "monocypher-ed25519.c"),
          "-o", str(binary)],
         capture_output=True, text=True,

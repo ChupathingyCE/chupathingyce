@@ -161,13 +161,18 @@ def test_advertisement_matches_the_code():
     stock = advertisement["stock"]
     assert stock["flags_byte"] == int(re.search(r"#define HALO_PORT_ADVERTISED_FLAGS_OFFSET (\d+)", LIMITS_H).group(1))
     ours = values(LIMITS_H, r"#define HALO_PORT_ADVERTISED_(DISTRIBUTED|IN_PROGRESS|DEDICATED)_FLAG (0x\w+)")
-    mcc = (ROOT / "port" / "linux" / "game" / "mcc_protocol.h").read_text()
-    ours["mcc"] = int(re.search(r"#define MCC_PROTOCOL_ADVERTISED_FLAG (0x\w+)", mcc).group(1), 16)
+    # (0x08 and byte 4: the MCC network protocol's, from older GulchCE builds;
+    # reserved, and no code of ours sets or reads them)
+    flags = {flag["name"]: flag for flag in stock["flags"]}
+    assert flags["mcc"]["value"] == 0x08 and flags["mcc"]["status"].startswith("reserved")
+    assert flags["mcc"]["value"] not in ours.values()
+    ours["mcc"] = flags["mcc"]["value"]
     assert {flag["name"]: flag["value"] for flag in stock["flags"]} == ours
     where = {entry["name"]: entry["bytes"] for entry in stock["bytes"] if entry["name"]}
     assert where["version"][0] == int(re.search(r"#define HALO_PORT_ADVERTISED_VERSION_OFFSET (\d+)", LIMITS_H).group(1))
     assert where["kind"] == [int(re.search(r"#define HALO_PORT_ADVERTISED_KIND_OFFSET (\d+)", LIMITS_H).group(1))]
-    assert where["mcc_version"] == [int(re.search(r"#define MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET (\d+)", mcc).group(1))]
+    mcc_version = next(entry for entry in stock["bytes"] if entry["name"] == "mcc_version")
+    assert mcc_version["bytes"] == [4] and mcc_version["status"].startswith("reserved")
     assert where["delta_tag"] == [advertisement["reserved_size"] - int(re.search(r"#define DELTA_ADVERTISED_TAG_SIZE (\d+)", DELTA_H).group(1)),
         advertisement["reserved_size"] - 1]
     assert advertisement["modded"]["versions"] == [0xFF00, 0xFFFF]

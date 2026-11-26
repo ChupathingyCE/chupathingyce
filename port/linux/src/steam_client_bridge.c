@@ -40,9 +40,12 @@ struct watched_item
 	struct steam_bridge_item state;
 };
 
+/* (bridge's lock, apart from it: its initializer is not zeros, and
+would put the whole of it in the data segment instead of bss) */
+static pthread_mutex_t bridge_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static struct
 {
-	pthread_mutex_t lock;
 	int backend_looked;
 	int backend;
 	/* the thread runs; it was told to stop; it is stopping; open again after */
@@ -60,7 +63,7 @@ static struct
 	struct watched_item items[STEAM_BRIDGE_MAXIMUM_ITEMS];
 	int install_wanted;
 	int mcc_state;
-} bridge = { PTHREAD_MUTEX_INITIALIZER };
+} bridge;
 
 /* the items this game subscribed to in the Steam client that weren't
 subscribed before (only the worker reads or writes these): a cancel
@@ -253,7 +256,7 @@ static void session(int use_steamcmd)
 	else
 		steamcmd = NULL;
 	status = connected ? STEAM_BRIDGE_READY : STEAM_BRIDGE_FAILED;
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	/* (a connect that took too long: the tab has fallen back already) */
 	if (bridge.status == STEAM_BRIDGE_CONNECTING)
 	{
@@ -262,7 +265,7 @@ static void session(int use_steamcmd)
 		bridge.sign_in = steamcmd_status == STEAM_BRIDGE_SIGN_IN;
 	}
 	live = bridge.status == STEAM_BRIDGE_READY;
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	platform_log("Workshop: Steam bridge %s (client %s, steamcmd %s)", live ? "ready" : "not available",
 		client ? "connected" : "no", !steamcmd ? "no" : steamcmd_status == STEAM_BRIDGE_SIGN_IN ? "needs a sign-in" :
 		"ready");
@@ -270,7 +273,7 @@ static void session(int use_steamcmd)
 	{
 		int count, index, install, stopping;
 
-		pthread_mutex_lock(&bridge.lock);
+		pthread_mutex_lock(&bridge_lock);
 		/* (told to stop: a last turn for the cancels asked just before, as
 		a join's CANCEL closes the bridge right after asking) */
 		stopping = bridge.stop;
@@ -288,7 +291,7 @@ static void session(int use_steamcmd)
 		install = stopping ? 0 : bridge.install_wanted;
 		if (!stopping)
 			bridge.install_wanted = 0;
-		pthread_mutex_unlock(&bridge.lock);
+		pthread_mutex_unlock(&bridge_lock);
 		for (index = 0; index < count; index++)
 		{
 			if (turn[index].want == 1)
@@ -340,7 +343,7 @@ static void session(int use_steamcmd)
 			steamcmd->tick();
 		for (index = 0; index < count; index++)
 			item_query(client, steamcmd, &turn[index]);
-		pthread_mutex_lock(&bridge.lock);
+		pthread_mutex_lock(&bridge_lock);
 		for (index = 0; index < count; index++)
 		{
 			struct watched_item *item = find(turn[index].id);
@@ -353,7 +356,7 @@ static void session(int use_steamcmd)
 			bridge.mcc_state = steamcmd->mcc_state();
 			bridge.sign_in = steamcmd_status == STEAM_BRIDGE_SIGN_IN || steamcmd->needs_sign_in();
 		}
-		pthread_mutex_unlock(&bridge.lock);
+		pthread_mutex_unlock(&bridge_lock);
 		steam_bridge_platform_sleep(STEAM_BRIDGE_POLL_INTERVAL);
 	}
 	if (client)
@@ -369,11 +372,11 @@ static void *worker(void *context)
 	{
 		int use_steamcmd, index;
 
-		pthread_mutex_lock(&bridge.lock);
+		pthread_mutex_lock(&bridge_lock);
 		use_steamcmd = bridge.use_steamcmd;
-		pthread_mutex_unlock(&bridge.lock);
+		pthread_mutex_unlock(&bridge_lock);
 		session(use_steamcmd);
-		pthread_mutex_lock(&bridge.lock);
+		pthread_mutex_lock(&bridge_lock);
 		/* (the tab opened again while this one stopped: start over) */
 		if (bridge.reopen)
 		{
@@ -382,7 +385,7 @@ static void *worker(void *context)
 			bridge.stopping = 0;
 			bridge.status = STEAM_BRIDGE_CONNECTING;
 			bridge.connect_time = system_milliseconds();
-			pthread_mutex_unlock(&bridge.lock);
+			pthread_mutex_unlock(&bridge_lock);
 			continue;
 		}
 		bridge.running = 0;
@@ -392,7 +395,7 @@ static void *worker(void *context)
 			bridge.status = STEAM_BRIDGE_OFF;
 		for (index = 0; index < bridge.count; index++)
 			memset(&bridge.items[index].state, 0, sizeof(bridge.items[index].state));
-		pthread_mutex_unlock(&bridge.lock);
+		pthread_mutex_unlock(&bridge_lock);
 		return NULL;
 	}
 }
@@ -439,7 +442,7 @@ void steam_bridge_open(int use_steamcmd)
 
 	if (!steam_bridge_enabled())
 		return;
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	if (bridge.running)
 	{
 		/* (still running: told not to stop, or to start over once stopped) */
@@ -451,7 +454,7 @@ void steam_bridge_open(int use_steamcmd)
 		}
 		else
 			bridge.stop = 0;
-		pthread_mutex_unlock(&bridge.lock);
+		pthread_mutex_unlock(&bridge_lock);
 		return;
 	}
 	bridge.running = 1;
@@ -463,23 +466,23 @@ void steam_bridge_open(int use_steamcmd)
 	bridge.sign_in = 0;
 	bridge.status = STEAM_BRIDGE_CONNECTING;
 	bridge.connect_time = system_milliseconds();
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	if (pthread_create(&thread, NULL, worker, NULL) == 0)
 	{
 		pthread_detach(thread);
 		return;
 	}
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	bridge.running = 0;
 	bridge.status = STEAM_BRIDGE_FAILED;
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 }
 
 void steam_bridge_restart(int use_steamcmd)
 {
 	int running;
 
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	running = bridge.running;
 	if (running)
 	{
@@ -492,14 +495,14 @@ void steam_bridge_restart(int use_steamcmd)
 		bridge.status = STEAM_BRIDGE_CONNECTING;
 		bridge.connect_time = system_milliseconds();
 	}
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	if (!running)
 		steam_bridge_open(use_steamcmd);
 }
 
 void steam_bridge_close(void)
 {
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	if (bridge.running)
 	{
 		bridge.stop = 1;
@@ -508,14 +511,14 @@ void steam_bridge_close(void)
 	/* (a failure is forgotten: the next open tries again) */
 	else
 		bridge.status = STEAM_BRIDGE_OFF;
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 }
 
 int steam_bridge_status(void)
 {
 	int status;
 
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	if (bridge.status == STEAM_BRIDGE_CONNECTING &&
 		system_milliseconds() - bridge.connect_time >= STEAM_BRIDGE_CONNECT_TIMEOUT)
 	{
@@ -526,7 +529,7 @@ int steam_bridge_status(void)
 		bridge.reopen = 0;
 	}
 	status = bridge.status;
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	return status;
 }
 
@@ -534,9 +537,9 @@ int steam_bridge_connected(void)
 {
 	int connected;
 
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	connected = bridge.status == STEAM_BRIDGE_READY ? bridge.connected : 0;
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	return connected;
 }
 
@@ -549,9 +552,9 @@ int steam_bridge_sign_in_needed(void)
 {
 	int needed;
 
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	needed = bridge.status == STEAM_BRIDGE_READY && bridge.sign_in;
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	return needed;
 }
 
@@ -561,14 +564,14 @@ int steam_bridge_item(const char *id, struct steam_bridge_item *item)
 	int known = 0;
 
 	memset(item, 0, sizeof(*item));
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	watched = watch(id);
 	if (watched && bridge.status == STEAM_BRIDGE_READY)
 	{
 		*item = watched->state;
 		known = item->state != STEAM_BRIDGE_ITEM_UNKNOWN;
 	}
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	return known;
 }
 
@@ -577,7 +580,7 @@ static int ask(const char *id, int want, int needs)
 	struct watched_item *item = NULL;
 	int asked = 0, status, connected;
 
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	status = bridge.status;
 	connected = bridge.connected;
 	if (status == STEAM_BRIDGE_READY && (connected & needs) && (item = watch(id)) != NULL)
@@ -597,7 +600,7 @@ static int ask(const char *id, int want, int needs)
 		}
 		asked = 1;
 	}
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	/* (why it wasn't asked, which the tab only calls Failed) */
 	if (!asked)
 	{
@@ -622,7 +625,7 @@ int steam_bridge_removable(const char *id)
 
 	if (!id_value(id, &value))
 		return 0;
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	item = find(id);
 	if (bridge.status == STEAM_BRIDGE_READY)
 	{
@@ -635,7 +638,7 @@ int steam_bridge_removable(const char *id)
 		else if ((bridge.connected & CLIENT_BIT) && item && item->state.subscribed)
 			removable = 1;
 	}
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	return removable;
 }
 
@@ -690,14 +693,14 @@ int steam_bridge_install_mcc(void)
 {
 	int asked = 0;
 
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	if (bridge.status == STEAM_BRIDGE_READY && (bridge.connected & STEAMCMD_BIT) && !bridge.sign_in)
 	{
 		bridge.install_wanted = 1;
 		bridge.mcc_state = STEAM_BRIDGE_ITEM_QUEUED;
 		asked = 1;
 	}
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	return asked;
 }
 
@@ -705,13 +708,13 @@ int steam_bridge_mcc_state(void)
 {
 	int state;
 
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	state = bridge.mcc_state;
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	return state;
 }
 
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 /* ---------- no bridge here: the platform's functions as stand-ins that never work */
 
 void *steam_bridge_platform_library_open(const char *path) { (void)path; return NULL; }
@@ -740,23 +743,23 @@ int steam_bridge_platform_is_folder(const char *path) { (void)path; return 0; }
 /* the tests' fresh start (the backend looked for again) */
 void steam_bridge_test_reset(void)
 {
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	bridge.backend_looked = 0;
 	bridge.status = STEAM_BRIDGE_OFF;
 	bridge.count = 0;
 	bridge.install_wanted = 0;
 	bridge.mcc_state = 0;
 	subscribed_here_count = 0;
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 }
 
 int steam_bridge_test_running(void)
 {
 	int running;
 
-	pthread_mutex_lock(&bridge.lock);
+	pthread_mutex_lock(&bridge_lock);
 	running = bridge.running;
-	pthread_mutex_unlock(&bridge.lock);
+	pthread_mutex_unlock(&bridge_lock);
 	return running;
 }
 #endif

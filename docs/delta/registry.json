@@ -806,7 +806,7 @@
           "name": "mcc",
           "meaning": "the host plays the MCC network protocol's join and settings record (peer.md, MCC games)",
           "for": "the MCC network protocol (from GulchCE)",
-          "status": "in use, in no Chupathingy release"
+          "status": "reserved: used by older GulchCE builds; no current build sets them"
         }
       ],
       "bytes": [
@@ -845,7 +845,7 @@
           "name": "mcc_version",
           "meaning": "with the flag 0x08, the MCC network protocol's version",
           "for": "the MCC network protocol (from GulchCE)",
-          "status": "in use, in no Chupathingy release"
+          "status": "reserved: used by older GulchCE builds; no current build sets them"
         },
         {
           "bytes": [

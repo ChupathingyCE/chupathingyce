@@ -203,7 +203,7 @@ A maps folder that isn't the Xbox maps later (Halo PC's ui.map, or none)
 opens the setup screen on Maps instead of a message and a quit. Held Shift
 or a controller's Back at start, `--setup`, or `launcher.show_at_start =
 "always"` open it too, and so does ADVANCED SETUP in the menus' settings
-(`launcher.menu_entry`). In Steam Deck Game Mode it opens only when asked
+(SETUP in the Xbox menus; `launcher.menu_entry`). In Steam Deck Game Mode it opens only when asked
 for: Back held at start, `--setup`, or SETUP. Runs nobody watches
 (`debug.hidden_window`, `debug.exit_after`, the null renderer) never show it.
 `debug.launcher_test` scripts it for tests and screenshots.
@@ -1976,5 +1976,5 @@ can optimize that code for each processor:
 | `interface/hud_draw.c` | a read of `[ebp+4]` | `__builtin_return_address(1)` |
 | `bink/bink_playback.c` | `int 3` | `__builtin_trap` |
 
-The x87 control and status words (`_control87`, `_statusfp`, `_clearfp` in
-`src/msvc_crt.c`) use `fenv.h`. On Android, they use the FPCR and FPSR.
+The x87 control word (`_control87` in `src/msvc_crt.c`) uses `fenv.h`. On
+Android, it uses the FPCR.

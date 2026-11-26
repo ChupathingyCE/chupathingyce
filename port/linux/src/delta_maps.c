@@ -52,14 +52,17 @@ struct delta_maps_entry
 	delta_u32 used;
 };
 
+/* (delta_maps's lock, apart from it: its initializer is not zeros, and
+would put the whole of it in the data segment instead of bss) */
+static pthread_mutex_t delta_maps_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static struct
 {
-	pthread_mutex_t lock;
 	struct delta_maps_entry entries[DELTA_MAPS_CACHED];
 	delta_u32 clock;
 	/* a hashing thread is running */
 	int working;
-} delta_maps = { PTHREAD_MUTEX_INITIALIZER };
+} delta_maps;
 
 /* the file's size and modification time; 0 if it cannot be opened */
 static int file_stamp(const char *path, delta_u32 *size_low, delta_u32 *size_high, delta_u32 *time_low,
@@ -129,17 +132,17 @@ static void *hash_thread(void *argument)
 		int index;
 		int ok;
 
-		pthread_mutex_lock(&delta_maps.lock);
+		pthread_mutex_lock(&delta_maps_lock);
 		for (index = 0; index < DELTA_MAPS_CACHED && delta_maps.entries[index].state != _entry_pending; index++)
 			;
 		if (index == DELTA_MAPS_CACHED)
 		{
 			delta_maps.working = 0;
-			pthread_mutex_unlock(&delta_maps.lock);
+			pthread_mutex_unlock(&delta_maps_lock);
 			return NULL;
 		}
 		job = delta_maps.entries[index];
-		pthread_mutex_unlock(&delta_maps.lock);
+		pthread_mutex_unlock(&delta_maps_lock);
 
 		started = GetTickCount();
 		ok = hash_file(job.path, job.size_low, job.size_high, hash);
@@ -147,7 +150,7 @@ static void *hash_thread(void *argument)
 			strrchr(job.path, '\\') + 1 : job.path, (unsigned long)((((unsigned long long)job.size_high << 32) |
 			job.size_low) >> 20), (unsigned long)(GetTickCount() - started), ok ? "" : " (could not be read)");
 
-		pthread_mutex_lock(&delta_maps.lock);
+		pthread_mutex_lock(&delta_maps_lock);
 		/* (the entry may have been taken for another file meanwhile) */
 		if (delta_maps.entries[index].state == _entry_pending && !strcmp(delta_maps.entries[index].path, job.path) &&
 			delta_maps.entries[index].size_low == job.size_low && delta_maps.entries[index].size_high == job.size_high &&
@@ -156,7 +159,7 @@ static void *hash_thread(void *argument)
 			delta_maps.entries[index].state = ok ? _entry_hashed : _entry_failed;
 			memcpy(delta_maps.entries[index].hash, hash, sizeof(hash));
 		}
-		pthread_mutex_unlock(&delta_maps.lock);
+		pthread_mutex_unlock(&delta_maps_lock);
 	}
 }
 
@@ -171,7 +174,7 @@ static int file_hash(const char *path, unsigned char *hash, delta_u32 *size_low,
 
 	if (strlen(path) >= DELTA_MAPS_PATH_SIZE || !file_stamp(path, size_low, size_high, &time_low, &time_high))
 		return -1;
-	pthread_mutex_lock(&delta_maps.lock);
+	pthread_mutex_lock(&delta_maps_lock);
 	for (index = 0; index < DELTA_MAPS_CACHED && !entry; index++)
 	{
 		struct delta_maps_entry *candidate = &delta_maps.entries[index];
@@ -200,7 +203,7 @@ static int file_hash(const char *path, unsigned char *hash, delta_u32 *size_low,
 		}
 		if (!entry)
 		{
-			pthread_mutex_unlock(&delta_maps.lock);
+			pthread_mutex_unlock(&delta_maps_lock);
 			return 0;
 		}
 		memset(entry, 0, sizeof(*entry));
@@ -228,7 +231,7 @@ static int file_hash(const char *path, unsigned char *hash, delta_u32 *size_low,
 	result = entry->state == _entry_hashed ? 1 : entry->state == _entry_pending ? 0 : -1;
 	if (result == 1)
 		memcpy(hash, entry->hash, DELTA_WIRE_MAP_HASH_SIZE);
-	pthread_mutex_unlock(&delta_maps.lock);
+	pthread_mutex_unlock(&delta_maps_lock);
 	return result;
 }
 

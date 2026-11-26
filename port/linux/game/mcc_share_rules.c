@@ -76,36 +76,6 @@ enum mcc_share_reason mcc_share_decide(struct mcc_share_package const *package)
     return MCC_SHARE_ELIGIBLE;
 }
 
-int mcc_share_eligible(struct mcc_share_package const *package)
-{
-    return mcc_share_decide(package)==MCC_SHARE_ELIGIBLE;
-}
-
-char const *mcc_share_reason_word(enum mcc_share_reason reason)
-{
-    switch (reason) {
-    case MCC_SHARE_ELIGIBLE: return "eligible";
-    case MCC_SHARE_NOT_OPTED_IN: return "not-opted-in";
-    case MCC_SHARE_BAD_NAME: return "bad-name";
-    case MCC_SHARE_NOT_A_PACKAGE: return "not-a-package";
-    case MCC_SHARE_SHARED_RESOURCES: return "shared-resources";
-    case MCC_SHARE_STOCK: return "stock";
-    case MCC_SHARE_WORKSHOP: return "workshop";
-    case MCC_SHARE_UNKNOWN_ORIGIN: return "unknown-origin";
-    case MCC_SHARE_UNKNOWN_CONTENT: return "unknown-content";
-    }
-    return "unknown";
-}
-
-int mcc_share_file_allowed(char const *leaf, size_t length)
-{
-    char name[12];
-    if (!leaf || (length!=10 && length!=11) || memchr(leaf,0,length)) return 0;
-    memcpy(name,leaf,length);
-    name[length]=0;
-    return mcc_share_same(name,"bitmaps.map") || mcc_share_same(name,"sounds.map");
-}
-
 int mcc_share_decline(unsigned char const *request, size_t size, unsigned char *reply)
 {
     size_t i;

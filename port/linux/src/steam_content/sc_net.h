@@ -31,8 +31,6 @@ int sc_send_all(struct sc_connection *connection, const void *data, size_t lengt
 int sc_receive(struct sc_connection *connection, void *buffer, size_t size, int timeout_ms);
 /* exactly length bytes, or -1 (timeout_ms is for each wait) */
 int sc_receive_exact(struct sc_connection *connection, void *buffer, size_t length, int timeout_ms);
-/* the host it was opened to */
-const char *sc_connection_host(const struct sc_connection *connection);
 
 /* ---------- HTTP */
 

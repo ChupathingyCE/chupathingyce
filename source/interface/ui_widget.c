@@ -2292,9 +2292,7 @@ void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget)
 
 /* (MCC maps offered in every game of a build that has them, offline and
 hosted: a network game on one is hosted at the newest MCC-capable OpenCE
-number over the usual wire, network_game_server_mcc_version. MCC's own record
-and messages, HALO_MCC_NETWORK in mcc_identity.c and network_distributed.c,
-are no build's) */
+number over the usual wire, network_game_server_mcc_version) */
 static boolean ui_widget_port_mcc_offered(void)
 {
 	return TRUE;
@@ -4135,8 +4133,8 @@ launcher.menu_entry is false (pc_menu_setup_offered). */
 
 enum
 {
-	/* the Xbox's rows: CHANGE NAME, CONTROLLER SETTINGS, ADVANCED
-	CONTROLS, CHANGE COLOR, SAVE CHANGES */
+	/* the Xbox's rows: CHANGE NAME, CONTROLLER SETUP, ADVANCED SETUP,
+	CHANGE COLOR, SAVE CHANGES */
 	SETUP_ENTRY_ROWS = 5,
 	SETUP_ENTRY_COPIED = 3,
 	SETUP_ENTRY_SAVE = 4,
@@ -4260,11 +4258,14 @@ static boolean ui_widget_setup_entry_item(
 	return ui_widget_setup_entry_kind(widget) != NONE;
 }
 
-/* the row's words and its description's */
+/* the row's words and its description's. The setup screen's row is SETUP
+here: the Xbox's own third row is already ADVANCED SETUP (its controls), so
+the Chupathingy menus' name for it would show twice
+(tools/test_menu_unique_rows.py) */
 static wchar_t const *ui_widget_setup_entry_label(
 	short kind)
 {
-	return kind == _setup_entry_more_settings ? L"MORE SETTINGS" : L"ADVANCED SETUP";
+	return kind == _setup_entry_more_settings ? L"MORE SETTINGS" : L"SETUP";
 }
 
 static wchar_t const *ui_widget_setup_entry_words(

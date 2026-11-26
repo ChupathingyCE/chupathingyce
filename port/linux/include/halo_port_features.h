@@ -158,6 +158,13 @@ out the two settings and their help text */
 #define HALO_CONSOLE_NO_AUDIO_PROBE
 #endif
 
+/* the renderer's trace of a frame's draws (port/linux/src/d3d8_gl.c,
+debug.gpu_trace_frame): a developer's tool, in a console's build with its
+developer tools (HALO_CONSOLE_DEBUG_TOOLS) only */
+#if !defined(HALO_CONSOLE_DEBUG_TOOLS) && !defined(HALO_CONSOLE_NO_GPU_TRACE)
+#define HALO_CONSOLE_NO_GPU_TRACE
+#endif
+
 /* the debug camera flown by mouse and keyboard (source/camera/director.c,
 halo_linux_debug_camera_input in port/linux/src/xinput_sdl.c): a console
 has no mouse, and its controller flies the camera as before */

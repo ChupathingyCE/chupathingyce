@@ -607,14 +607,6 @@ struct xbox_mod_pack const *map_pack_library_pack(
 	return NULL;
 }
 
-void map_pack_folder(
-	char const *pack,
-	char *folder,
-	long size)
-{
-	snprintf(folder, (size_t)size, "maps_%s", pack ? pack : "");
-}
-
 boolean map_pack_file_path(
 	char const *pack,
 	char const *file,
