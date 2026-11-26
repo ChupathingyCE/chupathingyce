@@ -143,12 +143,27 @@ typedef char stubbs_actor_variant_size_assert[
 	STUBBS_ACTOR_VARIANT_SIZE - STUBBS_ACTOR_VARIANT_MOVEMENT_OFFSET ==
 		HALO_ACTOR_VARIANT_SIZE - HALO_ACTOR_VARIANT_MOVEMENT_OFFSET ? 1 : -1];
 
-static void stubbs_actor_variant_convert(unsigned char *definition)
+enum
 {
+	STUBBS_ACTOR_VARIANT_WEAPON_OFFSET = 0xB0,
+};
+
+/* FALSE (left as it is) unless Stubbs's weapon reference is where his
+layout has it: a weap reference, or none */
+static boolean stubbs_actor_variant_convert(unsigned char *definition)
+{
+	unsigned long group;
+	long index;
+
+	memcpy(&group, definition + STUBBS_ACTOR_VARIANT_WEAPON_OFFSET, 4);
+	memcpy(&index, definition + STUBBS_ACTOR_VARIANT_WEAPON_OFFSET + 0x0C, 4);
+	if (group != 'weap' && index != NONE)
+		return FALSE;
 	memmove(definition + HALO_ACTOR_VARIANT_MOVEMENT_OFFSET, definition + STUBBS_ACTOR_VARIANT_MOVEMENT_OFFSET,
 		HALO_ACTOR_VARIANT_SIZE - HALO_ACTOR_VARIANT_MOVEMENT_OFFSET);
 	memset(definition + ACTOR_VARIANT_STUBBS_OWN_OFFSET, 0,
 		HALO_ACTOR_VARIANT_MOVEMENT_OFFSET - ACTOR_VARIANT_STUBBS_OWN_OFFSET);
+	return TRUE;
 }
 
 /* the tags being converted (stubbs_mode_convert_tags) */
@@ -1009,11 +1024,8 @@ void stubbs_mode_convert_tags(
 		{
 			unsigned char *variant = stubbs_host(base, tag_data_size, address, STUBBS_ACTOR_VARIANT_SIZE);
 
-			if (variant)
-			{
-				stubbs_actor_variant_convert(variant);
+			if (variant && stubbs_actor_variant_convert(variant))
 				converted_actor_variants++;
-			}
 			continue;
 		}
 		if (group == 'wphi')
