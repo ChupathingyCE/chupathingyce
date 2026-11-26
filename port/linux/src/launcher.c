@@ -43,6 +43,7 @@ upload, which have threads of their own.
 #include "update.h"
 #include "log_send.h"
 #include "map_pack_folders.h"
+#include "../game/content_map_header.h"
 
 #include <SDL3/SDL.h>
 #ifdef __APPLE__
@@ -574,13 +575,10 @@ static void set_status(unsigned int color, const char *format, ...)
 
 enum
 {
-	MAP_HEADER_SIGNATURE = 0x68656164,
-	MAP_VERSION_XBOX = 5,
-	MAP_VERSION_HALO_PC = 7,
-	MAP_VERSION_MCC = 13,
-	MAP_VERSION_CUSTOM_EDITION = 609,
-	/* (a Chimera-compressed map's version: the real one in the low half) */
-	MAP_VERSION_COMPRESSED = 0x861A0000,
+	MAP_VERSION_XBOX = CONTENT_MAP_VERSION_XBOX,
+	MAP_VERSION_HALO_PC = CONTENT_MAP_VERSION_HALO_PC,
+	MAP_VERSION_MCC = CONTENT_MAP_VERSION_MCC,
+	MAP_VERSION_CUSTOM_EDITION = CONTENT_MAP_VERSION_CUSTOM_EDITION,
 };
 
 /* where Halo MCC's maps go, said when they are in another family's folder:
@@ -603,19 +601,15 @@ static long map_version(const char *path)
 {
 	unsigned char header[8];
 	FILE *file = fopen(path, "rb");
-	unsigned long version = 0;
+	struct content_map_info map;
+	long version = 0;
 
 	if (!file)
 		return 0;
-	if (fread(header, 1, sizeof(header), file) == sizeof(header) &&
-		(header[0] | header[1] << 8 | header[2] << 16 | (unsigned long)header[3] << 24) == MAP_HEADER_SIGNATURE)
-	{
-		version = header[4] | header[5] << 8 | header[6] << 16 | (unsigned long)header[7] << 24;
-		if ((version & 0xFFFF0000UL) == MAP_VERSION_COMPRESSED)
-			version &= 0xFFFF;
-	}
+	if (fread(header, 1, sizeof(header), file) == sizeof(header) && content_map_probe(header, sizeof(header), &map))
+		version = (long)map.cache_version;
 	fclose(file);
-	return (long)version;
+	return version;
 }
 
 /* whether an Xbox map's data is still compressed, as the game reads it: a
