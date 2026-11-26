@@ -911,7 +911,7 @@ static int pipelines_make(void)
 	VkShaderModuleCreateInfo module_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
 	VkDescriptorSetLayoutBinding bindings[7];
 	VkDescriptorSetLayoutCreateInfo set_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-	VkPushConstantRange push = { VK_SHADER_STAGE_COMPUTE_BIT, 0, 96 };
+	VkPushConstantRange push = { VK_SHADER_STAGE_COMPUTE_BIT, 0, 112 };
 	VkPushConstantRange skin_push = { VK_SHADER_STAGE_COMPUTE_BIT, 0, 40 };
 	VkPipelineLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	VkComputePipelineCreateInfo pipeline_info = { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
@@ -2713,6 +2713,7 @@ int ml_rt_trace(const struct ml_rt_trace *trace)
 		int misc[4];
 		int more[4];
 		int grid[4];
+		float fade[4];
 	} push;
 	double waited;
 
@@ -2829,6 +2830,9 @@ int ml_rt_trace(const struct ml_rt_trace *trace)
 			push.grid[1] = trace->offset[0];
 			push.grid[2] = trace->offset[1];
 			push.grid[3] = trace->flags;
+			push.fade[0] = trace->ao_fade[0];
+			push.fade[1] = trace->ao_fade[1] > trace->ao_fade[0] ? trace->ao_fade[1] : trace->ao_fade[0] + 1.0f;
+			push.fade[2] = push.fade[3] = 0.0f;
 			rt.CmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, rt.pipeline);
 			rt.CmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, rt.pipeline_layout, 0, 1, &rt.sets[frame],
 				0, NULL);

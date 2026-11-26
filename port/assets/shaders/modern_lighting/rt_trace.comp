@@ -97,6 +97,7 @@ layout(push_constant) uniform Trace
 	ivec4 grid;    /* x: 1 every pixel, 2 one of each 2x2 block; yz: this frame's pixel in its block;
 	                  w: the lab's parts left out (1 reflections, 2 occlusion, 4 sun); 8 the
 	                  reflections' own pass (reflections_pass) */
+	vec4 fade;     /* xy: the distances over which the occlusion fades out (none traced past y) */
 } trace;
 
 const uint LEVEL = 0x01u;
@@ -428,8 +429,8 @@ void main()
 	}
 
 	float ao = 1.0;
-	/* (past 90 the occlusion has faded out: not traced) */
-	if (trace.misc.x >= 2 && distance < 90.0 && (trace.grid.w & 2) == 0)
+	/* (past fade.y the occlusion has faded out: not traced) */
+	if (trace.misc.x >= 2 && distance < trace.fade.y && (trace.grid.w & 2) == 0)
 	{
 		vec3 t = normalize(abs(n.z) < 0.9 ? cross(n, vec3(0.0, 0.0, 1.0)) : cross(n, vec3(1.0, 0.0, 0.0)));
 		vec3 b = cross(n, t);
@@ -461,8 +462,10 @@ void main()
 			}
 		}
 		ao = clamp(1.0 - occlusion / float(rays), 0.0, 1.0);
-		/* (fading into the distance, where the lightmaps' own is) */
-		ao = mix(ao, 1.0, smoothstep(40.0, 90.0, distance));
+		/* (fading into the distance, where the lightmaps' own is, and
+		where the radius is too few of the grid's samples across to show
+		without flickering: modern_lighting.c's ao_fade) */
+		ao = mix(ao, 1.0, smoothstep(trace.fade.x, trace.fade.y, distance));
 	}
 	/* the reflected ray: where it meets the scene (OpenGL shades the hit
 	from the view before the reflections, where the hit is on screen), where

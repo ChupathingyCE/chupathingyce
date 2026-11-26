@@ -255,6 +255,9 @@ struct ml_rt_trace
 	int offset[2];
 	/* the lab's: 1 no reflected rays, 2 no occlusion rays, 4 no sun rays */
 	int flags;
+	/* the distances (from the camera) over which the occlusion fades out:
+	none traced past the second */
+	float ao_fade[2];
 };
 int ml_rt_trace(const struct ml_rt_trace *trace);
 /* the last traces' GPU time in milliseconds, -1 if not known */

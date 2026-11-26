@@ -1194,6 +1194,37 @@ unsigned int halo_ml_lab_generation(void)
 	return lab.generation;
 }
 
+/* how many of the trace's samples (a pixel, or a block of the grid) the
+occlusion's radius spans where it is drawn in full, and where it is gone.
+Fewer across, its shade (a crease of a cliff's facets, a bump of its rock)
+is finer than the samples: it shows as specks and lines that crawl and
+flicker while the view moves, most on far cliffs and ledges at MEDIUM and
+LOW, whose samples are blocks of 3x3 and 4x4 pixels at 1920x1080 */
+static const float ao_samples_full = 8.0f, ao_samples_none = 3.0f;
+
+/* the distances over which the occlusion fades out (ml_rt_trace's
+ao_fade): from 40 to 90 world units at most, sooner where the radius
+spans few samples. to_clip's first row is the projection's x scale (1 /
+tan of half the field of view) times a row of the camera's rotation */
+static void ao_fade(const float *to_clip, int width, int scale, float radius, float fade[2])
+{
+	float x_scale = sqrtf(to_clip[0] * to_clip[0] + to_clip[1] * to_clip[1] + to_clip[2] * to_clip[2]);
+	/* (a sample's width at a distance of 1) */
+	float sample = x_scale > 0.0f && width > 0 ? 2.0f * (float)(scale > 1 ? scale : 1) / (x_scale * (float)width) : 0.0f;
+
+	fade[0] = 40.0f;
+	fade[1] = 90.0f;
+	if (sample > 0.0f)
+	{
+		float full = radius / (sample * ao_samples_full), none = radius / (sample * ao_samples_none);
+
+		fade[0] = full < fade[0] ? full : fade[0];
+		fade[1] = none < fade[1] ? none : fade[1];
+	}
+	if (fade[1] < fade[0] + 1.0f)
+		fade[1] = fade[0] + 1.0f;
+}
+
 static GLuint program_build(int which)
 {
 	static const char *const sources[NUMBER_OF_PROGRAMS] =
@@ -2495,6 +2526,7 @@ static void halo_ml_opaque_timed(const struct halo_ml_frame *original)
 		trace.offset[1] = (int)ml.grid[2];
 		trace.debug = lab.debug == 5 ? 1 : 0;
 		trace.flags = lab.rt_flags;
+		ao_fade(ml.to_clip, targets.corners[2] - targets.corners[0], scale, trace.ao_radius, trace.ao_fade);
 		int result;
 
 		ext.SignalSemaphoreEXT(ml.rt_semaphores[0], 0, NULL, 4, shared, layouts);
