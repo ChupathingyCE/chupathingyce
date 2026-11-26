@@ -774,7 +774,7 @@ jobs:
     env:
       LLVM_MAJOR: 22
       APT_PACKAGES: >-
-        clang-22 lld-22 llvm-22 gcc cmake pkg-config libwayland-bin ninja-build ccache zstd
+        clang-22 lld-22 llvm-22 gcc cmake pkg-config libwayland-bin ninja-build ccache zstd spirv-tools
     steps:
       # (the Ubuntu packages: CI_APT_INSTALL, in the linux job; the key
       # changes with the runner image, the packages and the script)
@@ -864,6 +864,19 @@ jobs:
 
       - name: glibc 2.31
         run: python3 tools/linux_glibc_check.py $([ "$BUILD_DEBUG" = true ] && echo dist/chupathingyce-linux64-debug) dist/chupathingyce-linux64-release
+
+      # every shader the bgfx renderer can be asked for, compiled for Vulkan
+      # and its SPIR-V checked by spirv-val (tools/bgfx_shader_check.py)
+      - name: bgfx shaders
+        run: python3 tools/bgfx_shader_check.py --binary dist/chupathingyce-linux64-release/chupathingy --out build/bgfx-shaders
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: bgfx-shaders-linux64
+          path: build/bgfx-shaders
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Compile cache
         run: ccache --show-stats
@@ -1740,6 +1753,19 @@ jobs:
       - name: Release
         run: python tools/ci_build.py windows64 release
 
+      # every shader the bgfx renderer can be asked for, compiled for Vulkan
+      # and for Direct3D 11 (d3dcompiler_47.dll): tools/bgfx_shader_check.py
+      - name: bgfx shaders
+        run: python tools/bgfx_shader_check.py --binary dist/chupathingyce-windows64-release/chupathingy.exe --out build/bgfx-shaders
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: bgfx-shaders-windows64
+          path: build/bgfx-shaders
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Compile cache
         run: ccache --show-stats
 
@@ -1869,6 +1895,19 @@ jobs:
 
       - name: Release
         run: python3 tools/ci_build.py macos release
+
+      # every shader the bgfx renderer can be asked for, compiled for Metal
+      # on the runner's Metal device (tools/bgfx_shader_check.py)
+      - name: bgfx shaders
+        run: python3 tools/bgfx_shader_check.py --binary dist/chupathingyce-macos-release/ChupathingyCE.app/Contents/MacOS/chupathingy --out build/bgfx-shaders
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: bgfx-shaders-macos
+          path: build/bgfx-shaders
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Package
         run: |
