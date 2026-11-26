@@ -144,7 +144,7 @@ SCREENS = {
                  [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
                  "How wide your weapon is drawn.\nSame follows the view.", None),
                 ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
-                 "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
+                 "Size the reticle to the field of view.", None),
                 ("RETICLE SIZE:", "display.reticle_scale", RETICLE_SIZES,
                  "The reticle's size. 100% is the Xbox's.", None),
                 ("WEAPON MODEL:", "display.first_person_weapon", ON_OFF,
@@ -193,7 +193,7 @@ SCREENS = {
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
                  [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox")],
-                 "Takes effect on restart.", NOT_CONSOLE),
+                 "The menus' look. Takes effect on restart.", NOT_CONSOLE),
                 ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
                  "Classic looks like Halo's titles. Cyborg matches\nthe text. Halo makes them from your own Halo files.",
                  # (not on the consoles, the Switch included, which have the
@@ -206,8 +206,8 @@ SCREENS = {
                 # (display.hud_safe_zone: hud_draw.c's hud_safe_zone_bounds;
                 # two numbers are in config.toml alone)
                 ("SAFE ZONES:", "display.hud_safe_zone",
-                 [("ON", "xbox"), ("SINGLE SCREEN ONLY", "auto"), ("OFF", "pc")],
-                 "Keep the HUD in from the edges, as on the Xbox.\nSingle Screen Only skips it in split screen.", None),
+                 [("ON", "xbox"), ("SINGLE SCREEN", "auto"), ("OFF", "pc")],
+                 "Keep the HUD in from the edges, as on the Xbox.\nSingle Screen skips it in split screen.", None),
                 # (the ~ key's console: terminal.c's drop-down one, or the
                 # Xbox's lines at the bottom)
                 ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
@@ -1717,7 +1717,7 @@ HOST_OPTIONS = {
          "Allow or block aim assist for mouse players.",
          None),
         ("PLAYER NAMES:", "network.allow_player_names", [("OFF", "false"), ("ALLOWED", "true")],
-         "Let players show names above heads.\nOff is the Xbox's.", None),
+         "Let players show names above heads.\nOff, as on the Xbox.", None),
         ("FOLLOW CAMERA:", "network.allow_follow_camera", [("OFF", "false"), ("ALLOWED", "true")],
          "Let players watch others while they wait to respawn.", None),
         ("PORT:", "network.tunnel_port", [("RANDOM", "0")] + [(str(port), str(port)) for port in range(2302, 2311)],
