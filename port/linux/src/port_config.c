@@ -456,10 +456,14 @@ static const struct config_setting config_settings[] =
 	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
 		_platform_all,
 		"Draw your weapon and arms. false hides them." },
+#ifndef HALO_XBOX_CONSOLE
+	/* (not the original Xbox's: its build has no first_person_body.c and
+	keeps the retail drawing, first_person_body.h) */
 	{ "display.first_person_legs", _config_boolean, "false", "HALO_FIRST_PERSON_LEGS", _environment_value,
 		_platform_all,
 		"In first person, draw your own legs and lower body below the view.\n"
 		"Off on maps that draw their own (SPV3)." },
+#endif
 	{ "display.widescreen", _config_string, "\"off\"", NULL, _environment_value, _platform_xbox,
 		"Widescreen on a 16:9 TV. \"off\" keeps the 4:3 picture, as the\n"
 		"original game did: the sharpest, with every pixel of the HUD and\n"

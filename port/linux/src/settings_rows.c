@@ -210,7 +210,9 @@ static const struct settings_row settings_rows[] =
 	{ _in_display | _in_guide, "CROSSHAIR", "display.crosshair_position", _kind_choices, crosshair_position_choices,
 	  crosshair_position_names, 0, 0 },
 	{ _in_display | _in_guide, "WEAPON MODEL", "display.first_person_weapon", _kind_toggle, NULL, NULL, 0, 0 },
+#ifndef HALO_XBOX_CONSOLE
 	{ _in_display | _in_guide, "FIRST-PERSON LEGS", "display.first_person_legs", _kind_toggle, NULL, NULL, 0, 0 },
+#endif
 
 #ifdef HALO_LAUNCHER
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
