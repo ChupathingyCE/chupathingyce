@@ -583,6 +583,9 @@ protocol's join and settings record, and byte 4 is the protocol's version
 into none of its releases: its MCC games go over Delta Peer (`mcc_maps`,
 HOST_NUMBER), so its hosts never set the flag or the byte, and its clients
 don't read them. A reader that doesn't play that protocol ignores both.
+Current GulchCE builds no longer set them either; only older GulchCE
+hosts do. Both stay reserved, never given another meaning, so a reader
+still reads those older hosts safely.
 
 ### Content Evolved's modded games
 
