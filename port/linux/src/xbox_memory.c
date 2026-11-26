@@ -280,6 +280,21 @@ static void contiguous_arena_reserve(void)
 				platform_contiguous_size >> 20);
 		}
 	}
+	/* The linked addresses, which xbox_pointer moves into the window
+	wherever it is (cseries/xbox_address.h): kept free where the system lets
+	a program have them (64-bit Windows; 32-bit Windows keeps them for
+	itself), so that no pointer of the host's is ever one of them */
+	if (result == wanted && platform_contiguous_base != XBOX_WINDOW_LINKED_BASE)
+	{
+		void *guard = mmap((void *)XBOX_WINDOW_LINKED_BASE, XBOX_WINDOW_LINKED_SIZE, PROT_NONE,
+			MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
+
+		if (guard == (void *)XBOX_WINDOW_LINKED_BASE)
+			platform_log("the window's linked addresses (%08lx, %lu MB) kept free", XBOX_WINDOW_LINKED_BASE,
+				XBOX_WINDOW_LINKED_SIZE >> 20);
+		else if (guard != MAP_FAILED)
+			munmap(guard, XBOX_WINDOW_LINKED_SIZE);
+	}
 #endif
 #endif
 
