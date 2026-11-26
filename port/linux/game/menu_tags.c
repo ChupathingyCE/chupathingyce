@@ -492,6 +492,13 @@ static struct
 	/* (display.menus "chupathingy": its main menu, the Xbox's screens after a
 	network game) */
 	boolean chupathingy;
+#ifdef HALO_GAME_BROWSER
+	/* System Link's list, which ends with a DIRECT IP row, and the screen
+	that row opens (system_link_direct_ip_patch) */
+	boolean system_link_direct_ip;
+	long system_link_list;
+	long system_link_direct_ip_screen;
+#endif
 	char root[300];
 #ifdef HALO_64BIT
 	/* the name of an empty reference, inside the Xbox address space as the
@@ -2839,12 +2846,16 @@ static void host_setup_patch(void)
 #ifdef HALO_GAME_BROWSER
 /* ---------- the Chupathingy menus' System Link: DIRECT IP
 
-System Link's X opens the Custom Edition menus' DIRECT IP screen, a game
-joined by its address (port/linux/game/direct_join.c), and its prompt,
-"X =DIRECT IP" (chupathingy/prompts.xml), sits left of CREATE GAME's in
-the screen's button bar. A handler and a child are added to the Xbox's
-screen as it loads; the Xbox menus keep it as it is (display.menus
-"xbox"). The handler goes where the screen's Y (CREATE GAME) is handled. */
+System Link's list ends with a DIRECT IP row, and X opens it too: the
+Custom Edition menus' DIRECT IP screen, a game joined by its address
+(port/linux/game/direct_join.c). X's prompt, "X =DIRECT IP"
+(chupathingy/prompts.xml), sits left of CREATE GAME's in the screen's
+button bar. A handler and a child are added to the Xbox's screen as it
+loads; the Xbox menus keep it as it is (display.menus "xbox"). The handler
+goes where the screen's Y (CREATE GAME) is handled. The row is the list's
+code, for the list pc_menus_direct_ip_list names: its text and place
+(ui_widget_game_data_input_functions.c, server_list_menu_update) and its A
+(ui_widget_event_handler_functions.c). */
 
 #define SYSTEM_LINK_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\server_list_screen"
 #define SYSTEM_LINK_DIRECT_IP PC_MENU_TAG_PREFIX "main_menu\\multiplayer_type_select\\direct_ip\\direct_ip_screen"
@@ -2855,6 +2866,10 @@ screen as it loads; the Xbox menus keep it as it is (display.menus
 /* where the prompt goes (the menus' 640x480), left of CREATE GAME's */
 #define SYSTEM_LINK_PROMPT_X 40
 #define SYSTEM_LINK_PROMPT_Y 414
+/* the list's message while it looks for games, and how far apart its rows
+are */
+#define SYSTEM_LINK_MESSAGE "\\looking_for_servers_text"
+#define SYSTEM_LINK_ROW 32
 
 static boolean handles_event(struct ui_widget_definition const *definition, short event_type)
 {
@@ -2879,7 +2894,7 @@ static void system_link_direct_ip_patch(void)
 	struct ui_widget_child_reference *grown_children;
 	struct ui_widget_event_handler_reference const *handlers;
 	struct ui_widget_event_handler_reference *grown_handlers;
-	long index;
+	long index, list = NONE;
 
 	if (screen_tag == NONE || direct_ip == NONE || prompt == NONE)
 	{
@@ -2888,14 +2903,8 @@ static void system_link_direct_ip_patch(void)
 	}
 	screen = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
 	children = xbox_pointer(screen->child_widgets.address);
-	/* (added already: this map's tags were patched) */
-	for (index = 0; index < screen->child_widgets.count; index++)
-	{
-		if (children[index].widget_tag.index == prompt)
-			return;
-	}
 	/* the handler beside Y's: the screen's, else its first child's that
-	has it */
+	has it (the list of games, which gets the DIRECT IP row) */
 	handler_owner = screen;
 	if (!handles_event(screen, SYSTEM_LINK_EVENT_Y))
 	{
@@ -2909,8 +2918,37 @@ static void system_link_direct_ip_patch(void)
 			if (handles_event(child, SYSTEM_LINK_EVENT_Y))
 			{
 				handler_owner = child;
+				list = children[index].widget_tag.index;
 				break;
 			}
+		}
+	}
+	if (list != NONE && handler_owner->type == _widget_type_column_list)
+	{
+		menu_tags.system_link_direct_ip = TRUE;
+		menu_tags.system_link_list = list;
+		menu_tags.system_link_direct_ip_screen = direct_ip;
+	}
+	/* (added already: this map's tags were patched) */
+	for (index = 0; index < screen->child_widgets.count; index++)
+	{
+		if (children[index].widget_tag.index == prompt)
+			return;
+	}
+	/* "Looking for games..." a row lower, under the DIRECT IP row, which is
+	the list's first while no game is found */
+	if (menu_tags.system_link_direct_ip && handler_owner->extended_description_widget.index != NONE)
+	{
+		struct ui_widget_definition *description =
+			tag_get(UI_WIDGET_DEFINITION_TAG, handler_owner->extended_description_widget.index);
+		struct ui_widget_child_reference *parts = xbox_pointer(description->child_widgets.address);
+
+		for (index = 0; index < description->child_widgets.count; index++)
+		{
+			char const *name = parts[index].widget_tag.index != NONE ? tag_get_name(parts[index].widget_tag.index) : NULL;
+
+			if (name && strstr(name, SYSTEM_LINK_MESSAGE))
+				parts[index].vertical_offset += SYSTEM_LINK_ROW;
 		}
 	}
 	if (handles_event(handler_owner, SYSTEM_LINK_EVENT_X))
@@ -2948,7 +2986,22 @@ static void system_link_direct_ip_patch(void)
 	}
 	screen->child_widgets.address = XBOX_ADDRESS(grown_children);
 	screen->child_widgets.count++;
-	platform_log("menus: System Link has DIRECT IP (X)");
+	platform_log("menus: System Link has DIRECT IP (%s)", menu_tags.system_link_direct_ip ? "its row and X" : "X");
+}
+
+/* System Link's list that ends with a DIRECT IP row (the Chupathingy menus'),
+NONE for none */
+long pc_menus_direct_ip_list(
+	void)
+{
+	return menu_tags.loaded && menu_tags.system_link_direct_ip ? menu_tags.system_link_list : NONE;
+}
+
+/* the DIRECT IP screen that row opens */
+long pc_menus_direct_ip_screen(
+	void)
+{
+	return menu_tags.loaded && menu_tags.system_link_direct_ip ? menu_tags.system_link_direct_ip_screen : NONE;
 }
 #endif
 

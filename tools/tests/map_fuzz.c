@@ -28,6 +28,11 @@ compiled with the macOS build's flags, as the game's own units are):
                     that part is changed between the checks and the load
                     (a byte in its middle; the last byte of each resource
                     map), and the load must refuse it.
+                    With MAP_FUZZ_CE_RESOURCE (bitmaps, sounds, loc,
+                    pc_bitmaps or pc_sounds), the input is that resource map
+                    instead, and the map is the one MAP_FUZZ_CE_MAP names:
+                    ce_resources.c's reader of resource maps fuzzed through
+                    the same checks and load.
   MAP_FUZZ_VORBIS   an Ogg Vorbis stream through ce_vorbis_decode (stb_vorbis),
                     and mcc_vorbis_decode where the build has MCC maps,
                     as a Custom Edition sound's permutation is decoded.
@@ -181,6 +186,9 @@ struct fuzz_file
 	unsigned long position;
 	boolean writable;
 	unsigned long written;
+	/* (a resource map's: its index in fuzz_resources, plus one, whose data
+	is read as it is now, as a file held open reads what is in it now) */
+	long resource;
 };
 
 /* ---------- prototypes */
@@ -274,6 +282,11 @@ static struct
 /* (the first three Custom Edition's, MAP_FUZZ_CE_RESOURCES; the others Halo
 PC's own, MAP_FUZZ_PC_RESOURCES) */
 #define FUZZ_RESOURCE_COUNT ((long)(sizeof(fuzz_resources) / sizeof(fuzz_resources[0])))
+/* the resource map that is the input (MAP_FUZZ_CE_RESOURCE: an index in
+fuzz_resources, or -1), and the map read with it (MAP_FUZZ_CE_MAP) */
+static long fuzz_resource_input = -1;
+static unsigned char *fuzz_resource_map;
+static unsigned long fuzz_resource_map_size;
 /* the Xbox's ui.map (MAP_FUZZ_XBOX_UI) */
 static unsigned char *fuzz_xbox_ui;
 static unsigned long fuzz_xbox_ui_size;
@@ -724,6 +737,7 @@ HANDLE CreateFileA(char const *path, DWORD access, DWORD share, LPSECURITY_ATTRI
 				{
 					file->data = fuzz_resources[resource].data;
 					file->size = fuzz_resources[resource].size;
+					file->resource = resource + 1;
 					return file;
 				}
 			}
@@ -752,10 +766,22 @@ DWORD GetLastError(void)
 	return 0;
 }
 
+/* a resource map's file as its data is now (MAP_FUZZ_CE_RESOURCE gives each
+input its own) */
+static void fuzz_file_refresh(struct fuzz_file *file)
+{
+	if (file->resource)
+	{
+		file->data = fuzz_resources[file->resource - 1].data;
+		file->size = fuzz_resources[file->resource - 1].size;
+	}
+}
+
 DWORD GetFileSize(HANDLE handle, LPDWORD high)
 {
 	struct fuzz_file *file = handle;
 
+	fuzz_file_refresh(file);
 	if (high)
 		*high = 0;
 	return file->writable ? file->written : file->size;
@@ -776,6 +802,7 @@ BOOL ReadFile(HANDLE handle, LPVOID buffer, DWORD size, LPDWORD read, LPOVERLAPP
 	struct fuzz_file *file = handle;
 	unsigned long available;
 
+	fuzz_file_refresh(file);
 	if (file->writable)
 	{
 		*read = 0;
@@ -1053,6 +1080,29 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 			fuzz_resources[index].data = fuzz_file_read(path, &fuzz_resources[index].size);
 		}
 	}
+#ifdef MAP_FUZZ_CE
+	{
+		char const *resource = getenv("MAP_FUZZ_CE_RESOURCE");
+		char const *map = getenv("MAP_FUZZ_CE_MAP");
+
+		if (resource && *resource)
+		{
+			long index;
+
+			for (index = 0; index < FUZZ_RESOURCE_COUNT; index++)
+			{
+				if (!strcmp(resource, fuzz_resources[index].name))
+					fuzz_resource_input = index;
+			}
+			if (fuzz_resource_input < 0 || !map || !*map ||
+				!(fuzz_resource_map = fuzz_file_read(map, &fuzz_resource_map_size)))
+			{
+				fprintf(stderr, "map_fuzz: MAP_FUZZ_CE_RESOURCE needs a resource map's name and MAP_FUZZ_CE_MAP a map\n");
+				abort();
+			}
+		}
+	}
+#endif
 	return 0;
 }
 
@@ -1758,6 +1808,29 @@ int LLVMFuzzerTestOneInput(unsigned char const *data, size_t size)
 #endif
 	}
 #else
+#ifdef MAP_FUZZ_CE
+	/* (the input a resource map, read with the map named: MAP_FUZZ_CE_RESOURCE;
+	kept until the next input's, as a file the game holds open stays) */
+	if (fuzz_resource_input >= 0)
+	{
+		static unsigned char *resource;
+		unsigned char *map = malloc(fuzz_resource_map_size);
+
+		free(resource);
+		resource = malloc(size ? size : 1);
+		if (resource)
+			memcpy(resource, data, size);
+		fuzz_resources[fuzz_resource_input].data = resource;
+		fuzz_resources[fuzz_resource_input].size = resource ? (unsigned long)size : 0;
+		if (resource && map)
+		{
+			memcpy(map, fuzz_resource_map, fuzz_resource_map_size);
+			fuzz_ce(map, fuzz_resource_map_size);
+		}
+		free(map);
+		return 0;
+	}
+#endif
 	if (fuzz_base)
 		data = fuzz_patch(data, size, &size);
 	{
