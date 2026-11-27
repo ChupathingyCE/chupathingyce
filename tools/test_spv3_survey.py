@@ -34,12 +34,15 @@ HARNESS = r"""#include <stdarg.h>
 #include <stdlib.h>
 #include "cseries.h"
 #include "cseries/cseries_windows.h"
+#include "opensauce_maps.h"
 #include "opensauce_survey.h"
 #include "spv3_mode.h"
 /* (argv[2]: the pack whose menus are played, "spv3" for SPV3 mode) */
 static char const *pack_menus;
 char const *map_pack_menus(void) { return pack_menus; }
 boolean opensauce_map_active(void) { return FALSE; }
+/* (OpenSauce's larger window, opensauce_maps.c: not mapped here) */
+unsigned long opensauce_maps_tag_cache_size(unsigned long custom_edition_size) { return custom_edition_size; }
 void error(int priority, char const *format, ...)
 {
 	va_list arguments;
@@ -106,7 +109,7 @@ def survey(tmp_path_factory):
     (stubs / "harness.c").write_text(HARNESS)
     for name in ("cseries.h", "cseries/cseries_windows.h", "errors.h", "halo_map_packs.h", "harness.c"):
         rewrite(stubs / name, work / name)
-    for name in ("spv3_mode.h", "opensauce.h", "opensauce_survey.h"):
+    for name in ("spv3_mode.h", "opensauce.h", "opensauce_maps.h", "opensauce_survey.h"):
         rewrite(ROOT / "port/linux/include" / name, work / name)
     for name in ("spv3_mode.c", "opensauce_survey.c"):
         rewrite(ROOT / "port/linux/game" / name, work / name)

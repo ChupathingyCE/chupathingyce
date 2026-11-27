@@ -2009,16 +2009,19 @@ boolean pc_menu_owns(unsigned long address, long size)
 	return FALSE;
 }
 
-/* (SPV3 mode, spv3_mode.c, not in the harness: always off, so the checks
-see Custom Edition's own limits) */
+/* (SPV3 mode, spv3_mode.c, and OpenSauce's larger tag window,
+opensauce_maps.c, not in the harness: always off, so the checks see Custom
+Edition's own limits) */
 boolean spv3_mode_active(void) { return FALSE; }
-unsigned long spv3_mode_tag_cache_size(unsigned long custom_edition_size) { return custom_edition_size; }
-boolean spv3_mode_accepts_opensauce(char const *map_name, unsigned short flags)
+unsigned long opensauce_maps_tag_cache_size(unsigned long custom_edition_size) { return custom_edition_size; }
+boolean opensauce_maps_accepts_header(char const *map_name, unsigned short flags)
 {
 	(void)map_name;
 	(void)flags;
 	return FALSE;
 }
+void opensauce_maps_check_started(void) { }
+void opensauce_maps_check_done(void) { }
 void spv3_mode_log(char const *format, ...) { (void)format; }
 
 /* (an OpenSauce map's log, opensauce_survey.c, not in the harness: nothing
