@@ -71,6 +71,18 @@ void error(int priority, char const *format, ...)
 	va_end(arguments);
 }
 char const *map_pack_menus(void) { return getenv("OS_PACK"); }
+/* (the network session, OS_SESSION: offline, host-lan, host-internet (Online
+Games, online co-op, a dedicated server), join-lan, join-internet) */
+void opensauce_maps_session_now(struct opensauce_maps_session *session)
+{
+	char const *now = getenv("OS_SESSION") ? getenv("OS_SESSION") : "offline";
+
+	memset(session, 0, sizeof(*session));
+	session->hosting = !strncmp(now, "host", 4);
+	session->hosting_internet = !strcmp(now, "host-internet");
+	session->joined = !strncmp(now, "join", 4);
+	session->host_on_lan = !strcmp(now, "join-lan");
+}
 
 static int spv3;
 static boolean loaded;
@@ -158,6 +170,19 @@ int main(int argc, char **argv)
 			}
 			printf("local %d\n", opensauce_maps_header_local_only(header) ? 1 : 0);
 		}
+		else if (!strncmp(step, "online", 6))
+		{
+			static unsigned char header[0x800];
+			struct opensauce_maps_session session;
+
+			opensauce_maps_session_now(&session);
+			memset(header, 0, sizeof(header));
+			memcpy(header + OPENSAUCE_HEADER_OFFSET, "oley", 4);
+			header[OPENSAUCE_HEADER_OFFSET + 6] = (unsigned char)flags;
+			/* (the map's checks, and the map already open) */
+			printf("online %d %d\n", opensauce_maps_online_allows("test", flags, &session) ? 1 : 0,
+				opensauce_maps_header_online_allows("test", header) ? 1 : 0);
+		}
 		else if (!strncmp(step, "header", 6))
 		{
 			static unsigned char header[0x800];
@@ -201,8 +226,10 @@ def build(tmp_path_factory, name, defines):
     if subprocess.run(sanitized, capture_output=True).returncode != 0:
         subprocess.run(command, check=True)
 
-    def run(*steps, files=(), pack=None):
+    def run(*steps, files=(), pack=None, session=None):
         env = {"OS_FILES": ";".join(files)}
+        if session is not None:
+            env["OS_SESSION"] = session
         if pack is not None:
             env["OS_PACK"] = pack
         result = subprocess.run([str(binary), *steps], capture_output=True, text=True, env=env)
@@ -321,13 +348,31 @@ def test_local_only(maps):
 def test_known_pack_ui_beside_a_mod_ui(maps):
     # (maps_cex with a ui.yelo and no ui.map, the known pack's ui.map in its
     # alias folder: the menus played are the ui.yelo, an OpenSauce mod's,
-    # which hs.c never lets call map_name, fingerprint or not)
+    # which never may call map_name: tools/test_map_packs.py, test_menus_level_rule)
     files = ["d:\\maps_cex\\ui.yelo", "d:\\maps_ceplus\\ui.map"]
     assert maps("ui", "pack ui", files=files, pack="cex").splitlines()[1:] == ["ui 1",
                                                                               "pack ui: d:\\maps_cex\\ui.yelo"]
-    hs = (ROOT / "source/hs/hs.c").read_text()
-    grant = hs[hs.index("hs_scenario_pack_menus = map_pack_menus_known()"):]
-    assert "!opensauce_maps_pack()" in grant[:grant.index(";")]
+
+
+@pytest.mark.parametrize("session,allowed", [
+    ("offline", True),
+    ("host-lan", True),         # (system link, hosted)
+    ("join-lan", True),         # (system link, joined)
+    ("host-internet", False),   # (Online Games, online co-op, a dedicated server)
+    ("join-internet", False),   # (an online server, or a host reached through the tunnel)
+])
+def test_online_sessions(maps, session, allowed):
+    out = maps(f"online {UPGRADES}", "online 0", session=session)
+    lines = out.splitlines()
+    flagged = [line for line in lines if line.startswith("online")][0]
+    assert flagged == ("online 1 1" if allowed else "online 0 0")
+    # (a map that asks for nothing is a Custom Edition map: anywhere)
+    assert lines[-1] == "online 1 1"
+    assert ("refused" in out) == (not allowed)
+
+
+def test_online_spv3_mode_keeps_its_rules(maps):
+    assert maps("spv3 1", f"online {UPGRADES}", session="host-internet").splitlines() == ["online 1 1"]
 
 
 def test_32_bit_build_plays_no_mod(maps_32):

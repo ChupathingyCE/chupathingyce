@@ -170,6 +170,42 @@ unsigned long opensauce_maps_header_tag_cache_size(
 	return custom_edition_size;
 }
 
+boolean opensauce_maps_session_is_online(
+	struct opensauce_maps_session const *session)
+{
+	if (!session)
+		return FALSE;
+	if (session->hosting)
+		return session->hosting_internet;
+	return session->joined && !session->host_on_lan;
+}
+
+boolean opensauce_maps_online_allows(
+	char const *map_name,
+	unsigned short flags,
+	struct opensauce_maps_session const *session)
+{
+	if (!flags || spv3_mode_active() || !opensauce_maps_session_is_online(session))
+		return TRUE;
+	opensauce_survey_log("%s: an OpenSauce map that asks for flags 0x%04X, in an online game (%s): refused; "
+		"they play offline and over system link for now", map_name ? map_name : "?", (unsigned int)flags,
+		session->hosting ? "hosted for the internet" : "joined from the internet");
+	return FALSE;
+}
+
+boolean opensauce_maps_header_online_allows(
+	char const *map_name,
+	void const *cache_header)
+{
+	unsigned char const *yelo = (unsigned char const *)cache_header + OPENSAUCE_HEADER_OFFSET;
+	struct opensauce_maps_session session;
+
+	if (!cache_header || memcmp(yelo, "oley", 4) || !(yelo[6] | yelo[7]))
+		return TRUE;
+	opensauce_maps_session_now(&session);
+	return opensauce_maps_online_allows(map_name, (unsigned short)(yelo[6] | (yelo[7] << 8)), &session);
+}
+
 boolean opensauce_maps_header_local_only(
 	void const *cache_header)
 {

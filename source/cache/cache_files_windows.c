@@ -531,8 +531,11 @@ static boolean ce_map_open(
 #endif
 	/* (the map open, unless a load found it changed since it was checked:
 	then it is opened and checked again, port/linux/game/ce_map_checks.c) */
-	if (ce_map_file.file && !_stricmp(ce_map_name, map_name) && !ce_map_check_stale())
+	if (ce_map_file.file && !_stricmp(ce_map_name, map_name) && !ce_map_check_stale() &&
+		opensauce_maps_header_online_allows(map_name, &ce_map_file.header))
+	{
 		return TRUE;
+	}
 	if (strlen(map_name) >= sizeof(ce_map_name) - 1)
 		return FALSE;
 	/* (its tag cache, which the platform layer maps at start-up: xbox_memory.c) */

@@ -2009,6 +2009,7 @@ boolean pc_menu_owns(unsigned long address, long size)
 	return FALSE;
 }
 
+#include "opensauce_maps.h"
 /* (SPV3 mode, spv3_mode.c, and OpenSauce's larger tag window,
 opensauce_maps.c, not in the harness: always off, so the checks see Custom
 Edition's own limits) */
@@ -2021,6 +2022,18 @@ boolean opensauce_maps_accepts_header(char const *map_name, unsigned short flags
 	return FALSE;
 }
 void opensauce_maps_check_started(void) { }
+void opensauce_maps_session_now(struct opensauce_maps_session *session)
+{
+	session->hosting = session->hosting_internet = session->joined = session->host_on_lan = FALSE;
+}
+boolean opensauce_maps_online_allows(char const *map_name, unsigned short flags,
+	struct opensauce_maps_session const *session)
+{
+	(void)map_name;
+	(void)flags;
+	(void)session;
+	return TRUE;
+}
 void opensauce_maps_check_done(void) { }
 void spv3_mode_log(char const *format, ...) { (void)format; }
 

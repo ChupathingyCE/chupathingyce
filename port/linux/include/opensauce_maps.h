@@ -89,6 +89,36 @@ boolean opensauce_maps_pack_map_path(char const *file, char *path, long size);
 into path: FALSE if none is played or it has none of that name */
 boolean opensauce_maps_pack_resource(char const *name, char *path, long size);
 
+/* the network session a map loads in: hosted (and whether the internet may
+join it), or joined (and whether the host is on this machine's LAN, not an
+internet peer reached through the tunnel) */
+struct opensauce_maps_session
+{
+	boolean hosting;
+	boolean hosting_internet;
+	boolean joined;
+	boolean host_on_lan;
+};
+
+/* whether a session is an online one: a game hosted for the internet
+(Online Games, online co-op, a dedicated server), or one joined from the
+internet. Offline play and system link are not */
+boolean opensauce_maps_session_is_online(struct opensauce_maps_session const *session);
+
+/* whether a Custom Edition map whose OpenSauce header asks for flags may
+load in the session played now: never in an online session, for now,
+outside SPV3 mode (which keeps its own rules). FALSE said in the log */
+boolean opensauce_maps_online_allows(char const *map_name, unsigned short flags,
+	struct opensauce_maps_session const *session);
+
+/* the session played now (opensauce_session.c: the network game's) */
+void opensauce_maps_session_now(struct opensauce_maps_session *session);
+
+/* opensauce_maps_online_allows for a cache's header in hand (its first 0x78
+bytes at least) and the session played now: for a map already open, which
+is not checked again (cache_files_windows.c) */
+boolean opensauce_maps_header_online_allows(char const *map_name, void const *cache_header);
+
 /* whether a cache's header (its first 0x78 bytes at least) is a map for
 local play only, for now: OpenSauce's header asking for any of its flags
 (memory upgrades, first of all), which only this game reads. Never in the
@@ -98,6 +128,31 @@ boolean opensauce_maps_header_local_only(void const *cache_header);
 
 #else
 
+struct opensauce_maps_session
+{
+	boolean hosting;
+	boolean hosting_internet;
+	boolean joined;
+	boolean host_on_lan;
+};
+static __inline boolean opensauce_maps_online_allows(char const *map_name, unsigned short flags,
+	struct opensauce_maps_session const *session)
+{
+	(void)map_name;
+	(void)flags;
+	(void)session;
+	return TRUE;
+}
+static __inline boolean opensauce_maps_header_online_allows(char const *map_name, void const *cache_header)
+{
+	(void)map_name;
+	(void)cache_header;
+	return TRUE;
+}
+static __inline void opensauce_maps_session_now(struct opensauce_maps_session *session)
+{
+	session->hosting = session->hosting_internet = session->joined = session->host_on_lan = FALSE;
+}
 static __inline boolean opensauce_maps_header_local_only(void const *cache_header)
 {
 	(void)cache_header;
@@ -157,5 +212,18 @@ static __inline unsigned long opensauce_maps_header_tag_cache_size(void const *c
 }
 
 #endif
+
+/* whose menus' scripts may call map_name (hs.c): a known map pack's own
+ui.map (map_pack_menus_known), never an OpenSauce mod's ui.yelo whatever
+ui.map of a known pack sits in another of its folders; or SPV3's own
+ui.yelo (spv3_mode_own_ui_open), for its levels alone. Any other map's,
+none */
+enum
+{
+	_opensauce_menus_may_not_change_level,
+	_opensauce_menus_known_pack,
+	_opensauce_menus_spv3,
+};
+short opensauce_maps_menus_level_rule(char const *map_name);
 
 #endif

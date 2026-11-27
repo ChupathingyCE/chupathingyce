@@ -884,6 +884,20 @@ boolean map_pack_menus_known(
 	return known && !_stricmp(known->pack, pack) && !_stricmp(known->file, "ui");
 }
 
+short opensauce_maps_menus_level_rule(
+	char const *map_name)
+{
+	if (!map_name || strcmp(map_name, "ui"))
+		return _opensauce_menus_may_not_change_level;
+	/* (the known pack's fingerprinted ui.map is the menus played only when
+	no OpenSauce mod's ui.yelo is: opensauce_maps.c) */
+	if (map_pack_menus_known() && !opensauce_maps_pack())
+		return _opensauce_menus_known_pack;
+	if (spv3_mode_own_ui_open(map_name))
+		return _opensauce_menus_spv3;
+	return _opensauce_menus_may_not_change_level;
+}
+
 boolean map_pack_menus_movie_path(
 	char const *movie,
 	char *path,

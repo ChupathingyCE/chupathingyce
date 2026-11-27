@@ -14026,18 +14026,16 @@ static void hs_scenario_functions_check(
 #endif
 #ifdef HALO_MAP_LIST
 	{
-		boolean map_pack_menus_known(void);
+		/* (a known pack's own ui.map, never an OpenSauce mod's ui.yelo,
+		whatever ui.map of a known pack sits in another of its folders; or
+		SPV3's own ui.yelo, whose map_name names only maps_spv3's levels,
+		hs_map_name_set: opensauce_maps.c, spv3_mode.c) */
+		short rule = opensauce_maps_menus_level_rule(cache_file_loaded_map_name());
 
-		/* (never an OpenSauce mod's ui.yelo, whatever ui.map of a known pack
-		sits in another of its folders: opensauce_maps.c) */
-		hs_scenario_pack_menus = map_pack_menus_known() && !opensauce_maps_pack() &&
-			!csstrcmp(cache_file_loaded_map_name(), "ui");
+		hs_scenario_pack_menus = rule == _opensauce_menus_known_pack;
 		if (hs_scenario_pack_menus)
 			error(_error_silent, "ui is a known map pack's menus: its scripts may call map_name");
-		/* (SPV3's menus start each level with map_name once a difficulty is
-		chosen: only its own file's, maps_spv3\ui.yelo, and only for its
-		levels, hs_map_name_set; spv3_mode.c) */
-		hs_scenario_spv3_ui = !hs_scenario_pack_menus && spv3_mode_own_ui_open(cache_file_loaded_map_name());
+		hs_scenario_spv3_ui = rule == _opensauce_menus_spv3;
 		if (hs_scenario_spv3_ui)
 		{
 			hs_scenario_pack_menus = TRUE;
