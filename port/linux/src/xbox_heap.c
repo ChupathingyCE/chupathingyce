@@ -59,14 +59,15 @@ typedef char verify_heap_above_ce_tag_cache[PLATFORM_CE_TAG_CACHE_BASE + PLATFOR
 Edition's, 0x40440000 to 0x426C0000, their structure BSPs at its top. With an
 SPV3 install in the data folder (maps_spv3) at the first allocation, the heap
 starts above that and the room for the port's conversions above it, and the
-part of the window past Custom Edition's own is mapped here; SPV3 mode reads
-its maps with it (port/linux/game/spv3_mode.c). Without one, nothing moves */
+part of the window past Custom Edition's own is mapped here; an OpenSauce
+map asking for its memory upgrades is read with it
+(port/linux/game/opensauce_maps.c). Without one, nothing moves */
 #include "posix.h"
 #define OPENSAUCE_TAG_CACHE_TOP (PLATFORM_CE_TAG_CACHE_BASE + 0x02280000U)
 #define OPENSAUCE_HEAP_BASE 0x42C00000U
 typedef char verify_heap_above_opensauce_window[OPENSAUCE_TAG_CACHE_TOP + PLATFORM_CE_CONVERSION_ROOM_SIZE <=
 	OPENSAUCE_HEAP_BASE ? 1 : -1];
-extern int spv3_opensauce_window;
+extern int opensauce_tag_window;
 const char *platform_data_root(void);
 #endif
 /* where the heap starts: XBOX_HEAP_BASE, or above OpenSauce's window */
@@ -115,7 +116,7 @@ static BOOL heap_initialize(void)
 				MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) == window)
 			{
 				heap_base = OPENSAUCE_HEAP_BASE;
-				spv3_opensauce_window = 1;
+				opensauce_tag_window = 1;
 				platform_log("SPV3: maps_spv3 is in the data folder: OpenSauce's tag window 0x%08x to 0x%08x is "
 					"mapped, the heap starts at 0x%08x", PLATFORM_CE_TAG_CACHE_BASE, OPENSAUCE_TAG_CACHE_TOP,
 					heap_base);

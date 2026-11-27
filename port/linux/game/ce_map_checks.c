@@ -73,6 +73,7 @@ with the check as they load.
 #include "ce_map_checks.h"
 #include "content_sha256.h"
 #include "opensauce.h"
+#include "opensauce_maps.h"
 #include "opensauce_survey.h"
 
 #include <stdarg.h>
@@ -347,9 +348,9 @@ static boolean ce_needs_opensauce(
 	memcpy(&flags, header + CE_OPENSAUCE_HEADER_FLAGS_OFFSET, sizeof(flags));
 	if (signature != (unsigned long)CE_OPENSAUCE_HEADER_SIGNATURE || !flags)
 		return FALSE;
-	/* (SPV3 mode reads OpenSauce's memory upgrades, and nothing else of its
-	header's asks: port/linux/game/spv3_mode.c) */
-	return !spv3_mode_accepts_opensauce(map_name, flags);
+	/* (OpenSauce's memory upgrades are read with the larger tag window, and
+	nothing else of its header's asks: port/linux/game/opensauce_maps.c) */
+	return !opensauce_maps_accepts_header(map_name, flags);
 }
 
 /* the survey of an OpenSauce map, and of any map in SPV3 mode
@@ -1284,6 +1285,9 @@ boolean ce_map_check(
 	ce_explanation[0] = 0;
 	ce_message[0] = 0;
 	ce_checking = TRUE;
+	/* (the tag cache's size is this map's while it is checked:
+	opensauce_maps.c) */
+	opensauce_maps_check_started();
 	ce_checking_bsp_count = 0;
 	memset(&ce_checking_digests, 0, sizeof(ce_checking_digests));
 	/* (an OpenSauce map's survey, logged before the checks: nothing for
@@ -1302,6 +1306,7 @@ boolean ce_map_check(
 	else
 		valid = ce_map_check_tags(file, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
 	ce_checking = FALSE;
+	opensauce_maps_check_done();
 	if (!valid)
 	{
 		error(_error_silent, "%s map %s refused: %s", family, map_name, ce_refusal);

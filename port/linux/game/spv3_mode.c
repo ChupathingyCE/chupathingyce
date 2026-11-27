@@ -10,16 +10,15 @@ Bring your own copy: none of its files ship.
 
 SPV3's maps are Custom Edition caches (version 609) built with OpenSauce's
 tools: OpenSauce's header in the cache header's padding (at 0x70) asks for
-its memory upgrades, a tag cache 1.5 times Custom Edition's (0x02280000 at
-0x40440000), and their structure BSPs are linked to that cache's top. With
-this mode on, and the larger window mapped (a 64-bit desktop build with an
-SPV3 install: xbox_heap.c), the Custom Edition loader reads them so:
+its memory upgrades, which the game reads for any OpenSauce map with the
+larger window mapped (a 64-bit desktop build with an SPV3 install:
+xbox_heap.c, opensauce_maps.c). With this mode on, the Custom Edition loader
+reads them so:
 
 - maps_spv3\<name>.yelo is <name>@ce (map_families.c), and ui.yelo the menus;
 - maps_spv3's resource maps are read before maps_ce's (map_families.c);
-- the tag cache is OpenSauce's size (cache_files.c, ce_map_checks.c);
-- a map asking OpenSauce for memory upgrades alone is read; any other flag
-  is refused, and said (spv3_mode_accepts_opensauce).
+- every map is read with OpenSauce's tag cache size (opensauce_maps.c), as
+  this mode always read them.
 
 What OpenSauce adds that the engine has no code for is passed over as Halo
 PC's engine would pass over it, and logged: its tag groups are never looked
@@ -45,22 +44,6 @@ is here.
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-
-/* ---------- constants */
-
-/* OpenSauce's header flags (cache_files_structures_yelo.hpp) */
-static char const *const spv3_yelo_flag_names[] =
-{
-	"uses_memory_upgrades",
-	"uses_mod_data_files",
-	"is_protected",
-	"uses_game_state_upgrades",
-	"has_compression_params",
-};
-
-/* ---------- globals */
-
-int spv3_opensauce_window;
 
 /* ---------- public code */
 
@@ -121,12 +104,6 @@ boolean spv3_mode_pack_present(
 		return FALSE;
 	snprintf(path, sizeof(path), "d:\\%s\\ui.yelo", SPV3_MODE_FOLDER);
 	return spv3_file_exists(path);
-}
-
-unsigned long spv3_mode_tag_cache_size(
-	unsigned long custom_edition_size)
-{
-	return spv3_opensauce_window && spv3_mode_active() ? SPV3_OPENSAUCE_TAG_CACHE_SIZE : custom_edition_size;
 }
 
 boolean spv3_mode_map_path(
@@ -226,41 +203,6 @@ boolean spv3_mode_level_name(
 	}
 	spv3_mode_log("ui: map_name %.64s is not a level in %s: dropped", file ? file : "", SPV3_MODE_FOLDER);
 	return FALSE;
-}
-
-boolean spv3_mode_accepts_opensauce(
-	char const *map_name,
-	unsigned short flags)
-{
-	long bit;
-	boolean accepted = TRUE;
-
-	if (!spv3_mode_active())
-		return FALSE;
-	for (bit = 0; bit < 16; bit++)
-	{
-		if (!(flags & (1 << bit)))
-			continue;
-		if (bit == 0)
-		{
-			if (!spv3_opensauce_window)
-			{
-				spv3_mode_log("%s: OpenSauce's memory upgrades need the larger tag window, which is not mapped "
-					"(a 64-bit desktop build with maps_spv3 in the data folder at start): refused", map_name);
-				accepted = FALSE;
-			}
-			else
-				spv3_mode_log("%s: OpenSauce flag uses_memory_upgrades: read with a tag cache of 0x%08lX",
-					map_name, (unsigned long)SPV3_OPENSAUCE_TAG_CACHE_SIZE);
-		}
-		else
-		{
-			spv3_mode_log("%s: OpenSauce flag %s: not supported, refused", map_name,
-				bit < (long)NUMBEROF(spv3_yelo_flag_names) ? spv3_yelo_flag_names[bit] : "(unknown)");
-			accepted = FALSE;
-		}
-	}
-	return accepted;
 }
 
 /* ---------- the log of its maps */
