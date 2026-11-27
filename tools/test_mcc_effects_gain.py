@@ -1,4 +1,5 @@
-"""Exercise the actual shared mixer entry with neutral and active MCC gain."""
+"""Exercise the actual shared mixer entry with neutral and active MCC gain,
+and an OpenSauce map's music and effects gains."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -26,6 +27,9 @@ static struct {real nondialog_gain;} sound_manager_globals={.5f};
 static real script_gain=1,music_gain=1;
 static int muted;
 real mcc_campaign_mix_gain(int music) {return muted ? 0 : music ? music_gain : script_gain;}
+/* (an OpenSauce map's own gains, opensauce_map.c: 1 on any other map) */
+static real opensauce_music=1,opensauce_effects=1;
+real opensauce_map_sound_gain(int music) {return music ? opensauce_music : opensauce_effects;}
 static real sound_class_get_gain(short c) {(void)c;return .5f;}
 static real sound_manager_port_volume(short c) {return c==_sound_class_music ? .75f : .25f;}
 """ + mixer + """
@@ -44,6 +48,12 @@ int main(void) {
     for(c=0;c<5;c++) if(sound_manager_master_gain(c)!=0) return 5;
     muted=0;script_gain=music_gain=1;
     for(c=0;c<5;c++) if(sound_manager_master_gain(c)!=baseline[c]) return 4;
+    opensauce_music=.5f;
+    if(sound_manager_master_gain(0)!=baseline[0]*.5f) return 8;
+    for(c=1;c<5;c++) if(sound_manager_master_gain(c)!=baseline[c]) return 9;
+    opensauce_music=1;opensauce_effects=.25f;
+    if(sound_manager_master_gain(0)!=baseline[0]) return 10;
+    for(c=1;c<5;c++) if(sound_manager_master_gain(c)!=baseline[c]*.25f) return 11;
     return 0;
 }
 """)
