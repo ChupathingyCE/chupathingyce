@@ -37,7 +37,8 @@ back). Read as facts; the code is this game's:
     the map pack's own file first (opensauce_play_bink_movie);
   - what needs a part of OpenSauce the game does not have yet answers as
     that part would with nothing to show, and says so once: BSP sky and lightmap
-    sets, runtime vectors, OpenSauce's third and fourth grenade counts.
+    sets, runtime vectors, and the third and fourth grenade counts on a map
+    whose globals list only two.
 The globals are Halo PC's network globals (vehicle_incremental_rate and the
 rest, which SPV3's scripts use as their own variables) and OpenSauce's motion
 blur ones, of the types Halo PC's and OpenSauce's scripts give them
@@ -60,6 +61,7 @@ blur ones, of the types Halo PC's and OpenSauce's scripts give them
 #include "objects/objects.h"
 #include "objects/object_types.h"
 #include "units/units.h"
+#include "units/bipeds.h"
 #include "bink/bink_playback.h"
 #include "interface/ui_widget.h"
 #include "halo_map_packs.h"
@@ -418,11 +420,18 @@ static boolean opensauce_unit_integer(
 		byte_field = &unit->unit.grenade_counts[1], writable = networked = TRUE;
 	else if (!strcmp(name, "total_grenade_count[custom2]") || !strcmp(name, "total_grenade_count[custom3]"))
 	{
-		/* (OpenSauce's third and fourth grenades: none here yet) */
-		opensauce_script_log_once(function, "names OpenSauce's third or fourth grenade type, which this game has none of "
-			"yet: 0, and set to nothing");
-		*value = 0;
-		return TRUE;
+		/* (OpenSauce's third and fourth grenades: a biped's, where the map's
+		globals list them, mcc_grenades.c; none elsewhere) */
+		if (opensauce_map_four_grenades() && unit->object.type == _object_type_biped)
+			byte_field = &((struct biped_datum *)unit)->biped.opensauce_grenade_counts[name[26] == '2' ? 0 : 1],
+				writable = networked = TRUE;
+		else
+		{
+			opensauce_script_log_once(function, "names a third or fourth grenade type the map's globals don't list: 0, "
+				"and set to nothing");
+			*value = 0;
+			return TRUE;
+		}
 	}
 	else if (!strcmp(name, "current_grenade_index"))
 		byte_field = &unit->unit.current_grenade_index;
