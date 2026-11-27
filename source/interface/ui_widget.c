@@ -698,6 +698,7 @@ struct widget_instance;
 #include "mcc_ui.h"
 #include "mcc_ui_network.h"
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 #include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #ifndef HALO_CONSOLE_NO_CONTROLS
 /* port: Controller Buttons asking for a button (menu_functions.c) */
@@ -2854,6 +2855,20 @@ void ui_widget_delete(
 				}
 			}
 		}
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE)
+		/* port: SPV3's menus name a script on one 'widget deleted' handler
+		without the run-script flag: closing the new profile's "Creating
+		profile" box sets the mission (lvl_spv3a10) before the difficulty
+		screen opens. It is the only thing that sets a new profile's first
+		mission: without it the mission stays unset and the difficulty
+		screen's LOADING never ends. SPV3 mode only */
+		if (handler->event_type == _widget_event_deleted && handler->script[0] &&
+			!TEST_FLAG(handler->flags, _event_handler_run_scenario_script_bit) && spv3_mode_active() &&
+			!hs_evaluate_by_name(handler->script))
+		{
+			error(_error_silent, "failed to run ui widget event script '%s'", handler->script);
+		}
+#endif
 	}
 	if (widget->pause_game_time == TRUE)
 	{

@@ -62,19 +62,15 @@ lua/
       JSON.lua
 ```
 
-## Turn on the Lua scripts
+## Lua scripts
 
-SPV3's HUD, skulls and other extras are Lua scripts. They're off unless you
-turn them on.
+SPV3's HUD, skulls and other extras are Lua scripts. In SPV3 mode they run
+on their own from `lua/spv3`; you don't need to turn anything on. They get
+the same limits as any script: they read and write only their own `data`
+folder and load only their own modules.
 
-1. Open `config.toml` ([where it is](settings.md)).
-2. Under `[lua]`, find `# scripts = false`. Change it to `scripts = true`.
-3. Save the file.
-
-```toml
-[lua]
-scripts = true
-```
+The `lua.scripts` setting in `config.toml` is for your own scripts in
+`lua/scripts`. It stays off unless you turn it on.
 
 ## Play it
 
