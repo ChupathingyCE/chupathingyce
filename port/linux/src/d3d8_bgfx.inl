@@ -4741,33 +4741,43 @@ static const char bg_smaa_vulkan_language[] =
 	"#define bool3 bvec3\n"
 	"#define bool4 bvec4\n";
 
-/* a pass's program from xgpu_post.c's text, its samplers renamed to the
-stages' (tex0 to tex2) */
-static bgfx_program_handle_t bg_anti_alias_program(int pass)
+/* a pass's pixel shader from xgpu_post.c's text, its samplers renamed to
+the stages' (tex0 to tex2): malloc'd, or NULL */
+static char *bg_anti_alias_text(int pass)
 {
-	static const char *const names[4] =
-	{
-		"FXAA pixel", "SMAA edge detection pixel", "SMAA blending weight pixel", "SMAA neighborhood blending pixel"
-	};
 	static const char *const samplers[][2] =
 	{
 		{ "color_texture", "tex0" }, { "edges_texture", "tex0" }, { "area_texture", "tex1" },
 		{ "search_texture", "tex2" }, { "weights_texture", "tex1" },
 	};
 	struct xgpu_text text = { 0 };
-	struct bg_shader *vertex, *fragment;
 	char *source = xgpu_post_anti_alias_source(pass, bg_vulkan ? bg_smaa_vulkan_language : NULL);
 	unsigned long index;
 
 	if (!source)
-		return (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+		return NULL;
 	xgpu_text_append(&text, "%s", source);
 	free(source);
 	for (index = 0; index < sizeof(samplers) / sizeof(samplers[0]); index++)
 		bg_replace_all(&text, samplers[index][0], samplers[index][1]);
+	return text.buffer;
+}
+
+/* a pass's program (bg_anti_alias_text) */
+static bgfx_program_handle_t bg_anti_alias_program(int pass)
+{
+	static const char *const names[4] =
+	{
+		"FXAA pixel", "SMAA edge detection pixel", "SMAA blending weight pixel", "SMAA neighborhood blending pixel"
+	};
+	struct bg_shader *vertex, *fragment;
+	char *text = bg_anti_alias_text(pass);
+
+	if (!text)
+		return (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	vertex = bg_shader_get(bg_blit_vertex_source, FALSE, 0, "blit vertex", TRUE);
-	fragment = bg_shader_get(text.buffer, TRUE, 0, names[pass], TRUE);
-	free(text.buffer);
+	fragment = bg_shader_get(text, TRUE, 0, names[pass], TRUE);
+	free(text);
 	if (vertex->failed || fragment->failed || !BGFX_HANDLE_IS_VALID(vertex->shader) ||
 		!BGFX_HANDLE_IS_VALID(fragment->shader))
 		return (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
@@ -6702,3 +6712,6 @@ static BOOL bg_initialize(void)
 		anti_aliasing_prepare();
 	return TRUE;
 }
+
+/* HALO_BGFX_SHADER_CHECK (game issue #1833) */
+#include "d3d8_bgfx_check.inl"

@@ -15,6 +15,7 @@ tools/test_bgfx_formats.py
 tools/test_bgfx_overlay_textures.py
 tools/test_bgfx_pipeline_log.py
 tools/test_bgfx_present.py
+tools/test_bgfx_shader_check.py
 tools/test_bgfx_vulkan_start.py
 tools/test_bgfx_window_pacing.py
 tools/test_build_workflow.py

@@ -62,6 +62,8 @@ static void prep_present(void);
 /* the bgfx test backend in place of OpenGL (display.renderer = "bgfx";
 d3d8_bgfx.inl, at the end of this file, which shares the device's state) */
 static BOOL bg_initialize(void);
+/* (HALO_BGFX_SHADER_CHECK: d3d8_bgfx_check.inl) */
+static void bg_shader_check_if_asked(void);
 static BOOL bg_active(void);
 static BOOL bg_anti_alias_prepare(BOOL smaa);
 static void bg_anti_alias(BOOL smaa, short x0, short y0, short x1, short y1);
@@ -2753,6 +2755,11 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 		}
 		viewport_update_constants();
 
+#ifdef HALO_BGFX
+		/* (HALO_BGFX_SHADER_CHECK: bgfx's shaders compiled for each of its
+		backends, and the game stops, before any window: CI's check) */
+		bg_shader_check_if_asked();
+#endif
 		/* (the dedicated server and a probe draw nothing: server/src) */
 		if (!config_boolean("debug.null_renderer") &&
 #ifdef HALO_GAME_BROWSER
