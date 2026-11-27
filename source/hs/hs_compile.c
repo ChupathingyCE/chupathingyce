@@ -2869,6 +2869,7 @@ boolean hs_compile_postprocess(
 	char const **error_source_pointer)
 {
 	boolean success = TRUE;
+	boolean compiling_scenario_before;
 	long expression_index;
 	short resolved_type;
 	struct hs_script *script;
@@ -2888,6 +2889,12 @@ boolean hs_compile_postprocess(
 		global_scenario_get()->hs_string_constants.size - HS_MAXIMUM_DYNAMIC_SOURCE_DATA_BYTES;
 	hs_compile_globals.error = NULL;
 	hs_compile_globals.variables_predetermined = TRUE;
+	/* port: these are the map's own scripts, so its tag references are
+	found as a scenario's are, not refused as a typed expression's
+	(hs_parse_tag_reference, #1972); the flag otherwise holds whatever the
+	last compile left */
+	compiling_scenario_before = hs_compile_globals.compiling_scenario;
+	hs_compile_globals.compiling_scenario = TRUE;
 	*error_message_pointer = NULL;
 	*error_source_pointer = NULL;
 
@@ -3083,6 +3090,7 @@ boolean hs_compile_postprocess(
 	hs_compile_globals.compiled_source = NULL;
 	hs_compile_globals.error = NULL;
 	hs_compile_globals.variables_predetermined = FALSE;
+	hs_compile_globals.compiling_scenario = compiling_scenario_before;
 
 	return success;
 }

@@ -142,3 +142,19 @@ def test_console_prints_the_refusal():
     body = text[text.index("hs_compile_initialize(FALSE);"):]
     body = body[:body.index("hs_compile_dispose();")]
     assert "hs_compile_source_error(" in body
+
+
+def test_map_load_parses_as_the_scenario():
+    """A cache map's scripts are compiled already: at load,
+    hs_compile_postprocess parses their tag references again, through
+    hs_parse_tag_reference, outside hs_compile_initialize. It has to count as
+    the scenario's compile, or every map's own tags are refused and the map
+    halts ("vehicles\\pelican\\pelican: this is not a object_definition tag
+    this map's scripts use." on a10), and it gives the flag back after."""
+    text = HS_COMPILE_C.read_text(encoding="utf-8")
+    start = text.index("boolean hs_compile_postprocess(")
+    end = text.index("\n}\n", start)
+    body = text[start:end]
+    loop = body.index("for (expression_index = data_next_index(hs_syntax_data, NONE);")
+    assert "hs_compile_globals.compiling_scenario = TRUE;" in body[:loop]
+    assert "hs_compile_globals.compiling_scenario = compiling_scenario_before;" in body[loop:]
