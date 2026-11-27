@@ -22,8 +22,10 @@ enum
 	SERVER_REPORT_MAP_SIZE = 64,
 	SERVER_REPORT_GAME_TYPE_SIZE = 32,
 	SERVER_REPORT_CLOSED_BY_SIZE = 64,
-	/* the reports the queue keeps, at most (the oldest closed go first; an
-	open one never goes: a new report waits for room instead) */
+	/* the reports the queue keeps, at most (the oldest closed go first,
+	then the oldest the site already took, which its moderators have there
+	and reports.log keeps; any other open one never goes: a new report waits
+	for room instead) */
 	SERVER_REPORTS_KEPT = 200,
 	/* the refusal counts kept with a report (host_evidence.h's: movement,
 	vehicle, hits, clock) */
@@ -83,8 +85,12 @@ account (their proof bound to this server: docs/delta/peer.md, "Verified
 names"), else the player themselves this game (their datum index, which a
 new player in a slot someone left, or the same player back after leaving,
 never has). Never by a machine's slot. A reporter: 3 a minute, 10 a game,
-each player once a game. A reported player: 5 a game from everyone. They
-start over with each game. */
+each player once a game. A reported player: 5 a game from everyone. The
+unverified reporters of one address share a reporter's limits too (3 a
+minute, 10 a game), so that leaving and joining again as a new player each
+time does not reset them; the address is only compared in memory for the
+game, never kept with a report, logged or sent. They start over with each
+game. */
 enum
 {
 	SERVER_REPORTS_PER_MINUTE = 3,
@@ -96,6 +102,9 @@ enum
 	one's report is refused: a count is never forgotten) */
 	SERVER_REPORTS_REPORTERS_KEPT = 256,
 	SERVER_REPORTS_TARGETS_KEPT = 256,
+	/* the addresses of unverified reporters a game remembers (past them, a
+	new one's report is refused) */
+	SERVER_REPORTS_ADDRESSES_KEPT = 256,
 };
 
 enum
@@ -112,6 +121,9 @@ struct server_report_who
 	int has_account;
 	unsigned char account[16];
 	long player;
+	/* the machine's address (0 not known): for an unverified reporter's
+	address limit alone, in memory only */
+	unsigned long address;
 };
 
 /* whether a report from reporter of target may be taken now

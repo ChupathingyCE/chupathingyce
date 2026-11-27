@@ -924,6 +924,7 @@ symbols in this file:
 #include "networking/network_messages.h"
 #include "networking/network_server_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "pause_leave.h" /* port: port/linux/game/pause_leave.h */
 #include "saved games/game_state.h"
 #include "saved games/player_profile.h"
 #include "interface/ui_widget_definitions.h"
@@ -950,6 +951,7 @@ boolean playlist_profile_get_mode_options(long playlist_profile_index, byte *mod
 /* port: network co-op from the Chupathingy menus' Select Map
 (port/linux/game/menu_functions.c) */
 boolean pc_menus_host_cooperative_shown(void);
+boolean pc_menus_coop_first_take(void);
 boolean pc_menus_host_cooperative_choose(struct widget_instance *widget, char const *map_name,
 	boolean *widget_deleted);
 #endif
@@ -1814,11 +1816,10 @@ port/linux/game/stubbs_campaign.c) */
 static char *ui_single_player_level(
 	long level_index)
 {
-	char *name = event_handler_functions.single_player_levels[level_index];
-
+	/* (Stubbs's twelve: the last two are past Halo's ten, never read) */
 	if (stubbs_mode_active())
-		name = (char *)stubbs_campaign_level_name((short)level_index, name);
-	return name;
+		return (char *)stubbs_campaign_level_name((short)level_index, NULL);
+	return event_handler_functions.single_player_levels[level_index];
 }
 
 #ifdef HALO_MAP_LIST
@@ -1987,6 +1988,45 @@ static boolean create_and_begin_editing_new_gametype_profile(
 	return result;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: whether the Chupathingy menus' DIRECT IP row (System Link's last,
+server_list_menu_update) is the one chosen */
+static boolean system_link_direct_ip_chosen(
+	struct widget_instance *widget)
+{
+	return pc_menus_direct_ip_list() != NONE && widget->definition_tag_index == pc_menus_direct_ip_list() &&
+		widget->parameters.list.number_of_items > 0 &&
+		widget->parameters.list.selected_index == widget->parameters.list.number_of_items - 1;
+}
+
+/* port: its screen, opened as X's handler opens it (menu_tags.c): B comes
+back to System Link */
+static boolean system_link_direct_ip_open(
+	struct widget_instance *widget,
+	boolean *widget_deleted)
+{
+	struct widget_instance *topmost_parent = widget_instance_get_topmost_parent(widget);
+
+	if (pc_menus_direct_ip_screen() == NONE)
+		return FALSE;
+	ui_play_audio_feedback_sound(2);
+	if (!ui_widget_load_by_name_or_tag(
+		NULL,
+		pc_menus_direct_ip_screen(),
+		NULL,
+		widget->local_player_index,
+		topmost_parent->definition_tag_index,
+		widget->parent ? widget->parent->definition_tag_index : NONE,
+		(short)widget_instance_get_child_index_from_parent(widget)))
+	{
+		error(2, "event handler failed to spawn widget");
+		return FALSE;
+	}
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+#endif
+
 static boolean network_game_join_game_from_server_list(
 	struct widget_instance *widget,
 	struct event_record *event,
@@ -2010,6 +2050,12 @@ static boolean network_game_join_game_from_server_list(
 			if ((word)generated_count > (word)zero)
 			{
 				server = ((byte **)widget->parameters.list.list_items)[widget->parameters.list.selected_index];
+#ifdef HALO_GAME_BROWSER
+				/* port: the Chupathingy menus' DIRECT IP, the list's last row
+				(server_list_menu_update): its screen, as X opens it */
+				if (!server && system_link_direct_ip_chosen(widget))
+					return system_link_direct_ip_open(widget, widget_deleted);
+#endif
 				/* (an entry can have no server behind it, as seen with some other
 				LAN games on an unknown level; pressing A on it does nothing) */
 				if (!server)
@@ -2089,9 +2135,21 @@ static boolean pause_game_restart_at_checkpoint(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: in co-op this would revert only this machine */
+	/* port: in network co-op only the host reverts, and everyone follows
+	(main.c's main_coop_host_revert); a joined machine's game is the host's,
+	and its menu has no such row (menu_tags.c) */
 	if (network_coop_active())
-		return FALSE;
+	{
+		if (!global_network_game_server_get())
+			return FALSE;
+		/* (nothing saved yet, or the save failed: the level starts over, as
+		the campaign's revert does then (game_state_revert), for everyone) */
+		if (!game_state_port_saved_game_valid())
+		{
+			main_coop_restart_level();
+			return TRUE;
+		}
+	}
 	main_revert_map();
 	return TRUE;
 }
@@ -2101,9 +2159,17 @@ static boolean pause_game_restart_level(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: in co-op this would restart only this machine */
+	/* port: in network co-op the host's restart takes everyone back to the
+	lobby with the same level, to start it again together (a reset here would
+	restart this machine alone); a joined machine's menu has no such row
+	(menu_tags.c) */
 	if (network_coop_active())
-		return FALSE;
+	{
+		if (!global_network_game_server_get())
+			return FALSE;
+		main_coop_restart_level();
+		return TRUE;
+	}
 	main_reset_map();
 	return TRUE;
 }
@@ -2533,10 +2599,7 @@ static boolean network_game_remove_local_player(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: a mouse or keyboard event has no controller (the Xbox asserted
-	one); the player is then the pause screen's */
-	short controller_index = event && event->controller_index >= 0 && event->controller_index < 4 ?
-		event->controller_index : widget->local_player_index;
+	short controller_index;
 
 	/* port: a multiplayer map played alone (its pause screen: ui_widget.c's
 	ui_check_for_pause_game) has no network game to leave: the main menu,
@@ -2546,8 +2609,15 @@ static boolean network_game_remove_local_player(
 		main_goto_main_menu();
 		return TRUE;
 	}
-	if (controller_index == NONE)
-		controller_index = 0;
+	/* port: the player of the press's controller (the Xbox's), else the
+	pause screen's: a mouse's press has no controller (the Xbox asserted
+	one), and with one person playing any controller drives their pause
+	screen, so the press's controller can have no player here (a gamepad
+	on another port: pause_leave.h) */
+	controller_index = pause_leave_controller(
+		event ? event->controller_index : NONE,
+		event && network_game_client_local_player_exists(event->controller_index),
+		widget->local_player_index);
 	network_game_client_local_player_quit(controller_index);
 	/* port: a split screen player who quit, the others staying, is not
 	joined to the next game */
@@ -2825,6 +2895,13 @@ static boolean start_network_game_if_no_advertised_servers(
 
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4593,
 		widget->type == 3, "expected a column list for server list");
+#ifdef HALO_GAME_BROWSER
+	/* port: the Chupathingy menus' DIRECT IP row (chosen whenever the list
+	has no games): its A opens DIRECT IP (network_game_join_game_from_server_list),
+	not a new game; Y still starts one */
+	if (system_link_direct_ip_chosen(widget))
+		return FALSE;
+#endif
 	if (widget->parameters.list.number_of_items == 0)
 	{
 		client = global_network_game_client_get();
@@ -3159,6 +3236,24 @@ static boolean multiplayer_level_list_initialize(
 	used last left as it is */
 	if (level_count && mcc_maps_level_first(level_names[0]))
 		widget->parameters.list.selected_index = 0;
+#endif
+#ifdef HALO_GAME_BROWSER
+	/* port: from the co-op screen's ONLINE: on the campaign's first level,
+	after the multiplayer maps (menu_functions.c's coop_online) */
+	if (pc_menus_coop_first_take() && pc_menus_host_cooperative_shown())
+	{
+		char const *first_level = main_get_solo_level_name(0);
+		short row;
+
+		for (row = 0; first_level && row < level_count; row++)
+		{
+			if (ui_map_list_row_is_campaign(row) && !_stricmp(level_names[row], first_level))
+			{
+				widget->parameters.list.selected_index = row;
+				break;
+			}
+		}
+	}
 #endif
 #if defined(HALO_MAP_LIST) && !defined(HALO_CONSOLE_NO_DEBUG_TOOLS)
 	/* port: debug.menu_open's "#multiplayer_last": on the last map, for
@@ -4444,6 +4539,31 @@ static boolean solo_level_initialize_list_coop(
 	struct ui_widget_definition *definition;
 
 	memset(single_player_level_data, 0, sizeof(single_player_level_data));
+	/* port: Stubbs mode's twelve levels, those either player has reached
+	(port/linux/game/stubbs_campaign.c), as one player's list has them */
+	if (stubbs_mode_active())
+	{
+		short level;
+
+		for (level = 0; level < STUBBS_CAMPAIGN_LEVEL_COUNT; level++)
+		{
+			unsigned long flags = stubbs_campaign_level_flags(0, level) | stubbs_campaign_level_flags(1, level);
+
+			single_player_level_data[level].map_name = ui_single_player_level(level);
+			if (stubbs_campaign_level_available(0, level) || stubbs_campaign_level_available(1, level))
+			{
+				single_player_level_data[level].available = TRUE;
+				single_player_level_data[level].unknown5 = (flags >> 1) & 1;
+				single_player_level_data[level].unknown6 = (flags >> 2) & 1;
+				single_player_level_data[level].unknown7 = (flags >> 3) & 1;
+			}
+		}
+		widget->parameters.list.list_items = single_player_level_data;
+		widget->parameters.list.number_of_items = STUBBS_CAMPAIGN_LEVEL_COUNT;
+		widget->parameters.list.selected_index =
+			PIN(player_ui_get_last_single_player_level_played(0), 0, STUBBS_CAMPAIGN_LEVEL_COUNT - 1);
+		return TRUE;
+	}
 	{
 		player_ui_get_active_player_profile(0, &profile0);
 		player_profile_get_highest_completed_solo_level(&profile0, &highest_levels[0], &highest_difficulties[0]);
@@ -4567,28 +4687,32 @@ static boolean solo_level_set_next_map_name(
 	list_widget = widget;
 	result = FALSE;
 	/* port: Stubbs mode's twelve levels, its profiles' finished levels its
-	own (port/linux/game/stubbs_campaign.c) */
-	if (stubbs_mode_active() && player_spawn_count == 1)
+	own (port/linux/game/stubbs_campaign.c); with two players, either
+	player's */
+	if (stubbs_mode_active() && (player_spawn_count == 1 || player_spawn_count == 2))
 	{
 		short level = list_widget->parameters.list.selected_index;
 
-		if (!stubbs_campaign_level_available(0, level))
+		if (!stubbs_campaign_level_available(0, level) &&
+			(player_spawn_count != 2 || !stubbs_campaign_level_available(1, level)))
 		{
 			error(2, "this level is unavailable to you!");
 			ui_play_audio_feedback_sound(4);
 			return FALSE;
 		}
-		player_ui_remember_player1_profile(0);
+		if (player_spawn_count == 1)
+			player_ui_remember_player1_profile(0);
 		main_set_map_name(ui_single_player_level(level));
 		main_defer_map_map_change();
 		return TRUE;
 	}
 #ifdef HALO_MAP_LIST
-	/* port: an MCC campaign map's row, after the ten levels: always there */
+	/* port: an MCC campaign map's row, or another campaign map's, after the
+	ten levels: always there */
 	if (list_widget->parameters.list.selected_index >= 10)
 	{
-		extern char const *ui_widget_port_mcc_campaign_level(short row);
-		char const *level = ui_widget_port_mcc_campaign_level((short)(list_widget->parameters.list.selected_index - 10));
+		extern char const *ui_widget_port_campaign_maps_level(short row);
+		char const *level = ui_widget_port_campaign_maps_level((short)(list_widget->parameters.list.selected_index - 10));
 
 		if (!level)
 		{
@@ -6330,15 +6454,21 @@ static boolean solo_level_initialize_list_single_player(
 	widget->parameters.list.number_of_items = 10;
 	widget->parameters.list.selected_index = PIN(player_ui_get_last_single_player_level_played(0), 0, 9);
 #ifdef HALO_MAP_LIST
-	/* port: the MCC catalog's campaign maps after the ten levels, as the
-	menus' map lists have them (their cards: ui_widget_game_data_input_functions.c) */
+	/* port: the MCC catalog's campaign maps after the ten levels, then in
+	the Chupathingy menus the other campaign maps found, as the menus' map
+	lists have them (their cards: ui_widget_game_data_input_functions.c) */
 	{
 		extern short ui_widget_port_mcc_campaign_count(void);
+		extern short ui_widget_port_campaign_maps_count(void);
 		extern char const *config_string(char const *name);
 
-		/* (not in Stubbs mode, whose campaign is its own) */
+		/* (not in Stubbs mode, whose campaign is its own; the list found
+		anew, for maps added since) */
 		if (!stubbs_mode_active())
-			widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_mcc_campaign_count());
+		{
+			ui_map_list_refresh(event_handler_functions.multiplayer_levels);
+			widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_campaign_maps_count());
+		}
 		/* (on the Workshop item the Delta Guide's PLAY handed over: its
 		levels lead the MCC rows, mcc_maps.c) */
 		if (!stubbs_mode_active() && mcc_maps_take_first_focus() && ui_widget_port_mcc_campaign_count())

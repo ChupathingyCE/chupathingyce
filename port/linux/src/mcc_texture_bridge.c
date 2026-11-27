@@ -8,7 +8,6 @@
 #include "xgpu.h"
 #include "mcc_texture_bridge.h"
 #include "hud_hires.h"
-#include "zlib_prefixed.h"
 #include "platform.h"
 #include <stdlib.h>
 #include <string.h>
@@ -34,33 +33,15 @@ static struct mcc_gpu_texture *mcc_gpu_hardware[MCC_TEXTURE_BUCKETS];
 
 int config_boolean(char const *name);
 
-/* These are the complete, converted stock MCC sheets, including the _r
- * variants. Names alone cannot distinguish custom art. Match dimensions,
- * format and immutable pixel fingerprints before using an MCC-only atlas.
- * Registration happens once; the setting is checked at draw time so turning
- * High-Res HUD off immediately restores the original GPU texture. */
-static long mcc_hud_texture_asset(struct xgpu_texture_description const *description,
-    void const *pixels,unsigned long bytes)
+/* The texture standing for an MCC map's stock HUD sheet: the game finds
+ * those by tag, size and the checksum of the pixels the map stores
+ * (hud_hires_tags.c), never by name alone, so custom art keeps its look.
+ * The setting is checked at draw time, so turning High-Res HUD off
+ * immediately restores the original GPU texture. */
+static long mcc_hud_texture_asset(void const *bitmap)
 {
-    static struct {unsigned long format,bytes,crc;char const *tag;} const known[]={
-        {D3DFMT_A8L8,131072,1892071729UL,"mcc\\hud\\rocket_reticle"},
-        {D3DFMT_A8R8G8B8,262144,3704827890UL,"mcc\\hud\\rocket_reticle"},
-        {D3DFMT_A8L8,131072,2149244368UL,"mcc\\hud\\sniper_scope"},
-        {D3DFMT_A8R8G8B8,262144,1422780498UL,"mcc\\hud\\sniper_scope"}
-    };
-    unsigned long i,crc=0;
-    int checked=0;
-    long asset;
-    if (!pixels || description->width!=256 || description->height!=256 ||
-        description->depth!=1 || description->levels!=1 || description->cube_map || description->linear) return -1;
-    for (i=0;i<sizeof(known)/sizeof(known[0]);i++) {
-        if (description->format!=known[i].format || bytes!=known[i].bytes) continue;
-        if (!checked) {crc=crc32(0L,pixels,(uInt)bytes);checked=1;}
-        if (crc!=known[i].crc) continue;
-        for (asset=0;asset<(long)hud_hires_embedded_count;asset++)
-            if (!strcmp(hud_hires_embedded[asset].tag,known[i].tag)) return asset;
-    }
-    return -1;
+    long asset=hud_hires_mcc_asset(bitmap);
+    return asset>=0 && asset<(long)hud_hires_embedded_count && hud_hires_embedded[asset].mcc ? asset : -1;
 }
 
 static unsigned long mcc_texture_bucket(void const *bitmap)
@@ -122,7 +103,7 @@ static void *mcc_texture_register(void const *bitmap,unsigned long format,
     if (!entry) return NULL;
     entry->bitmap=bitmap;entry->pixels=pixels;entry->bytes=bytes;
     entry->description=description;
-    entry->hud_asset=mcc_hud_texture_asset(&description,pixels,bytes);
+    entry->hud_asset=mcc_hud_texture_asset(bitmap);
     entry->target=description.cube_map ? GL_TEXTURE_CUBE_MAP :
         description.depth>1 ? GL_TEXTURE_3D : GL_TEXTURE_2D;
     entry->header[0]=D3DCOMMON_TYPE_TEXTURE|1;
@@ -151,15 +132,6 @@ void *mcc_texture_bridge_register_linear(void const *bitmap,unsigned long format
     return mcc_texture_register(bitmap,format,0,pixels,bytes,width,height,pitch);
 }
 
-/* Metadata-only lookup for loading-time shader selection. No texture upload. */
-BOOL xgpu_mcc_texture_describe(DWORD const *resource,struct xgpu_texture_description *description)
-{
-    struct mcc_gpu_texture *entry;
-    for (entry=mcc_gpu_hardware[mcc_texture_bucket(resource)];entry;entry=entry->hardware_next)
-        if (entry->header==resource) {*description=entry->description;return TRUE;}
-    return FALSE;
-}
-
 BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
     GLuint *texture,GLenum *target,struct xgpu_texture_description *description)
 {
@@ -173,6 +145,10 @@ BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
             GLuint replacement=hud_hires_override_texture(entry->hud_asset,&description->levels);
             if (replacement) {
                 description->hires=TRUE;*texture=replacement;
+                /* (a high-res meter: its coverage and exact segment
+                 * thresholds, as an Xbox map's are: xbox_textures.c) */
+                description->hires_coverage=hud_hires_override_coverage(entry->hud_asset)!=0;
+                description->hires_point_threshold=hud_hires_override_point_threshold(entry->hud_asset)!=0;
                 return TRUE;
             }
             /* Allocation/upload failure retains the original descriptor. */
@@ -233,6 +209,15 @@ void xgpu_mcc_texture_failed(struct xgpu_texture_description const *description,
             (unsigned long)description->levels,reason);
 }
 
+void mcc_texture_bridge_hud_refresh(void)
+{
+    unsigned long bucket;
+    struct mcc_gpu_texture *entry;
+    for (bucket=0;bucket<MCC_TEXTURE_BUCKETS;bucket++)
+        for (entry=mcc_gpu_textures[bucket];entry;entry=entry->next)
+            entry->hud_asset=mcc_hud_texture_asset(entry->bitmap);
+}
+
 void mcc_texture_bridge_dispose(void)
 {
     unsigned long bucket;
@@ -255,7 +240,7 @@ void mcc_texture_bridge_dispose(void)
 
 unsigned long mcc_texture_bridge_prepare(void const *bitmap, unsigned long budget)
 {
-#ifndef HALO_GLES
+#ifndef HALO_GL_ES
     struct mcc_gpu_texture *entry;
     for (entry=mcc_gpu_textures[mcc_texture_bucket(bitmap)];entry;entry=entry->next) {
         struct xgpu_texture_description const *description=&entry->description;

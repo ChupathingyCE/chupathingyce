@@ -62,11 +62,12 @@ static const struct about_entry page[] =
 	{ _line_text, "Controller icons: snapchipper." },
 	{ _line_text, "UI art (HD controller buttons): DKrumpp." },
 	{ _line_text, "HD HUD testing: ugoboom." },
-	{ _line_text, "Chimera: SnowyMouse and contributors." },
+	{ _line_text, "Chimera: SnowyMouse, Aerocatia, Cambidd and contributors (and its Lua API)." },
 	{ _line_text, "Xbox 3D sound and reverb: the OpenH1 contributors and chestahh." },
+	{ _line_text, "Dynamic Lighting, Dynamic Shadows and shared renderer optimisations by chestahh, originally developed for GulchCE." },
 	{ _line_text, "Security reports: nickarcade." },
 	{ _line_text, "Grifball court: SlappyThePirate." },
-	{ _line_text, "Testing: FASTNOOB, FLTHY, Fujibayashi Kyou, Mega, OpenRift, roundzabout, Sabriel, Shadow Phoenix, snapchipper, TanFlo and ugoboom." },
+	{ _line_text, "Testing: FASTNOOB, FLTHY, Fujibayashi Kyou, Mega, OpenRift, roundzabout, Sabriel, Shadow Phoenix, snapchipper, TanFlo, ugoboom and Wonka." },
 	{ _line_text, "Console testing: BoganEsky, claire, deeechrome, grizz_85, JanusDuo, LD50 II, LukeShortCloud, magoostus, re4thewin, The Real Napsta, TomiG117, UncookedMoa, X-ISO, xpb4me and Xiyl." },
 	{ _line_text, "HaloMD map names: MacGamingMods." },
 	{ _line_text, "Map downloads: HaloNet and the HAC2 map repository." },
@@ -93,6 +94,8 @@ static const struct about_entry licenses[] =
 	{ _line_text, "Mbed TLS: Apache-2.0." },
 	{ _line_text, "miniupnpc: BSD-3-Clause." },
 	{ _line_text, "KCP: MIT." },
+	{ _line_text, "Lua: MIT." },
+	{ _line_text, "Chimera's Lua API: GPL-3.0." },
 	{ _line_text, "tomlc17: MIT." },
 	{ _line_text, "musl's maths: MIT." },
 	{ _line_text, "Expat: MIT." },
@@ -209,14 +212,28 @@ static int line_wrap(int count, int kind, const char *text, float width)
 	return count;
 }
 
-static void version_text(char *text, int size)
+void about_version(char *text, int size)
 {
 	const char *watermark = build_identity_watermark();
 	/* (without an update's notice after it) */
 	const char *notice = strstr(watermark, " - ");
 
-	snprintf(text, (size_t)size, "Chupathingy %.*s", notice ? (int)(notice - watermark) : (int)strlen(watermark),
-		watermark);
+	snprintf(text, (size_t)size, "%.*s", notice ? (int)(notice - watermark) : (int)strlen(watermark), watermark);
+}
+
+void about_platform(char *text, int size)
+{
+	snprintf(text, (size_t)size, "%s %s, %d-bit", build_identity_platform(), build_identity_architecture(),
+		(int)sizeof(void *) * 8);
+}
+
+static void version_text(char *text, int size)
+{
+	/* (room for the name before it) */
+	char version[LINE_SIZE - 16];
+
+	about_version(version, sizeof(version));
+	snprintf(text, (size_t)size, "Chupathingy %s", version);
 }
 
 static int lines_make(const struct about_entry *entries, int entry_count, float width)
@@ -237,8 +254,7 @@ static int lines_make(const struct about_entry *entries, int entry_count, float 
 			count = line_wrap(count, _line_version, text, width);
 			break;
 		case _line_platform:
-			snprintf(text, sizeof(text), "%s %s, %d-bit", build_identity_platform(), build_identity_architecture(),
-				(int)sizeof(void *) * 8);
+			about_platform(text, sizeof(text));
 			count = line_wrap(count, _line_platform, text, width);
 			break;
 		case _line_text:

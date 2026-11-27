@@ -99,7 +99,6 @@ int ce_transport_packet(const unsigned char *packet, int length, const void *add
 void ce_transport_update(unsigned int now_milliseconds);
 /* every connection told it's closed, and forgotten */
 void ce_transport_stop(void);
-int ce_transport_peer_count(void);
 
 /* ---------- the game's side (any thread) */
 
@@ -155,9 +154,9 @@ int ce_payload_messages(const unsigned char *payload, int length,
 	void (*visit)(void *context, const unsigned char *message, int message_length), void *context);
 /* one message as a payload: its length, or 0 */
 int ce_payload_from_message(const unsigned char *message, int message_length, unsigned char *out, int size);
-/* the server's first message (the challenge and the map's name): its
-length, or 0 */
-int ce_message_new_client_challenge(const char *challenge, const char *map, unsigned char *out, int size);
+/* the server's first message (the challenge, the client's machine number
+in the game settings' roster, and the map's name): its length, or 0 */
+int ce_message_new_client_challenge(const char *challenge, int machine, const char *map, unsigned char *out, int size);
 /* the join refused, with a reason (CE_REJECT_*): its length */
 int ce_message_machine_rejected(int reason, unsigned char *out, int size);
 /* a join request's message (type 14): 1 and its fields, else 0 */

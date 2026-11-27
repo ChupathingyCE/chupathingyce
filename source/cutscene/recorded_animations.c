@@ -673,7 +673,8 @@ static boolean recorded_animation_play_internal(
 	struct animation_thread_debug *debug;
 	struct animation_playback *playback;
 
-	if (unit_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		/* port: and not below the block (a script's index) */
 		if (VALID_INDEX(animation_index, global_scenario_get()->recorded_animations.count))

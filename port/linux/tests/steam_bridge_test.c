@@ -7,8 +7,9 @@ FAILED, nothing asked of Steam), the app id goes only into the environment,
 Steam is shut down when the tab closes, subscribe/state/progress map to the
 tab's words, each call's own answer is waited on (Steam refusing a
 subscribe shows; manual dispatch asked for before SteamAPI_Init), a Steam
-that isn't signed on is offline and asked nothing, and steamcmd's text is
-read right. Built and run by tools/test_steam_bridge.py.
+that isn't signed on is offline and asked nothing, a signed Mac never looks
+for or loads a library and uses the downloader alone, and steamcmd's text
+is read right. Built and run by tools/test_steam_bridge.py.
 
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
@@ -40,10 +41,12 @@ int config_boolean(const char *name)
 	return !strcmp(name, "game.workshop_steam") ? setting_enabled : 0;
 }
 
+/* a fake steamcmd (test_cancel): its saved sign-in's account */
+static int steamcmd_on;
+
 const char *config_string(const char *name)
 {
-	(void)name;
-	return "";
+	return steamcmd_on && !strcmp(name, "game.steamcmd_account") ? "player_one" : "";
 }
 
 unsigned long system_milliseconds(void)
@@ -85,6 +88,12 @@ static struct
 	int manual_before_init;
 	int manual_inits;
 	int next_callbacks;
+	/* a signed Mac (steam_bridge_platform_client_blocked); steamcmd there;
+	the library looked for and loaded this many times */
+	int blocked;
+	int steamcmd;
+	int path_calls;
+	int open_calls;
 } fake;
 
 static int fake_ugc_object, fake_utils_object;
@@ -208,6 +217,7 @@ static int is_missing(const char *name)
 
 void *steam_bridge_platform_library_open(const char *path)
 {
+	fake.open_calls++;
 	return fake.present && !strcmp(path, "fake_steam_api") ? &fake : NULL;
 }
 
@@ -267,9 +277,15 @@ void steam_bridge_platform_sleep(int milliseconds)
 	usleep((useconds_t)milliseconds * 1000);
 }
 
+int steam_bridge_platform_client_blocked(void)
+{
+	return fake.blocked;
+}
+
 int steam_bridge_api_library_paths(char (*paths)[STEAM_BRIDGE_PATH_SIZE], int maximum, int search)
 {
 	(void)search;
+	fake.path_calls++;
 	if (!fake.present || maximum < 1)
 		return 0;
 	snprintf(paths[0], STEAM_BRIDGE_PATH_SIZE, "fake_steam_api");
@@ -278,18 +294,36 @@ int steam_bridge_api_library_paths(char (*paths)[STEAM_BRIDGE_PATH_SIZE], int ma
 
 int steam_bridge_steam_present(void) { return 0; }
 
-/* (no steamcmd in these tests: the client backend alone) */
-int steam_bridge_platform_find_steamcmd(char *path, int size) { (void)path; (void)size; return 0; }
+/* (no steamcmd in these tests but test_cancel's, whose download runs until
+it is ended, and the signed Mac's, found with no saved sign-in, which starts
+nothing) */
+static int fake_child_object, child_starts, child_ends;
+
+int steam_bridge_platform_find_steamcmd(char *path, int size)
+{
+	return (steamcmd_on || fake.steamcmd) && snprintf(path, (size_t)size, "fake_steamcmd") < size;
+}
 int steam_bridge_platform_steamcmd_root(const char *steamcmd, char *root, int size)
 {
-	(void)steamcmd; (void)root; (void)size; return 0;
+	(void)steamcmd;
+	if (steamcmd_on)
+		return snprintf(root, (size_t)size, "fake_steamcmd_root") < size;
+	return fake.steamcmd && snprintf(root, (size_t)size, "no_such_steamcmd_root") < size;
 }
-void *steam_bridge_platform_child_start(const char *const *arguments) { (void)arguments; return NULL; }
+void *steam_bridge_platform_child_start(const char *const *arguments)
+{
+	(void)arguments;
+	if (!steamcmd_on)
+		return NULL;
+	child_starts++;
+	return &fake_child_object;
+}
 int steam_bridge_platform_child_line(void *child, char *line, int size, int milliseconds)
 {
-	(void)child; (void)line; (void)size; (void)milliseconds; return -1;
+	(void)line; (void)size; (void)milliseconds;
+	return child == &fake_child_object && steamcmd_on ? 0 : -1;
 }
-void steam_bridge_platform_child_end(void *child) { (void)child; }
+void steam_bridge_platform_child_end(void *child) { if (child == &fake_child_object) child_ends++; }
 int steam_bridge_platform_open_sign_in(const char *steamcmd) { (void)steamcmd; return 0; }
 int steam_bridge_platform_merge_folder(const char *from, const char *to) { (void)from; (void)to; return 0; }
 int steam_bridge_platform_remove_folder(const char *path) { (void)path; return 0; }
@@ -544,6 +578,149 @@ static void test_steamcmd_text(void)
 	CHECK(!steamcmd_account_valid("+quit"));
 }
 
+/* a long browse: more items looked at than the bridge watches, and a GET
+of one past them still goes (the idle ones asked about longest ago make
+room), #3274305742's "Failed" */
+static void test_many_items(void)
+{
+	struct steam_bridge_item item;
+	char id[24];
+	int index, waited = 0;
+
+	reset();
+	steam_bridge_open(0);
+	CHECK(settled() == STEAM_BRIDGE_READY);
+	for (index = 0; index < STEAM_BRIDGE_MAXIMUM_ITEMS + 40; index++)
+	{
+		snprintf(id, sizeof(id), "%lld", 2900000000LL + index);
+		steam_bridge_item(id, &item);
+	}
+	CHECK(steam_bridge_subscribe("3274305742"));
+	while (!fake.subscribe_calls && waited++ < 300)
+		usleep(10000);
+	CHECK(fake.subscribe_calls == 1 && fake.last_item == 3274305742ULL);
+	CHECK(item_when("3274305742", STEAM_BRIDGE_ITEM_QUEUED, &item) && item.subscribed);
+	reset();
+}
+
+static int wait_for(const int *count, int value)
+{
+	int waited = 0;
+
+	while (*(volatile const int *)count < value && waited++ < 300)
+		usleep(10000);
+	return *count >= value;
+}
+
+/* CANCEL (the Workshop tab's GET, a join's missing map, Discord's
+#bug-reports, Nov 22): the Steam client's subscription undone when the game
+made it, so Steam stops downloading too; one the player already had left
+alone; and taken even when the bridge is closed right after, as a join's
+CANCEL does */
+static void test_cancel(void)
+{
+	struct steam_bridge_item item;
+	int waited = 0;
+
+	/* subscribed by the game, cancelled: unsubscribed */
+	reset();
+	steam_bridge_open(0);
+	CHECK(settled() == STEAM_BRIDGE_READY);
+	CHECK(steam_bridge_subscribe("2886943774"));
+	CHECK(wait_for(&fake.subscribe_calls, 1));
+	CHECK(item_when("2886943774", STEAM_BRIDGE_ITEM_QUEUED, &item) && item.subscribed);
+	CHECK(steam_bridge_cancel("2886943774"));
+	CHECK(wait_for(&fake.unsubscribe_calls, 1));
+	CHECK(item_when("2886943774", STEAM_BRIDGE_ITEM_NONE, &item) && !item.subscribed);
+	/* (a second cancel asks Steam nothing more) */
+	CHECK(steam_bridge_cancel("2886943774"));
+	usleep(1200 * 1000);
+	CHECK(fake.unsubscribe_calls == 1);
+
+	/* the player's own subscription (made in Steam before): left alone */
+	reset();
+	fake.last_item = 3274305742ULL;
+	fake.flags = 1;
+	steam_bridge_open(0);
+	CHECK(settled() == STEAM_BRIDGE_READY);
+	CHECK(steam_bridge_subscribe("3274305742"));
+	CHECK(wait_for(&fake.subscribe_calls, 1));
+	CHECK(steam_bridge_cancel("3274305742"));
+	usleep(1200 * 1000);
+	CHECK(fake.unsubscribe_calls == 0);
+
+	/* a join's CANCEL: the cancel, then the bridge closed at once */
+	reset();
+	steam_bridge_open(0);
+	CHECK(settled() == STEAM_BRIDGE_READY);
+	CHECK(steam_bridge_subscribe("2906110850"));
+	CHECK(wait_for(&fake.subscribe_calls, 1));
+	CHECK(steam_bridge_cancel("2906110850"));
+	steam_bridge_close();
+	while (steam_bridge_test_running() && waited++ < 400)
+		usleep(10000);
+	CHECK(!steam_bridge_test_running());
+	CHECK(fake.unsubscribe_calls == 1);
+	CHECK(fake.shutdown_calls == 1);
+
+	/* not ready: nothing asked */
+	reset();
+	CHECK(!steam_bridge_cancel("2906110850"));
+	CHECK(fake.unsubscribe_calls == 0);
+
+	/* the downloader too (steamcmd here; the built-in client's is its
+	steam_content_cancel): its download ended, the client unsubscribed */
+	reset();
+	steamcmd_on = 1;
+	child_starts = child_ends = 0;
+	steam_bridge_open(1);
+	CHECK(settled() == STEAM_BRIDGE_READY);
+	CHECK(steam_bridge_connected() == ((1 << STEAM_BRIDGE_BACKEND_CLIENT) | (1 << STEAM_BRIDGE_BACKEND_STEAMCMD)));
+	CHECK(steam_bridge_subscribe("3496468566"));
+	CHECK(wait_for(&fake.subscribe_calls, 1));
+	CHECK(wait_for(&child_starts, 1));
+	CHECK(item_when("3496468566", STEAM_BRIDGE_ITEM_DOWNLOADING, &item));
+	CHECK(steam_bridge_cancel("3496468566"));
+	steam_bridge_close();
+	waited = 0;
+	while (steam_bridge_test_running() && waited++ < 400)
+		usleep(10000);
+	CHECK(!steam_bridge_test_running());
+	CHECK(child_ends == 1);
+	CHECK(fake.unsubscribe_calls == 1);
+	/* (nothing started again for it) */
+	CHECK(child_starts == 1);
+	steamcmd_on = 0;
+	reset();
+}
+
+/* a signed Mac (hardened runtime): the client backend is skipped before
+any library is looked for or loaded, even when the tab asks for it, and the
+downloader works alone */
+static void test_signed_mac(void)
+{
+	reset();
+	fake.blocked = 1;
+	fake.steamcmd = 1;
+	CHECK(steam_bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD);
+	steam_bridge_open(0);
+	CHECK(settled() == STEAM_BRIDGE_READY);
+	CHECK(steam_bridge_connected() == 1 << STEAM_BRIDGE_BACKEND_STEAMCMD);
+	CHECK(steam_bridge_sign_in_needed());
+	CHECK(!steam_bridge_can_unsubscribe());
+	CHECK(fake.path_calls == 0 && fake.open_calls == 0 && fake.init_calls == 0);
+	CHECK(!getenv("SteamAppId"));
+
+	/* (no downloader either: nothing to connect, still no library) */
+	reset();
+	fake.blocked = 1;
+	CHECK(steam_bridge_backend() == STEAM_BRIDGE_BACKEND_NONE);
+	steam_bridge_open(0);
+	CHECK(settled() == STEAM_BRIDGE_FAILED);
+	CHECK(fake.path_calls == 0 && fake.open_calls == 0 && fake.init_calls == 0);
+	reset();
+}
+
 int main(void)
 {
 	test_steamcmd_text();
@@ -552,6 +729,9 @@ int main(void)
 	test_offline();
 	test_subscribe_answers(0);
 	test_subscribe_answers(1);
+	test_many_items();
+	test_cancel();
+	test_signed_mac();
 	if (failures)
 		fprintf(stderr, "%d failed\n", failures);
 	else

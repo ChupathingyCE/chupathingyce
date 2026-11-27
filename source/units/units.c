@@ -644,7 +644,9 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "opensauce.h" /* port: port/linux/game/opensauce_map.c */
 #include "units.h"
+#include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 
 #include "bipeds.h"
 #include "biped_definitions.h"
@@ -704,6 +706,11 @@ symbols in this file:
 #include "mcc_grenades.h"
 #include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 #include "mcc_campaign.h" /* port: an MCC map's unlimited ammunition */
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
+#include "halo_perf_log.h" /* port: console.perf_log */
+#ifdef HALO_GAME_BROWSER
+#include "host_rules.h" /* port: network.air_turn_aim */
+#endif
 
 /* port: the control and animation impulses the host's actors give their
 units go to the clients' copies (port/linux/game/network_actors.c) */
@@ -1061,8 +1068,13 @@ void units_dispose(
 void unit_kill(
 	long unit_index)
 {
-	struct unit_datum *unit = unit_get(unit_index);
+	struct unit_datum *unit;
 
+	/* port: none, or a unit deleted since the script had it, is passed
+	over rather than halting the game (#1861) */
+	if (!object_try_and_get(unit_index))
+		return;
+	unit = unit_get(unit_index);
 	SET_FLAG(unit->object.damage_flags, _object_die_act_of_god_bit, TRUE);
 
 	return;
@@ -1071,8 +1083,13 @@ void unit_kill(
 void unit_kill_silent(
 	long unit_index)
 {
-	struct unit_datum *unit = unit_get(unit_index);
+	struct unit_datum *unit;
 
+	/* port: none, or a unit deleted since the script had it, is passed
+	over rather than halting the game (#1861) */
+	if (!object_try_and_get(unit_index))
+		return;
+	unit = unit_get(unit_index);
 	SET_FLAG(unit->object.damage_flags, _object_die_act_of_god_silent_bit, TRUE);
 
 	return;
@@ -1464,13 +1481,18 @@ real unit_get_drawn_camouflage(
 	real *super_amount)
 {
 	struct unit_datum *unit;
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	/* (a console draws it as sampled each tick: none between) */
 	real amount;
 
 	if (render_interpolation_unit_camouflage(unit_index, &amount, super_amount))
-		return amount;
+		return opensauce_map_drawn_camouflage(amount);
+#endif
 	unit = unit_get(unit_index);
 	*super_amount = unit->unit.active_camouflage_super_amount;
-	return unit->unit.active_camouflage;
+	/* port: as drawn (an OpenSauce map's scripts may set it past 1:
+	port/linux/game/opensauce_map.c) */
+	return opensauce_map_drawn_camouflage(unit->unit.active_camouflage);
 }
 
 real unit_get_zoom_magnification(
@@ -1508,7 +1530,8 @@ void unit_set_enterable_by_player(
 	long unit_index,
 	boolean enterable_by_player)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 		SET_FLAG(unit->unit.flags, _unit_not_enterable_by_player_bit, !enterable_by_player);
@@ -1521,7 +1544,8 @@ void unit_aim_without_turning(
 	long unit_index,
 	boolean aim_without_turning)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 		SET_FLAG(unit->unit.flags, _unit_aim_without_turning_bit, aim_without_turning);
@@ -1556,7 +1580,8 @@ void unit_scripting_can_blink(
 	long unit_index,
 	boolean can_blink)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -1570,7 +1595,8 @@ void unit_set_desired_flashlight_state(
 	long unit_index,
 	boolean desired_state)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -1679,7 +1705,8 @@ long unit_scripting_unit_riders(
 {
 	long object_list_index = NONE;
 
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -1718,7 +1745,8 @@ boolean unit_scripting_vehicle_test_seat_list(
 {
 	boolean result = FALSE;
 
-	if (vehicle_index!=NONE)
+	/* port: a vehicle deleted since the script had it is none (#1861) */
+	if (object_try_and_get(vehicle_index))
 	{
 		short seat_index;
 		struct unit_datum *vehicle = unit_get(vehicle_index);
@@ -1773,7 +1801,8 @@ boolean unit_scripting_vehicle_test_seat(
 {
 	boolean result = FALSE;
 
-	if (vehicle_index!=NONE && unit_index!=NONE)
+	/* port: a vehicle or unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(vehicle_index) && object_try_and_get(unit_index))
 	{
 		short seat_index;
 		struct unit_datum *vehicle = unit_get(vehicle_index);
@@ -2160,6 +2189,17 @@ short unit_add_grenade_type_to_inventory(
 	if (mcc_grenades_active()) return mcc_grenades_add(unit_index, grenade_type, grenade_count);
 	struct unit_datum *unit = unit_get(unit_index);
 
+	/* port: OpenSauce's maps may give an actor variant one of its four
+	grenade types; in SPV3 mode the two Halo has are taken and the others
+	passed over, logged (port/linux/game/spv3_mode.c) */
+	if (spv3_mode_active() && !VALID_INDEX(grenade_type, NUMBER_OF_UNIT_GRENADE_TYPES))
+	{
+		char what[80];
+
+		snprintf(what, sizeof(what), "grenade type %d (OpenSauce has four, Halo two) not given", grenade_type);
+		spv3_mode_note_correction(what);
+		return 0;
+	}
 	match_assert("c:\\halo\\SOURCE\\units\\units.c", 7309, grenade_count>=0);
 	match_assert("c:\\halo\\SOURCE\\units\\units.c", 7310, (grenade_type >= 0) && (grenade_type < NUMBER_OF_UNIT_GRENADE_TYPES));
 
@@ -2315,7 +2355,8 @@ void unit_scripting_set_emotion_animation(
 	long unit_index,
 	char const *animation_name)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 		short animation_index = animation_graph_get_animation_by_name(unit->object.animation.animation_graph_index, animation_name);
@@ -2339,7 +2380,8 @@ void unit_scripting_suspended(
 {
 	/* port: co-op players the scripts can't name go with player0 */
 	coop_scripts_suspend_followers(unit_index, suspended);
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -2844,6 +2886,11 @@ void unit_died(
 		}
 
 		unit->unit.time_of_death = game_time_get();
+#ifdef HALO_PORT_RAGDOLLS
+		/* port: the body may go limp, a ragdoll's pose drawn for it from the
+		next tick (port/linux/game/ragdolls.c; only the picture) */
+		ragdolls_unit_died(unit_index);
+#endif
 	}
 
 	unit->unit.flags &= ~(
@@ -3663,7 +3710,8 @@ void unit_scripting_set_seat(
 	long unit_index,
 	char const *seat_label)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 		unit->unit.magic_seat_index = seat_label_to_base_seat_index(seat_label);
@@ -3987,7 +4035,8 @@ boolean unit_get_current_flashlight_state(
 {
 	boolean flashlight_on = FALSE;
 
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		flashlight_on = TEST_FLAG(unit_get(unit_index)->unit.flags, _unit_integrated_light_on_bit);
 	}
@@ -4075,7 +4124,8 @@ void unit_set_emotion(
 	long unit_index,
 	word emotion_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		unit_get(unit_index)->unit.animation.emotion_index = emotion_index;
 		object_start_interpolation(unit_index, 6);
@@ -4087,7 +4137,8 @@ void unit_set_emotion(
 boolean unit_is_playing_custom_animation(
 	long unit_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		return unit_get(unit_index)->unit.animation.state==_unit_state_user_animation;
 	}
@@ -4098,7 +4149,8 @@ boolean unit_is_playing_custom_animation(
 short unit_get_custom_animation_time(
 	long unit_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -4121,7 +4173,8 @@ boolean unit_start_user_animation(
 {
 	boolean animation_started = FALSE;
 
-	if (unit_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		if (animation_graph_index != NONE)
 		{
@@ -4257,7 +4310,8 @@ boolean unit_flying_through_air(
 void unit_stop_custom_animation(
 	long unit_index)
 {
-	if (unit_index!=NONE && unit_get(unit_index)->unit.animation.state==_unit_state_user_animation)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index) && unit_get(unit_index)->unit.animation.state==_unit_state_user_animation)
 	{
 		unit_animation_set_state(unit_index, _unit_state_idle);
 		network_coop_note_unit_animation(unit_index, NONE, NONE, FALSE);
@@ -4827,7 +4881,8 @@ void unit_scripting_enter_vehicle(
 	long vehicle_index,
 	char const *seat_name)
 {
-	if (unit_index!=NONE && vehicle_index!=NONE && csstrlen(seat_name)>0)
+	/* port: a unit or vehicle deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index) && object_try_and_get(vehicle_index) && csstrlen(seat_name)>0)
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -4941,7 +4996,8 @@ short vehicle_scripting_unload(
 {
 	long unloaded_count = 0;
 
-	if (vehicle_index!=NONE)
+	/* port: a vehicle deleted since the script had it is none (#1861) */
+	if (object_try_and_get(vehicle_index))
 	{
 		struct unit_datum *vehicle = unit_get(vehicle_index);
 		struct unit_definition *vehicle_definition = unit_definition_get(vehicle->definition_index);
@@ -4981,7 +5037,8 @@ short vehicle_scripting_unload(
 void unit_scripting_exit_vehicle(
 	long unit_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 		long vehicle_index = unit->object.parent_object_index;
@@ -4997,6 +5054,54 @@ void unit_scripting_exit_vehicle(
 	return;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: the 180 glitch, fixed where the host's rule says so
+(network.air_turn_aim, host_rules.c; off by default, as on the Xbox). A
+unit's aim is held within its body's aiming bounds
+(unit_clip_to_aiming_bounds), and a body turned away in mid-air doesn't turn
+back until it lands, so a player's shot left at the bound's angle, not where
+the view (its desired aim) looked. With the rule, a player on foot whose
+unit has no aiming speed limits (its aim is its desired aim, held within
+the bounds) shoots along its desired aim. It lifts the holding wherever it
+happens, on the ground too (during some animations). It runs for every
+player's unit on this machine, a remote one's too: an older or OpenCE
+player's turned shot is drawn by this rule, while their own machine (whose
+hits count) fired it as the Xbox does. TRUE if the rule applies */
+static boolean unit_air_turn_aim(
+	struct unit_datum const *unit,
+	real_vector3d *direction)
+{
+	struct unit_definition const *definition;
+	real_vector3d desired;
+
+	if (unit->unit.player_index == NONE ||
+		unit->object.parent_object_index != NONE ||
+		!host_rules_air_turn_aim())
+	{
+		return FALSE;
+	}
+	definition = unit_definition_get(unit->definition_index);
+	if (definition->unit.aiming_velocity_maximum != 0.f ||
+		definition->unit.aiming_acceleration_maximum != 0.f)
+	{
+		return FALSE;
+	}
+	/* (an aim not held is its desired aim as it is: the Xbox's shot, bit
+	for bit, which normalizing it again need not give) */
+	desired = unit->unit.desired_aiming_vector;
+	if (desired.i == unit->unit.aiming_vector.i &&
+		desired.j == unit->unit.aiming_vector.j &&
+		desired.k == unit->unit.aiming_vector.k)
+	{
+		return FALSE;
+	}
+	if (normalize3d(&desired) == 0.f)
+		return FALSE;
+	*direction = desired;
+	return TRUE;
+}
+#endif
+
 void unit_adjust_projectile_ray(
 	long unit_index,
 	real_point3d *origin,
@@ -5008,11 +5113,17 @@ void unit_adjust_projectile_ray(
 	struct unit_datum *unit;
 	real projection;
 	real_vector3d relative;
+#ifdef HALO_GAME_BROWSER
+	boolean air_turn_aim = FALSE;
+#endif
 
 	unit = unit_get(unit_index);
 	if (use_aiming_vector)
 	{
 		*direction = unit->unit.aiming_vector;
+#ifdef HALO_GAME_BROWSER
+		air_turn_aim = unit_air_turn_aim(unit, direction);
+#endif
 	}
 
 	if (adjust_origin)
@@ -5024,6 +5135,12 @@ void unit_adjust_projectile_ray(
 		projection =
 			((relative.i*direction->i + relative.k*direction->k) +
 			 relative.j*direction->j);
+#ifdef HALO_GAME_BROWSER
+		/* port: (network.air_turn_aim) a body turned away has its gun behind
+		the eye: the shot starts at the eye, not behind it */
+		if (air_turn_aim && projection < 0.f)
+			projection = 0.f;
+#endif
 		point_from_line3d(&camera_position, direction, projection, origin);
 	}
 
@@ -5355,7 +5472,8 @@ short vehicle_scripting_load_magic(
 {
 	long loaded_count = 0;
 
-	if (vehicle_index!=NONE)
+	/* port: a vehicle deleted since the script had it is none (#1861) */
+	if (object_try_and_get(vehicle_index))
 	{
 		struct unit_datum *vehicle = unit_get(vehicle_index);
 		struct unit_definition *vehicle_definition = unit_definition_get(vehicle->definition_index);
@@ -5379,9 +5497,10 @@ short vehicle_scripting_load_magic(
 
 		while (unit_index!=NONE)
 		{
-			struct object_datum *object = object_get(unit_index);
+			/* port: a listed object deleted since is passed over (#1861) */
+			struct object_datum *object = object_try_and_get(unit_index);
 
-			if (TEST_FLAG(_object_mask_unit, object->object.type) &&
+			if (object && TEST_FLAG(_object_mask_unit, object->object.type) &&
 				!TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit))
 			{
 				struct unit_datum *unit = (struct unit_datum *)object;
@@ -5447,7 +5566,7 @@ short vehicle_scripting_load_magic(
 			unit_index != NONE;
 			unit_index = object_list_get_next(object_list_index, &reference_index))
 		{
-			if (object_get(unit_index)->object.parent_object_index == vehicle_index)
+			if (object_try_and_get(unit_index) && object_get(unit_index)->object.parent_object_index == vehicle_index)
 				coop_scripts_board_followers(unit_index, vehicle_index, seat_name);
 		}
 	}
@@ -5458,7 +5577,8 @@ short vehicle_scripting_load_magic(
 void unit_open(
 	long unit_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		network_coop_note_unit_open(unit_index, TRUE);
 		unit_animation_set_state(unit_index, _unit_state_opening);
@@ -5470,7 +5590,8 @@ void unit_open(
 void unit_close(
 	long unit_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		network_coop_note_unit_open(unit_index, FALSE);
 		unit_animation_set_state(unit_index, _unit_state_closing);
@@ -5498,6 +5619,8 @@ boolean unit_update(
 	boolean allow_integrated_lights = game_engine_allow_integrated_lights(unit_index);
 
 	profile_enter(unit_update_section);
+	/* port: the bipeds' unit part (halo_perf_log.h: a vehicle's is not timed) */
+	HALO_PERF_BEGIN(_halo_perf_bipeds_unit);
 
 	unit_verify_vectors(unit_index, "unit-update-begin");
 
@@ -5910,6 +6033,10 @@ boolean unit_update(
 			real angle = angle_between_vectors3d(&unit->unit.aiming_vector, &last_aiming_vector);
 			real change = angle / (unit_definition->unit.aiming_velocity_maximum/TICKS_PER_SECOND);
 				
+			/* port: a unit with no aiming speed (a Halo 2 unit's, as made:
+			0/0) or a NaN aim changes nothing - the byte's cast was undefined */
+			if (!(change >= 0.f))
+				change = 0.f;
 			unit->unit.aiming_change = (byte)(PIN(change, 0.f, 1.f) * 255.f);
 		}
 
@@ -6155,10 +6282,16 @@ boolean unit_update(
 
 	if (used_time || unit->unit.player_index!=NONE)
 	{
-		unit_refresh_illumination(unit_index);
-
+		/* port: a unit's ambient and self illumination are read only by the
+		debug line below. Nothing in the game, the AI, the scripts or the
+		drawing reads them. Their refresh (a ray down to the lightmap, a
+		sample of its bitmap and a walk of the cluster's lights, for every
+		player's unit and every AI unit that used time, each tick) runs only
+		for that line now */
 		if (debug_unit_illumination)
 		{
+			unit_refresh_illumination(unit_index);
+
 			if (unit->unit.player_index !=NONE)
 			{
 				long current_time = game_time_get();
@@ -6322,6 +6455,7 @@ boolean unit_update(
 
 	unit_verify_vectors(unit_index, "unit-update-end");
 	
+	HALO_PERF_END(_halo_perf_bipeds_unit);
 	profile_exit(unit_update_section);
 	
 	return TRUE;
@@ -10271,7 +10405,14 @@ static short unit_animation_update(
 	struct animation_state *animation)
 {
 	long sound_index;
-	short result = animation_update_internal(
+	short result;
+
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: Stubbs's animations' effects (Stubbs mode only: port/linux/game/stubbs_engine.c) */
+	if (stubbs_mode_active())
+		stubbs_engine_animation_effect(unit_index, animation_graph_index, animation);
+#endif
+	result = animation_update_internal(
 		1,
 		animation_graph_index,
 		animation,
@@ -11970,6 +12111,16 @@ static void unit_verify_vectors(
 	char const *debugstring)
 {
 	char buffer[512];
+
+	/* port: a console's release-style build (HALO_ASSERTS_COMPILED_OUT)
+	doesn't check: the check logs and asserts, seven times a tick for each
+	unit, and the retail game has neither the check nor its messages */
+#ifdef HALO_ASSERTS_COMPILED_OUT
+	(void)unit_index;
+	(void)debugstring;
+	(void)buffer;
+	return;
+#endif
 
 	if (!unit_vectors_are_valid(unit_index))
 	{

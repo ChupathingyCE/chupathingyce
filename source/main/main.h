@@ -30,6 +30,13 @@ boolean gamepad_button_is_down(
 /* port: display.viewmodel_field_of_view (main.c) */
 real first_person_weapon_projection_scale(
 	void);
+/* port: display.crosshair_position (main.c): how far down a local player's
+aim point and crosshair are drawn from its window's middle, in the
+window's units */
+real first_person_aim_offset(
+	short local_player_index,
+	rectangle2d const *viewport_bounds,
+	rectangle2d const *window_bounds);
 /* port: display.reticle_scales_with_fov (main.c) */
 real first_person_reticle_scale(
 	short local_player_index);
@@ -72,6 +79,10 @@ void main_lost_map(
 	void);
 
 void main_revert_map(
+	void);
+
+/* port: the network co-op host's RESTART LEVEL, done in the main loop */
+void main_coop_restart_level(
 	void);
 
 void main_skip_cinematic(

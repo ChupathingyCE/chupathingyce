@@ -397,7 +397,9 @@ symbols in this file:
 #include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #ifdef HALO_GAME_BROWSER
 #include "map_share.h" /* port: the map bot's fetch (port/linux/game/map_share_client.c) */
+#include "net_monitor.h" /* port: the server monitor (port/linux/game/net_monitor.c) */
 #endif
+#include "coop_progress.h" /* port: port/linux/game/coop_progress.c */
 
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port: port/linux/game/profile_names.c's */
@@ -811,6 +813,16 @@ ask go at once, so that a quick join again is not taken for a repeat. */
 static unsigned long network_game_client_add_player_request_times[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 static boolean network_game_client_add_player_requested[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 
+/* port: since when this machine has been listening to its host in a game
+without a break (network_game_client_listened_milliseconds) */
+static struct
+{
+	boolean listening;
+	boolean stalled;
+	unsigned long since;
+	unsigned long last_frame;
+} network_game_client_listening;
+
 /* since when the network has been down in a game (while
 network_game_client_link_down is set): network_game_client_network_lost */
 static unsigned long network_game_client_link_down_time;
@@ -829,12 +841,37 @@ static struct
 	/* a console's build: the host takes players, but on more machines than
 	this build has room for (add_advertised_game) */
 	boolean over_console_limit;
+#ifdef HALO_GAME_BROWSER
+	/* the address the advertisement came from (first byte highest; 0: not
+	known), which a host behind a router is reached at rather than its
+	XNADDR's own (network_game_client_join_address) */
+	unsigned long source_address;
+#endif
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
+
+#ifdef HALO_GAME_BROWSER
+/* port: the source of the advertisement being taken
+(network_game_client_note_advertisement_source, then add_advertised_game) */
+static unsigned long network_game_client_advertisement_source;
+/* port: a host searched for at its address as well as by the broadcast
+(network_game_client_search_address: Direct IP, port/linux/game/
+direct_join.c): first byte highest, 0 for none */
+static unsigned long network_game_client_search_target;
+static word network_game_client_search_target_port;
+/* port: the join under way is Direct IP's (network_game_client_join_address),
+which has no password to give: a password refusal says to use the invite
+(network_game_client_rejected_by_game) */
+static boolean network_game_client_joining_by_address;
+#endif
 
 /* the joined game's host's network version, as it advertised it (0xFFFF: not
 known, the host's own game); a client has the host's policies of the versions
 that have them (network_distributed.c's aim assist policy, version 32) */
 static unsigned int network_game_client_joined_version = 0xFFFF;
+/* port: (whether the game being joined is this machine's own, joined at home
+with no advertisement: its number is read again as the request goes out,
+since the host may change it as its game starts, for an MCC map) */
+static boolean network_game_client_joined_home = FALSE;
 #ifdef HALO_GAME_BROWSER
 /* port: the last refusal of a join, for the map bot's fetch: 1 full, 2 any other */
 static short network_game_client_fetch_rejection;
@@ -1128,6 +1165,9 @@ boolean network_game_client_switch_to_pregame(
 		network_game_client_late_join_time = 0;
 		network_game_client_late_join_clock_pending = FALSE;
 		network_event("switching to pregame");
+		/* port: a network co-op round over: the lobby's map says whether it
+		was won (coop_progress.c) */
+		coop_progress_client_round_ended();
 		network_game_reset_to_pregame_ui();
 		network_connection_keep_alive(client->connection);
 	}
@@ -1384,6 +1424,30 @@ boolean network_game_client_idle(
 	return success;
 }
 
+/* port: the names in a settings record the host sends (the game's, its
+machines' and its players') come as the host sends them, and need not be
+text that draws: control characters and the game's own '|' marks. They are
+kept to what draws as one line of text (player_name_clean), as the host
+keeps the names joiners send it (network_server_message_handler.c). A name
+already clean stays as it is */
+static void network_game_client_clean_record_names(
+	struct network_game *game)
+{
+	short index;
+
+	player_name_clean(game->name, NUMBEROF(game->name));
+	for (index = 0; index < NUMBEROF(game->machines); index++)
+	{
+		player_name_clean(game->machines[index].name, NUMBEROF(game->machines[index].name));
+	}
+	for (index = 0; index < NUMBEROF(game->players); index++)
+	{
+		player_name_clean(game->players[index].name, NUMBEROF(game->players[index].name));
+	}
+
+	return;
+}
+
 boolean network_game_client_game_settings_updated(
 	struct network_game_client *client,
 	struct network_game *message_packet)
@@ -1414,6 +1478,7 @@ boolean network_game_client_game_settings_updated(
 			network_event("invalid message_server_game_settings_update message received: its players");
 			return FALSE;
 		}
+		network_game_client_clean_record_names(message_packet);
 #ifdef HALO_GAME_BROWSER
 		/* port: a map fetch's machine (port/linux/game/map_share_client.c)
 		reads the record's map as the wire names it, and never looks for it
@@ -1439,6 +1504,10 @@ boolean network_game_client_game_settings_updated(
 			map_family_from_wire_name(message_packet->map.name, map_name, sizeof(map_name));
 			csmemcpy(message_packet->map.name, map_name, sizeof(map_name));
 		}
+		/* port: the lobby after a network co-op round: its map, the
+		campaign's next level, says the round was won (coop_progress.c) */
+		if (client->state == _network_game_client_state_pregame)
+			coop_progress_client_lobby_map(message_packet->map.name);
 		if (csstrcmp(message_packet->map.name, client->game.map.name) ||
 			message_packet->map.version != client->game.map.version)
 		{
@@ -1696,6 +1765,10 @@ boolean network_game_client_add_player(
 	players see it as a plain game name) */
 	profile_names_local_game_name(local_player_index, player.name, NETWORK_PLAYER_NAME_LENGTH);
 #endif
+#ifdef HALO_GAME_BROWSER
+	/* port: the server monitor plays under its own name (debug.monitor_name) */
+	net_monitor_player_name(player.name, NETWORK_PLAYER_NAME_LENGTH);
+#endif
 	player.primary_color_index = profile.primary_color_index;
 	player.icon_index = NONE;
 	player.team_index = NONE;
@@ -1850,8 +1923,9 @@ boolean network_game_client_handle_game_update(
 	behind the host for the rest of the game. The host's time is when it
 	sent the update, before this machine's by the way there, so a clock in
 	step is never moved; one behind is, at the next update (once a second at
-	least) */
-	else if (message_packet->game_time > game_time_get() + TICKS_PER_SECOND)
+	least). Once the spiral guard has left ticks unrun on a machine that
+	can't keep up (game_time_update), a few ticks ahead is enough */
+	else if (message_packet->game_time > game_time_get() + game_time_client_catch_up_ticks())
 	{
 		network_event(
 			"the host's clock is %ld ticks ahead of this machine's; taking its game tick #%ld",
@@ -1920,6 +1994,7 @@ boolean network_game_client_game_has_started(
 					client->state = _network_game_client_state_ingame;
 					client->next_update_number = 0;
 					client->connection_silent = FALSE;
+					network_game_client_listening.listening = FALSE;
 
 					ui_widgets_close_all();
 					game_time_start();
@@ -1960,6 +2035,20 @@ boolean network_game_client_game_has_started(
 	}
 
 	return client->state == _network_game_client_state_ingame;
+}
+
+long network_game_client_silent_milliseconds(
+	void)
+{
+	struct network_game_client *client = global_network_game_client_get();
+
+	if (!client || !client->connection || client->state != _network_game_client_state_ingame ||
+		global_network_game_server_get())
+	{
+		return NONE;
+	}
+	/* (at most an hour: it fits a long anywhere) */
+	return (long)MIN(network_connection_silent_milliseconds(client->connection), 3600000UL);
 }
 
 boolean network_game_client_remove_player(
@@ -2268,12 +2357,17 @@ boolean network_game_client_initiate_join_game(
 	client->join_in_progress = TRUE;
 	client->connect_process = 0;
 	client->connection_attempt_time = system_milliseconds();
+#ifdef HALO_GAME_BROWSER
+	/* (network_game_client_join_address sets it again for its own) */
+	network_game_client_joining_by_address = FALSE;
+#endif
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
 	{
 		long advertised_index = game - client->available_games;
 
 		network_game_client_joined_version = advertised_index >= 0 && advertised_index < MAXIMUM_NETWORK_ADVERTISED_GAMES ?
 			network_game_client_advertised_versions[advertised_index].version : 0xFFFF;
+		network_game_client_joined_home = FALSE;
 		/* (a host of a wire before the policies of version 32 cannot speak
 		them, whatever number it announces) */
 		if (advertised_index >= 0 && advertised_index < MAXIMUM_NETWORK_ADVERTISED_GAMES)
@@ -2288,7 +2382,10 @@ boolean network_game_client_initiate_join_game(
 		number this machine announces, its request made for it, whose word a
 		host of a version that needs one checks) */
 		else if (global_network_game_server_get())
+		{
 			network_game_client_joined_version = (unsigned int)delta_legacy_announce();
+			network_game_client_joined_home = TRUE;
+		}
 	}
 	/* (whether an advertised game's host speaks Delta; the host's own game, joined through
 	127.0.0.1, is no advertised one) */
@@ -2647,6 +2744,13 @@ void network_game_client_rejected_by_game(
 		/* (too old: this machine's, as the host says it, network_game_server_delta_refusals) */
 		rejection_code == _rejection_code_version_too_old ? JOIN_REASON_NEEDS_UPDATE :
 		rejection_code == _rejection_code_version_too_new ? JOIN_REASON_HOST_OLDER : "");
+#ifdef HALO_GAME_BROWSER
+	/* port: a game with a password refuses a join by its address from the
+	internet (network_rules_join_password_refused), and Direct IP has no
+	password to give: the invite is the way in */
+	if (rejection_code == _rejection_code_bad_password && network_game_client_joining_by_address)
+		csprintf(network_game_client_refusal_text, "%s", JOIN_REASON_PASSWORD_INVITE);
+#endif
 	/* port: an OpenCE server's own refusal, in plain words, and said at once
 	(the menu's message after it is the stock "closed") */
 	if (network_game_client_opence_refusal(rejection_code))
@@ -2658,11 +2762,28 @@ void network_game_client_rejected_by_game(
 	refused a game in progress, network_game_server_refuse_late_joiner, is in
 	it): with no game behind it, it is left for the main menu, which says
 	why, rather than sitting in a lobby that will never start */
+#ifdef HALO_GAME_BROWSER
+	/* (Direct IP's refused for the password: said in its own words) */
+	if (rejection_code == _rejection_code_bad_password && network_game_client_joining_by_address)
+	{
+		wchar_t text[NUMBEROF(network_game_client_refusal_text)];
+		short index;
+
+		for (index = 0; index < NUMBEROF(text) - 1 && network_game_client_refusal_text[index]; index++)
+			text[index] = (wchar_t)(unsigned char)network_game_client_refusal_text[index];
+		text[index] = 0;
+		display_error_text_when_main_menu_loaded(text);
+	}
+	else
+#endif
 	display_error_when_main_menu_loaded(
 		rejection_code == _rejection_code_game_is_full || rejection_code == _rejection_code_game_is_closed ||
 			network_game_client_opence_refusal(rejection_code) ?
 			_error_network_join_game_closed :
 			_error_network_failed_to_join_game);
+#ifdef HALO_GAME_BROWSER
+	network_game_client_joining_by_address = FALSE;
+#endif
 	/* port: the game being played is left for the menus at once, while its
 	settings are still there to say whether objects are loaded: the reset
 	below clears them, and network_game_client_start_frame would then leave
@@ -2856,6 +2977,10 @@ static boolean add_advertised_game(
 			csmemcpy(network_game_client_advertised_versions[game_index].reserved,
 				advertisement->__unknown5A,
 				sizeof(network_game_client_advertised_versions[game_index].reserved));
+#ifdef HALO_GAME_BROWSER
+			network_game_client_advertised_versions[game_index].source_address =
+				network_game_client_advertisement_source;
+#endif
 #ifdef HALO_PORT_CONSOLE_LIMITS
 			/* (kept closed, as a full game is, but said so when it is joined) */
 			network_game_client_advertised_versions[game_index].over_console_limit =
@@ -3159,6 +3284,35 @@ static boolean network_game_client_idle_searching(
 					{
 						network_event("network_game_client_write() failed while sending a message_client_broadcast_game_search message");
 					}
+#ifdef HALO_GAME_BROWSER
+					/* port: and to a host's address (Direct IP): a host on
+					another network, which no broadcast reaches, answers it
+					there (network_game_server_handle_message_client_
+					broadcast_game_search). The same search: an older host,
+					or OpenCE's or the Xbox's, answers it as it answers any */
+					if (success == TRUE && network_game_client_search_target)
+					{
+						struct transport_address target_address = { { { 0 } } };
+
+						target_address.address_length = IPV4_ADDRESS_LENGTH;
+						target_address.address.long_words[0] = network_game_client_search_target;
+						target_address.port = network_game_client_search_target_port ?
+							network_game_client_search_target_port : NETWORK_GAME_SERVER_PORT;
+						message = create_network_game_message(
+							_message_client_broadcast_game_search,
+							&broadcast_game_search,
+							sizeof(broadcast_game_search));
+						if (!message || !network_game_client_write(
+							client->connection,
+							message,
+							GET_MESSAGE_SIZE(*message),
+							&target_address,
+							0))
+						{
+							network_event("could not send the game search to the address being joined");
+						}
+					}
+#endif
 				}
 				else
 				{
@@ -3299,6 +3453,21 @@ static boolean network_game_client_idle_joining(
 		{
 			if (!TEST_FLAG(client->flags, _network_game_client_join_request_sent_bit))
 			{
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
+				/* (port: this machine's own game: the number its host announces now,
+				which an MCC map changes as the game starts, after the join began) */
+				if (network_game_client_joined_home && global_network_game_server_get())
+				{
+					unsigned int now = (unsigned int)delta_legacy_announce();
+
+					if (now != network_game_client_joined_version)
+					{
+						network_event("joining this machine's own game at network version %u (was %u)", now,
+							network_game_client_joined_version);
+						network_game_client_joined_version = now;
+					}
+				}
+#endif
 				network_game_client_send_join_request(client, network_game_client_joined_version);
 				network_game_client_join_sent_time = system_milliseconds();
 				network_game_client_join_retried = FALSE;
@@ -3405,6 +3574,33 @@ static boolean network_game_client_idle_pregame(
 	return success;
 }
 
+/* port: a frame of this machine's own this long (a level or BSP loading,
+a hitch) is not listening to its host (network_game_client_listened_milliseconds) */
+#define NETWORK_GAME_CLIENT_STALL_MILLISECONDS 500
+
+/* port: (each frame in a game) how long this machine has been listening to
+its host without a break: since its first frame in the game, or its first
+after a frame of its own that took longer than
+NETWORK_GAME_CLIENT_STALL_MILLISECONDS. What the host sent during such a
+frame waits to be read, so the host's silence counts toward the network
+trouble box only from then (network_game_client_idle_ingame), as the ping
+meter counts it (latency_meter.c). Only the first such frame in a row starts
+it over, so a machine slow all the time still sees a host gone quiet */
+static unsigned long network_game_client_listened_milliseconds(
+	void)
+{
+	unsigned long now = system_milliseconds();
+	boolean stalled = network_game_client_listening.listening &&
+		now - network_game_client_listening.last_frame > NETWORK_GAME_CLIENT_STALL_MILLISECONDS;
+
+	if (!network_game_client_listening.listening || (stalled && !network_game_client_listening.stalled))
+		network_game_client_listening.since = now;
+	network_game_client_listening.stalled = stalled;
+	network_game_client_listening.listening = TRUE;
+	network_game_client_listening.last_frame = now;
+	return now - network_game_client_listening.since;
+}
+
 static boolean network_game_client_idle_ingame(
 	struct network_game_client *client)
 {
@@ -3424,7 +3620,11 @@ static boolean network_game_client_idle_ingame(
 	}
 	else if (!network_game_is_splitscreen_local())
 	{
-		boolean connection_stale = network_connection_going_stale(client->connection);
+		/* (port: and silent all the while this machine has listened, timed
+		every frame: network_game_client_listened_milliseconds) */
+		unsigned long listened = network_game_client_listened_milliseconds();
+		boolean connection_stale = network_connection_going_stale(client->connection) &&
+			listened > MILLISECONDS_PER_SECOND * 5;
 
 		/* (port: not at once, network_game_client_network_lost) */
 		if (network_game_client_network_lost())
@@ -3562,6 +3762,7 @@ port/linux/src/delta_peer_game.c) */
 #include "delta.h"
 /* port/linux/src/delta_peer_game.c's */
 int delta_peer_advertised_wire_matches(unsigned char const *reserved, int size, char *theirs, int theirs_size);
+int delta_peer_game_under_floor(int *oldest);
 #include "../../port/linux/src/delta_compat.h"
 #endif
 
@@ -3595,6 +3796,30 @@ static void network_game_client_refuse(
 	}
 }
 
+/* port/linux/game/network_rules.c's: another project's hosts on an OpenCE
+number (network_rules.h, "other projects' hosts") */
+int network_rules_fork_advertised(unsigned char const *reserved, int size, unsigned *base_version);
+char const *network_rules_fork_name(int fork);
+char const *network_rules_fork_refusal(int fork, long engine, int modded, unsigned flags, int option_value,
+	char *text, int size);
+
+/* port: a refusal of a reason in its own words (reason, one sentence),
+kept, and when tell said with what the player can do (hint) */
+static void network_game_client_refuse_text(
+	char const *reason,
+	char const *hint,
+	boolean tell)
+{
+	char message[400];
+
+	csprintf(network_game_client_refusal_text, "%s", reason);
+	if (tell)
+	{
+		csprintf(message, "%s\n\n%s", reason, hint);
+		platform_show_message(JOIN_FAILED_TITLE, message);
+	}
+}
+
 /* whether this client can join the advertised game: its host's network
 version is one this machine plays with (HALO_PORT_NETWORK_VERSION_MINIMUM
 to HALO_PORT_NETWORK_VERSION_MAXIMUM), and it plays the distributed netcode (a host of this version built before the lockstep
@@ -3619,12 +3844,50 @@ boolean network_game_client_advertised_game_compatible(
 	theirs = network_game_client_advertised_versions[game_index].version;
 	distributed = (network_game_client_advertised_versions[game_index].flags &
 		HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG) != 0;
+	/* port: another project's modded game, by its own mark in the version's
+	place (network_rules.h, "other projects' hosts"): refused before joining
+	for what it plays, its other bytes never read as a Delta tag or as
+	anything of ours */
+	{
+		unsigned int base = 0;
+		int fork = network_rules_fork_advertised(network_game_client_advertised_versions[game_index].reserved,
+			(int)sizeof(network_game_client_advertised_versions[game_index].reserved), &base);
+
+		if (fork >= 0)
+		{
+			char reason[96];
+
+			network_rules_fork_refusal(fork, game->engine_type, TRUE,
+				network_game_client_advertised_versions[game_index].flags, -1, reason, (int)sizeof(reason));
+			if (tell)
+			{
+				network_event("not joining a %s modded game (its mark 0x%04X, network version %u, engine %d): %s",
+					network_rules_fork_name(fork), theirs, base, (int)game->engine_type, reason);
+			}
+			network_game_client_refuse_text(reason, JOIN_HINT_FORK_PLAIN, tell);
+			return FALSE;
+		}
+	}
 #ifdef HALO_PORT_DELTA_WIRE_JOIN
 	{
 		char wire[24];
 		int matches = delta_peer_advertised_wire_matches(network_game_client_advertised_versions[game_index].reserved,
 			(int)sizeof(network_game_client_advertised_versions[game_index].reserved), wire, (int)sizeof(wire));
 
+		/* (a Delta host drops a machine under its platform's floor in the
+		legacy table in use: said here, before joining, docs/delta/
+		versioning.md, "Platform floors") */
+		int oldest = 0;
+
+		if (matches > 0 && distributed && delta_peer_game_under_floor(&oldest))
+		{
+			csprintf(details, "Delta hosts now play this platform from network version %d. This build is on %u.",
+				oldest, network_rules_layout_newest());
+			if (tell)
+				network_event("not joining a Delta host: this build is under its platform's floor (%d)", oldest);
+			network_game_client_refuse(_join_reason_needs_update, JOIN_HINT_UPDATE, details, tell);
+			return FALSE;
+		}
 		if (matches > 0 && distributed)
 		{
 			network_event("joining a Delta host of this machine's wire (network version %u; this machine's is %u)",
@@ -3654,6 +3917,23 @@ boolean network_game_client_advertised_game_compatible(
 #endif
 	if (theirs >= (unsigned int)delta_legacy_minimum() && theirs <= (unsigned int)delta_legacy_maximum() && distributed)
 	{
+#ifdef HALO_PORT_DELTA_WIRE_JOIN
+		/* (a host of another project's code, by its tag's layout 2: Delta
+		Peer, no wire, so its number decides, docs/delta/peer.md, "The tag") */
+		int major, project, project_version;
+
+		if (delta_compat_read_project(network_game_client_advertised_versions[game_index].reserved,
+			(int)sizeof(network_game_client_advertised_versions[game_index].reserved), &major, &project,
+			&project_version))
+		{
+			char const *name = delta_compat_project_name(project);
+
+			network_event("joining a Delta host of another project, %s (project %d, version %d), by network "
+				"version %u (this machine's is %u)", name ? name : "not in this build's registry", project,
+				project_version, theirs, ours);
+			return TRUE;
+		}
+#endif
 		if (theirs > (unsigned int)ours)
 		{
 			network_event("joining a host of network version %u, presumed additive (this machine's is %u)", theirs, ours);
@@ -3700,6 +3980,9 @@ boolean network_game_client_advertised_game_in_progress(
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
 /* port/linux/src/delta_compat.c's */
 int delta_compat_opence_server(unsigned char const *reserved, int size);
+int delta_compat_read_project(unsigned char const *reserved, int size, int *major, int *project,
+	int *project_version);
+char const *delta_compat_project_name(int project);
 
 /* port: whether the advertised game is an OpenCE dedicated server's (the
 dedicated flag of its version 39 and later, and no Delta): only a neutral
@@ -3713,6 +3996,23 @@ boolean network_game_client_advertised_game_opence_server(
 	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
 		delta_compat_opence_server(network_game_client_advertised_versions[game_index].reserved,
 			(int)sizeof(network_game_client_advertised_versions[game_index].reserved));
+}
+
+char const *network_game_client_advertised_game_project(
+	struct network_game_client *client,
+	struct network_advertised_game const *game)
+{
+	long game_index = client ? game - client->available_games : NONE;
+	int major, project, project_version;
+
+	if (game_index < 0 || game_index >= MAXIMUM_NETWORK_ADVERTISED_GAMES ||
+		!delta_compat_read_project(network_game_client_advertised_versions[game_index].reserved,
+			(int)sizeof(network_game_client_advertised_versions[game_index].reserved), &major, &project,
+			&project_version))
+	{
+		return NULL;
+	}
+	return delta_compat_project_name(project);
 }
 #endif
 
@@ -3794,6 +4094,8 @@ boolean network_game_client_join_address(
 	struct network_join_parameters join_parameters;
 	long game_index;
 
+	/* (a refusal said is this join's: network_game_client_refusal) */
+	network_game_client_refusal_text[0] = 0;
 	if (!client || client->state != _network_game_client_state_searching || client->join_in_progress ||
 		!client->connection || network_connection_connected(client->connection))
 	{
@@ -3804,26 +4106,42 @@ boolean network_game_client_join_address(
 		struct network_advertised_game *game = &client->available_games[game_index];
 		struct transport_address game_address = { { { 0 } } };
 		byte const *ina;
+		boolean by_source;
 
 		if (!network_game_client_advertised_game_is_valid(game) || game->platform != network_game_get_local_platform())
 			continue;
 		/* (the XNADDR's ina, after its size, flags and abEnet: the host's
-		system link address, first byte first) */
+		system link address, first byte first; or the address its
+		advertisement came from: a host behind a router, whose own address
+		is its home network's) */
 		ina = game->xnaddr.data + 8;
+		by_source = FALSE;
 		if ((((unsigned long)ina[0] << 24) | ((unsigned long)ina[1] << 16) | ((unsigned long)ina[2] << 8) |
 				(unsigned long)ina[3]) != address)
 		{
-			continue;
+			if (network_game_client_advertised_versions[game_index].source_address != address)
+				continue;
+			by_source = TRUE;
 		}
 		if (!network_game_client_advertised_game_compatible(client, game, TRUE))
 			return FALSE;
 		csmemset(&join_parameters, 0, sizeof(join_parameters));
 		transport_client_start((XNADDR const *)&game->xnaddr, (XNKEY const *)&game->key,
 			(XNKID const *)&game->key_id, port ? port : NETWORK_GAME_SERVER_PORT, &game_address);
+		/* (where it was heard from, not the address it says it has) */
+		if (by_source)
+		{
+			game_address.address.long_words[0] = address;
+			game_address.port = port ? port : NETWORK_GAME_SERVER_PORT;
+			game_address.address_length = IPV4_ADDRESS_LENGTH;
+		}
 		if (!game_address.address.long_words[0] || !game_address.port)
 			return FALSE;
 		network_game_generate_join_game_token(join_parameters.join_token);
-		return network_game_client_initiate_join_game(client, game, &join_parameters, &game_address);
+		if (!network_game_client_initiate_join_game(client, game, &join_parameters, &game_address))
+			return FALSE;
+		network_game_client_joining_by_address = TRUE;
+		return TRUE;
 	}
 	if (direct)
 	{
@@ -3838,10 +4156,59 @@ boolean network_game_client_join_address(
 		transport_get_nonce(direct_game.nonce, sizeof(direct_game.nonce));
 		csmemset(&join_parameters, 0, sizeof(join_parameters));
 		network_game_generate_join_game_token(join_parameters.join_token);
-		network_event("map fetch: joining the host directly");
-		return network_game_client_initiate_join_game(client, &direct_game, &join_parameters, &server_address);
+		network_event("joining the host at the address directly");
+		if (!network_game_client_initiate_join_game(client, &direct_game, &join_parameters, &server_address))
+			return FALSE;
+		network_game_client_joining_by_address = TRUE;
+		return TRUE;
 	}
 	return FALSE;
+}
+
+/* whether the host at address (first byte highest) advertises a game this
+client heard: by its XNADDR, or by where the advertisement came from */
+boolean network_game_client_address_advertised(
+	unsigned long address)
+{
+	struct network_game_client *client = global_network_game_client_get();
+	long game_index;
+
+	if (!client)
+		return FALSE;
+	for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; game_index++)
+	{
+		struct network_advertised_game *game = &client->available_games[game_index];
+		byte const *ina = game->xnaddr.data + 8;
+
+		if (!network_game_client_advertised_game_is_valid(game))
+			continue;
+		if ((((unsigned long)ina[0] << 24) | ((unsigned long)ina[1] << 16) | ((unsigned long)ina[2] << 8) |
+				(unsigned long)ina[3]) == address ||
+			network_game_client_advertised_versions[game_index].source_address == address)
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* the system link search also sent to this address and port (Direct IP:
+first byte highest, port 0 for the game's), or to none (address 0) */
+void network_game_client_search_address(
+	unsigned long address,
+	word port)
+{
+	network_game_client_search_target = address;
+	network_game_client_search_target_port = port;
+}
+
+/* the address the next advertisement taken came from
+(network_client_message_handler.c, just before it hands it over) */
+void network_game_client_note_advertisement_source(
+	struct transport_address const *source_address)
+{
+	network_game_client_advertisement_source = source_address &&
+		source_address->address_length == IPV4_ADDRESS_LENGTH ? source_address->address.long_words[0] : 0;
 }
 #endif
 

@@ -58,6 +58,9 @@ int map_share_part_write(void *part, unsigned int offset, const void *data, unsi
 int map_share_part_close(void *part, const char *path, const char *final, int keep);
 /* a text file written whole (to a temporary file beside it, then renamed): 1, else 0 */
 int map_share_write_text(const char *path, const char *text);
+/* a line appended to a text file, made if it isn't there (the server
+monitor's lines too, port/linux/game/net_monitor.c): 1, else 0 */
+int map_share_append_line(const char *path, const char *line);
 /* whether a file of that path exists */
 int map_share_file_exists(const char *path);
 

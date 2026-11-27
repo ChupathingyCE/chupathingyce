@@ -126,6 +126,8 @@ symbols in this file:
 #include "mcc_cache.h"
 #include "mcc_checkpoint.h"
 #include "stubbs_regions.h"
+#include "opensauce_scripts.h"
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_invalidate(void);
 /* port: hs_runtime.c's and hs_globals_external.c's (game_state_image_accept) */
@@ -203,6 +205,11 @@ static game_state_before_load_proc before_load_procs[] =
 	cluster_partitions_port_forget,
 	/* port: (the objects are put back: object_bounds_cache.c) */
 	object_bounds_cache_invalidate,
+#ifdef HALO_PORT_RAGDOLLS
+	/* port: the ragdolls let go: their bodies are not these
+	(port/linux/game/ragdolls.c) */
+	ragdolls_reset,
+#endif
 };
 
 static game_state_after_load_proc after_load_procs[] =
@@ -278,6 +285,10 @@ static void game_state_call_after_load_procs(
 void game_state_dispose(
 	void)
 {
+#ifndef HALO_XBOX_CONSOLE
+	/* port: the saved game's block (game_state_xbox.c) */
+	game_state_image_buffer_release();
+#endif
 	game_state_free_buffer();
 	game_state_close_file();
 
@@ -287,6 +298,8 @@ void game_state_dispose(
 /* port: what last rewrote the game state, and when (game time), for
 game_state_check_data_arrays' report */
 static char const *game_state_last_event = "startup";
+/* port: checkpoints saved (game_state_port_checkpoints_saved) */
+static unsigned long game_state_checkpoints_saved = 0;
 static long game_state_last_event_time = NONE;
 
 static void game_state_note_event(
@@ -311,6 +324,13 @@ void game_state_initialize_for_new_map(
 	game_state_globals.locked = TRUE;
 	game_state_globals.saved_game_valid = FALSE;
 	game_state_globals.revert_time = NONE;
+#ifndef HALO_XBOX_CONSOLE
+	/* port: a map that is not a campaign's reverts to no checkpoint and
+	takes no saved game: the block one is read into is let go for its heap
+	(game_state_xbox.c) */
+	if (global_scenario_get()->type != _scenario_type_solo)
+		game_state_image_buffer_release();
+#endif
 
 	memset(game_state_globals.header, 0, sizeof(*game_state_globals.header));
 
@@ -350,8 +370,17 @@ void game_state_save(
 	game_state_globals.saved_game_valid = (game_state_write_to_file()!=FALSE);
 	main_start_time();
 	game_state_note_event("checkpoint saved");
+	game_state_checkpoints_saved++;
 
 	return;
+}
+
+/* port: how many checkpoints have saved since the game started (Lua
+scripts tell a new checkpoint by it changing: lua_twiddlings.c) */
+unsigned long game_state_port_checkpoints_saved(
+	void)
+{
+	return game_state_checkpoints_saved;
 }
 
 /* port: whether game_state_revert has a saved state to go back to */
@@ -370,9 +399,20 @@ void game_state_port_restamp_revert_time(
 	game_state_globals.revert_time = game_time_get();
 }
 
+/* port: the reverts so far, for player_control.c: a cinematic skip's press
+makes one revert, not one for each tick it is held */
+static unsigned long game_state_revert_count;
+
+unsigned long game_state_port_revert_count(
+	void)
+{
+	return game_state_revert_count;
+}
+
 void game_state_revert(
 	void)
 {
+	game_state_revert_count++;
 	if (!game_state_globals.saved_game_valid && !recover_saved_games_hack)
 	{
 		main_reset_map();
@@ -424,6 +464,23 @@ boolean game_state_test_persistent_storage(
 	struct game_state_header header;
 	boolean success;
 
+	/* port: a file never saved to (its checksum zero) holds no saved game,
+	and on the native builds neither does no file or one never written
+	whole: said without reading it all, as retail's checksum would have
+	said after its read (and without its "checksum failed") */
+	if (corrupted)
+		*corrupted = FALSE;
+#ifndef HALO_XBOX_CONSOLE
+	if (!game_state_read_persistent_storage_header(&header, sizeof(header)) || !header.checksum)
+#else
+	if (game_state_read_persistent_storage_header(&header, sizeof(header)) && !header.checksum)
+#endif
+	{
+		*difficulty = _game_difficulty_level_normal;
+		strcpy(map_name, "");
+
+		return FALSE;
+	}
 	if (game_state_read_header_from_persistent_storage(
 		&header,
 		&header.checksum,
@@ -963,7 +1020,9 @@ boolean game_state_image_accept(
 	if (global_scenario_index != NONE && hs_global_data && hs_global_data->valid)
 	{
 		struct data_array const *globals = game_state_image_pointer(image, hs_global_data);
-		long scenario_count = global_scenario_get()->hs_globals.count;
+		/* (and OpenSauce's after the map's, on an OpenSauce map:
+		port/linux/game/opensauce_scripts.c) */
+		long scenario_count = global_scenario_get()->hs_globals.count + opensauce_script_global_count();
 
 		if (!game_state_image_hs_globals_valid(globals->count, hs_external_global_count, scenario_count))
 		{
@@ -1123,7 +1182,42 @@ void game_state_try_and_load_from_persistent_storage(
 	void)
 {
 	struct game_state_header header;
+#ifndef HALO_XBOX_CONSOLE
+	/* port: the header first, and the rest only for a saved game that can
+	be taken. Retail read and checksummed the whole file (16 MB here) at
+	every start of a campaign map, then read it all again to take it: a
+	stall of seconds on a console's SD card, for a file that was often
+	never written (its checksum zero), or of another map or difficulty.
+	The file is read once now, and taken from that read. What is taken is
+	the same as before; the original Xbox keeps retail's reads. */
+	void *image = NULL;
 
+	/* (a checksum of zero is a file never saved to: no saved game, and
+	nothing to say about it) */
+	if (game_state_read_persistent_storage_header(&header, sizeof(header))
+		&& header.checksum
+		&& game_state_header_valid(&header, FALSE)
+		&& (main_get_difficulty() == header.difficulty ||
+			(error(_error_silent, "the saved game is not taken: it is of difficulty %d, this game of %d",
+				header.difficulty, main_get_difficulty()), FALSE))
+		&& (image = game_state_read_persistent_storage_image(
+			(long)((char *)&header.checksum - (char *)&header), GAME_STATE_SIZE)) != NULL)
+	{
+		game_state_note_event("saved game loaded");
+		game_state_call_before_load_procs();
+		game_state_take_persistent_storage_image(image, GAME_STATE_SIZE);
+		game_difficulty_level_set(main_get_difficulty());
+		game_state_call_after_load_procs();
+		game_state_save();
+	}
+#else
+	/* port: a file never saved to (its stored checksum zero: the zeroes it
+	was made with) holds no saved game. Retail read all of it to find its
+	checksum wrong, and said "checksum failed on persistent storage" at
+	every map's start; that is skipped. A file that is not there yet is
+	still made by retail's read below. */
+	if (game_state_read_persistent_storage_header(&header, sizeof(header)) && !header.checksum)
+		return;
 	if (game_state_read_header_from_persistent_storage(
 			&header,
 			&header.checksum,
@@ -1144,6 +1238,7 @@ void game_state_try_and_load_from_persistent_storage(
 		game_state_call_after_load_procs();
 		game_state_save();
 	}
+#endif
 
 	return;
 }

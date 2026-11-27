@@ -12,8 +12,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "../src/game_list_rules.h"
+#include "../src/server_names.h"
 
 #include <stdio.h>
+#include <string.h>
+
+/* the built-in blocked names list (delta_chat_words.c) */
+extern const char delta_chat_blocked_words[];
 
 static int failures;
 
@@ -71,6 +76,40 @@ int main(void)
 	/* a range a table widened */
 	CHECK(game_list_joinable(47, 0, 11, 47));
 	CHECK(!game_list_joinable(48, 0, 11, 47));
+	/* broker listings go by the same rules: an old build's game (network
+	22, 26, 34) is listed like a current one's; still never a closed one,
+	nor one of a number this build does not join */
+	CHECK(shown(22, 0));
+	CHECK(shown(26, 0));
+	CHECK(shown(34, 0));
+	CHECK(shown(35, 0));
+	CHECK(!shown(0x8000u | 22, 0));
+	CHECK(!shown(0, 0));
+	/* blocked names, as the site compares them (case, look-alikes, spaces,
+	digits at the end, repeated letters); the list's words are in ROT13 */
+	{
+		static struct server_names_list list, other;
+
+		CHECK(server_names_list_parse(&list, delta_chat_blocked_words, strlen(delta_chat_blocked_words)) > 40);
+		CHECK(server_names_list_blocked_text(&list, "Adolf Hitler"));
+		CHECK(server_names_list_blocked_text(&list, "ADOLF H1TL3R"));
+		CHECK(server_names_list_blocked_text(&list, "h i t l e r 88"));
+		CHECK(server_names_list_blocked_text(&list, "Hiiitler"));
+		CHECK(server_names_list_blocked_text(&list, "\xd0\xbditler"));
+		CHECK(!server_names_list_blocked_text(&list, "Halo Night"));
+		CHECK(!server_names_list_blocked_text(&list, "Blood Gulch 24/7"));
+		CHECK(!server_names_list_blocked_text(&list, ""));
+		/* a list of its own, apart from another */
+		CHECK(server_names_list_parse(&other, "whole uryyb\n", 12) == 1);
+		CHECK(server_names_list_blocked_text(&other, "hello"));
+		CHECK(!server_names_list_blocked_text(&other, "hello there"));
+		CHECK(!server_names_list_blocked_text(&list, "hello"));
+		CHECK(!server_names_list_blocked_text(NULL, "Adolf Hitler"));
+		/* a network 22 broker game: listed by its number, hidden by its
+		name when the name is blocked */
+		CHECK(shown(22, 0) && !server_names_list_blocked_text(&list, "Blood Gulch 24/7"));
+		CHECK(shown(22, 0) && server_names_list_blocked_text(&list, "ADOLF H1TL3R"));
+	}
 	if (failures)
 		printf("%d failed\n", failures);
 	return failures != 0;

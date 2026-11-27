@@ -19,7 +19,7 @@ from typing import Any, List, Optional
 
 from .bgfx_build import BgfxTarget, bgfx_build, bgfx_available, bgfx_include_flags
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import (OPTIMISATION, RENAME_STUB_SCRIPT, compile_launcher, ffmpeg_build, linux_sysroot, lto_flags, march_flag,
+from .linux_build import (OPTIMISATION, compile_launcher, ffmpeg_build, linux_sysroot, lto_flags, march_flag,
                           portable_sdl)
 from .lp64_build import (
     LINUX_PORT_CONFIG,
@@ -118,6 +118,8 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
     host = Lp64Host(
         name="linux64",
         compressed_maps=True,
+        lua=True,
+        jolt=getattr(sln, "with_ragdolls", True),
         target_flags=[LINUX64_TARGET, march_flag(sln), *(sdl.cflags if sdl else [])],
         game_flags=LINUX64_GAME_FLAGS,
         posix_flags=LINUX64_POSIX_FLAGS,
@@ -143,10 +145,10 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
             # of a crash report's calls, in debug.txt, are the executable's
             # own, the same from run to run)
             "ldflags": " ".join([LINUX64_TARGET, "-g", "-no-pie", *(sdl.ldflags if sdl else []), *lto_ldflags]),
-            # (bgfx's C++: the system's libstdc++, which every distribution has)
+            # (bgfx's and Jolt's C++: the system's libstdc++, which every
+            # distribution has)
             "libs": " ".join([*(str(library) for library in bgfx_libraries), *ffmpeg_libs,
-                              *(f"-l{lib}" for lib in config.get("libraries", [])),
-                              *(["-lstdc++"] if use_bgfx else [])]),
+                              *(f"-l{lib}" for lib in config.get("libraries", [])), "-lstdc++"]),
         },
         implicit=[Path("tools/linux_link_check.py"), *([sdl.libsdl] if sdl else []), *ffmpeg_inputs, *bgfx_libraries],
     )
@@ -158,9 +160,5 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule="linux64_copy", inputs=Path("port/assets/network/brokers.txt"))
-    # halo, which starts chupathingy (port/linux/src/rename_stub.h; TODO(after
-    # 0.9.x): remove)
-    stub = build_dir / "halo"
-    n.build(outputs=stub, rule="linux64_copy", inputs=RENAME_STUB_SCRIPT)
-    n.build(outputs="linux64", rule="phony", inputs=[output, brokers, stub, *sdl_outputs])
+    n.build(outputs="linux64", rule="phony", inputs=[output, brokers, *sdl_outputs])
     n.newline()

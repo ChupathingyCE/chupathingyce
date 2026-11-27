@@ -290,7 +290,7 @@ int log_send_start(const char *logs_folder, int with_settings, char *error, int 
 {
 	static const char boundary[] = "chupathingy-launcher-logs-5f3a";
 	struct text body = { NULL, 0, 0 };
-	char path[LOG_SEND_PATH_SIZE + 64], note[256];
+	char path[LOG_SEND_PATH_SIZE + 64], note[768], tuning[512];
 	const char *url = *config_string("debug.dump_url") ? config_string("debug.dump_url") : LOG_SEND_URL;
 	const char *host, *host_end;
 	int files = 0;
@@ -301,10 +301,14 @@ int log_send_start(const char *logs_folder, int with_settings, char *error, int 
 		snprintf(error, (size_t)error_size, "Your logs are still being sent.");
 		return LOG_SEND_FAILED;
 	}
-	snprintf(note, sizeof(note), "Sent from the game: %s", build_identity());
+	/* (the [tuning] knobs, in a field of their own and in the note the site
+	shows: config_tuning_summary, nothing of the player's) */
+	config_tuning_summary(tuning, sizeof(tuning));
+	snprintf(note, sizeof(note), "Sent from the game: %s\ntuning: %s", build_identity(), tuning);
 	form_field(&body, boundary, "name", "Chupathingy player");
 	form_field(&body, boundary, "platform", dump_platform());
 	form_field(&body, boundary, "note", note);
+	form_field(&body, boundary, "tuning", tuning);
 	snprintf(path, sizeof(path), "%s/debug.txt", logs_folder);
 	files += form_file(&body, boundary, "debug.txt", path, LOG_SEND_LOG_TAIL);
 	if (newest_crash_report(logs_folder, path, sizeof(path)))

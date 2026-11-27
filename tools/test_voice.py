@@ -57,7 +57,9 @@ def test_jitter_and_codec(tmp_path):
     binary = tmp_path / "voice_test"
     result = build(cc, binary, SANITIZERS)
     if result.returncode != 0:
-        fuzz_support.fallback("no sanitizer runtime")
+        # (what the sanitized build said, so that a failure where they are
+        # required says why)
+        fuzz_support.fallback("no sanitizer runtime: " + (result.stdout + result.stderr)[-2000:])
         result = build(cc, binary, [])
     assert result.returncode == 0, result.stdout + result.stderr
     run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=600)

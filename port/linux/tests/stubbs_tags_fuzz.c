@@ -30,6 +30,9 @@ const char *map_pack_menus(void) { return "stubbs"; }
 rewritten: nothing to note here) */
 void stubbs_engine_note_unit_definition(void) {}
 void stubbs_possession_note_unit_definition(void) {}
+void stubbs_engine_tags_new_map(void) {}
+void stubbs_possession_tags_new_map(void) {}
+void stubbs_player_tags_new_map(void) {}
 int _stricmp(const char *a, const char *b) { return strcasecmp(a, b); }
 void *csmemcpy(void *d, const void *s, unsigned int n) { return memcpy(d, s, n); }
 void *csmemmove(void *d, const void *s, unsigned int n) { return memmove(d, s, n); }

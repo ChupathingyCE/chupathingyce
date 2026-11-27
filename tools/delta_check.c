@@ -12,6 +12,9 @@ the steps it is given, in order, and prints what each did:
 	start         delta_legacy_start: the cache, and the fetching thread
 	hold H        delta_legacy_hold(H): a hosted game under way (1) or not (0)
 	hosting       "hosting N pinned P" (delta_legacy_hosting_newest, _pinned)
+	floor P V     platform P's floor, and whether a HELLO of network version V
+	              is under it (delta_platform_floor, _floor_refuses):
+	              "floor P F refuses R"
 	layout V      network version V's layout, the table's facts applied
 	              (network_rules.c): "layout V settings S options O shield E
 	              dropped K,K learned L refused R facts F"
@@ -174,6 +177,14 @@ int main(int count, char **arguments)
 			printf("hosting %d pinned %d\n", delta_legacy_hosting_newest(), delta_legacy_pinned());
 		else if (!strcmp(arguments[index], "host_at") && index + 1 < count)
 			printf("host_at %d\n", delta_legacy_host_game_at(atoi(arguments[++index])));
+		else if (!strcmp(arguments[index], "floor") && index + 2 < count)
+		{
+			int platform = atoi(arguments[++index]);
+			int version = atoi(arguments[++index]);
+
+			printf("floor %d %d refuses %d\n", platform, delta_platform_floor(platform),
+				delta_platform_floor_refuses(platform, version));
+		}
 		else if (!strcmp(arguments[index], "mcc"))
 			printf("mcc %d\n", delta_legacy_mcc_version());
 		else if (!strcmp(arguments[index], "start"))

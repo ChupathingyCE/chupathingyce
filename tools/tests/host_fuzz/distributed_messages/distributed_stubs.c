@@ -160,6 +160,8 @@ long game_allegiance_set_teams(void);
 long game_allegiance_set_teams(void) { return 0; }
 long game_engine_bomb_silent_death(void);
 long game_engine_bomb_silent_death(void) { return 0; }
+long game_engine_client_respawned(void);
+long game_engine_client_respawned(void) { return 0; }
 long game_engine_network_player_score(void);
 long game_engine_network_player_score(void) { return 0; }
 long game_engine_objective_weapon_deleted(void);
@@ -284,6 +286,20 @@ long mcc_script_effects_preserve_body(void);
 long mcc_script_effects_preserve_body(void) { return 0; }
 long model_find_marker(void);
 long model_find_marker(void) { return 0; }
+long net_monitor_correction(void);
+long net_monitor_correction(void) { return 0; }
+long net_monitor_layout_bytes(void);
+long net_monitor_layout_bytes(void) { return 0; }
+long net_monitor_message_in(void);
+long net_monitor_message_in(void) { return 0; }
+long net_monitor_message_out(void);
+long net_monitor_message_out(void) { return 0; }
+long net_monitor_notice(void);
+long net_monitor_notice(void) { return 0; }
+long net_monitor_unit_state(void);
+long net_monitor_unit_state(void) { return 0; }
+long net_monitor_warning(void);
+long net_monitor_warning(void) { return 0; }
 long network_distributed_client_send(void);
 long network_distributed_client_send(void) { return 0; }
 long network_distributed_client_send_reliably(void);
@@ -298,12 +314,16 @@ long network_distributed_server_send_to_machine_reliably(void);
 long network_distributed_server_send_to_machine_reliably(void) { return 0; }
 long network_game_client_host_network_version(void);
 long network_game_client_host_network_version(void) { return 0; }
+int network_game_client_host_fork_get(void);
+int network_game_client_host_fork_get(void) { return -1; }
 long network_game_server_kick_machine(void);
 long network_game_server_kick_machine(void) { return 0; }
 long network_game_server_machine_address(void);
 long network_game_server_machine_address(void) { return 0; }
 long network_game_server_machine_reports_static_damage(void);
 long network_game_server_machine_reports_static_damage(void) { return 0; }
+long network_game_server_port_machine_is_virtual(void);
+long network_game_server_port_machine_is_virtual(void) { return 0; }
 long network_player_attach_unit(void);
 long network_player_attach_unit(void) { return 0; }
 long network_player_detach_unit(void);

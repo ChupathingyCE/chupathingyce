@@ -117,6 +117,14 @@ static void network_event(const char *format, ...)
 		snprintf(drop_line, sizeof(drop_line), "%s", text);
 }
 static void error(int level, const char *format, ...) { (void)level; (void)format; }
+/* the host's late joiners' table is allocated with the game (network_game_server_create) */
+static int allocations;
+static void *system_malloc(unsigned long size)
+{
+	allocations++;
+	return malloc(size);
+}
+static void system_free(void *pointer) { free(pointer); }
 static void *create_network_game_message(short type, void *data, long size)
 {
 	(void)data;
@@ -177,6 +185,12 @@ static boolean network_game_server_client_machine_is_local(struct network_game_s
 {
 	(void)server;
 	return machine->machine_index == local_machine_index;
+}
+/* (no virtual machine here: a dedicated server's Custom Edition clients') */
+static boolean network_game_server_client_machine_is_virtual(struct network_game_server_client_machine const *machine)
+{
+	(void)machine;
+	return FALSE;
 }
 static boolean network_game_server_player_among(struct network_player const *player, struct network_player *players,
 	long count)
@@ -268,6 +282,10 @@ static void play_a_game_with_a_late_joiner(void)
 	struct network_game_server_client_machine *late = &server.client_machines[3];
 
 	memset(&server, 0, sizeof(server));
+	/* the host's tables, as network_game_server_create takes them */
+	CHECK(network_game_server_late_joiners_allocate(), "the late joiners' table was not allocated");
+	CHECK(late_joiner_players != NULL && allocations == 1, "the late joiners' table is not there");
+	CHECK(network_game_server_late_joiners_allocate() && allocations == 1, "the late joiners' table was allocated twice");
 	for (short index = 0; index < HALO_PORT_MAXIMUM_NETWORK_MACHINES; index++)
 		server.client_machines[index].machine_index = NONE;
 	add_machine(0, FALSE);
@@ -283,6 +301,9 @@ static void play_a_game_with_a_late_joiner(void)
 	network_game_server_start_late_joiner(&server, late);
 	CHECK(connections[3].begins_sent == 1, "the late joiner was not started");
 	CHECK(TEST_FLAG(late->flags, _network_client_machine_started_late_bit), "the late joiner was not marked started");
+	CHECK(late_joiner_players[3][1].valid && late_joiner_players[3][1].machine_index == 1 &&
+		late_joiner_players[3][3].valid && late_joiner_players[3][3].machine_index == 3,
+		"the players the late joiner was started with were not kept");
 	now_milliseconds += 6000;
 	network_game_server_late_joiner_loaded(&server, late);
 	CHECK(TEST_FLAG(late->flags, _network_client_machine_level_loaded_bit), "the late joiner's load was refused");

@@ -481,8 +481,8 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
 #include "../../port/linux/game/party_teams.h"
-#include "../../port/linux/game/network_rules.h" /* port: the game modes' rules (docs/modes.md) */
 #endif
+#include "../../port/linux/game/network_rules.h" /* port: the game modes' rules (docs/modes.md; every build's) */
 #include "interface/player_ui.h"
 #include "tag_files/tag_files.h"
 
@@ -572,6 +572,12 @@ enum
 	_network_client_machine_precached_bit,
 	/* started in the game in progress (network_game_server_start_late_joiner) */
 	_network_client_machine_started_late_bit,
+	/* port: a machine of the host's own making, with no connection: a
+	dedicated server's Custom Edition client's (server/src/server_ce.c),
+	whose one player's input the host takes from that client. Always loaded
+	and precached; never timed out, sent to, or dropped for its silence.
+	The host's alone: no machine is told of it but as a machine */
+	_network_client_machine_virtual_bit,
 	NUMBER_OF_NETWORK_CLIENT_MACHINE_FLAGS,
 	/* the protocol's largest message (a client's hits come near it) */
 	MAXIMUM_NETWORK_MESSAGE_SIZE = HALO_PORT_MAXIMUM_NETWORK_MESSAGE_SIZE,
@@ -873,6 +879,8 @@ boolean network_distributed_banned(unsigned long address, char const *hardware_i
 #ifdef HALO_GAME_BROWSER
 /* (port/linux/game/host_rules.c's: whether the host takes no new machines now) */
 boolean host_rules_joins_locked(void);
+/* (port/linux/src/p2p.c's: whether the game hosted has a password) */
+int p2p_hosting_has_password(void);
 #endif
 /* (its budget for a client machine's lobby messages, full again) */
 void network_distributed_lobby_budget_reset(long machine_index);
@@ -911,6 +919,9 @@ enum
 	_kick_rejoinable,
 };
 static byte network_game_server_kick_pending[MAXIMUM_NETWORK_MACHINE_COUNT];
+/* (a virtual machine: a dedicated server's Custom Edition client's, below) */
+static boolean network_game_server_client_machine_is_virtual(
+	struct network_game_server_client_machine const *machine);
 /* (how each is refused: the dedicated server's commands give their own
 reasons, server/src/server_commands.c) */
 static short network_game_server_kick_rejection_codes[MAXIMUM_NETWORK_MACHINE_COUNT];
@@ -1333,7 +1344,10 @@ static boolean network_game_server_machine_may_add_player_ingame(
 	short *count;
 
 	if (!VALID_INDEX(machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) ||
-		network_game_server_client_machine_is_local(server, &server->client_machines[machine_index]))
+		network_game_server_client_machine_is_local(server, &server->client_machines[machine_index]) ||
+		/* (port: a virtual machine's one player: its client was held to
+		the address limit as it joined, server/src/server_ce.c) */
+		network_game_server_client_machine_is_virtual(&server->client_machines[machine_index]))
 	{
 		return TRUE;
 	}
@@ -1350,6 +1364,8 @@ static boolean network_game_server_machine_may_add_player_ingame(
 /* port: (port/linux/game/network_distributed.h) */
 boolean network_damage_host_tables_allocate(void);
 void network_damage_host_tables_free(void);
+static boolean network_game_server_late_joiners_allocate(void);
+static void network_game_server_late_joiners_free(void);
 
 /* ---------- public code */
 
@@ -1367,6 +1383,23 @@ struct network_game_server *network_game_server_create(
 
 	csmemset(server, 0, sizeof(*server));
 
+	/* port: the host's tables, which a machine that only joins doesn't
+	carry: its damage tables (network_damage.c) and its late joiners'
+	players. A game others can join isn't hosted without them (its clients'
+	hits couldn't be dealt): it says so and the menus go on as when the
+	server can't be made. A split-screen game takes no hit reports or late
+	joiners and goes on without them */
+	if ((!network_damage_host_tables_allocate() || !network_game_server_late_joiners_allocate()) &&
+		!network_game_port_hosting_local())
+	{
+		error(_error_silent, "network server: not hosting: no memory for the host's tables");
+		display_error_text_when_main_menu_loaded(L"Not enough memory to host a game.");
+		network_damage_host_tables_free();
+		network_game_server_late_joiners_free();
+		network_game_server_memory_do_not_use_directly_in_use = FALSE;
+		return NULL;
+	}
+
 	if (server != NULL)
 	{
 		server->connection = network_connection_new(
@@ -1381,10 +1414,6 @@ struct network_game_server *network_game_server_create(
 			transport_server_initialize();
 #endif
 
-			/* port: the host's damage tables (network_damage.c), which a
-			machine that only joins doesn't carry; a host without them
-			deals none of its clients' hits, and says so */
-			network_damage_host_tables_allocate();
 			server->state = _network_game_server_state_pregame;
 			server->flags = FLAG(_network_game_server_game_valid_bit);
 			csmemset(&server->game, 0, sizeof(server->game));
@@ -1433,6 +1462,8 @@ struct network_game_server *network_game_server_create(
 			which the dispose's machine check reads; the port in use, by
 			another copy of the game, gets here) */
 			network_game_server_memory_do_not_use_directly_in_use = FALSE;
+			network_damage_host_tables_free();
+			network_game_server_late_joiners_free();
 			server = NULL;
 		}
 	}
@@ -1449,15 +1480,23 @@ each lobby frame, and undone as hosting ends; said once if this build can't */
 /* (network_server_message_handler.c) */
 unsigned network_game_server_machine_joined_number(struct network_game_server *server,
 	struct network_game_server_client_machine *machine);
+#ifdef HALO_GAME_BROWSER
+boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
+long dedicated_playlist_count(void);
+char const *dedicated_playlist_map(long entry);
+#else
+/* (no dedicated server in a build without the game browser: server/src is
+left out) */
+#define dedicated_server_active() FALSE
+#define dedicated_playlist_count() 0L
+#define dedicated_playlist_map(entry) ((void)(entry), (char const *)NULL)
+#endif
 #if defined(HALO_MCC) && HALO_MCC
 #include "delta.h" /* the capabilities */
 char const *config_string(char const *name);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
 int delta_legacy_host_game_at(int version); /* (port/linux/src/delta.c) */
 int delta_legacy_mcc_version(void);
-boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
-long dedicated_playlist_count(void);
-char const *dedicated_playlist_map(long entry);
 static int network_game_server_mcc_asked = -1;
 static void network_game_server_port_cooperative_apply(struct network_game_server *server, short difficulty);
 /* (when the number changed: the record is sent again a little later, which
@@ -1527,7 +1566,8 @@ void network_game_server_mcc_playlist_changed(
 /* port: a host's lobby moving to or from an MCC map changes the number its
 game is played at: how many machines in it would not follow (no Delta with
 mcc_maps), which leave. The host is asked first (invite_prompt_ask), unless
-it is a dedicated server or a test */
+it is a dedicated server or a test, or the build has no game browser, whose
+overlay asks */
 static long network_game_server_mcc_would_drop(
 	struct network_game_server *server,
 	char const *map_name)
@@ -1535,6 +1575,9 @@ static long network_game_server_mcc_would_drop(
 	boolean want = mcc_level_name(map_name);
 	long index, count = 0;
 
+#ifndef HALO_GAME_BROWSER
+	return 0;
+#endif
 	if (dedicated_server_active() || config_string("debug.network_test")[0] ||
 		want == (network_game_server_mcc_asked > 0))
 	{
@@ -1795,8 +1838,9 @@ newer one the legacy table proves is taken: port/linux/src/delta.c) */
 
 	if (server->connection)
 		network_connection_delete(server->connection);
-	/* port: and its damage tables */
+	/* port: and its damage tables and its late joiners' players */
 	network_damage_host_tables_free();
+	network_game_server_late_joiners_free();
 
 #ifdef xbox
 	/* port: native transports flush before closing sockets, and unregistering
@@ -2612,6 +2656,21 @@ boolean network_game_server_accept_client_machine_into_game(
 			network_game_server_refusal_code = _rejection_code_game_is_closed;
 			return FALSE;
 		}
+		/* (and, in a game with a password, none that came from the
+		internet straight to the game's port, as a system link join does: the
+		password is asked for by the invite, which an internet play peer
+		came through, and a join request carries none. A LAN's machines, and
+		a game without a password, as ever: network_rules.h) */
+		if (!network_game_server_client_machine_is_local(server, machine) &&
+			address.address.long_words[0] != IPV4_LOOPBACK_ADDRESS &&
+			network_rules_join_password_refused((uint32_t)address.address.long_words[0],
+				p2p_hosting_has_password()))
+		{
+			network_event("refusing a machine @ %s: the game has a password, and the machine did not come "
+				"through its invite", transport_address_to_string(&address));
+			network_game_server_refusal_code = _rejection_code_bad_password;
+			return FALSE;
+		}
 #endif
 		/* (and none in Stubbs mode, which hosts no online games yet:
 		port/linux/game/stubbs_multiplayer.c) */
@@ -2722,7 +2781,10 @@ boolean network_game_server_accept_client_machine_into_game(
 						if (other != machine &&
 							network_game_server_client_machine_is_joined_to_game(server, other) &&
 							network_game_server_client_machine_addresses[other_index] == address.address.long_words[0] &&
-							!network_game_server_client_machine_is_local(server, other))
+							!network_game_server_client_machine_is_local(server, other) &&
+							/* (not a virtual machine: a Custom Edition client
+							of the same address, another machine) */
+							!network_game_server_client_machine_is_virtual(other))
 						{
 							network_event("machine #%ld joined from the address of machine #%ld, which is dropped",
 								machine_index, other_index);
@@ -3109,7 +3171,8 @@ void network_game_server_update_ticks(
 							TEST_FLAG(machine->flags, _network_client_machine_level_loaded_bit) &&
 							(update_number < network_game_server_frequent_updates_until[client_machine_index] ||
 								update_number % TICKS_PER_SECOND == 0) &&
-							network_connection_active(machine->connection) &&
+							/* (port: not a virtual machine's: it has none) */
+							machine->connection && network_connection_active(machine->connection) &&
 							!network_game_server_send_message_to_client_machine(server, machine, message))
 						{
 							sent = FALSE;
@@ -3170,7 +3233,8 @@ void network_game_server_update_ticks(
 						client_machine,
 						&server->queued_player))
 				{
-					if (!network_game_server_client_machine_is_local(server, client_machine))
+					if (!network_game_server_client_machine_is_local(server, client_machine) &&
+						!network_game_server_client_machine_is_virtual(client_machine))
 					{
 						short *count = network_game_server_ingame_addition_count(
 							network_game_server_client_machine_addresses[client_machine_index], TRUE);
@@ -3313,8 +3377,38 @@ static void network_game_server_refuse_late_joiner(
 
 /* the players in the settings each machine joining the game in progress
 was started with (by machine index): those added and gone while it loaded
-it, whose messages it did not hear, it is told of once it has */
-static struct network_player late_joiner_players[MAXIMUM_NETWORK_MACHINE_COUNT][NUMBEROF(((struct network_game *)0)->players)];
+it, whose messages it did not hear, it is told of once it has. The host's
+alone: allocated with the game (network_game_server_late_joiners_allocate,
+from network_game_server_create), so that a machine that only joins doesn't
+carry it; NULL otherwise, or if there was no memory for it in a
+split-screen game (network_game_server_create hosts no other game without
+it) */
+static struct network_player (*late_joiner_players)[NUMBEROF(((struct network_game *)0)->players)];
+
+static boolean network_game_server_late_joiners_allocate(
+	void)
+{
+	unsigned long size = MAXIMUM_NETWORK_MACHINE_COUNT * sizeof(*late_joiner_players);
+
+	if (late_joiner_players)
+		return TRUE;
+	late_joiner_players = system_malloc(size);
+	if (!late_joiner_players)
+	{
+		error(_error_silent, "network server: no memory for the late joiners' players (%lu KB)", size / 1024);
+		return FALSE;
+	}
+	csmemset(late_joiner_players, 0, size);
+	return TRUE;
+}
+
+static void network_game_server_late_joiners_free(
+	void)
+{
+	if (late_joiner_players)
+		system_free(late_joiner_players);
+	late_joiner_players = NULL;
+}
 
 static boolean network_game_server_same_player(
 	struct network_player const *player0,
@@ -3527,7 +3621,7 @@ static void network_game_server_start_late_joiner(
 	machine at its index by this: network_game_server_late_joiner_loaded) */
 	SET_FLAG(machine->flags, _network_client_machine_started_late_bit, TRUE);
 	machine->last_heard_time = system_milliseconds();
-	if (machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT)
+	if (late_joiner_players && machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT)
 	{
 		csmemcpy(late_joiner_players[machine->machine_index], server->game.players,
 			sizeof(late_joiner_players[machine->machine_index]));
@@ -3742,7 +3836,7 @@ void network_game_server_late_joiner_loaded(
 		network_game_server_frequent_updates_until[machine->machine_index] =
 			server->next_update_number + TICKS_PER_SECOND;
 	}
-	if (server->state == _network_game_server_state_ingame &&
+	if (server->state == _network_game_server_state_ingame && late_joiner_players &&
 		machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT)
 	{
 		struct network_player *started = late_joiner_players[machine->machine_index];
@@ -3936,7 +4030,8 @@ void network_game_server_begin_game_start_countdown(
 
 /**
  * @brief Whether a team game lacks a player on one of its teams, which
- * holds back the start. Never with game.start_with_one_player.
+ * holds back the start. Never with game.start_with_one_player, nor on a
+ * dedicated server with Custom Edition players in.
  * @param server the server whose game is asked about
  * @return TRUE if the start has to wait for more players
  */
@@ -3945,6 +4040,19 @@ boolean server_needs_more_teams(
 {
 	boolean needs_more_teams = FALSE;
 
+#ifdef HALO_SERVER
+	{
+		/* port: a dedicated server with Custom Edition players starts a team
+		game with one team, as Custom Edition's own server plays its game
+		whoever is in it: a Custom Edition client can't wait in a lobby (it
+		gives up on its join in about 15 seconds), so the first one into an
+		empty team game was turned away (server/src/server_ce.c) */
+		boolean server_ce_players_present(void);
+
+		if (server_ce_players_present())
+			return FALSE;
+	}
+#endif
 	if (server->game.variant.universal_variant.teams
 		&& !network_game_solo_game())
 	{
@@ -4046,9 +4154,9 @@ boolean server_has_enough_machines(
 
 #ifdef HALO_SERVER
 	{
-		/* port: a dedicated server's Custom Edition players are seats of its
-		own machine, so with one there its machine is enough
-		(server/src/server_ce.c) */
+		/* port: a dedicated server's Custom Edition players are machines of
+		its own making (virtual machines, below): with one there no other
+		machine is needed (server/src/server_ce.c) */
 		boolean server_ce_players_present(void);
 
 		if (server_ce_players_present())
@@ -4260,6 +4368,9 @@ struct network_game_server_client_machine *network_game_server_get_client_machin
 			/* (a machine in the game: not a connection that has not joined) */
 			if (network_game_server_client_machine_addresses[i] == ip_address &&
 				network_game_server_client_machine_is_joined_to_game(server, &server->client_machines[i]) &&
+				/* (port: never a virtual machine: no datagram is its, though
+				its client's address may be another machine's too) */
+				!network_game_server_client_machine_is_virtual(&server->client_machines[i]) &&
 				(pass == 1 || !network_game_server_client_machine_is_local(server, &server->client_machines[i])))
 			{
 				match_assert(NETWORK_SERVER_MANAGER_FILE, 0x755,
@@ -4315,12 +4426,39 @@ void network_game_server_pause_countdown(
 	struct network_game_server *server,
 	boolean pause_countdown)
 {
+	boolean was_counting;
+
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x78C, server);
 
+	was_counting = server->countdown_state.active;
 	if (pause_countdown == TRUE)
 		csmemset(&server->countdown_state, 0, sizeof(server->countdown_state));
 
 	server->countdown_state.paused = pause_countdown;
+
+	/* port: a countdown stopped here was never taken back from the clients
+	(the countdown messages only go out while it runs), so every lobby,
+	the host's own too, kept its last count: "Starting on ..." stayed up and
+	the host's lobby could not start again (#1414). The clients are told it
+	stopped with the count the game already sends when a countdown can't go
+	on (NONE, network_game_server_idle_pregame_tasks) */
+	if (pause_countdown == TRUE && was_counting &&
+		server->state == _network_game_server_state_pregame)
+	{
+		struct message_server_pregame_countdown message_packet;
+		struct network_message *message;
+
+		message_packet.seconds_to_start = NONE;
+		message = create_network_game_message(
+			_message_server_pregame_countdown,
+			&message_packet,
+			sizeof(message_packet));
+		if (message == NULL ||
+			!network_game_server_send_message_to_all_machines(server, message))
+		{
+			network_event("failed to send a message_server_pregame_countdown to all clients");
+		}
+	}
 
 	return;
 }
@@ -4378,7 +4516,10 @@ boolean network_game_server_change_map_name(
 			&server->client_machines[client_machine_index];
 
 		if (client_machine->machine_index >= 0 &&
-			client_machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT)
+			client_machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT &&
+			/* (port: a virtual machine has every map: its client was let
+			in only on a map it has, server/src/server_ce.c) */
+			!network_game_server_client_machine_is_virtual(client_machine))
 		{
 			SET_FLAG(
 				client_machine->flags,
@@ -4604,7 +4745,10 @@ static boolean network_game_server_client_machine_timed_out(
 	if (!network_game_server_client_machine_is_joined_to_game(server, machine))
 		return silence > NETWORK_GAME_SERVER_JOIN_TIMEOUT;
 	if (server->state != _network_game_server_state_ingame ||
-		network_game_server_client_machine_is_local(server, machine))
+		network_game_server_client_machine_is_local(server, machine) ||
+		/* (port: a virtual machine is never heard from; its client's own
+		connection times out, server/platform/ce_transport.c) */
+		network_game_server_client_machine_is_virtual(machine))
 	{
 		return FALSE;
 	}
@@ -4881,9 +5025,24 @@ void network_game_server_update_countdown(
 				}
 				else
 				{
+					boolean other_players = network_game_server_get_client_machine_count(server) > 1;
+
+#ifdef HALO_SERVER
+					{
+						/* port: a dedicated server's Custom Edition players are
+						on virtual machines, which have no connection to count
+						(server_has_enough_machines): with them there, the
+						lobby counts down without another machine, or a game
+						with only them never starts (server/src/server_ce.c) */
+						boolean server_ce_players_present(void);
+
+						if (server_ce_players_present())
+							other_players = TRUE;
+					}
+#endif
 					if (network_game_should_accept_remote_connections() == FALSE ||
 						network_game_solo_game() ||
-						network_game_server_get_client_machine_count(server) > 1)
+						other_players)
 					{
 						unsigned long countdown;
 
@@ -5164,6 +5323,19 @@ void network_game_server_port_cooperative_won(
 	on its scoreboard (game_engine.c); co-op has neither, and every machine
 	was left on the level's last screen. */
 	network_game_server_reset_to_pregame(server);
+}
+
+/* port: the co-op host's RESTART LEVEL (main.c's main loop, from the pause
+menu): the round ends for everyone and the lobby has the same level, as a won
+level's does. Only while the game is on: a second request once the server is
+back in the pregame would rebuild it from the multiplayer playlist */
+void network_game_server_port_cooperative_restart(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	if (server && server->state == _network_game_server_state_ingame)
+		network_game_server_port_cooperative_won(NULL);
 }
 
 /* port: reapply the co-op settings after a won round, since the playlist
@@ -5528,6 +5700,29 @@ static boolean network_game_server_handle_client_machines(
 
 		if (client_machine->machine_index == NONE)
 			continue;
+
+		/* port: a virtual machine has no connection to read or lose; one
+		the host kicks or bans goes as its client does (server/src/server_ce.c
+		drops that client and removes the machine) */
+		if (network_game_server_client_machine_is_virtual(client_machine))
+		{
+			if (network_game_server_kick_pending[client_machine->machine_index] != _kick_none)
+			{
+				short machine_index = client_machine->machine_index;
+
+				network_game_server_kick_pending[machine_index] = _kick_none;
+#ifdef HALO_SERVER
+				{
+					void server_ce_machine_dropped(long machine_index);
+
+					server_ce_machine_dropped(machine_index);
+				}
+#endif
+				if (network_game_server_port_machine_is_virtual(machine_index))
+					network_game_server_port_remove_virtual_machine(machine_index);
+			}
+			continue;
+		}
 
 		if (!network_connection_active(client_machine->connection))
 		{
@@ -5909,6 +6104,7 @@ static boolean network_game_server_idle_pregame_tasks(
 			stay in the lobby */
 			else if (network_game_server_client_machine_is_joined_to_game(server, client_machine) &&
 				!network_game_server_client_machine_is_local(server, client_machine) &&
+				!network_game_server_client_machine_is_virtual(client_machine) &&
 				!network_game_server_machine_has_players(server, client_machine->machine_index) &&
 				/* (port: not while it downloads the map: map sharing) */
 				!NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(client_machine->machine_index) &&
@@ -6132,7 +6328,8 @@ boolean network_game_server_reset_to_pregame(
 				if (network_game_server_client_machine_is_joined_to_game(server, machine) &&
 					(TEST_FLAG(machine->flags, _network_client_machine_level_loaded_bit) ||
 						TEST_FLAG(machine->flags, _network_client_machine_started_late_bit)) &&
-					network_connection_active(machine->connection) &&
+					/* (port: not a virtual machine's: it has none) */
+					machine->connection && network_connection_active(machine->connection) &&
 					!network_game_server_send_message_to_client_machine(server, machine, message))
 				{
 					sent = FALSE;
@@ -6164,6 +6361,10 @@ boolean network_game_server_reset_to_pregame(
 
 			for (i = 0; i < MAXIMUM_NETWORK_MACHINE_COUNT; i++)
 			{
+				/* (port: a virtual machine stays loaded and precached: it has
+				nothing to load, its client loads the map on its own) */
+				if (network_game_server_client_machine_is_virtual(&server->client_machines[i]))
+					continue;
 				SET_FLAG(
 					server->client_machines[i].flags,
 					_network_client_machine_level_loaded_bit,
@@ -6405,7 +6606,9 @@ messages name definitions by tag index). Every Delta build offers the
 platform capability, consoles' too. Such a machine is dropped once its
 handshake's window is over, in the lobby or a game in progress (it may join
 again: the next game may be another), with a notice; the host plays on.
-Nothing happens in any other game */
+Nothing happens in any other game, but to a Delta machine whose HELLO is
+under its platform's floor in the legacy table in use (delta.h, "platform
+floors"), which is dropped the same way in any game */
 static void network_game_server_delta_refusals(
 	struct network_game_server *server)
 {
@@ -6416,23 +6619,36 @@ static void network_game_server_delta_refusals(
 	{
 		struct network_game_server_client_machine *machine = &server->client_machines[index];
 		unsigned long address;
-		boolean bomb = server->game.variant.game_engine_index == game_engine_bomb;
-		boolean mcc_map = !bomb && mcc_level_name(server->game.map.name);
-		boolean pack_map = !bomb && !mcc_map && cache_files_map_needs_delta(server->game.map.name);
+		/* (port: a Delta machine whose HELLO is under its platform's floor
+		in the legacy table in use (docs/delta/versioning.md, "Platform
+		floors"), in any game: judged by that alone) */
+		boolean under_floor = network_game_server_client_machine_is_joined_to_game(server, machine) &&
+			!network_game_server_client_machine_is_local(server, machine) &&
+			machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT &&
+			delta_peer_game_machine_under_floor(machine->machine_index);
+		boolean bomb = !under_floor && server->game.variant.game_engine_index == game_engine_bomb;
+		boolean mcc_map = !under_floor && !bomb && mcc_level_name(server->game.map.name);
+		boolean pack_map = !under_floor && !bomb && !mcc_map && cache_files_map_needs_delta(server->game.map.name);
 		/* (port: the number the game is played at changed since the machine
 		joined, as an MCC map's game at the MCC number does: only a Delta machine with
 		mcc_maps follows it, HOST_NUMBER; any other leaves with a notice) */
 		unsigned joined_number = network_game_server_machine_joined_number(server, machine);
-		boolean number_changed = joined_number && joined_number != (unsigned)delta_legacy_announce();
+		boolean number_changed = !under_floor && joined_number && joined_number != (unsigned)delta_legacy_announce();
 		/* (port: a game of the game modes layer (SWAT, Hardcore: docs/
 		modes.md): a Delta machine without the capability or the mode, or a
 		machine without Delta at a number before 35, cannot play it) */
-		unsigned modes_needed = bomb ? 0 : network_game_server_modes_needed(server);
+		unsigned modes_needed = bomb || under_floor ? 0 : network_game_server_modes_needed(server);
 		int mode_refusal = NETWORK_RULES_MODE_PLAYS;
 
-		if ((!bomb && !pack_map && !mcc_map && !number_changed && !modes_needed) ||
+		if ((!under_floor && !bomb && !pack_map && !mcc_map && !number_changed && !modes_needed) ||
 			!network_game_server_client_machine_is_joined_to_game(server, machine) ||
 			network_game_server_client_machine_is_local(server, machine) ||
+			/* (port: nor a virtual machine, a Custom Edition client's: it
+			never says HELLO, and its slot's record of the number it joined
+			at may be a machine's before it; its client is let in by
+			server/src/server_ce.c's own rules, as when it was a seat of
+			this machine) */
+			network_game_server_client_machine_is_virtual(machine) ||
 			machine->machine_index < 0 || machine->machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
 		{
 			refused_addresses[index] = 0;
@@ -6525,7 +6741,15 @@ static void network_game_server_delta_refusals(
 				}
 				names[length] = 0;
 			}
-			if (number_changed)
+			if (under_floor)
+			{
+				snprintf(notice, sizeof(notice), "%s left: needs a newer build for their platform",
+					names[0] ? names : "A player");
+				network_event("client machine #%ld says network version %d, under its platform's floor (%d): dropped",
+					(long)machine->machine_index, delta_peer_game_machine_legacy_version(machine->machine_index),
+					delta_platform_floor(delta_peer_game_machine_platform(machine->machine_index)));
+			}
+			else if (number_changed)
 			{
 				snprintf(notice, sizeof(notice), "%s left: %s", names[0] ? names : "A player",
 					mcc_map ? "Needs MCC maps (this game now plays an MCC map)" :
@@ -6641,9 +6865,13 @@ boolean network_game_server_map_share_game(
 	*in_progress = server->state == _network_game_server_state_ingame;
 	return TRUE;
 }
+#endif
 
+#if defined(HALO_GAME_BROWSER) || (defined(HALO_MCC) && HALO_MCC)
 /* a client machine that joined the game (not the host's own): the address
-its connection comes from (IPv4, first byte highest) */
+its connection comes from (IPv4, first byte highest). Map sharing's, and
+MCC's admission's (network_distributed.c), which a build without the game
+browser has too */
 boolean network_game_server_map_share_machine(
 	long machine_index,
 	unsigned long *address)
@@ -6675,4 +6903,135 @@ long network_game_server_machine_count(
 	struct network_game_server *server)
 {
 	return server ? (long)server->game.machine_count : 0;
+}
+
+/* ---------- virtual machines (port)
+
+A dedicated server's Custom Edition client is a machine of the game of its
+own (server/src/server_ce.c): one player, at controller 0, on a machine
+slot with no connection. Every other machine is told of it as of any other
+machine and player (the settings record, the in-game add and quit
+messages): nothing new on the wire. The host runs its player from its
+client's input (update_server_handle_distributed_input). */
+
+static boolean network_game_server_client_machine_is_virtual(
+	struct network_game_server_client_machine const *machine)
+{
+	return TEST_FLAG(machine->flags, _network_client_machine_virtual_bit);
+}
+
+boolean network_game_server_port_machine_is_virtual(
+	long machine_index)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	return server && VALID_INDEX(machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
+		server->client_machines[machine_index].machine_index == machine_index &&
+		network_game_server_client_machine_is_virtual(&server->client_machines[machine_index]);
+}
+
+/* a new virtual machine in the lowest free slot (as a connection takes
+one), named, at the address its client comes from (host byte order, for
+the address limit and the log); its index, or NONE: no free slot, the game
+closed or full */
+long network_game_server_port_add_virtual_machine(
+	wchar_t const *name,
+	unsigned long address)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_machine new_machine;
+	long index;
+
+	if (!server || !TEST_FLAG(server->flags, _network_game_server_game_open_bit) ||
+		!network_game_has_free_player_slot(&server->game))
+	{
+		return NONE;
+	}
+	for (index = 0; index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
+	{
+		if (server->client_machines[index].machine_index == NONE &&
+			!network_machine_is_valid(&server->game.machines[index]))
+		{
+			break;
+		}
+	}
+	if (index == MAXIMUM_NETWORK_MACHINE_COUNT)
+		return NONE;
+	csmemset(&new_machine, 0, sizeof(new_machine));
+	ustrncpy(new_machine.name, name, NUMBEROF(new_machine.name) - 1);
+	new_machine.name[NUMBEROF(new_machine.name) - 1] = 0;
+	new_machine.machine_index = (char)index;
+	if (!network_game_add_machine(&server->game, &new_machine))
+		return NONE;
+	server->client_machines[index].connection = NULL;
+	server->client_machines[index].last_received_update_sequence_number = 0;
+	server->client_machines[index].last_heard_time = system_milliseconds();
+	server->client_machines[index].machine_index = (short)index;
+	server->client_machines[index].flags = FLAG(_network_client_machine_validated_bit) |
+		FLAG(_network_client_machine_level_loaded_bit) | FLAG(_network_client_machine_precached_bit) |
+		FLAG(_network_client_machine_virtual_bit);
+	network_game_server_kick_pending[index] = _kick_none;
+	network_game_server_hardware_ids[index][0] = 0;
+	network_game_server_client_machine_addresses[index] = address;
+	network_game_server_client_machine_datagram_ports[index] = 0;
+	network_game_server_client_machine_join_times[index] = system_milliseconds();
+	network_game_server_late_joiner_pick_times[index] = 0;
+	network_game_server_late_joiner_reply_times[index] = 0;
+	network_game_server_late_joiner_reply_due[index] = FALSE;
+	network_event("server added virtual machine #%ld to the game", index);
+	return index;
+}
+
+/* the virtual machine's player (controller 0): in the lobby at once, with
+the settings sent; in game queued, as a joining machine's player is, and
+every machine told once it is in. FALSE: not added (the game full) */
+boolean network_game_server_port_add_virtual_player(
+	long machine_index,
+	wchar_t const *name,
+	short primary_color_index)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_player player;
+
+	if (!network_game_server_port_machine_is_virtual(machine_index))
+		return FALSE;
+	csmemset(&player, 0, sizeof(player));
+	ustrncpy(player.name, name, NETWORK_PLAYER_NAME_LENGTH - 1);
+	player.name[NETWORK_PLAYER_NAME_LENGTH - 1] = 0;
+	player.primary_color_index = primary_color_index;
+	player.icon_index = NONE;
+	player.machine_index = (char)machine_index;
+	player.controller_index = 0;
+	player.team_index = NONE;
+	player.player_list_index = NONE;
+	if (network_game_server_lobby_is_open(server))
+	{
+		if (!network_game_server_add_player_to_game(server, &server->client_machines[machine_index], &player))
+			return FALSE;
+		if (!network_game_server_send_game_data_pregame(server))
+			network_event("server failed to send pregame game data for virtual machine #%ld", machine_index);
+		return TRUE;
+	}
+	if (network_game_server_get_state(server, NULL) == _network_game_server_state_ingame)
+	{
+		network_game_server_queue_player_for_addition(server, &player);
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/* the virtual machine out of the game, its player with it (every machine
+told it quit, in game; the lobby's settings sent again) */
+void network_game_server_port_remove_virtual_machine(
+	long machine_index)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	if (!network_game_server_port_machine_is_virtual(machine_index))
+		return;
+	network_event("server removes virtual machine #%ld from the game", machine_index);
+	if (!network_game_server_remove_machine_from_game(server, &server->game.machines[machine_index]))
+		network_game_server_remove_client_machine_from_game(server, &server->client_machines[machine_index]);
+	network_game_server_client_machine_addresses[machine_index] = 0;
+	network_game_server_kick_pending[machine_index] = _kick_none;
 }

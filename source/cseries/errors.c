@@ -64,6 +64,8 @@ symbols in this file:
 #include "interface/terminal.h"
 
 #include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 /* ---------- constants */
@@ -100,9 +102,14 @@ long fucked_up_shit_count = 0;
 
 /* ---------- public code */
 
+static void error_repeats_flush(
+	void);
+
 void errors_dispose(
 	void)
 {
+	/* (port: the repeats debug.txt hasn't been told yet) */
+	error_repeats_flush();
 	stack_walk_dispose();
 
 	return;
@@ -128,6 +135,108 @@ char *error_get(
 	void)
 {
 	return error_globals.message_buffer;
+}
+
+/* port: what stopped the game (errors.h) */
+static char error_halt_reason[256];
+static char error_halt_file[160];
+static long error_halt_line = 0;
+
+void error_halt_place_set(
+	char const *reason,
+	char const *file,
+	long line)
+{
+	long index;
+
+	for (index = 0; reason && reason[index] && index < (long)sizeof(error_halt_reason) - 1; index++)
+	{
+		error_halt_reason[index] = reason[index];
+	}
+	/* (a message's own line end left off) */
+	while (index > 0 && (error_halt_reason[index - 1] == '\r' || error_halt_reason[index - 1] == '\n'))
+	{
+		index--;
+	}
+	error_halt_reason[index] = 0;
+	for (index = 0; file && file[index] && index < (long)sizeof(error_halt_file) - 1; index++)
+	{
+		error_halt_file[index] = file[index];
+	}
+	error_halt_file[index] = 0;
+	error_halt_line = line;
+
+	return;
+}
+
+void error_halt_place_clear(
+	void)
+{
+	error_halt_place_set(NULL, NULL, 0);
+
+	return;
+}
+
+char const *error_halt_place(
+	char const **file,
+	long *line)
+{
+	if (file)
+	{
+		*file = error_halt_file;
+	}
+	if (line)
+	{
+		*line = error_halt_line;
+	}
+
+	return error_halt_reason;
+}
+
+/* port: debug.txt's drive: D:, the game's own folder. An Xbox whose D: is
+read-only (an emulator or XeFu running the game from its disc) writes to
+T: instead, the title's own folder on the hard disk; chosen at the first
+line, and every later file (debug.old.txt) goes on the same drive */
+static char debug_file_port_drive = 'd';
+
+static void debug_file_port_name(
+	char *path,
+	size_t size,
+	char const *name)
+{
+	snprintf(path, size, "%c:\\%s", debug_file_port_drive, name);
+}
+
+static FILE *debug_file_port_open(
+	char const *mode)
+{
+	char path[32];
+	FILE *file;
+
+	debug_file_port_name(path, sizeof(path), "debug.txt");
+	file = fopen(path, mode);
+#ifdef HALO_XBOX_CONSOLE
+	if (!file && debug_file_port_drive == 'd')
+	{
+		debug_file_port_drive = 't';
+		debug_file_port_name(path, sizeof(path), "debug.txt");
+		file = fopen(path, mode);
+		if (!file)
+			debug_file_port_drive = 'd';
+	}
+#endif
+	return file;
+}
+
+/* port: where debug.txt is now ("d:\\debug.txt", or T:'s), for the port's
+own lines (xbox_boot_log) */
+char const *error_log_path(
+	void)
+{
+	static char path[32];
+
+	debug_file_port_name(path, sizeof(path), "debug.txt");
+	return path;
 }
 
 #ifndef HALO_CONSOLE_LOG_BUFFER
@@ -192,7 +301,7 @@ static void write_to_debug_file(
 	file = debug_file_port;
 	if (!file)
 	{
-		file = fopen("d:\\debug.txt", "a+b");
+		file = debug_file_port_open("a+b");
 		if (!file)
 		{
 			__sync_lock_release(&debug_file_port_lock);
@@ -287,11 +396,15 @@ static void debug_file_port_write(
 	{
 		fclose(file);
 		debug_file_port = NULL;
-		remove("d:\\debug.old.txt");
-		/* (or, where it cannot be renamed, begun again in place) */
-		file = rename("d:\\debug.txt", "d:\\debug.old.txt") ?
-			fopen("d:\\debug.txt", "w+b") :
-			fopen("d:\\debug.txt", "a+b");
+		{
+			char path[32], old_path[32];
+
+			debug_file_port_name(path, sizeof(path), "debug.txt");
+			debug_file_port_name(old_path, sizeof(old_path), "debug.old.txt");
+			remove(old_path);
+			/* (or, where it cannot be renamed, begun again in place) */
+			file = rename(path, old_path) ? fopen(path, "w+b") : fopen(path, "a+b");
+		}
 		if (!file)
 		{
 			return;
@@ -343,7 +456,7 @@ void error_log_flush(
 	}
 	if (error_log_buffer_size > 0)
 	{
-		FILE *handle = fopen("d:\\debug.txt", "a+b");
+		FILE *handle = debug_file_port_open("a+b");
 
 		if (handle)
 		{
@@ -529,6 +642,107 @@ void errors_initialize(
 	return;
 }
 
+/* port: a line error() wrote moments ago, said again, is counted, not
+written. A script or a binding that errs every tick or frame wrote and
+flushed debug.txt each time, on whatever thread said it, which costs
+milliseconds a line on a slow card. The four
+latest lines are remembered, so two that alternate are held too; a line
+not seen for 5 seconds is written again. The repeats are told in a line
+of their own every 1000, and the rest when the line is written again,
+its place is taken by another, an EXCEPTION line comes or the game quits,
+so none goes uncounted. An EXCEPTION line is always written */
+static void error_repeats_told(
+	unsigned long repeats,
+	char const *text)
+{
+	char line[200];
+	size_t length = strcspn(text, "\r\n");
+
+	snprintf(line, sizeof(line), "(the line \"%.*s%s\" was said %lu more times)\r\n",
+		(int)MIN(length, 80), text, length > 80 ? "..." : "", repeats);
+	write_to_error_file(line, TRUE);
+
+	return;
+}
+
+enum
+{
+	ERROR_RECENT_LINES = 4
+};
+static struct
+{
+	unsigned long hash;
+	unsigned long repeats;
+	long seen;
+	char text[160];
+} error_recent_lines[ERROR_RECENT_LINES];
+
+/* (every held repeat not told yet, told now: before a line that stops the
+game, and as the game quits, so the last of them aren't lost) */
+static void error_repeats_flush(
+	void)
+{
+	int k;
+
+	for (k = 0; k < ERROR_RECENT_LINES; k++)
+	{
+		if (error_recent_lines[k].repeats % 1000)
+			error_repeats_told(error_recent_lines[k].repeats % 1000, error_recent_lines[k].text);
+		error_recent_lines[k].repeats = 0;
+	}
+
+	return;
+}
+
+static boolean error_repeat_held(
+	char const *string)
+{
+	static unsigned long next;
+	unsigned long hash = 2166136261UL;
+	long now = system_milliseconds();
+	char const *c;
+	int k;
+
+	/* (what stops the game is always written) */
+	if (!strncmp(string, "EXCEPTION", 9))
+	{
+		error_repeats_flush();
+		return FALSE;
+	}
+	for (c = string; *c; c++)
+		hash = (hash ^ (unsigned char)*c) * 16777619UL;
+	for (k = 0; k < ERROR_RECENT_LINES; k++)
+	{
+		if (error_recent_lines[k].hash == hash && strlen(string) < sizeof(error_recent_lines[k].text) &&
+			!strncmp(error_recent_lines[k].text, string, sizeof(error_recent_lines[k].text) - 1))
+		{
+			if ((unsigned long)(now - error_recent_lines[k].seen) < 5000)
+			{
+				error_recent_lines[k].seen = now;
+				if (++error_recent_lines[k].repeats % 1000 == 0)
+					error_repeats_told(1000, string);
+				return TRUE;
+			}
+			/* (not seen for 5 seconds: its last repeats told, and written) */
+			if (error_recent_lines[k].repeats % 1000)
+				error_repeats_told(error_recent_lines[k].repeats % 1000, string);
+			error_recent_lines[k].repeats = 0;
+			error_recent_lines[k].seen = now;
+			return FALSE;
+		}
+	}
+	k = (int)(next++ % ERROR_RECENT_LINES);
+	/* (the repeats of the line this slot held that no line has told yet) */
+	if (error_recent_lines[k].repeats % 1000)
+		error_repeats_told(error_recent_lines[k].repeats % 1000, error_recent_lines[k].text);
+	error_recent_lines[k].hash = hash;
+	error_recent_lines[k].repeats = 0;
+	error_recent_lines[k].seen = now;
+	strncpy(error_recent_lines[k].text, string, sizeof(error_recent_lines[k].text) - 1);
+	error_recent_lines[k].text[sizeof(error_recent_lines[k].text) - 1] = 0;
+	return FALSE;
+}
+
 void error(
 	short priority,
 	const char *format,
@@ -586,7 +800,8 @@ void error(
 			/* (port: the file first: printing used to halt on a long line
 			while this call still held the lock, and the reason never reached
 			debug.txt) */
-			write_to_error_file(string, TRUE);
+			if (!error_repeat_held(string))
+				write_to_error_file(string, TRUE);
 
 			/* (port: on screen as config.toml's game.console_log says: an
 			assert that stops the game, and what a command someone typed
@@ -657,6 +872,11 @@ void error(
 
 		if (priority == _error_immediate)
 		{
+			/* (port: the halt screen's reason) */
+			if (format)
+			{
+				error_halt_place_set(string, NULL, 0);
+			}
 			system_exit(-4998);
 		}
 		error_globals.recursion_lock = FALSE;

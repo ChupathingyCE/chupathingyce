@@ -102,6 +102,7 @@ void team_change_host_set(int policy, int margin);
 void host_rules_set_player_names(boolean allowed);
 void host_rules_set_follow_camera(boolean allowed);
 void host_rules_set_late_join_hold(boolean wait);
+void host_rules_set_air_turn_aim(boolean fixed);
 #ifdef HALO_SERVER
 /* (the shared ban lists', server_bans.h) */
 void server_bans_set_sharing(int sharing);
@@ -451,9 +452,9 @@ static void initialize(
 		dedicated.minimum_players = 1;
 	if (dedicated.minimum_players > HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
 		dedicated.minimum_players = HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
-	/* (12 unless set) */
+	/* (16 unless set: retail's system link and Halo PC's most) */
 	dedicated.maximum_players = setting_number("HALO_DEDICATED_MAXIMUM_PLAYERS", &settings,
-		SERVER_SETTING_MAXIMUM_PLAYERS, 12);
+		SERVER_SETTING_MAXIMUM_PLAYERS, 16);
 	if (dedicated.maximum_players > HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
 		dedicated.maximum_players = HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
 	if (dedicated.maximum_players < dedicated.minimum_players)
@@ -680,6 +681,20 @@ static void initialize(
 		host_rules_set_late_join_hold(on);
 		if (on)
 			error(_error_silent, "dedicated: players who join a game in progress wait for the next game");
+	}
+	/* shots fired while turned in mid-air (the 180 glitch): the Xbox's
+	unless true, 1, yes or on */
+	{
+		char const *fix = getenv("HALO_DEDICATED_AIR_TURN_AIM");
+		boolean on;
+
+		if (fix && fix[0])
+			on = !_stricmp(fix, "true") || !strcmp(fix, "1") || !_stricmp(fix, "yes") || !_stricmp(fix, "on");
+		else
+			on = settings.set[SERVER_SETTING_AIR_TURN_AIM] && settings.values[SERVER_SETTING_AIR_TURN_AIM];
+		host_rules_set_air_turn_aim(on);
+		if (on)
+			error(_error_silent, "dedicated: shots fired while turned in mid-air go where the player aims");
 	}
 #ifdef HALO_SERVER
 	{

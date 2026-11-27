@@ -19,9 +19,6 @@ from .ninja_syntax import Writer
 from .version import VERSION_SOURCES, identity_defines, release_build, version
 
 PORT_DIR = Path("port/linux")
-# the halo that starts chupathingy, beside it in the Linux and FreeBSD builds
-# (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
-RENAME_STUB_SCRIPT = Path("port/rename_stub/halo.sh")
 PORT_CONFIG = PORT_DIR / "port.json"
 # the Xbox SDK declarations the game and the platform layer use, in place of
 # the SDK's headers (port/include/xdk/README.md)
@@ -123,6 +120,24 @@ TOML_DIR = Path("port/third_party/tomlc17")
 EXPAT_DIR = Path("port/third_party/expat")
 EXPAT_SOURCES = ("xmlparse.c", "xmlrole.c", "xmltok.c")
 KCP_DIR = Path("port/third_party/kcp")
+# mods' Lua scripts for Chimera's Lua API (port/linux/game/lua_scripting.c):
+# the desktop builds' (HALO_LUA), not the consoles', Android's or the
+# dedicated server's
+LUA_DIR = Path("port/third_party/lua")
+LUA_DEFINES = ["-DHALO_LUA"]
+# (after everything else, so that "../../" from it finds none of the game's
+# headers (#1702's review: mcc_vorbis.c on macOS). A system Lua's lua.h,
+# which may be another version, as Lua 5.5's in /usr/include, would come
+# first that way: the game's units include the bundled headers by their
+# path, port/linux/game/lua_internal.h, lua_scripting.c)
+LUA_INCLUDE = f"-idirafter {LUA_DIR}"
+
+
+def lua_sources() -> List[Path]:
+    """the Lua library's sources (port/third_party/lua, without an interpreter)"""
+    return sorted(LUA_DIR.glob("*.c"))
+
+
 # Link Profile's QR code (port/linux/src/browser.c)
 QRCODEGEN_DIR = Path("port/third_party/qrcodegen")
 MONOCYPHER_DIR = Path("port/third_party/monocypher")
@@ -152,6 +167,42 @@ LZMA_DIR = Path("port/third_party/lzma")
 # the self-updater's TLS (port/linux/src/posix_update.c)
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
 STB_DIR = Path("port/third_party/stb")
+# the ragdolls' physics (port/linux/game/ragdolls.c, display.ragdolls): Jolt
+# Physics (port/third_party/jolt, MIT, C++17) and its C face
+# (port/linux/game/physics_jolt.cpp), native objects with the host's own C++
+# ABI, the game's units built with HALO_JOLT. Every unit Jolt's own build lists
+# (Jolt/Jolt.cmake), with its defaults: no debug renderer, profiler, object
+# streams or asserts; one thread (JobSystemSingleThreaded, the C face's).
+# Left out: its thread pool and its state recorder, which nothing here uses
+# and which would link the C++ library's threads and streams (its locales
+# call glibc's wide character functions, which linux_link_check.py rejects)
+JOLT_DIR = Path("port/third_party/jolt")
+JOLT_LEFT_OUT = ("Core/JobSystemThreadPool.cpp", "Physics/StateRecorderImpl.cpp")
+JOLT_DEFINES = ["-DNDEBUG", "-DHALO_JOLT"]
+# (C++17, no exceptions or run-time types, as Jolt builds; the same floating
+# point as the rest, no fused multiply-adds; the C++ library's threads'
+# functions called, not weak: the link check rejects weak references no
+# object defines)
+JOLT_CXX_FLAGS = ["-std=c++17", OPTIMISATION, "-g", "-fno-rtti", "-fno-exceptions", "-ffp-contract=off",
+                  "-fno-strict-aliasing", "-D_GLIBCXX_GTHREAD_USE_WEAK=0", "-w"]
+
+
+def jolt_sources() -> List[Path]:
+    """Jolt's units as its own build lists them (Jolt/Jolt.cmake's
+    JOLT_PHYSICS_SRC_FILES), and the C face"""
+    text = (JOLT_DIR / "Jolt" / "Jolt.cmake").read_text(encoding="utf-8")
+    block = text[text.index("set(JOLT_PHYSICS_SRC_FILES"):]
+    block = block[:block.index("\n)")]
+    units = [line.strip().replace("${JOLT_PHYSICS_ROOT}/", "") for line in block.splitlines()
+             if line.strip().endswith(".cpp")]
+    return [JOLT_DIR / "Jolt" / unit for unit in units if unit not in JOLT_LEFT_OUT] + [PORT_DIR / "game" / "physics_jolt.cpp"]
+
+
+def jolt_cflags(target: Sequence[str]) -> str:
+    """the flags Jolt and its C face build with, for the target's flags"""
+    return " ".join([*target, *JOLT_CXX_FLAGS, *JOLT_DEFINES, f"-I{JOLT_DIR}"])
+
+
 # internet play's UPnP (port/linux/src/posix_upnp.c)
 MINIUPNPC_DIR = Path("port/third_party/miniupnpc")
 # miniupnpc's own build's definitions (its Makefile), and a static library
@@ -585,6 +636,11 @@ class Linux32Units:
     # the instruction set, in place of march_flag's x86 one (a 32-bit ARM
     # console's: the Steam Link's)
     instruction_set: Optional[List[str]] = None
+    # mods' Lua scripts (LUA_DEFINES): the desktop build's, not the server's
+    lua: bool = False
+    # the ragdolls' Jolt Physics (JOLT_DEFINES): the desktop build's, not the
+    # server's
+    jolt: bool = False
 
 
 # the ABI flags only x86 has, which clang rejects for another target: the
@@ -621,7 +677,9 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     abi = " ".join(_retarget(LINUX_ABI_FLAGS, units.target_flags) + target
                    + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
                    + browser_defines + CUSTOM_EDITION_DEFINES + MODS_DEFINES + COMPRESSED_MAP_DEFINES + units.extra_flags
-                   + units.ffmpeg[0])
+                   + units.ffmpeg[0]
+                   + ([*LUA_DEFINES, LUA_INCLUDE] if units.lua else [])
+                   + (["-DHALO_JOLT"] if units.jolt else []))
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
     posix_flags = _retarget(POSIX_FLAGS, units.target_flags)
@@ -752,6 +810,10 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         add_object(EXPAT_DIR / name, " ".join([abi, "-std=gnu11", f"-I{EXPAT_DIR}", "-w"]))
     # internet play's reliable streams (port/third_party/kcp; p2p.c)
     add_object(KCP_DIR / "ikcp.c", " ".join([abi, "-std=gnu11", "-w"]))
+    # mods' Lua scripts' Lua (port/third_party/lua; lua_scripting.c)
+    if units.lua:
+        for source in lua_sources():
+            add_object(source, " ".join([abi, "-std=gnu11", f"-I{LUA_DIR}", "-w"]))
     # Link Profile's QR code (port/third_party/qrcodegen; browser.c)
     add_object(QRCODEGEN_DIR / "qrcodegen.c", " ".join([abi, "-std=gnu11", "-w"]))
     # internet play's signatures, for public games' listings
@@ -772,6 +834,13 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     # (port/include/halo_math.h)
     for source in musl_math_sources():
         add_object(source, musl_math_cflags(abi))
+    # the ragdolls' Jolt Physics, with the host's ABI as the posix_*.c (no
+    # -malign-double, no short wchar_t): the C face takes no double, long or
+    # structure by value (physics_jolt.h)
+    if units.jolt:
+        jolt_flags = jolt_cflags([*units.target_flags, "-fno-pic", *target, "-msse2", "-mfpmath=sse"])
+        for source in jolt_sources():
+            add_object(source, jolt_flags, posix=True)
     return objects
 
 
@@ -883,11 +952,14 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     sdl_outputs = [build_dir / sdl.libsdl.name, sdl.license] if sdl else []
 
     libs = " ".join(f"-l{lib}" for lib in config.get("libraries", []))
-    libs = " ".join([libs, *ffmpeg_libs]).strip()
+    # (Jolt's use of the C++ library linked in, from the system root's GCC
+    # 10 in a portable build: a player's system needs no 32-bit libstdc++)
+    libs = " ".join(["-l:libstdc++.a", libs, *ffmpeg_libs]).strip()
     units = Linux32Units(sln=sln, config=config, game_browser=getattr(sln, "game_browser", False),
                          semantics_header=semantics_header, platform_semantics_header=platform_semantics_header,
                          embedded_assets=embedded_assets, sysroot_flags=sysroot_cflags,
-                         ffmpeg=(ffmpeg_cflags, ffmpeg_libs),
+                         ffmpeg=(ffmpeg_cflags, ffmpeg_libs), lua=True,
+                         jolt=getattr(sln, "with_ragdolls", True),
                          # configure.py --window-rebase: the memory window wherever
                          # HALO_WINDOW_BASE puts it (source/cseries/xbox_address.h), to
                          # test on the desktop what the Switch needs; never a build to ship
@@ -973,9 +1045,5 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule="linux_copy", inputs=Path("port/assets/network/brokers.txt"))
-    # halo, which starts chupathingy, for what started the game by its old
-    # name (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
-    stub = build_dir / "halo"
-    n.build(outputs=stub, rule="linux_copy", inputs=RENAME_STUB_SCRIPT)
-    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator, stub, *sdl_outputs])
+    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator, *sdl_outputs])
     n.newline()

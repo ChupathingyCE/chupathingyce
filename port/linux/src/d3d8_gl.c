@@ -63,6 +63,8 @@ static void prep_present(void);
 d3d8_bgfx.inl, at the end of this file, which shares the device's state) */
 static BOOL bg_initialize(void);
 static BOOL bg_active(void);
+static BOOL bg_anti_alias_prepare(BOOL smaa);
+static void bg_anti_alias(BOOL smaa, short x0, short y0, short x1, short y1);
 static void bg_draw_vertices(D3DPRIMITIVETYPE type, unsigned long start, unsigned long count);
 static void bg_draw_indexed(D3DPRIMITIVETYPE type, unsigned long count, const WORD *indices);
 static void bg_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count);
@@ -129,6 +131,9 @@ void d3d8_surface_resize(D3DSurface *surface, D3DFORMAT format, unsigned long wi
 /* port/linux/game/stats_log.c: display.stats_log's line names the renderer the
 driver reports, once the context exists (gl_initialize below) */
 void stats_log_set_renderer(const char *vendor, const char *renderer);
+/* and its shown=, a frame that went to the window (bgfx's and the Android
+Vulkan renderer's presents; OpenGL's swap is sdl_platform.c's) */
+void stats_log_frame_shown(void);
 
 #ifdef HALO_GL_ES
 /* OpenGL ES 3 (port/android/README.md): the desktop formats, enumerants
@@ -257,46 +262,15 @@ static void anti_aliasing_read(void)
 {
 	const char *setting = config_string("display.anti_aliasing");
 	int value;
-#ifdef HALO_BGFX
-	BOOL mapped = FALSE;
-#endif
 
 	for (value = NUMBER_OF_ANTI_ALIASING_VALUES - 1;
 		value > 0 && strcmp(setting, anti_aliasing_values[value].name);
 		value--)
 	{
 	}
-#ifdef HALO_BGFX
-	/* the bgfx test backend has multisampling only: FXAA, SMAA and
-	supersampling become 2x MSAA, said once */
-	if (xgpu_bgfx && (anti_aliasing_values[value].mode == _anti_aliasing_fxaa ||
-		anti_aliasing_values[value].mode == _anti_aliasing_smaa ||
-		anti_aliasing_values[value].mode == _anti_aliasing_ssaa))
-	{
-		static BOOL said;
-		int msaa;
-
-		for (msaa = 0; anti_aliasing_values[msaa].mode != _anti_aliasing_msaa; msaa++)
-		{
-		}
-		if (!said)
-			platform_log("anti-aliasing: %s is not in the bgfx renderer yet, so %s", setting,
-				anti_aliasing_values[msaa].name);
-		said = TRUE;
-		value = msaa;
-		mapped = TRUE;
-	}
-#endif
 	if (value == anti_aliasing_value)
 		return;
 	anti_aliasing_value = value;
-#ifdef HALO_BGFX
-	if (mapped)
-	{
-		anti_aliasing_prepare();
-		return;
-	}
-#endif
 	if (strcmp(setting, anti_aliasing_values[value].name))
 		platform_log("anti-aliasing: \"%s\" is unknown, so off", setting);
 	else
@@ -965,6 +939,14 @@ with the old one two frames later, so these stay small. */
 #define STREAM_BUFFER_SIZE (32 * 1024 * 1024)
 #define INDEX_BUFFER_SIZE (8 * 1024 * 1024)
 #endif
+#if !defined(HALO_GL_ES) && !defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_CONSOLE) && \
+	!defined(HALO_SWITCH_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_SERVER)
+/* display.gl_buffer_ring (the desktop builds): the stream and index buffers
+as a ring of this many, each reused once a fence says the GPU is done with
+it */
+#define DESKTOP_BUFFER_RING 3
+static BOOL buffer_ring_sync_look_up(void);
+#endif
 #define VISIBILITY_TEST_SLOTS 4096
 /* the copies of visibility counts the GPU may still be making (more are
 dropped, oldest first: their slots keep the numbers they had) */
@@ -1029,6 +1011,14 @@ struct gl_device
 	GLuint stream_buffers[STREAM_BUFFER_RING];
 	GLuint index_buffers[STREAM_BUFFER_RING];
 	unsigned long buffer_ring;
+#elif defined(DESKTOP_BUFFER_RING)
+	/* (display.gl_buffer_ring) */
+	BOOL buffer_ring_on;
+	GLuint stream_rings[DESKTOP_BUFFER_RING];
+	GLuint index_rings[DESKTOP_BUFFER_RING];
+	GLsync stream_fences[DESKTOP_BUFFER_RING];
+	GLsync index_fences[DESKTOP_BUFFER_RING];
+	unsigned long stream_ring, index_ring;
 #endif
 	unsigned long stream_offset;
 	GLuint index_buffer;
@@ -2367,12 +2357,35 @@ static void gl_initialize(void)
 	}
 #endif
 #ifndef HALO_GL_ES
+#ifdef DESKTOP_BUFFER_RING
+	device.buffer_ring_on = config_boolean("display.gl_buffer_ring") && buffer_ring_sync_look_up();
+	if (device.buffer_ring_on)
+	{
+		int ring;
+
+		glGenBuffers(DESKTOP_BUFFER_RING, device.stream_rings);
+		glGenBuffers(DESKTOP_BUFFER_RING, device.index_rings);
+		for (ring = 0; ring < DESKTOP_BUFFER_RING; ring++)
+		{
+			glBindBuffer(GL_ARRAY_BUFFER, device.stream_rings[ring]);
+			glBufferData(GL_ARRAY_BUFFER, STREAM_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, device.index_rings[ring]);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, INDEX_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
+		}
+		device.stream_buffer = device.stream_rings[0];
+		device.index_buffer = device.index_rings[0];
+		platform_log("renderer: stream buffers in a ring of %d (display.gl_buffer_ring)", DESKTOP_BUFFER_RING);
+	}
+	else
+#endif
+	{
 	glGenBuffers(1, &device.stream_buffer);
 	glBindBuffer(GL_ARRAY_BUFFER, device.stream_buffer);
 	glBufferData(GL_ARRAY_BUFFER, STREAM_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
 	glGenBuffers(1, &device.index_buffer);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, device.index_buffer);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, INDEX_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
+	}
 #endif
 	glGenSamplers(D3DTSS_MAXSTAGES, device.samplers);
 	visibility_queries_create();
@@ -2532,6 +2545,18 @@ static void anti_aliasing_prepare(void)
 {
 	int mode;
 
+#ifdef HALO_BGFX
+	/* (bgfx's passes, d3d8_bgfx.inl; its multisampling is its targets',
+	bg_screen_samples) */
+	if (bg_active())
+	{
+		mode = anti_aliasing_value < 0 ? _anti_aliasing_off : anti_aliasing_values[anti_aliasing_value].mode;
+		if ((mode == _anti_aliasing_fxaa || mode == _anti_aliasing_smaa) &&
+			!bg_anti_alias_prepare(mode == _anti_aliasing_smaa))
+			platform_log("anti-aliasing: its programs do not build, so the 3D view is not antialiased");
+		return;
+	}
+#endif
 	if (!device.gl_ready || anti_aliasing_value < 0)
 		return;
 	mode = anti_aliasing_values[anti_aliasing_value].mode;
@@ -3024,7 +3049,14 @@ HRESULT WINAPI D3DDevice_GetDepthStencilSurface(D3DSurface **result)
 	return S_OK;
 }
 
+#ifdef HALO_CONSOLE_NO_GPU_TRACE
+/* (the trace of a frame's draws, debug.gpu_trace_frame: a developer's tool,
+left out of a console's build without them) */
+#define trace_frame() FALSE
+#define trace_draw(kind, type, count, first_vertex) ((void)0)
+#else
 static BOOL trace_frame(void);
+#endif
 
 void WINAPI D3DDevice_SetRenderTarget(D3DSurface *render_target, D3DSurface *depth_stencil)
 {
@@ -4582,7 +4614,11 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 					(const D3DCOLOR *)PLATFORM_PHYSICAL_TO_VIRTUAL(device.palettes[stage]->Data) : NULL;
 
 				gl_texture = xgpu_texture_get((const DWORD *)texture, palette, &gl_target, &description);
-				if (description.linear)
+				/* port: a Halo PC map's linear bitmap is sampled as Halo PC samples every
+				texture, its coordinates 0 to 1 (the game's draws of its bitmaps give
+				them so: xbox_texture_cache.c's D3DCOMMON_PORT_PC_LAYOUT); the Xbox's own
+				linear textures by texel */
+				if (description.linear && !(texture->Common & D3DCOMMON_PORT_PC_LAYOUT))
 				{
 					texture_scale[stage][0] = 1.0f / (float)description.width;
 					texture_scale[stage][1] = 1.0f / (float)description.height;
@@ -5261,6 +5297,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 
 /* ---------- tracing (debug.gpu_trace_frame) */
 
+#ifndef HALO_CONSOLE_NO_GPU_TRACE
 static BOOL trace_frame(void)
 {
 	static long frame = -2;
@@ -5272,11 +5309,12 @@ static BOOL trace_frame(void)
 
 static void trace_draw(const char *kind, D3DPRIMITIVETYPE type, unsigned long count, const float *first_vertex)
 {
-	struct vertex_shader_object *program = current_program();
+	struct vertex_shader_object *program;
 	DWORD *rs = D3D__RenderState;
 
 	if (!trace_frame())
 		return;
+	program = current_program();
 	platform_log("%s type %d count %lu vs %lu (decl %lu) vp %lu,%lu %lux%lu z%.2f-%.2f zen %lu zw %lu zf %lx blend %lu %lx/%lx cull %lx cw %08lx tm %05lx cc %lx fin %08lx/%08lx at %lu/%lx",
 		kind, type, count, program ? program->id : 0, device.vertex_shader ? device.vertex_shader->id : 0,
 		device.viewport.X, device.viewport.Y, device.viewport.Width, device.viewport.Height,
@@ -5353,6 +5391,7 @@ static void trace_draw(const char *kind, D3DPRIMITIVETYPE type, unsigned long co
 		}
 	}
 }
+#endif
 
 
 /* Mesa's GL thread queues a glBufferSubData of up to 8 KB; a larger one
@@ -5680,13 +5719,65 @@ static void buffer_append(GLenum target, unsigned long offset, unsigned long siz
 }
 #endif
 
+#ifdef DESKTOP_BUFFER_RING
+/* display.gl_buffer_ring: the next of a ring of stream (or index) buffers,
+once the GPU is done with it. Orphaning a full buffer, as each frame does,
+asks the driver for new storage every time (40 MB a frame here), the old
+kept until the GPU lets it go; with the GPU's memory full, Mesa crashed in
+that glBufferData. The ring allocates nothing after the device is made.
+The fences are OpenGL 3.2's, looked up here alone (gl.h's list is every
+build's, the consoles' layers too) */
+typedef GLsync (GLAPIENTRY *buffer_ring_fence_sync_proc)(GLenum condition, GLbitfield flags);
+typedef GLenum (GLAPIENTRY *buffer_ring_client_wait_sync_proc)(GLsync sync, GLbitfield flags, GLuint64 timeout);
+typedef void (GLAPIENTRY *buffer_ring_delete_sync_proc)(GLsync sync);
+
+static struct
+{
+	buffer_ring_fence_sync_proc fence_sync;
+	buffer_ring_client_wait_sync_proc client_wait_sync;
+	buffer_ring_delete_sync_proc delete_sync;
+} buffer_ring_sync;
+
+static BOOL buffer_ring_sync_look_up(void)
+{
+	buffer_ring_sync.fence_sync = (buffer_ring_fence_sync_proc)gl_function_extra("glFenceSync");
+	buffer_ring_sync.client_wait_sync = (buffer_ring_client_wait_sync_proc)gl_function_extra("glClientWaitSync");
+	buffer_ring_sync.delete_sync = (buffer_ring_delete_sync_proc)gl_function_extra("glDeleteSync");
+	if (buffer_ring_sync.fence_sync && buffer_ring_sync.client_wait_sync && buffer_ring_sync.delete_sync)
+		return TRUE;
+	platform_log("renderer: no fences, so no buffer ring (display.gl_buffer_ring): the buffers are orphaned");
+	return FALSE;
+}
+
+static void buffer_ring_next(GLuint const *buffers, GLsync *fences, unsigned long *ring, GLuint *active)
+{
+	fences[*ring] = buffer_ring_sync.fence_sync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+	*ring = (*ring + 1) % DESKTOP_BUFFER_RING;
+	if (fences[*ring])
+	{
+		/* (a second at most: a lost context must not hang the game) */
+		buffer_ring_sync.client_wait_sync(fences[*ring], GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ULL);
+		buffer_ring_sync.delete_sync(fences[*ring]);
+		fences[*ring] = 0;
+	}
+	*active = buffers[*ring];
+}
+#endif
+
 static void stream_reserve(unsigned long size)
 {
 	if (device.stream_offset + size > STREAM_BUFFER_SIZE)
 	{
+#ifdef DESKTOP_BUFFER_RING
+		if (device.buffer_ring_on)
+			buffer_ring_next(device.stream_rings, device.stream_fences, &device.stream_ring, &device.stream_buffer);
+		else
+#endif
+		{
 		/* orphan the buffer and start again */
 		state_array_buffer(device.stream_buffer);
 		glBufferData(GL_ARRAY_BUFFER, STREAM_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
+		}
 		device.stream_offset = 0;
 	}
 }
@@ -5763,6 +5854,13 @@ static unsigned long index_upload(const void *data, unsigned long size)
 	unsigned long length = size;
 
 	size = (size + 15) & ~15UL;
+#ifdef DESKTOP_BUFFER_RING
+	if (device.buffer_ring_on && device.index_offset + size > INDEX_BUFFER_SIZE)
+	{
+		buffer_ring_next(device.index_rings, device.index_fences, &device.index_ring, &device.index_buffer);
+		device.index_offset = 0;
+	}
+#endif
 	state_element_array_buffer(device.index_buffer);
 	if (device.index_offset + size > INDEX_BUFFER_SIZE)
 	{
@@ -6536,6 +6634,15 @@ void halo_screen_anti_alias(short x0, short y0, short x1, short y1)
 	GLint corners[4];
 	int mode = anti_aliasing();
 
+#ifdef HALO_BGFX
+	/* (bgfx's: passes of its own, d3d8_bgfx.inl) */
+	if (bg_active())
+	{
+		if (mode == _anti_aliasing_fxaa || mode == _anti_aliasing_smaa)
+			bg_anti_alias(mode == _anti_aliasing_smaa, x0, y0, x1, y1);
+		return;
+	}
+#endif
 	if (!device.gl_ready || (mode != _anti_aliasing_fxaa && mode != _anti_aliasing_smaa))
 		return;
 	/* (the primary target's view: the back buffer's) */
@@ -7665,7 +7772,9 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		device.stream_offset = 0;
 		device.index_offset = 0;
 #else
-		device.stream_offset = STREAM_BUFFER_SIZE; /* orphan next frame */
+		/* orphan next frame (or, with display.gl_buffer_ring, the ring's
+		next) */
+		device.stream_offset = STREAM_BUFFER_SIZE;
 		device.index_offset = INDEX_BUFFER_SIZE;
 #endif
 	}
@@ -7698,7 +7807,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 			stats_busy_total += busy;
 			if (busy > stats_busy_worst)
 				stats_busy_worst = busy;
-			char account[256] = "";
+			char account[384] = "";
 
 #ifdef HALO_BGFX
 			if (bg_active())
@@ -7784,3 +7893,5 @@ HRESULT WINAPI D3DDevice_PersistDisplay(void)
 #ifdef HALO_SHADER_PREP
 #include "d3d8_shader_prep.inl"
 #endif
+/* OpenSauce maps' post-processing (port/linux/game/opensauce_postprocess.c) */
+#include "opensauce_postprocess_gl.inl"

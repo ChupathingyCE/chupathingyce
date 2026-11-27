@@ -417,6 +417,16 @@ void update_server_next_update(
 	if (game_connection() == _game_connection_network_server)
 	{
 		update_server_take_local_actions();
+#ifdef HALO_SERVER
+		/* port: a dedicated server's Custom Edition players' actions, each
+		from its client, taken as a client machine's player's are
+		(update_server_handle_distributed_input: server/src/server_ce.c) */
+		{
+			void server_ce_take_actions(long update_number);
+
+			server_ce_take_actions(update_number);
+		}
+#endif
 	}
 	update = update_server_get_update(update_number);
 	match_assert(

@@ -2863,6 +2863,17 @@ boolean browser_screen_create_game(
 	return ui_widget_online_games_create_game();
 }
 
+/* the Multiplayer menu's ONLINE CO-OP (menu_functions.c's
+pc_menus_coop_online): Create Game, as Y makes one, from ONLINE CO-OP */
+boolean browser_screen_create_coop_game(
+	void)
+{
+	boolean ui_widget_online_games_create_coop_game(void);
+
+	join_first_player();
+	return ui_widget_online_games_create_coop_game();
+}
+
 /* the selection moved by move games, kept on the list */
 static void step(
 	short move)
@@ -3048,6 +3059,18 @@ boolean browser_screen_debug_game(
 	snprintf(text, (size_t)size, "map %s, shown as %s [%s], version %u, join: %s", game->map,
 		game_map_display_name(game, name, sizeof(name)), ce_map_ask_host(game) ? "no tag" : family_badge_tag(family, game->map),
 		(unsigned)game->version, blocker);
+	return TRUE;
+}
+
+/* (the server monitor, net_monitor.c) the screen's index'th game as the
+screen lists it; FALSE past the last */
+boolean browser_screen_debug_listing(
+	long index,
+	struct browser_game *game)
+{
+	if (index < 0 || index >= browser_screen.count)
+		return FALSE;
+	*game = browser_screen.games[index];
 	return TRUE;
 }
 

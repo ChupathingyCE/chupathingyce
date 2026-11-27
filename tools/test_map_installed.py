@@ -25,6 +25,12 @@ from test_ce_resource_maps import (CUSTOM_EDITION, HARNESS, STUB_CSERIES, STUB_W
 STAND_INS = HARNESS[:HARNESS.index("int main(")]
 MAIN = r"""
 #include "halo_map_packs.h"
+#include "spv3_mode.h"
+/* (SPV3 mode, spv3_mode.c, not in the harness: always off) */
+boolean spv3_mode_active(void) { return FALSE; }
+boolean spv3_mode_pack_present(char const *pack) { (void)pack; return FALSE; }
+boolean spv3_mode_map_path(char const *file, char *path, long size) { (void)file; (void)path; (void)size; return FALSE; }
+void spv3_mode_log(char const *format, ...) { (void)format; }
 /* (the packs' folders: maps_<pack>, as a pack named for its folder has it) */
 boolean map_pack_file_path(char const *pack, char const *file, char *path, long size)
 {
@@ -82,10 +88,11 @@ def binaries(tmp_path_factory):
         (stubs / "installed.inc").write_text(installed)
         for file in ("cseries.h", "cseries/cseries_windows.h", "harness.c", "installed.inc"):
             rewrite(stubs / file, work / file)
-        for file in ("halo_map_families.h", "halo_join_reasons.h", "halo_map_packs.h"):
+        for file in ("halo_map_families.h", "halo_join_reasons.h", "halo_map_packs.h", "spv3_mode.h"):
             rewrite(ROOT / "port/linux/include" / file, work / file)
         rewrite(ROOT / "port/linux/game/map_families.c", work / "game/map_families.c")
-        rewrite(ROOT / "port/linux/game/map_stock_pairs.h", work / "game/map_stock_pairs.h")
+        for file in ("map_stock_pairs.h", "content_resource_map.h", "content_bytes.h"):
+            rewrite(ROOT / "port/linux/game" / file, work / "game" / file)
         for file in ("map_archive.h", "map_file_hash.h"):
             rewrite(ROOT / "port/linux/src" / file, work / "src" / file)
         binary = work / "installed"

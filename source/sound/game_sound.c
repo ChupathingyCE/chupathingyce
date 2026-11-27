@@ -537,6 +537,10 @@ void scripted_sound_new(
 	real_point3d position;
 	long impulse_sound_index;
 
+	/* port: a source object deleted since the script had it is none, as
+	if none were given (#1861) */
+	if (!object_try_and_get(source_object_index))
+		source_object_index = NONE;
 	if (definition_index != NONE)
 	{
 		network_coop_note_sound(_coop_sound_impulse, definition_index, source_object_index, scale);
@@ -768,6 +772,10 @@ void scripted_looping_sound_start(
 	long looping_sound_index;
 	struct game_looping_sound_datum *looping_sound;
 
+	/* port: a source object deleted since the script had it is none, as
+	if none were given (#1861) */
+	if (!object_try_and_get(source_object_index))
+		source_object_index = NONE;
 	if (sound_index != NONE)
 	{
 		definition = looping_sound_definition_get(sound_index);
@@ -953,6 +961,24 @@ static long obstruction_cache_slot(
 }
 #endif
 
+/* port: whether both clusters are the current structure BSP's (see
+compute_sound_obstruction) */
+static boolean sound_obstruction_clusters_valid(
+	short source_cluster_index,
+	short camera_cluster_index)
+{
+	short cluster_count = global_structure_bsp_get()->clusters.count;
+	boolean valid = source_cluster_index < cluster_count &&
+		camera_cluster_index < cluster_count;
+
+	match_warn(
+		"c:\\halo\\SOURCE\\sound\\game_sound.c",
+		888,
+		valid);
+
+	return valid;
+}
+
 void compute_sound_obstruction(
 	short local_player_index,
 	struct sound_source *source,
@@ -990,8 +1016,17 @@ void compute_sound_obstruction(
 		887,
 		source->spatialization_mode==_sound_spatialization_mode_absolute);
 
+	/* port: and both clusters the structure BSP's. A sound whose location
+	still names a cluster of the structure before a switch would be looked
+	up past the end of the cluster sound distances and PVS (a halt in a
+	debug build). It is muffled as a sound with no cluster until its
+	location is made again; sound_reconnect_to_structure_bsp makes the
+	locations again, and a debug build notes a sound it missed */
 	if (source->location.game_location.cluster_index != NONE &&
-		camera->location.cluster_index != NONE)
+		camera->location.cluster_index != NONE &&
+		sound_obstruction_clusters_valid(
+			source->location.game_location.cluster_index,
+			camera->location.cluster_index))
 	{
 		struct structure_bsp *structure_bsp = global_structure_bsp_get();
 		byte encoded_distance = structure_bsp_get_cluster_encoded_sound_distance(
@@ -1010,13 +1045,30 @@ void compute_sound_obstruction(
 				source->location.game_location.cluster_index))
 			{
 				real_vector3d listener_to_source;
+#ifndef HALO_CONSOLE_COLLISION_CACHES
 				struct collision_result collision;
+#endif
 
 				source->obstruction = 0.45f;
 				vector_from_points3d(
 					&camera->position,
 					&source->location.position,
 					&listener_to_source);
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+				/* port: only whether the ray meets anything counts: the test
+				stops at the first thing it meets, and a ray asked again keeps
+				its structure test (collisions.c) */
+				if (!collision_test_vector_obstructed(
+					FLAG(_collision_test_front_facing_surfaces_bit) |
+						FLAG(_collision_test_structure_bit) |
+						FLAG(_collision_test_media_bit) |
+						FLAG(_collision_test_objects_bit) |
+						FLAG(_collision_test_objects_scenery_bit) |
+						FLAG(_collision_test_objects_machines_bit),
+					&camera->position,
+					&listener_to_source,
+					NONE))
+#else
 				if (!collision_test_vector(
 					FLAG(_collision_test_front_facing_surfaces_bit) |
 						FLAG(_collision_test_structure_bit) |
@@ -1028,6 +1080,7 @@ void compute_sound_obstruction(
 					&listener_to_source,
 					NONE,
 					&collision))
+#endif
 				{
 					source->obstruction = 0.0f;
 					source->occlusion = 0.0f;

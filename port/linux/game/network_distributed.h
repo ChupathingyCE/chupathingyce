@@ -123,9 +123,9 @@ enum
 	a client when it has loaded and once each game: 12 bytes, the header and
 	a 16-bit value (0 stock to 6, 6 each machine's own look from version
 	38) and 16 bits of 0, network_rules.c. 91 as in OpenCE's network version
-	36; a client takes and keeps it, and draws stock, the one this build has
-	(network_shield_effects). A host announcing 36 or later sends it: stock,
-	or from 38 each machine's own (6) */
+	36; a client takes and keeps it, and draws stock, the one this build
+	has. A host announcing 36 or later sends it: stock, or from 38 each
+	machine's own (6) */
 	_distributed_message_shield_effects = 91,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
@@ -149,9 +149,11 @@ tick, drawn as it goes; further, it is put there, drawn gliding
 #define HOST_VEHICLE_BLEND_DISTANCE 0.5f
 #define REMOTE_BLEND_DISTANCE 1.0f
 /* world units: how far a remote unit may be from where the host says
-before it is put there, and how far from the origin a unit can be */
+before it is put there, and how far from the origin a unit can be (the
+world's, as the camera that follows it has it: observer.c's
+valid_world_real) */
 #define REMOTE_CORRECTION_TOLERANCE 0.05f
-#define UNIT_WORLD_BOUND 32768.0f
+#define UNIT_WORLD_BOUND 5000.0f
 #define REMOTE_VEHICLE_BLEND_DISTANCE 2.0f
 
 enum
@@ -237,7 +239,10 @@ boolean distributed_player_is_local(long player_index);
 long distributed_living_unit(struct player_datum const *player);
 /* whether the player is one of that client machine's (the host) */
 boolean distributed_machine_has_player(long machine_index, short player_index);
-void distributed_count_correction(void);
+/* a correction made (this machine moved a unit or vehicle toward the
+host's word): what it moved (net_monitor.h's _net_monitor_*), how far
+(world units) and whether it moved all the way at once (a snap) */
+void distributed_count_correction(int kind, real distance, boolean snap);
 /* (the host) the client machines in the game, but for its own; their count */
 short distributed_client_machines(long *machine_indices, short maximum);
 /* (the host) how long a message takes that client and its answer back, in
@@ -248,6 +253,9 @@ long distributed_latest_host_time(void);
 /* (a client) how long the host takes to have this machine's players and
 tell it back, in ticks (0 before it is measured) */
 real distributed_own_round_trip_ticks(void);
+/* (a client) milliseconds since the host's last message this game was
+taken, NONE before the first */
+long distributed_host_silent_milliseconds(void);
 /* a player's ping (the round trip of its machine's messages to the host and
 back, as the host measures it) in milliseconds: 0 for the host's own
 players, NONE before it is known */
@@ -274,7 +282,6 @@ boolean distributed_axes_make_valid(real_vector3d *forward, real_vector3d *up);
 /* the vectors in 16 bits a part (struct distributed_vector) */
 void distributed_vector_pack(real_vector3d const *vector, real scale, struct distributed_vector *result);
 void distributed_vector_unpack(struct distributed_vector const *vector, real scale, real_vector3d *result);
-void distributed_unit_vector_unpack(struct distributed_vector const *vector, real_vector3d *result);
 #define DISTRIBUTED_UNIT_SCALE 32767.0f
 #define DISTRIBUTED_VELOCITY_SCALE 1024.0f
 #define DISTRIBUTED_ANGULAR_VELOCITY_SCALE 4096.0f
@@ -296,9 +303,6 @@ later one: a client by its host's advertised version (one not known plays
 by the older rules), a host by the number it announces
 (delta_legacy_announce) */
 boolean network_rules_of_version(unsigned int version);
-/* a client: the host's shield effects (0 stock to 6, message 91), stock
-until it says; this build draws stock whatever they are */
-short network_shield_effects(void);
 
 /* ---------- prototypes/NETWORK_ACTORS.C */
 
@@ -456,7 +460,16 @@ byte *distributed_wire_put(byte *cursor, void const *data, short size, short par
 boolean distributed_wire_take(byte const **cursor, byte const *end, void *data, short size, short part);
 #endif
 
-#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+/* the wire's samples are in a little-endian build made to capture them
+(HALO_NETWORK_WIRE_CAPTURE) and in a big-endian one with its developer tools
+(HALO_CONSOLE_DEBUG_TOOLS, configure.py --console-debug-tools), whose
+network_wire_self_test compares them; a big-endian build without them has
+the self-test alone, which says so */
+#if defined(HALO_NETWORK_WIRE_CAPTURE) || (defined(HALO_BIG_ENDIAN) && defined(HALO_CONSOLE_DEBUG_TOOLS))
+#define HALO_NETWORK_WIRE_SAMPLES
+#endif
+
+#ifdef HALO_NETWORK_WIRE_SAMPLES
 /* ---------- the wire's samples (network_distributed.c's
 network_wire_self_test)
 

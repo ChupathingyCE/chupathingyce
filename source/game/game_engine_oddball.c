@@ -236,6 +236,21 @@ typedef char verify_scenario_netgame_flag_size[
 
 static struct oddball_globals oddball_globals = { 0 };
 
+#ifdef HALO_SERVER
+/* port: Oddball's scores and the balls' carriers, as Custom Edition's
+clients are told them (server/src/server_ce.c): by absolute player index,
+by team, and by ball (a player's handle, NONE for none) */
+void game_engine_oddball_get_state(
+	long const **individual_scores,
+	long const **team_scores,
+	long const **ball_owners)
+{
+	*individual_scores = oddball_globals.individual_score;
+	*team_scores = oddball_globals.team_score;
+	*ball_owners = oddball_globals.current_ball_owner;
+}
+#endif
+
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
 
@@ -943,14 +958,21 @@ static void oddball_engine_update(
 		for (ball_index = 0; ball_index < ball_spawn_count; ball_index++)
 		{
 			long owner_player_index = oddball_globals.current_ball_owner[ball_index];
+			/* port: an owner who quit keeps the ball here (it passes by
+			killing him, and his unit was deleted, not killed), and his slot
+			can be another player's since (network_game_spawn_player): a
+			handle no player has marks no goal */
+			struct player_datum *owner = owner_player_index == NONE ?
+				NULL :
+				player_try_and_get(owner_player_index);
 
-			if (owner_player_index == NONE)
+			if (!owner)
 			{
 				game_engine_clear_goal_position((short)ball_index);
 			}
 			else
 			{
-				long unit_index = player_get(owner_player_index)->unit_index;
+				long unit_index = owner->unit_index;
 
 				if (unit_index != NONE)
 				{
@@ -1176,6 +1198,8 @@ static boolean oddball_engine_display_score(
 	boolean result = TRUE;
 	long string_list_index;
 	wchar_t *string;
+	/* port: (the name the scoreboard shows: game_engine_player_shown_name) */
+	wchar_t shown_name[GAME_ENGINE_SHOWN_NAME_LENGTH];
 
 	switch (message)
 	{
@@ -1218,7 +1242,8 @@ static boolean oddball_engine_display_score(
 			}
 			else
 				string = L"";
-			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"), other_player->name);
+			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"),
+				game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)));
 		}
 		break;
 
@@ -1261,7 +1286,8 @@ static boolean oddball_engine_display_score(
 			}
 			else
 				string = L"";
-			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"), other_player->name);
+			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"),
+				game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)));
 		}
 		break;
 
@@ -1299,7 +1325,8 @@ static boolean oddball_engine_display_score(
 				}
 				else
 					string = L"";
-				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"), other_player->name, score);
+				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"),
+					game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)), score);
 			}
 			else if (message == _oddball_message_enemy_has_the_ball_tick)
 			{
@@ -1312,7 +1339,8 @@ static boolean oddball_engine_display_score(
 				}
 				else
 					string = L"";
-				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"), other_player->name, score);
+				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"),
+					game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)), score);
 			}
 		}
 		break;

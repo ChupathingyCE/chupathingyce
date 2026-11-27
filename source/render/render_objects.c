@@ -116,6 +116,7 @@ symbols in this file:
 #include "game/game_engine.h"
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_looks.h" /* port: port/linux/game/stubbs_looks.c */
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 
 /* ---------- constants */
 
@@ -471,6 +472,16 @@ static void find_rendered_objects(
 		object_unmarked_function,
 		object_mark_function);
 
+#ifdef HALO_PORT_RAGDOLLS
+	/* port: the dead bodies' ragdolls, found in the clusters they lie in,
+	wherever the game has their bodies (port/linux/game/ragdolls.c) */
+	render_object_globals.rendered_object_count += ragdolls_find_rendered(
+		&render_object_globals.rendered_object_indices[render_object_globals.rendered_object_count],
+		MAXIMUM_RENDERED_OBJECTS - render_object_globals.rendered_object_count,
+		object_unmarked_function,
+		object_mark_function);
+#endif
+
 	object_marker_end();
 
 	if (render_object_globals.rendered_object_count == MAXIMUM_RENDERED_OBJECTS &&
@@ -506,6 +517,39 @@ static void find_rendered_objects(
 		}
 	}
 #endif
+
+	/* port: tuning.object_cull_pixels, the objects that look smaller than
+	it left out here, before they are lit or cast a shadow: never one with
+	something attached (a player's weapon, a flag), the camera's own, a unit
+	or a projectile, and in a network game only debris
+	(render_tuning_object_type_culled).
+	0, the default, keeps every one, as the Xbox */
+	{
+		real cull_pixels = render_tuning_object_cull_pixels();
+
+		if (cull_pixels > 0.f)
+		{
+			short i, kept = 0;
+
+			for (i = 0; i < render_object_globals.rendered_object_count; i++)
+			{
+				long object_index = render_object_globals.rendered_object_indices[i];
+				struct object_datum *object = object_get(object_index);
+
+				if (object->object.first_child_object_index != NONE ||
+					object->object.first_widget_index != NONE ||
+					!render_tuning_object_type_culled(object->object.type) ||
+					object_is_first_person_camera(object_index) ||
+					object_get_level_of_detail_pixels(object_index) >= cull_pixels)
+				{
+					render_object_globals.rendered_object_indices[kept++] = object_index;
+				}
+			}
+			render_tuning_count(_render_tuning_objects_count,
+				render_object_globals.rendered_object_count - kept);
+			render_object_globals.rendered_object_count = kept;
+		}
+	}
 
 	return;
 }
@@ -1201,6 +1245,21 @@ static void render_object(
 		{
 			real level_of_detail_pixels;
 			real shadow_darkness;
+			/* port: tuning.shadow_pixels, the size an object must look to cast
+			a shadow: the Xbox's OBJECT_SHADOW_MINIMUM_PIXELS by default. Above
+			it, an object too small for one is passed over before its lighting
+			is prepared, and a shadow fades in from the new size as the Xbox's
+			does from its own */
+			real shadow_pixels = render_tuning_shadow_pixels();
+
+			if (shadow_pixels > OBJECT_SHADOW_MINIMUM_PIXELS &&
+				object_get_level_of_detail_pixels(data->object_index) <= shadow_pixels)
+			{
+				/* (counted only where the Xbox's 30 would have cast one) */
+				if (object_get_level_of_detail_pixels(data->object_index) > OBJECT_SHADOW_MINIMUM_PIXELS)
+					render_tuning_count(_render_tuning_shadows_count, 1);
+				return;
+			}
 
 			data->lighting = object_get_cached_render_lighting(
 				data->object_index,
@@ -1209,11 +1268,11 @@ static void render_object(
 			level_of_detail_pixels = object_get_level_of_detail_pixels(data->object_index);
 			shadow_darkness = 1.f - real_rgb_color_brightness(&data->lighting->shadow_color);
 
-			if (level_of_detail_pixels > OBJECT_SHADOW_MINIMUM_PIXELS &&
+			if (level_of_detail_pixels > shadow_pixels &&
 				shadow_darkness > OBJECT_SHADOW_MINIMUM_DARKNESS)
 			{
 				real size_fraction =
-					(level_of_detail_pixels - OBJECT_SHADOW_MINIMUM_PIXELS) * 0.06666667f;
+					(level_of_detail_pixels - shadow_pixels) * 0.06666667f;
 				real darkness_fraction =
 					(shadow_darkness - OBJECT_SHADOW_MINIMUM_DARKNESS) * 9.0909081f;
 

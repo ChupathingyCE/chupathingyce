@@ -7,8 +7,11 @@ Everything the game allocates (system_malloc is GlobalAlloc) can end up in
 a structure that holds 32-bit pointers: tag data built at run time, script
 values, Direct3D resource headers. So the heap lives in the Xbox address
 space too (cseries/xbox_address.h), below the contiguous window: Xbox addresses
-XBOX_HEAP_BASE to XBOX_HEAP_END, committed read-write at the first allocation
-and backed by the host on first touch.
+XBOX_HEAP_BASE to XBOX_HEAP_END, mapped read-write at the first allocation
+and backed by the host on first touch. Windows and the consoles have no
+pages backed on first touch: there the heap commits its range in large
+steps as it grows (heap_commit), so that memory plus the page file need
+cover only what the game uses, not the whole range.
 
 Blocks carry a 16-byte header. Requests up to 64 KB come from power-of-two
 size classes with free lists; larger ones are rounded to 64 KB and reuse
@@ -30,11 +33,19 @@ load, so this stays simple rather than clever.
 as the heap grows: the console has no pages backed on first touch */
 #define XBOX_HEAP_BASE XBOX_WINDOW_LOW
 #define XBOX_HEAP_END PLATFORM_CONTIGUOUS_BASE
+#define XBOX_HEAP_COMMIT_AS_USED
 #define HEAP_COMMIT_GRANULARITY 0x100000U
 #else
 /* (above Custom Edition maps' tag cache and the room above it, platform.h) */
 #define XBOX_HEAP_BASE 0x42000000U
 #define XBOX_HEAP_END 0x7f000000U
+#ifdef _WIN32
+/* (a read-write mapping on Windows is committed memory, charged against
+memory plus the page file at once: win32_posix.c's mmap. The range is
+reserved already, with the rest of the Xbox address space, xbox_memory.c) */
+#define XBOX_HEAP_COMMIT_AS_USED
+#define HEAP_COMMIT_GRANULARITY 0x1000000U
+#endif
 #endif
 #define HEAP_MAGIC 0x68656170U /* 'heap' */
 #define SMALL_CLASS_COUNT 13 /* 16 bytes .. 64 KB of payload */
@@ -42,6 +53,24 @@ as the heap grows: the console has no pages backed on first touch */
 
 typedef char verify_heap_above_ce_tag_cache[PLATFORM_CE_TAG_CACHE_BASE + PLATFORM_CE_TAG_CACHE_SIZE +
 	PLATFORM_CE_CONVERSION_ROOM_SIZE <= XBOX_HEAP_BASE ? 1 : -1];
+
+#if defined(HALO_CUSTOM_EDITION) && !defined(HALO_WINDOW_TRANSLATED)
+/* port: OpenSauce's maps (SPV3's) are linked to a tag cache 1.5 times Custom
+Edition's, 0x40440000 to 0x426C0000, their structure BSPs at its top. With an
+SPV3 install in the data folder (maps_spv3) at the first allocation, the heap
+starts above that and the room for the port's conversions above it, and the
+part of the window past Custom Edition's own is mapped here; SPV3 mode reads
+its maps with it (port/linux/game/spv3_mode.c). Without one, nothing moves */
+#include "posix.h"
+#define OPENSAUCE_TAG_CACHE_TOP (PLATFORM_CE_TAG_CACHE_BASE + 0x02280000U)
+#define OPENSAUCE_HEAP_BASE 0x42C00000U
+typedef char verify_heap_above_opensauce_window[OPENSAUCE_TAG_CACHE_TOP + PLATFORM_CE_CONVERSION_ROOM_SIZE <=
+	OPENSAUCE_HEAP_BASE ? 1 : -1];
+extern int spv3_opensauce_window;
+const char *platform_data_root(void);
+#endif
+/* where the heap starts: XBOX_HEAP_BASE, or above OpenSauce's window */
+static unsigned int heap_base = XBOX_HEAP_BASE;
 
 struct heap_block
 {
@@ -62,28 +91,53 @@ static unsigned char *heap_end;
 static unsigned int heap_hole_address, heap_hole_size;
 static struct free_node *small_free[SMALL_CLASS_COUNT];
 static struct free_node *large_free;
-#ifdef HALO_WINDOW_TRANSLATED
+#ifdef XBOX_HEAP_COMMIT_AS_USED
 /* the end of the committed part */
 static unsigned char *heap_committed;
 #endif
 
 static BOOL heap_initialize(void)
 {
-	void *base = xbox_pointer(XBOX_HEAP_BASE);
+	void *base;
 
 	if (heap_next)
 		return TRUE;
-#ifdef HALO_WINDOW_TRANSLATED
+#if defined(HALO_CUSTOM_EDITION) && !defined(HALO_WINDOW_TRANSLATED)
+	{
+		char on_disk[64];
+		const char *root = platform_data_root();
+
+		if (root && root[0] && posix_find_entry_case_insensitive(root, "maps_spv3", on_disk, sizeof(on_disk)))
+		{
+			void *window = xbox_pointer(XBOX_HEAP_BASE);
+
+			if (mmap(window, OPENSAUCE_HEAP_BASE - XBOX_HEAP_BASE, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) == window)
+			{
+				heap_base = OPENSAUCE_HEAP_BASE;
+				spv3_opensauce_window = 1;
+				platform_log("SPV3: maps_spv3 is in the data folder: OpenSauce's tag window 0x%08x to 0x%08x is "
+					"mapped, the heap starts at 0x%08x", PLATFORM_CE_TAG_CACHE_BASE, OPENSAUCE_TAG_CACHE_TOP,
+					heap_base);
+			}
+			else
+				platform_log("SPV3: OpenSauce's tag window could not be mapped (%s): SPV3's maps will not load",
+					strerror(errno));
+		}
+	}
+#endif
+	base = xbox_pointer(heap_base);
+#ifdef XBOX_HEAP_COMMIT_AS_USED
 	heap_committed = base;
 #else
 	/* (no swap reserved: nearly 1 GB of address space, of which the game
 	touches a small part; a machine with 1 GB of memory refuses it otherwise) */
-	if (mmap(base, XBOX_HEAP_END - XBOX_HEAP_BASE, PROT_READ | PROT_WRITE,
+	if (mmap(base, XBOX_HEAP_END - heap_base, PROT_READ | PROT_WRITE,
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) != base)
 	{
 		platform_log("cannot commit the Xbox heap (%s): the system refused %u MB of address space (a memory "
 			"limit such as ulimit -v, or vm.overcommit_memory = 2)", strerror(errno),
-			(XBOX_HEAP_END - XBOX_HEAP_BASE) >> 20);
+			(XBOX_HEAP_END - heap_base) >> 20);
 		abort();
 	}
 #endif
@@ -106,6 +160,47 @@ static struct heap_block *block_of(void *payload)
 	return (struct heap_block *)payload - 1;
 }
 
+#ifdef XBOX_HEAP_COMMIT_AS_USED
+/* commits the heap up to end, for a block from start, in steps of
+HEAP_COMMIT_GRANULARITY: the game carves a few hundred MB, mostly at start-up
+and map load, so this runs a few dozen times a run, never per allocation */
+static BOOL heap_commit(unsigned char *start, unsigned char *end)
+{
+	unsigned char *limit = heap_end;
+	size_t size;
+
+	if (end <= heap_committed)
+		return TRUE;
+	/* (a block past an MCC map's window, carve's step over it: the window's
+	pages are the map's, committed by it, and the heap never goes back below) */
+	if (heap_committed < start)
+		heap_committed = start;
+	/* (and short of the window, when it lies ahead) */
+	if (heap_hole_size && heap_committed < (unsigned char *)xbox_pointer(heap_hole_address))
+		limit = xbox_pointer(heap_hole_address);
+	size = (size_t)(end - heap_committed);
+	size = (size + HEAP_COMMIT_GRANULARITY - 1) & ~(size_t)(HEAP_COMMIT_GRANULARITY - 1);
+	if (size > (size_t)(limit - heap_committed))
+		size = (size_t)(limit - heap_committed);
+	if (mmap(heap_committed, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) !=
+		heap_committed)
+	{
+#if defined(_WIN32) && !defined(HALO_WINDOW_TRANSLATED)
+		platform_log("cannot commit %u MB more of the Xbox heap, %u MB committed so far (%s): Windows has no "
+			"memory left to back it, counting the page file (close other programs, or let Windows manage the "
+			"page file size)", (unsigned int)(size >> 20),
+			(unsigned int)((size_t)(heap_committed - (unsigned char *)xbox_pointer(heap_base)) >> 20),
+			strerror(errno));
+#else
+		platform_log("cannot commit %u more bytes of the Xbox heap (%s)", (unsigned int)size, strerror(errno));
+#endif
+		return FALSE;
+	}
+	heap_committed += size;
+	return TRUE;
+}
+
+#endif
 static struct heap_block *carve(size_t capacity)
 {
 	struct heap_block *block;
@@ -119,23 +214,22 @@ static struct heap_block *carve(size_t capacity)
 			heap_next = hole + heap_hole_size;
 	}
 	if ((size_t)(heap_end - heap_next) < sizeof(*block) + capacity)
-		return NULL;
-#ifdef HALO_WINDOW_TRANSLATED
-	if (heap_next + sizeof(*block) + capacity > heap_committed)
 	{
-		size_t wanted = (size_t)(heap_next + sizeof(*block) + capacity - heap_committed);
-		size_t size = (wanted + HEAP_COMMIT_GRANULARITY - 1) & ~(size_t)(HEAP_COMMIT_GRANULARITY - 1);
-
-		if (size > (size_t)(heap_end - heap_committed))
-			size = (size_t)(heap_end - heap_committed);
-		if (mmap(heap_committed, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) !=
-			heap_committed)
-		{
-			platform_log("cannot commit %u more bytes of the Xbox heap (%s)", (unsigned int)size, strerror(errno));
-			return NULL;
-		}
-		heap_committed += size;
+#ifdef HALO_CONSOLE_WINDOW_LOW
+		/* (a console whose heap is smaller than the Xbox 360's: halt here,
+		saying why, rather than leave the game a NULL it takes for a
+		damaged map or a data array's assert much later) */
+		platform_log("the Xbox heap is full: %u KB asked for, %u KB of %u KB used (the window starts at 0x%08x, "
+			"HALO_CONSOLE_WINDOW_LOW)", (unsigned int)((sizeof(*block) + capacity) >> 10),
+			(unsigned int)((size_t)(heap_next - (unsigned char *)xbox_pointer(heap_base)) >> 10),
+			(unsigned int)((size_t)(heap_end - (unsigned char *)xbox_pointer(heap_base)) >> 10), XBOX_WINDOW_LOW);
+		abort();
+#endif
+		return NULL;
 	}
+#ifdef XBOX_HEAP_COMMIT_AS_USED
+	if (!heap_commit(heap_next, heap_next + sizeof(*block) + capacity))
+		return NULL;
 #endif
 	block = (struct heap_block *)heap_next;
 	heap_next += sizeof(*block) + capacity;
@@ -149,7 +243,7 @@ static struct heap_block *carve(size_t capacity)
 are reused, not returned), for a console's memory report */
 size_t xbox_heap_used(void)
 {
-	return heap_next ? (size_t)(heap_next - (unsigned char *)xbox_pointer(XBOX_HEAP_BASE)) : 0;
+	return heap_next ? (size_t)(heap_next - (unsigned char *)xbox_pointer(heap_base)) : 0;
 }
 
 #endif
@@ -167,7 +261,7 @@ BOOL xbox_heap_reserve_window(unsigned int address, unsigned int size)
 	heap_initialize();
 	if (heap_hole_size)
 		result = heap_hole_address == address && heap_hole_size == size;
-	else if (address >= XBOX_HEAP_BASE && address <= XBOX_HEAP_END && size <= XBOX_HEAP_END - address &&
+	else if (address >= heap_base && address <= XBOX_HEAP_END && size <= XBOX_HEAP_END - address &&
 		heap_next <= (unsigned char *)xbox_pointer(address))
 	{
 		heap_hole_address = address;
@@ -187,7 +281,7 @@ BOOL xbox_heap_contains(const void *pointer)
 	unsigned long long offset = (unsigned long long)(uintptr_t)pointer - XBOX_ADDRESS_SPACE_BASE;
 #endif
 
-	return offset >= XBOX_HEAP_BASE && offset < XBOX_HEAP_END;
+	return offset >= heap_base && offset < XBOX_HEAP_END;
 }
 
 void *xbox_heap_allocate(size_t size, BOOL zero)

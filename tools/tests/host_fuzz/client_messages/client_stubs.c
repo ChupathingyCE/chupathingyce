@@ -87,6 +87,10 @@ long delta_compat_join_mark(void);
 long delta_compat_join_mark(void) { return 0; }
 long delta_compat_opence_server(void);
 long delta_compat_opence_server(void) { return 0; }
+long delta_compat_read_project(void);
+long delta_compat_read_project(void) { return 0; }
+long delta_compat_project_name(void);
+long delta_compat_project_name(void) { return 0; }
 long delta_legacy_maximum(void);
 long delta_legacy_maximum(void) { return 0; }
 long delta_legacy_minimum(void);
@@ -105,6 +109,8 @@ long delta_peer_game_host_number(void);
 long delta_peer_game_host_number(void) { return 0; }
 long delta_peer_game_stop(void);
 long delta_peer_game_stop(void) { return 0; }
+long delta_peer_game_under_floor(void);
+long delta_peer_game_under_floor(void) { return 0; }
 long delta_peer_host_player_limit(void);
 long delta_peer_host_player_limit(void) { return 0; }
 long delta_wire_compare(void);
@@ -152,6 +158,8 @@ long game_set_game_mode_options(void) { return 0; }
 static unsigned char stub_mode_options[16];
 unsigned char const *network_game_mode_options(void);
 unsigned char const *network_game_mode_options(void) { return stub_mode_options; }
+long game_time_client_catch_up_ticks(void);
+long game_time_client_catch_up_ticks(void) { return 30; }
 long game_time_end(void);
 long game_time_end(void) { return 0; }
 long game_time_set_distributed(void);
@@ -164,6 +172,13 @@ long global_network_game_server_get(void);
 long global_network_game_server_get(void) { return 0; }
 long late_join_player_added(void);
 long late_join_player_added(void) { return 0; }
+/* (network co-op's campaign progress: port/linux/game/coop_progress.c) */
+long coop_progress_client_level_started(void);
+long coop_progress_client_level_started(void) { return 0; }
+long coop_progress_client_round_ended(void);
+long coop_progress_client_round_ended(void) { return 0; }
+long coop_progress_client_lobby_map(void);
+long coop_progress_client_lobby_map(void) { return 0; }
 long local_player_get_next(void);
 long local_player_get_next(void) { return 0; }
 long local_player_set_player_index(void);
@@ -190,6 +205,10 @@ long mcc_identity_wire_record(void);
 long mcc_identity_wire_record(void) { return 0; }
 long mcc_main_network_load_failed(void);
 long mcc_main_network_load_failed(void) { return 0; }
+long net_monitor_game_message(void);
+long net_monitor_game_message(void) { return 0; }
+long net_monitor_player_name(void);
+long net_monitor_player_name(void) { return 0; }
 long network_connection_connect(void);
 long network_connection_connect(void) { return 0; }
 long network_connection_connected(void);
@@ -208,6 +227,8 @@ long network_connection_new(void);
 long network_connection_new(void) { return 0; }
 long network_connection_read(void);
 long network_connection_read(void) { return 0; }
+long network_connection_silent_milliseconds(void);
+long network_connection_silent_milliseconds(void) { return 0; }
 long network_game_abort(void);
 long network_game_abort(void) { return 0; }
 long network_game_client_all_local_players_have_quit(void);

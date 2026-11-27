@@ -433,6 +433,12 @@ void display_assert(
 	long line,
 	boolean fatal)
 {
+	/* port: the place the halt screen shows (main.c), when this one stops
+	the game */
+	if (fatal)
+	{
+		error_halt_place_set(information ? information : "", file, line);
+	}
 #ifdef HALO_RELEASE
 	/* release builds carry on past assertions (cseries.h), including the
 	ones written out as display_assert followed by system_exit(-1), which

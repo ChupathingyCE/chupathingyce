@@ -66,6 +66,7 @@ static boolean players_respawn_network_coop(void) {return FALSE;}
 static void players_respawn_at_checkpoint(void) {}
 static boolean players_are_all_dead(void) {return FALSE;}
 static boolean main_coop_host_revert(void) {return FALSE;}
+static boolean mcc_skulls_restart_on_death(void) {return FALSE;}
 enum {_biped_airborne_bit=0,_object_mask_vehicle=1};
 static void data_iterator_new(struct data_iterator *i,int d) {(void)d;i->next=0;}
 static void *data_iterator_next(struct data_iterator *i) {
@@ -254,7 +255,7 @@ def main():
         exe = Path(temp) / ('death.exe' if os.name == 'nt' else 'death')
         c.write_text(unit)
         flags = ['--target=i686-pc-windows-msvc', '-fuse-ld=lld'] if os.name == 'nt' else []
-        subprocess.run([cc, *flags, '-std=c11', '-Wno-parentheses', '-O2', str(c), '-o', str(exe)], check=True)
+        subprocess.run([cc, *flags, '-std=c11', '-Wno-parentheses', '-O2', str(c), '-o', str(exe), '-lm'], check=True)
         subprocess.run([str(exe)], check=True)
 
 

@@ -28,6 +28,7 @@ Default puts them back.
 #ifdef HALO_LAUNCHER
 /* (sdl_platform.c's and dsound_sdl.c's: the desktop's) */
 int platform_display_resolutions(long *widths, long *heights, int maximum);
+int platform_display_native_size(long *width, long *height);
 int platform_window_sizes(long *widths, long *heights, int maximum);
 int platform_audio_device_names(const char **names, int maximum);
 void platform_display_apply(void);
@@ -66,6 +67,12 @@ enum
 	_in_guide = 1 << SETTINGS_GROUP_GUIDE,
 };
 
+enum
+{
+	/* (a row's restart: 1 everywhere, or this) */
+	_restart_in_game = 2,
+};
+
 struct settings_row
 {
 	unsigned groups;
@@ -76,7 +83,8 @@ struct settings_row
 	value in capitals) */
 	const char *const *choices;
 	const char *const *names;
-	/* a change shows after a restart */
+	/* a change shows after a restart (_restart_in_game: only once the
+	game is running, the Guide's; the setup screen comes before it) */
 	int restart;
 	/* a change shows at once on the window (platform_display_apply) */
 	int window;
@@ -143,6 +151,13 @@ static const char *const hud_buttons_choices[] = { "classic", "hd", NULL };
 /* the reticle's size (display.reticle_scale), as Video Setup's View shows it */
 static const char *const reticle_size_choices[] = { "0.5", "0.75", "1", "1.25", "1.5", "2", NULL };
 static const char *const reticle_size_names[] = { "50%", "75%", "100%", "125%", "150%", "200%", NULL };
+/* the crosshair's place (display.crosshair_position) */
+static const char *const crosshair_position_choices[] = { "retail", "lowered", NULL };
+static const char *const crosshair_position_names[] = { "XBOX", "LOWERED", NULL };
+/* clips.seconds' (capture_clips.c keeps 5 to 120) */
+static const char *const clip_length_choices[] = { "10", "15", "30", "60", "90", "120", NULL };
+static const char *const clip_length_names[] = { "10 SECONDS", "15 SECONDS", "30 SECONDS", "60 SECONDS", "90 SECONDS",
+	"120 SECONDS", NULL };
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -165,6 +180,9 @@ static const struct settings_row settings_rows[] =
 #ifdef HALO_BGFX
 	{ _in_display, "RENDERER", "display.renderer", _kind_choices, renderer_choices, renderer_names, 1, 0 },
 #endif
+#if defined(__APPLE__) && !defined(HALO_IOS)
+	{ _in_display, "METAL HUD", "display.metal_hud", _kind_toggle, NULL, NULL, 1, 0 },
+#endif
 	/* (the menus, text and buttons, as Video Setup's INTERFACE orders them;
 	in the Guide too: the way back from the Xbox's menus, which have no
 	screen of it, #1210) */
@@ -178,18 +196,26 @@ static const struct settings_row settings_rows[] =
 	{ _in_display | _in_guide, "HUD BUTTONS", "input.hud_buttons", _kind_choices, hud_buttons_choices, NULL, 0, 0 },
 #endif
 	{ _in_display | _in_guide, "SCOREBOARD ICONS", "display.scoreboard_icons", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display | _in_guide, "PING METER", "display.ping_meter", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display, "PERFORMANCE", "display.particle_limit", _kind_preset, NULL, NULL, 0, 0 },
 	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
 	{ _in_display | _in_guide, "CAMO WEAPON FIX", "display.camo_weapon_fix", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "PLASMA SPARKS", "display.plasma_sparks", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display | _in_guide, "DEVELOPER FLAMES", "display.developer_flames", _kind_toggle, NULL, NULL, 0, 0 },
+#ifdef HALO_PORT_RAGDOLLS
+	{ _in_display | _in_guide, "RAGDOLLS", "display.ragdolls", _kind_toggle, NULL, NULL, 0, 0 },
+#endif
 	{ _in_display | _in_guide, "RETICLE SIZE", "display.reticle_scale", _kind_choices, reticle_size_choices,
 	  reticle_size_names, 0, 0 },
+	{ _in_display | _in_guide, "CROSSHAIR", "display.crosshair_position", _kind_choices, crosshair_position_choices,
+	  crosshair_position_names, 0, 0 },
 	{ _in_display | _in_guide, "WEAPON MODEL", "display.first_person_weapon", _kind_toggle, NULL, NULL, 0, 0 },
 
 #ifdef HALO_LAUNCHER
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
 #endif
 	{ _in_audio, "SPEAKERS", "audio.channels", _kind_choices, channels_choices, NULL, 1, 0 },
+	{ _in_audio | _in_guide, "LOUDNESS", "audio.loudness", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_audio, "HEADPHONE 3D", "audio.hrtf", _kind_choices, hrtf_choices, NULL, 0, 0 },
 	{ _in_audio, "REVERB", "audio.reverb", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "DOPPLER", "audio.doppler", _kind_toggle, NULL, NULL, 0, 0 },
@@ -204,6 +230,7 @@ static const struct settings_row settings_rows[] =
 	/* (the setup screen's help line for it is the disclaimer: launcher.c) */
 	{ _in_network, "MAPS FROM HOSTS", "network.map_downloads_from_host", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "LIST MY GAMES", "network.list_hosted_games", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_network, "DIRECT IP HOST", "network.direct_ip_host", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "HOSTED GAME STATS", "network.report_hosted_games", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "JOINED GAME STATS", "network.report_joined_games", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "DELTA STATS", "network.report_events", _kind_toggle, NULL, NULL, 0, 0 },
@@ -217,8 +244,15 @@ static const struct settings_row settings_rows[] =
 	folders, and named so: settings_row_label) */
 	{ _in_guide, "WORKSHOP MAPS", "game.workshop_maps", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "MAPS WHEN JOINING", "network.workshop_downloads", _kind_words, NULL, NULL, 0, 0 },
+	/* (clips start once, with the game: capture_clips.c) */
+	{ _in_guide, "CLIPS", "clips.enabled", _kind_toggle, NULL, NULL, _restart_in_game, 0 },
+	{ _in_guide, "CLIP LENGTH", "clips.seconds", _kind_choices, clip_length_choices, clip_length_names,
+	  _restart_in_game, 0 },
 	{ _in_guide, "MISSION ORDER", "game.mcc_campaigns", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "FORGE", "game.forge", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "CONFIRM BUTTON", "delta.confirm_button", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_guide, "RUMBLE", "delta.rumble", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "SHOW IN MENUS", "delta.menu_item", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "NOTIFICATIONS IN GAME", "delta.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FRIEND ONLINE ALERTS", "delta.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
@@ -236,26 +270,10 @@ static const struct settings_row settings_rows[] =
 
 #define NUMBER_OF_SETTINGS_ROWS ((int)(sizeof(settings_rows) / sizeof(settings_rows[0])))
 
-/* the Potato preset: the display's heaviest work turned down */
-static const struct
-{
-	const char *key;
-	const char *value;
-} potato[] =
-{
-	{ "display.particle_limit", "1024" },
-	{ "display.particle_ticks", "true" },
-	{ "display.dynamic_light_limit", "8" },
-	{ "display.specular_light_limit", "2" },
-	{ "display.shadow_resolution", "128" },
-	{ "display.anisotropic_filtering", "0" },
-	{ "display.anti_aliasing", "off" },
-	{ "display.per_pixel_lighting", "false" },
-	{ "display.light_effects", "off" },
-	{ "display.resolution_scaling", "original" },
-};
-
-#define NUMBER_OF_POTATO_SETTINGS ((int)(sizeof(potato) / sizeof(potato[0])))
+/* the Potato preset: the display's heaviest work turned down. It is
+config.toml's tuning.preset = "potato", whose knobs and values are
+port_config.c's (config_tuning_knob, config_tuning_preset_value) */
+#define POTATO_PRESET "potato"
 
 enum
 {
@@ -359,8 +377,18 @@ static void values_of(const struct settings_row *row, struct values *values)
 			platform_window_sizes(widths, heights, MAXIMUM_VALUES - 1);
 		char size[32];
 
+		/* (Native with the display's own size, so a display larger than
+		the sizes listed shows as larger) */
 		if (row->kind == _kind_resolutions)
-			values_add(values, "native", "NATIVE");
+		{
+			long native_width, native_height;
+
+			if (platform_display_native_size(&native_width, &native_height))
+				snprintf(size, sizeof(size), "NATIVE %ldx%ld", native_width, native_height);
+			else
+				snprintf(size, sizeof(size), "NATIVE");
+			values_add(values, "native", size);
+		}
 		for (index = 0; index < count; index++)
 		{
 			snprintf(size, sizeof(size), "%ldx%ld", widths[index], heights[index]);
@@ -386,36 +414,50 @@ static void values_of(const struct settings_row *row, struct values *values)
 
 /* ---------- the preset */
 
+/* the Potato preset's knob at index that this build has: its value, NULL
+for one it leaves alone, and its setting in key */
+static const char *potato_value(int index, const char **key)
+{
+	*key = config_tuning_knob(index);
+	if (!*key || !**key || config_setting_kind(*key) < 0)
+		return NULL;
+	return config_tuning_preset_value(POTATO_PRESET, *key);
+}
+
 static int preset_now(void)
 {
 	char value[VALUE_SIZE], fallback[VALUE_SIZE];
 	int index, potato_all = 1, defaults_all = 1;
+	const char *key, *potato;
 
-	for (index = 0; index < NUMBER_OF_POTATO_SETTINGS; index++)
+	for (index = 0; config_tuning_knob(index); index++)
 	{
-		if (config_setting_kind(potato[index].key) < 0)
+		if (!(potato = potato_value(index, &key)))
 			continue;
-		current(potato[index].key, value, sizeof(value));
-		if (!same(value, potato[index].value))
+		current(key, value, sizeof(value));
+		if (!same(value, potato))
 			potato_all = 0;
-		if (!config_default(potato[index].key, fallback, sizeof(fallback)) || !same(value, fallback))
+		if (!config_default(key, fallback, sizeof(fallback)) || !same(value, fallback))
 			defaults_all = 0;
 	}
 	return defaults_all ? _preset_default : potato_all ? _preset_potato : _preset_custom;
 }
 
+/* Potato: tuning.preset written, and its knobs back to following it;
+Default: the preset and its knobs back to their defaults */
 static void preset_set(int preset)
 {
 	int index;
+	const char *key;
 
-	for (index = 0; index < NUMBER_OF_POTATO_SETTINGS; index++)
+	if (preset == _preset_potato)
+		config_write("tuning.preset", POTATO_PRESET);
+	else
+		config_reset("tuning.preset");
+	for (index = 0; config_tuning_knob(index); index++)
 	{
-		if (config_setting_kind(potato[index].key) < 0)
-			continue;
-		if (preset == _preset_potato)
-			config_write(potato[index].key, potato[index].value);
-		else
-			config_reset(potato[index].key);
+		if (potato_value(index, &key))
+			config_reset(key);
 	}
 }
 
@@ -434,27 +476,145 @@ void settings_rows_set_workshop_offered(int offered)
 	workshop_offered = offered;
 }
 
+/* whether the game shows in a window (display.mode, else display.fullscreen) */
+static int display_windowed(void)
+{
+	char mode[VALUE_SIZE];
+
+	current("display.mode", mode, sizeof(mode));
+	if (!mode[0])
+		return !config_boolean("display.fullscreen");
+	return same(mode, "windowed");
+}
+
+/* whether a row shows in this build now: its key this build's, and the
+rows that depend on something only where it is */
+static int row_shown(int row)
+{
+	if (config_setting_kind(settings_rows[row].key) < 0)
+		return 0;
+	/* (Steam's link: where the built-in Steam download is, and something opens it) */
+	if ((settings_rows[row].kind == _kind_steam_link || settings_rows[row].kind == _kind_folder) &&
+		(!steam_link_available() || !steam_link_action))
+	{
+		return 0;
+	}
+	/* (Workshop maps: where the Guide has WORKSHOP, MCC on this computer) */
+	if (!workshop_offered && !strcmp(settings_rows[row].key, "game.workshop_maps"))
+		return 0;
+	/* (Resolution and Window Size in one place, as Video Setup has them:
+	Window Size in a window, where Resolution does nothing, and
+	Resolution otherwise) */
+	if ((settings_rows[row].kind == _kind_window_sizes && !display_windowed()) ||
+		(settings_rows[row].kind == _kind_resolutions && display_windowed()))
+	{
+		return 0;
+	}
+	return 1;
+}
+
 const struct settings_row *settings_row_at(int group, int index)
 {
 	int row;
 
 	for (row = 0; row < NUMBER_OF_SETTINGS_ROWS; row++)
 	{
-		if (!(settings_rows[row].groups & (1u << group)) || config_setting_kind(settings_rows[row].key) < 0)
-			continue;
-		/* (Steam's link: where the built-in Steam download is, and something opens it) */
-		if ((settings_rows[row].kind == _kind_steam_link || settings_rows[row].kind == _kind_folder) &&
-			(!steam_link_available() || !steam_link_action))
-		{
-			continue;
-		}
-		/* (Workshop maps: where the Guide has WORKSHOP, MCC on this computer) */
-		if (!workshop_offered && !strcmp(settings_rows[row].key, "game.workshop_maps"))
+		if (!(settings_rows[row].groups & (1u << group)) || !row_shown(row))
 			continue;
 		if (!index--)
 			return &settings_rows[row];
 	}
 	return NULL;
+}
+
+const struct settings_row *settings_row_for_key(const char *key)
+{
+	int row;
+
+	for (row = 0; row < NUMBER_OF_SETTINGS_ROWS; row++)
+	{
+		if (!strcmp(settings_rows[row].key, key) && row_shown(row))
+			return &settings_rows[row];
+	}
+	return NULL;
+}
+
+/* ---------- the Guide's SETTINGS pages (settings_rows.h) */
+
+static const char *const page_names[NUMBER_OF_SETTINGS_PAGES] =
+{
+	"DISPLAY", "SOUND", "GAME", "GUIDE", "ABOUT",
+};
+
+static const char *const display_lines[] =
+{
+	"#MENUS", "display.menus", "display.theme", "delta.guide_background",
+	"#BUTTONS", "input.button_style", "input.button_look", "input.hud_buttons",
+	"#HUD", "display.reticle_scale", "display.crosshair_position", "display.ping_meter", "display.scoreboard_icons",
+	"#EFFECTS", "display.first_person_weapon", "display.camo_weapon_fix", "display.plasma_sparks", "display.ragdolls",
+	"display.developer_flames",
+	NULL
+};
+static const char *const sound_lines[] =
+{
+	"audio.hit_sounds",
+	"#VOICE", "audio.voice_chat", "audio.voice_channel", "audio.voice_positional", "display.voice_speakers",
+	"#VOLUME", "audio.voice_volume", "audio.voice_volume_party", "audio.voice_volume_team",
+	"audio.voice_volume_proximity", "audio.voice_volume_everyone",
+	NULL
+};
+static const char *const game_lines[] =
+{
+	"game.forge", "game.mods",
+	"#CAPTURE", "clips.enabled", "clips.seconds",
+	"#WORKSHOP", "game.workshop_steam", "paths.steam_downloads", "game.workshop_maps", "network.workshop_downloads",
+	"game.mcc_campaigns",
+	NULL
+};
+static const char *const guide_lines[] =
+{
+	"#OPENING", "controls.delta", "controls.delta_button", "delta.menu_item",
+	"#CONTROLLER", "delta.confirm_button", "delta.rumble",
+	"#NOTIFICATIONS", "delta.notify_in_game", "delta.notify_online",
+	"#PRIVACY", "network.share_presence",
+	"#DEVICES", "@devices", "@link",
+	NULL
+};
+static const char *const about_lines[] =
+{
+	"#CHUPATHINGY", "=version", "=platform", "@setup", "@about",
+	"#LOGS", "@logs0", "@logs1",
+	NULL
+};
+static const char *const *const page_lines[NUMBER_OF_SETTINGS_PAGES] =
+{
+	display_lines, sound_lines, game_lines, guide_lines, about_lines,
+};
+
+const char *const *settings_page_names(void)
+{
+	return page_names;
+}
+
+const char *const *settings_page_lines(int page)
+{
+	return page >= 0 && page < NUMBER_OF_SETTINGS_PAGES ? page_lines[page] : NULL;
+}
+
+int settings_key_page(const char *key)
+{
+	int page;
+	const char *const *line;
+
+	for (page = 0; page < NUMBER_OF_SETTINGS_PAGES; page++)
+	{
+		for (line = page_lines[page]; *line; line++)
+		{
+			if (!strcmp(*line, key))
+				return page;
+		}
+	}
+	return -1;
 }
 
 const char *settings_row_label(const struct settings_row *row)
@@ -484,7 +644,12 @@ const char *settings_row_key(const struct settings_row *row)
 
 int settings_row_restart(const struct settings_row *row)
 {
-	return row->restart;
+	return row->restart == 1;
+}
+
+int settings_row_restart_in_game(const struct settings_row *row)
+{
+	return row->restart != 0;
 }
 
 void settings_row_value(const struct settings_row *row, char *text, int size)

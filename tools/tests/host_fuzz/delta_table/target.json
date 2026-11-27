@@ -1,0 +1,23 @@
+{
+  "about": "the signed legacy table's document, as delta.c reads it once its signature checks: every field and section, the platforms' floors among them, and the floor rule over the floors read",
+  "harness": "tools/tests/host_fuzz/delta_table/delta_table_fuzz.c",
+  "sources": [
+    "port/third_party/monocypher/monocypher.c",
+    "port/third_party/monocypher/monocypher-ed25519.c"
+  ],
+  "includes": [
+    "port/third_party/monocypher"
+  ],
+  "flags": [
+    "-std=gnu11",
+    "-D__HALO_LINUX_PLATFORM_H",
+    "-include",
+    "pthread.h",
+    "-iquote",
+    "port/linux/src"
+  ],
+  "libraries": [
+    "-lpthread"
+  ],
+  "max_len": 16500
+}

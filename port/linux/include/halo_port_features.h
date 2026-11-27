@@ -158,6 +158,13 @@ out the two settings and their help text */
 #define HALO_CONSOLE_NO_AUDIO_PROBE
 #endif
 
+/* the renderer's trace of a frame's draws (port/linux/src/d3d8_gl.c,
+debug.gpu_trace_frame): a developer's tool, in a console's build with its
+developer tools (HALO_CONSOLE_DEBUG_TOOLS) only */
+#if !defined(HALO_CONSOLE_DEBUG_TOOLS) && !defined(HALO_CONSOLE_NO_GPU_TRACE)
+#define HALO_CONSOLE_NO_GPU_TRACE
+#endif
+
 /* the debug camera flown by mouse and keyboard (source/camera/director.c,
 halo_linux_debug_camera_input in port/linux/src/xinput_sdl.c): a console
 has no mouse, and its controller flies the camera as before */
@@ -166,6 +173,15 @@ has no mouse, and its controller flies the camera as before */
 #endif
 
 #endif /* HALO_CONSOLE || HALO_XBOX_CONSOLE */
+
+/* Forge, the layout editor (port/linux/game/forge.c, game.forge): its
+hooks in the game's sources (the monitor's camera, the HUD, the layout's
+spawn points and flags). Every console, the Switch and the Wii U too,
+which set their own switch and not HALO_CONSOLE: none builds forge.c yet */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_FORGE)
+#define HALO_CONSOLE_NO_FORGE
+#endif
 
 /* voice chat (port/linux/src/voice.c, port/linux/game/voice_game.c): a
 console has no microphone path or Opus yet; until it does, its player never
@@ -188,6 +204,22 @@ frames without decoding them */
 #endif
 #endif
 
+/* gyro aiming (port/linux/src/gyro_aim.c, xinput_sdl.c; input.gyro_*): the
+desktop builds' and Android's, and the Switch's, whose host reads its
+controllers' sensors itself; no other console's, and not the dedicated
+server's, which has no player at the machine. HALO_PORT_GYRO_SDL reads the
+sensors through SDL 3 (SDL_SetGamepadSensorEnabled and its sensor events):
+not the Switch (its host has SDL 2 and its own reading) nor Android's
+32-bit guest build, whose SDL is host imports without the sensors */
+#if !defined(HALO_SERVER) && (defined(HALO_SWITCH_CONSOLE) || \
+	!(defined(HALO_CONSOLE) || defined(HALO_WIIU_CONSOLE) || defined(HALO_XBOX_CONSOLE) || \
+	defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)))
+#define HALO_PORT_GYRO_AIM
+#if !defined(HALO_SWITCH_CONSOLE) && (!defined(HALO_ANDROID) || defined(__ANDROID__) || defined(HALO_IOS))
+#define HALO_PORT_GYRO_SDL
+#endif
+#endif
+
 /* text chat (port/linux/game/chat.c): the desktop builds' (HALO_GAME_BROWSER),
 and a console's with Delta Peer as a client (HALO_CONSOLE_DELTA), the
 client's part only, unless it sets HALO_CONSOLE_NO_CHAT */
@@ -203,6 +235,36 @@ whose game list sends it), and a console's that sends its own reports
 #define HALO_PORT_GAME_REPORTS
 #endif
 
+/* the game's busiest units read its most called accessors inline, with the
+checks of the functions they call elsewhere: a tag block's element
+(TAG_BLOCK_GET_ELEMENT, source/tag_files/tag_groups.h: the index in the
+block, the block's address set, a Custom Edition map's tag cache bounds), a
+tag (tag_get, the same header: the index a loaded tag's, its salt, its
+group, its data loaded), a datum (datum_get, source/memory/data.h: the array
+valid, the index in it, its salt) and an object (object_get_and_verify_type,
+source/objects/objects.h: the datum's checks and the object's type). Only
+what fails a check calls the function, which checks again and asserts,
+logs or gives what it always gave. The debug decomp's accessors are calls
+at each use, tens of thousands a tick; the retail build had them inline.
+The units are tools/console_build.py's INLINE_ACCESSOR_SOURCES, which it
+builds with HALO_CONSOLE_HOT_UNIT: they make 72 to 92% of each accessor's
+calls counted on Beaver Creek (warthog-xbox #109), for 51 KB of code; the
+inline forms in every unit would cost the original Xbox's 64 MB about
+380 KB. Any console's release-style build (--console-no-debug-asserts: the
+asserts the inline forms skip are compiled out of the functions there too,
+and the memory checks datum_get keeps are in its inline form); the desktop
+builds call the functions, as before. HALO_CONSOLE_ACCESSOR_STATE is such a
+build's every unit: what the inline forms read (cache_files.c's count of
+loaded tags) */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	defined(HALO_CONSOLE_NO_DEBUG_ASSERTS) && !defined(HALO_CONSOLE_ACCESSOR_STATE)
+#define HALO_CONSOLE_ACCESSOR_STATE
+#endif
+#if defined(HALO_CONSOLE_ACCESSOR_STATE) && defined(HALO_CONSOLE_HOT_UNIT) && !defined(HALO_CONSOLE_INLINE_ACCESSORS)
+#define HALO_CONSOLE_INLINE_ACCESSORS
+#endif
+
 /* a filtered HUD meter's darkening faded over its edge, in two more combiner
 stages (source/rasterizer/xbox/rasterizer_xbox_dynavobgeom.c): a console
 draws its meters with retail's four stages, scaled or not. Every console's
@@ -214,6 +276,22 @@ HALO_CONSOLE, and its widescreen HUD drew the six stages */
 #define HALO_CONSOLE_NO_SMOOTH_METER_EDGES
 #endif
 
+/* the settings the game reads each frame or each scoreboard row (the
+particle limit, particles.c; the dynamic and specular light limits,
+object_lights.c; doors blocking light, door_portals.c; the scoreboard's
+icons and quit players, game_engine.c) read again only when the settings
+change (config_changes), as the HUD's are. Each read takes a lock and
+finds the setting by its name; one the build lacks (the original Xbox has
+no particle limit and no doors blocking light) is compared with every
+setting's name each time, then with the names it said it lacks. The same
+values; any console's build (warthog-xbox #109). The desktop builds read
+them each time, as before */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_CONSOLE_SETTINGS_ON_CHANGE)
+#define HALO_CONSOLE_SETTINGS_ON_CHANGE
+#endif
+
 /* the Light effects (display.light_effects, port/linux/game/plasma_lighting.c):
 a desktop's lighting extra, on no console (any console's build, whichever
 switches it sets on its own): its headers give empty hooks, and its sources
@@ -222,6 +300,32 @@ build to nothing (plasma_occlusion.c's fields alone are 130 KB) */
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
 	!defined(HALO_CONSOLE_NO_LIGHT_EFFECTS)
 #define HALO_CONSOLE_NO_LIGHT_EFFECTS
+#endif
+
+/* an object's dark lights left out of the map's clusters (object_lights.c,
+light_port_connect_lit): an attached light whose function is at 0 and whose
+color there is black lights nothing and is not drawn, so it does not join
+its clusters each tick until it lights again. The same picture for less of
+the tick on a console's processor (warthog-xbox #109); the desktop builds
+connect every light, as retail did (their Light effects read them). Any
+console's build, whichever switches it sets on its own */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_CONSOLE_SKIP_DARK_LIGHTS)
+#define HALO_CONSOLE_SKIP_DARK_LIGHTS
+#endif
+
+/* a map's navigation for computer-controlled characters (port/linux/game/
+ai_nav.c, port/linux/include/ai_nav.h): the desktop builds' and Android's,
+on no console (its walkable copy and search memory). HALO_AI_NAV is 1 or 0;
+at 0 its source builds to nothing */
+#ifndef HALO_AI_NAV
+#if defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)
+#define HALO_AI_NAV 0
+#else
+#define HALO_AI_NAV 1
+#endif
 #endif
 
 /* Halo MCC maps (port/linux/game/mcc_*.c, docs/mcc_maps.md): the desktop
@@ -240,6 +344,30 @@ shared code calls into no-ops, and the MCC sources build to nothing */
 #else
 #define HALO_MCC 0
 #endif
+#endif
+
+/* ragdolls (port/linux/game/ragdolls.c, display.ragdolls): a dead body's
+pose drawn from a rigid body ragdoll on Jolt Physics. The builds that
+compile Jolt (HALO_JOLT: the desktop build scripts set it), and on no
+console (any console's build, whichever switches it sets on its own) nor a
+dedicated server, which draws nothing. A console's build may also set
+HALO_CONSOLE_NO_RAGDOLLS */
+#if defined(HALO_JOLT) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE_NO_RAGDOLLS) && \
+	!(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER))
+#define HALO_PORT_RAGDOLLS
+#endif
+
+/* a profile (blam.sav) written whole or not at all: to blam.sav.tmp, flushed
+to the disk, read back, and renamed over the old one in one step, with the
+last good one kept as blam.sav.bak and taken back when blam.sav is found
+damaged (source/saved games/player_profile.c, saved_game_files.c;
+port/linux/src/xbox_files.c's halo_file_write_whole). The desktop builds'
+and Android's; a console's file layer is its own, and keeps the Xbox's
+write in place until it has been checked there */
+#if !(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER))
+#define HALO_PORT_SAFE_SAVES
 #endif
 
 #endif /* __HALO_PORT_FEATURES_H */

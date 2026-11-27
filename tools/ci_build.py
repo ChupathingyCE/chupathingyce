@@ -60,19 +60,18 @@ from tools.version import base_version, commit, release_build, version  # noqa: 
 OUTPUTS = {
     # (and the SDL3 each portable build brings, tools/linux_build.py, its
     # license in THIRD-PARTY-NOTICES.txt with the others'). The game is
-    # chupathingy (chupathingy.exe) from 0.9.0; halo (halo.exe) beside it is
-    # the small stub that starts it, for shortcuts and scripts made for
-    # the old name (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
-    "linux": ["build/linux/chupathingy", "build/linux/halo", "build/linux/libSDL3.so.0"],
+    # chupathingy (chupathingy.exe) from 0.9.0 (0.9.0 and 0.9.1 also had a
+    # small halo, halo.exe, that started it: port/linux/src/rename_stub.h)
+    "linux": ["build/linux/chupathingy", "build/linux/libSDL3.so.0"],
     # the native 64-bit build (ninja linux64; tools/linux64_build.py)
-    "linux64": ["build/linux64/chupathingy", "build/linux64/halo", "build/linux64/libSDL3.so.0"],
+    "linux64": ["build/linux64/chupathingy", "build/linux64/libSDL3.so.0"],
     # the native 64-bit FreeBSD build (ninja freebsd64; tools/unix64_build.py),
     # built on FreeBSD: SDL3 is the system's package (pkg install sdl3), not
     # brought along
-    "freebsd64": ["build/freebsd64/chupathingy", "build/freebsd64/halo"],
-    "windows": ["build/windows/chupathingy.exe", "build/windows/halo.exe", "build/windows/SDL3.dll"],
+    "freebsd64": ["build/freebsd64/chupathingy"],
+    "windows": ["build/windows/chupathingy.exe", "build/windows/SDL3.dll"],
     # the native 64-bit build (ninja windows64; tools/windows_build.py)
-    "windows64": ["build/windows64/chupathingy.exe", "build/windows64/halo.exe", "build/windows64/SDL3.dll"],
+    "windows64": ["build/windows64/chupathingy.exe", "build/windows64/SDL3.dll"],
     "android": [],  # the APK, below
     # the native 64-bit app (ninja android64; tools/android64_build.py): the
     # same app, built with -Pnative64, its APK below
@@ -110,6 +109,11 @@ def main() -> int:
     parser.add_argument("config", choices=["debug", "release"])
     parser.add_argument("--alpine", action="store_true",
                         help="a server: build it in Alpine Linux's Docker container (musl, static)")
+    parser.add_argument("--without-ragdolls", action="store_true",
+                        help="without ragdolls and their Jolt Physics (configure.py --without-ragdolls)")
+    parser.add_argument("--window-rebase", action="store_true",
+                        help="windows: the Xbox memory window wherever it fits (configure.py --window-rebase), "
+                        "as Chupathingy32's Windows build has it")
     args = parser.parse_args()
     server = args.platform.startswith("server-")
     if args.alpine:
@@ -129,6 +133,12 @@ def main() -> int:
     launcher = os.environ.get("CI_COMPILER_LAUNCHER")
     if launcher:
         configure += ["--compiler-launcher", launcher]
+    if args.without_ragdolls:
+        configure.append("--without-ragdolls")
+    if args.window_rebase:
+        if args.platform != "windows":
+            parser.error("--window-rebase builds the 32-bit Windows build only")
+        configure.append("--window-rebase")
     # a release is VERSION's, and nothing else is one
     if release_build() and version() != base_version():
         print(f"error: a release build of {version()}, but VERSION is {base_version()}", file=sys.stderr)
@@ -187,10 +197,14 @@ def main() -> int:
         if symbols.exists():
             shutil.rmtree(symbols)
         symbols.mkdir(parents=True)
+        # (and the program itself, which llvm-symbolizer reads the PDB
+        # through: the download's, so the symbols are whole on their own)
         for pdb in [ROOT / f"build/{args.platform}/chupathingy.pdb", ROOT / f"build/{args.platform}/chupathingy.map",
+                    ROOT / f"build/{args.platform}/chupathingy.exe",
                     *sorted((ROOT / "build/windows/third_party").glob(f"SDL3-*/lib/{sdl_arch}/SDL3.pdb"))]:
             shutil.copy2(pdb, symbols)
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
+        write_build_ids(symbols)
     keep_native_symbols(args.platform, args.config)
     write_licenses(dist, "game", game_features(args.platform))
     # internet play's MQTT brokers, a file beside the game (network.brokers_file;
@@ -257,6 +271,31 @@ def alpine_build(platform: str, config: str) -> int:
     return 0
 
 
+def write_build_ids(symbols: Path) -> None:
+    """build-ids.txt in a build's kept symbols: each program's build ID, the
+    one its crash reports send (port/linux/src/crash_report.h), with the
+    version and commit, so a report finds its symbols by its build_id
+    (tools/symbolize_crash.py checks them against each other)"""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import symbolize_crash  # noqa: E402
+
+    lines = [f"# {version()} {commit()}"]
+    for path in sorted(symbols.iterdir()):
+        identity = None
+        if path.suffix.lower() in (".exe", ".dll"):
+            identity = symbolize_crash.pe_codeview_id(path.read_bytes())
+        elif path.suffix.lower() == ".dsym":
+            for arch, uuid in sorted(symbolize_crash.macho_uuids(path).items()):
+                lines.append(f"{path.name} {arch} {uuid}")
+            continue
+        elif path.is_file() and path.read_bytes()[:4] == b"\x7fELF":
+            identity = symbolize_crash.elf_build_id(path.read_bytes())
+        if identity:
+            lines.append(f"{path.name} {identity}")
+    (symbols / "build-ids.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("\n".join(lines), flush=True)
+
+
 def keep_native_symbols(platform: str, config: str) -> None:
     """dist/chupathingyce-<platform>-<config>-symbols for the builds that are
     not Windows': the Linux programs with their debug information (the
@@ -286,6 +325,7 @@ def keep_native_symbols(platform: str, config: str) -> None:
                 result = subprocess.run(["dsymutil", str(program), "-o", str(symbols / f"{program.name}.dSYM")])
                 if result.returncode != 0:
                     print(f"warning: dsymutil failed for {program.name}", flush=True)
+    write_build_ids(symbols)
 
 
 def strip_debug(program: Path) -> None:
@@ -341,6 +381,7 @@ def server_dist(platform: str, config: str, output: str) -> int:
         shutil.copy2(playlist, dist / "playlists")
     # (sv_name_filter's list, read from the data folder)
     shutil.copy2(ROOT / "server/blocked_names.txt", dist / "blocked_names.txt")
+    write_build_ids(symbols)
     write_licenses(dist, "server", [])
     print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)
     return 0

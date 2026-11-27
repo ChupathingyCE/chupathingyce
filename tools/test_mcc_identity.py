@@ -1,6 +1,8 @@
 """MCC content matching uses all digest bytes and never rewrites wire paths."""
 from pathlib import Path
 import hashlib
+import os
+import random
 import shutil
 import subprocess
 import sys
@@ -41,7 +43,7 @@ int main(int argc,char **argv) {
  for(i=0;i<32;i++)printf("%02x",digest[i]);return 0;
 }
 ''')
-    return compile_tool(work, [source, ROOT / "port/linux/game/mcc_sha256.c"])
+    return compile_tool(work, [source, ROOT / "port/linux/game/content_sha256.c"])
 
 
 @pytest.mark.parametrize("data", [b"", b"abc", b"a" * 55, b"a" * 56, b"a" * 64,
@@ -54,3 +56,24 @@ def test_sha256_vectors(sha_tool, tmp_path, data, chunk):
     result = subprocess.run([str(sha_tool), str(path), str(chunk)], capture_output=True, text=True)
     assert result.returncode == 0
     assert result.stdout == hashlib.sha256(data).hexdigest()
+    # (the portable code, where the processor's SHA-256 instructions were
+    # used above: the same digest)
+    portable = subprocess.run([str(sha_tool), str(path), str(chunk)], capture_output=True, text=True,
+                              env={**os.environ, "MCC_SHA256_PORTABLE": "1"})
+    assert portable.returncode == 0
+    assert portable.stdout == result.stdout
+
+
+def test_sha256_random_chunks(sha_tool, tmp_path):
+    """many lengths, in chunks of many sizes: the processor's instructions
+    and the portable code alike give hashlib's digest"""
+    generator = random.Random(1350)
+    for _ in range(40):
+        data = bytes(generator.getrandbits(8) for _ in range(generator.randrange(0, 9000)))
+        path = tmp_path / "bytes"
+        path.write_bytes(data)
+        chunk = str(generator.randrange(1, 300))
+        for environment in ({}, {"MCC_SHA256_PORTABLE": "1"}):
+            result = subprocess.run([str(sha_tool), str(path), chunk], capture_output=True, text=True,
+                                    env={**os.environ, **environment})
+            assert result.stdout == hashlib.sha256(data).hexdigest()

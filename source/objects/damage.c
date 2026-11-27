@@ -145,6 +145,7 @@ symbols in this file:
 #include "stubbs_regions.h" /* port: port/linux/game/stubbs_regions.c */
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 #include "game/game_modes.h" /* port: SWAT's headshots (docs/modes.md) */
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -777,8 +778,11 @@ void object_can_take_damage(
 
 	while (object_index != NONE)
 	{
-		struct object_datum *object = object_get(object_index);
-		SET_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
+		/* port: a listed object deleted since is passed over (#1861) */
+		struct object_datum *object = object_try_and_get(object_index);
+
+		if (object)
+			SET_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
 		object_index = object_list_get_next(object_list_index, &reference_index);
 	}
 
@@ -793,8 +797,11 @@ void object_cannot_take_damage(
 
 	while (object_index != NONE)
 	{
-		struct object_datum *object = object_get(object_index);
-		SET_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit, TRUE);
+		/* port: a listed object deleted since is passed over (#1861) */
+		struct object_datum *object = object_try_and_get(object_index);
+
+		if (object)
+			SET_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit, TRUE);
 		object_index = object_list_get_next(object_list_index, &reference_index);
 	}
 
@@ -805,7 +812,8 @@ void object_set_ranged_attack_inhibited(
 	long object_index,
 	boolean inhibited)
 {
-	if (object_index != NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		struct object_datum *object = object_get(object_index);
 		SET_FLAG(object->object.damage_flags, _object_ranged_attack_inhibited_bit, inhibited);
@@ -818,7 +826,8 @@ void object_set_melee_attack_inhibited(
 	long object_index,
 	boolean inhibited)
 {
-	if (object_index != NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		struct object_datum *object = object_get(object_index);
 		SET_FLAG(object->object.damage_flags, _object_melee_attack_inhibited_bit, inhibited);
@@ -1061,6 +1070,11 @@ static void object_damage_aftermath(
 
 	/* port: (a client's replay of the host's nonlethal damage too) */
 	damage_data_validate_owner(damage);
+#ifdef HALO_PORT_RAGDOLLS
+	/* port: the blow, for the ragdoll of a death it brings or one it strikes
+	(port/linux/game/ragdolls.c; only the picture) */
+	ragdolls_note_damage(object_index, damage);
+#endif
 
 	if (object_definition->object.acceleration_scale > _real_epsilon)
 	{

@@ -108,6 +108,10 @@ their handlers open opens.
 #include "halo_map_families.h"
 #include "halo_server_browser.h"
 #include "halo_join_reasons.h"
+#ifdef HALO_GAME_BROWSER
+#include "direct_join.h"
+#include "../src/direct_address.h"
+#endif
 /* (the multiplayer maps past the Xbox's: ui_map_list.c) */
 #include "halo_ui_map_list.h"
 #include "mcc_maps.h"
@@ -124,6 +128,9 @@ their handlers open opens.
 #include <xtl.h>
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 #include "halo_profile_screen.h"
+#endif
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+#include "duct_tape_logo.h"
 #endif
 
 /* a player's name in the lobby: a Delta profile's (profile_names.c) is
@@ -2248,6 +2255,12 @@ static void views_show(struct widget_instance *list, char const *view)
 		/* (the rows: the Gearbox menus' button bar is after them) */
 		if (!strncmp(child->name, "op_", 3))
 			child->visible = !mark || view_mark_has(mark->name, view);
+#ifndef HALO_PORT_RAGDOLLS
+		/* (RAGDOLLS, in a build without them: configure.py
+		--without-ragdolls. The last row of its view, so no gap) */
+		if (!strcmp(child->name, "op_ragdolls"))
+			child->visible = FALSE;
+#endif
 	}
 	views_scroll(list, view);
 	if (list->focused_child && !list->focused_child->visible)
@@ -2522,17 +2535,37 @@ static void profile_gamepad_layout(struct widget_instance *picture)
 }
 
 /* the Chupathingy menus' settings picture (port/assets/menus/chupathingy):
-a frame for each of its nine rows (SETUP's last), then the Xbox's five button settings,
-which CONTROLS' row shows for the edited profile */
+a frame for each of its nine rows, then the Xbox's five button settings,
+which CONTROLS' row shows for the edited profile. Without ADVANCED SETUP
+the rows after it keep their frames and words
+(pc_menu_settings_description_index, below) */
 #define CHUPATHINGY_FIRST_LAYOUT_FRAME 9
-/* SETUP's frame, and its words in the descriptions (after ABOUT's) */
-#define CHUPATHINGY_SETUP_FRAME 7
-#define CHUPATHINGY_SETUP_DESCRIPTION 7
 
 /* ABOUT's row (the picture's frame for it is blank): this build and the
 project, in the picture's place (its about_text) */
-#define CHUPATHINGY_ABOUT_FRAME 6
+#define CHUPATHINGY_ABOUT_FRAME 7
 #define CHUPATHINGY_ABOUT_LENGTH 512
+
+/* The Chupathingy menus' SETTINGS (chupathingy/settings.xml, the list with
+a save_item) without ADVANCED SETUP, ADVANCED SETUP's place the seventh
+row: the rows after it are a place higher, so their description's words
+and picture are the next ones, the ones they have with it
+(ui_widget_game_data_input_functions.c's
+player_profile_edit_select_menu_update_extended_description) */
+#define CHUPATHINGY_SETUP_PLACE 6
+
+short pc_menu_settings_description_index(struct widget_instance *list_widget, short index)
+{
+	extern boolean pc_menu_setup_shown(void);
+	struct widget_instance *child;
+
+	if (index == NONE || index < CHUPATHINGY_SETUP_PLACE || !list_widget || pc_menu_setup_shown())
+		return index;
+	for (child = list_widget->child; child && strcmp(child->name, "save_item"); child = child->next)
+	{
+	}
+	return child ? (short)(index + 1) : index;
+}
 
 /* (a line's width in the font the draw mode has) */
 static short chupathingy_about_width(char const *text, long length)
@@ -2670,17 +2703,6 @@ static void chupathingy_settings_picture(struct widget_instance *picture)
 	extern boolean pc_menu_setup_shown(void);
 	struct player_profile *profile = player_ui_get_edit_player_profile();
 
-	/* (without SETUP, SAVE CHANGES is in its place: its words and picture,
-	the next ones) */
-	if (!pc_menu_setup_shown() && picture->animation.current_frame_index == CHUPATHINGY_SETUP_FRAME)
-	{
-		struct widget_instance *text = named(picture->parent, "description_text", 0);
-
-		picture->animation.current_frame_index = CHUPATHINGY_SETUP_FRAME + 1;
-		if (text)
-			text->parameters.text_box.string_list_index = CHUPATHINGY_SETUP_DESCRIPTION + 1;
-	}
-
 	chupathingy_settings_about(picture);
 	if (picture->animation.current_frame_index == PROFILE_GAMEPAD_FRAME)
 	{
@@ -2692,6 +2714,113 @@ static void chupathingy_settings_picture(struct widget_instance *picture)
 					profile->controller_settings.button_preset : _button_preset_standard));
 	}
 }
+
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+/* ---------- the Chupathingy main menu's logo, taped over (duct_tape_logo.h):
+the Konami code on the main menu swaps it, display.duct_tape_logo keeps it */
+
+#define DUCT_TAPE_LOGO_SETTING "display.duct_tape_logo"
+/* (the menus' cursor sound: ui_widget.c's _ui_audio_feedback_cursor) */
+#define SOUND_CURSOR 1
+
+int config_write_boolean(char const *name, int value);
+/* (xinput_sdl.c's: halo_keyboard.h) */
+unsigned long halo_keyboard_menu_letters(void);
+
+static struct konami_code konami_code;
+static struct duct_tape_logo duct_tape_logo;
+static boolean duct_tape_logo_read;
+/* the keyboard's B and A, down last frame */
+static boolean konami_keys_down[2];
+
+static void duct_tape_logo_first_read(void)
+{
+	if (!duct_tape_logo_read)
+	{
+		duct_tape_logo_reset(&duct_tape_logo, config_boolean(DUCT_TAPE_LOGO_SETTING));
+		duct_tape_logo_read = TRUE;
+	}
+}
+
+/* a press in, from a controller or the keyboard: whether the menus should
+not get it */
+static boolean konami_press(int press)
+{
+	boolean swallowed = (boolean)konami_code_swallows(&konami_code, press);
+
+	if (konami_code_feed(&konami_code, press))
+	{
+		int shown;
+
+		duct_tape_logo_first_read();
+		shown = duct_tape_logo_toggle(&duct_tape_logo, system_milliseconds());
+		if (!config_write_boolean(DUCT_TAPE_LOGO_SETTING, shown))
+			platform_log("menus: could not write %s to config.toml", DUCT_TAPE_LOGO_SETTING);
+	}
+	return swallowed;
+}
+
+/* (ui_widget.c: each event on the Chupathingy main menu) a controller's
+button, first pressed (value 1; held, it counts once): whether the menus
+should not get it. The sticks count for nothing either way */
+boolean pc_menu_konami_event(boolean button, short index, short value)
+{
+	int press;
+
+	if (!button || value != 1)
+		return FALSE;
+	switch (index)
+	{
+	case _gamepad_binary_button_dpad_up: press = _konami_up; break;
+	case _gamepad_binary_button_dpad_down: press = _konami_down; break;
+	case _gamepad_binary_button_dpad_left: press = _konami_left; break;
+	case _gamepad_binary_button_dpad_right: press = _konami_right; break;
+	case _gamepad_analog_button_b: press = _konami_b; break;
+	case _gamepad_analog_button_a: press = _konami_a; break;
+	default: press = _konami_other; break;
+	}
+	return konami_press(press);
+}
+
+/* (ui_widget.c: each frame of the Chupathingy main menu) the keyboard's B
+and A keys, as letters (halo_keyboard_menu_letters; Escape and Enter come
+as the controller's B and A, through pc_menu_konami_event) */
+void pc_menu_konami_keys(void)
+{
+	static char const letters[2] = { 'B', 'A' };
+	static int const presses[2] = { _konami_b, _konami_a };
+	unsigned long held = halo_keyboard_menu_letters();
+	int index;
+
+	for (index = 0; index < 2; index++)
+	{
+		boolean down = (held & (1UL << (letters[index] - 'A'))) != 0;
+
+		if (down && !konami_keys_down[index])
+			konami_press(presses[index]);
+		konami_keys_down[index] = down;
+	}
+}
+
+/* "port duct tape logo" (the logo's own: its Halo logo and the tape over
+it): the tape shown or not, and the swap's build-up */
+static void duct_tape_logo_update(struct widget_instance *logo)
+{
+	struct widget_instance *halo = named(logo, "main_menu_logo_halo", 0);
+	struct widget_instance *tape = named(logo, "main_menu_logo_tape", 0);
+	int frame, drop;
+
+	if (!halo || !tape)
+		return;
+	duct_tape_logo_first_read();
+	duct_tape_logo_sync(&duct_tape_logo, config_boolean(DUCT_TAPE_LOGO_SETTING));
+	if (duct_tape_logo_step(&duct_tape_logo, system_milliseconds(), &frame, &drop))
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
+	tape->visible = frame == DUCT_TAPE_LOGO_TAPE_FRAME;
+	halo->vertical_offset = (short)drop;
+	tape->vertical_offset = (short)drop;
+}
+#endif
 
 /* ---------- Profiles: the player profiles, and a row to make one (as the
 PC version's list has them, but by the Xbox's names for its spinner's
@@ -2942,6 +3071,9 @@ Multiplayer go back to one player (main_menu_initialize,
 multiplayer_type_menu_initialize).
 With one gamepad, it is player 2's (pc_menu_split_players) */
 
+/* (ONLINE's: Select Map opens on the campaign's first level: coop_online) */
+static boolean pc_menus_coop_first;
+
 /* "port coop begin": two players, player 1 on its profile (campaign_profile)
 and the controller that chose co-op */
 static boolean coop_begin(short controller)
@@ -2950,6 +3082,8 @@ static boolean coop_begin(short controller)
 
 	player_spawn_count = 1;
 	player_ui_reset_single_player_local_player_controllers();
+	/* (a level preselected by ONLINE that Select Map never took) */
+	pc_menus_coop_first = FALSE;
 	if (!campaign_profile(controller, &profile))
 		return campaign_fail();
 	player_spawn_count = 2;
@@ -3002,6 +3136,33 @@ static boolean coop_player2_choose(short controller)
 	player_ui_set_single_player_local_player_controller(1, controller);
 	player_ui_set_active_player_profile(1, profile_list.indices[profile_list.chosen], &profile);
 	return TRUE;
+}
+
+/* the Multiplayer menu's ONLINE CO-OP (ui_widget.c): network co-op, through
+the host flow Online Games' CREATE GAME opens (Select Map, GAME SETUP, the
+lobby), with Select Map on the campaign's first level
+(pc_menus_coop_first_take). #1252 */
+boolean pc_menus_coop_first_take(void)
+{
+	boolean first = pc_menus_coop_first;
+
+	pc_menus_coop_first = FALSE;
+	return first;
+}
+
+boolean pc_menus_coop_online(void)
+{
+	/* (not on the original Xbox, which hosts no network co-op: Delta's
+	platform policy, xbox_coop.c) */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_XBOX_CONSOLE)
+	boolean browser_screen_create_coop_game(void);
+
+	pc_menus_coop_first = TRUE;
+	if (browser_screen_create_coop_game())
+		return TRUE;
+	pc_menus_coop_first = FALSE;
+#endif
+	return campaign_fail();
 }
 
 /* ---------- Controls Setup: the keyboard and mouse's controls
@@ -3656,9 +3817,10 @@ static char const *controls_page_view(struct widget_instance *list)
 {
 	if (controls_device_shown(list) == _controls_device_keyboard_mouse)
 		return spinner_shown(list, "group_spinner") == CONTROL_GROUP_MOUSE ? "mouse" : "keyboard";
-#ifdef HALO_SWITCH_CONSOLE
-	/* port: the controller's third page, the gyroscope's settings (the
-	Switch's rows: tools/switch_menus.py in its port) */
+#ifdef HALO_PORT_GYRO_AIM
+	/* port: the controller's third page, the gyroscope's settings
+	(tools/port_settings.py's GYRO_ROWS; the Switch's own rows:
+	tools/switch_menus.py in its port) */
 	if (spinner_shown(list, "page_spinner") == 2)
 		return "gyro";
 #endif
@@ -3795,7 +3957,7 @@ static void controls_page_update(struct widget_instance *list)
 	else if (focused == named(list, "op_group", 0))
 		line = "Choose a group of keys, or the mouse.";
 	else if (focused == named(list, "op_page", 0))
-#ifdef HALO_SWITCH_CONSOLE
+#ifdef HALO_PORT_GYRO_AIM
 		line = "Choose the controller's settings, buttons or gyro.";
 #else
 #line 2888
@@ -3861,7 +4023,7 @@ static boolean controls_page_defaults(struct widget_instance *widget)
 		return TRUE;
 	}
 	settings_each_in_view(list, "gamepad", setting_default_show);
-#ifdef HALO_SWITCH_CONSOLE
+#ifdef HALO_PORT_GYRO_AIM
 	settings_each_in_view(list, "gyro", setting_default_show);
 #endif
 #line 2940
@@ -3988,6 +4150,7 @@ boolean ui_widget_port_open(struct widget_instance *widget, char const *name, bo
 boolean network_game_client_advertised_game_in_progress(void *client, struct advertised_game *game);
 #ifdef HALO_GAME_BROWSER
 boolean network_game_client_advertised_game_opence_server(void *client, struct advertised_game *game);
+char const *network_game_client_advertised_game_project(void *client, struct advertised_game *game);
 #endif
 boolean ui_widget_port_join(struct widget_instance *widget, void *advertised_game, char const *lobby_name,
 	boolean *widget_deleted);
@@ -5843,7 +6006,8 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 
 /* only the games this build can join (game_list_rules.h): a game the list
 has by the list's word (browser_game_shown), a listing it lacks by its own
-number (browser_version_shown); every game with debug.show_all_games */
+number (browser_version_shown), old builds' too; every game with
+debug.show_all_games. Never a game of a blocked name (browser_name_blocked_text) */
 static void lobby_browser_joinable_games(void)
 {
 	short index, kept;
@@ -5857,6 +6021,9 @@ static void lobby_browser_joinable_games(void)
 		int shown = browser_version_shown(lobby_browser.games[index].version);
 #endif
 
+		if (shown && (browser_name_blocked_text(lobby_browser.games[index].name) ||
+			browser_name_blocked_text(lobby_browser.games[index].name_utf8)))
+			shown = 0;
 		if (shown)
 			lobby_browser.games[kept++] = lobby_browser.games[index];
 	}
@@ -6393,6 +6560,197 @@ static boolean password_screen_edit(struct widget_instance *row, boolean *widget
 	return TRUE;
 }
 
+/* ---- the Custom Edition menus' DIRECT IP (and the Chupathingy menus', which
+System Link's X opens: menu_tags.c): a game joined by its address, as
+direct_join.c joins it. SERVER ADDRESS takes the address (the keyboard
+types into it; a controller gets the on-screen keyboard), shown as stars
+once entered (a host name as it is). The PC version's PASSWORD row is
+RECENT here (a system link join has no password): A goes through the
+addresses joined before, by their names (Saved server 1, ...), never the
+addresses; one chosen is what JOIN joins. The help line says how the join
+goes (direct_join_status) */
+
+#ifdef HALO_GAME_BROWSER
+#define DIRECT_IP_KEYBOARD_LENGTH 32
+/* the help line's characters before it wraps (its box: the screen's own
+help's widest line) */
+#define DIRECT_IP_HELP_LINE 50
+#define DIRECT_IP_HELP "pc\\main_menu\\multiplayer_type_select\\direct_ip\\cap_direct_ip_options"
+
+static struct
+{
+	/* the address typed (never shown again once entered) */
+	char text[DIRECT_JOIN_TEXT_SIZE];
+	/* the recent address chosen (NONE: the one typed) */
+	short recent;
+	/* the on-screen keyboard up for it, and its text */
+	boolean keyboard;
+	wchar_t keyboard_text[DIRECT_IP_KEYBOARD_LENGTH];
+} direct_ip;
+
+static void direct_ip_typed(char const *text)
+{
+	snprintf(direct_ip.text, sizeof(direct_ip.text), "%s", text);
+	if (text[0])
+		direct_ip.recent = NONE;
+}
+
+/* "direct ip connect init" */
+static boolean direct_ip_initialize(void)
+{
+	csmemset(direct_ip.text, 0, sizeof(direct_ip.text));
+	direct_ip.keyboard = FALSE;
+	/* (the last one joined, ready for JOIN: a LAN party's host again) */
+	direct_ip.recent = direct_join_saved_count() ? 0 : NONE;
+	direct_join_screen_alive();
+	return TRUE;
+}
+
+/* "direct ip connect update": the rows' values, the help line */
+static void direct_ip_update(struct widget_instance *list)
+{
+	struct widget_instance *address_row = named(list, "op_server_address", 0);
+	struct widget_instance *help = list->parameters.list.extended_description;
+	char name[DIRECT_JOIN_NAME_SIZE + 16];
+	wchar_t text[DIRECT_JOIN_STATUS_SIZE];
+	short index;
+
+	direct_join_screen_alive();
+	/* (the on-screen keyboard's words, once it closes with them) */
+	if (direct_ip.keyboard && !virtual_keyboard_active())
+	{
+		direct_ip.keyboard = FALSE;
+		if (virtual_keyboard_last_exit_saved_text())
+		{
+			char typed[DIRECT_IP_KEYBOARD_LENGTH];
+
+			for (index = 0; direct_ip.keyboard_text[index] && index < DIRECT_IP_KEYBOARD_LENGTH - 1; index++)
+				typed[index] = direct_ip.keyboard_text[index] < 0x80 ? (char)direct_ip.keyboard_text[index] : '?';
+			typed[index] = 0;
+			direct_ip_typed(typed);
+			csmemset(typed, 0, sizeof(typed));
+		}
+		csmemset(direct_ip.keyboard_text, 0, sizeof(direct_ip.keyboard_text));
+	}
+	if (direct_ip.recent >= direct_join_saved_count())
+		direct_ip.recent = NONE;
+	if (text_field_editing(address_row))
+		text_field_show(named(list, "server_address_value_label", 0), "", TRUE);
+	else
+	{
+		if (direct_ip.recent != NONE)
+			direct_join_saved_name(direct_ip.recent, name, sizeof(name));
+		else
+			direct_address_shown(direct_ip.text, name, sizeof(name));
+		text_field_show(named(list, "server_address_value_label", 0), name, FALSE);
+	}
+	if (direct_ip.recent == NONE || !direct_join_saved_name(direct_ip.recent, name, sizeof(name)))
+		snprintf(name, sizeof(name), "NONE");
+	text_field_show(named(list, "server_password_value_label", 0), name, FALSE);
+	/* (how the join goes, else the screen's own line) */
+	if (help)
+	{
+		char const *status = direct_join_status();
+
+		if (status[0])
+		{
+			short used = 0, line = 0;
+			char const *word = status;
+
+			/* (wrapped at a space before the box's edge, a line break as
+			the menus' strings have it: a refusal's sentence is never cut) */
+			while (*word && used < DIRECT_JOIN_STATUS_SIZE - 3)
+			{
+				short length = (short)strcspn(word, " ");
+
+				if (line && line + 1 + length > DIRECT_IP_HELP_LINE)
+				{
+					text[used++] = L'\r';
+					text[used++] = L'\n';
+					line = 0;
+				}
+				else if (line)
+				{
+					text[used++] = L' ';
+					line++;
+				}
+				for (index = 0; index < length && used < DIRECT_JOIN_STATUS_SIZE - 3; index++)
+					text[used++] = (wchar_t)(unsigned char)word[index];
+				line = (short)(line + length);
+				word += length;
+				while (*word == ' ')
+					word++;
+			}
+			text[used] = 0;
+		}
+		else
+			string_get(DIRECT_IP_HELP, 0, text);
+		text_set_length(named(help, "direct_ip_help_text", 0), text, DIRECT_JOIN_STATUS_SIZE);
+	}
+}
+
+/* "direct ip edit field": A on SERVER ADDRESS types an address (a new one:
+the one before is never shown to edit), on RECENT the next saved one */
+static boolean direct_ip_edit(struct widget_instance *widget)
+{
+	struct widget_instance *screen = screen_of(widget);
+	struct widget_instance *row = named(screen, "op_server_address", 0);
+
+	if (widget->name && strstr(widget->name, "password"))
+	{
+		short count = direct_join_saved_count();
+
+		if (!count)
+			return campaign_fail();
+		direct_ip.recent = direct_ip.recent == NONE ? 0 : direct_ip.recent + 1 < count ? direct_ip.recent + 1 : NONE;
+		if (direct_ip.recent != NONE)
+			csmemset(direct_ip.text, 0, sizeof(direct_ip.text));
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		return TRUE;
+	}
+	if (!row)
+		return FALSE;
+	if (text_field_editing(row))
+	{
+		text_field_end(TRUE);
+		return TRUE;
+	}
+	if (direct_join_active())
+		direct_join_cancel();
+	/* (the keys type already; a controller gets the on-screen keyboard) */
+	if (ui_overlay_keyboard())
+	{
+		text_field_begin(row, "", DIRECT_JOIN_TEXT_SIZE - 1, direct_ip_typed);
+		return TRUE;
+	}
+	csmemset(direct_ip.keyboard_text, 0, sizeof(direct_ip.keyboard_text));
+	direct_ip.keyboard = virtual_keyboard_launch_plain(direct_ip.keyboard_text, sizeof(direct_ip.keyboard_text),
+		L"Address");
+	return direct_ip.keyboard;
+}
+
+/* "direct ip connect go" on DIRECT IP's JOIN: the address typed, else the
+recent one chosen, joined (direct_join.c says how it goes) */
+static boolean direct_ip_go(struct widget_instance *widget)
+{
+	struct widget_instance *row = named(screen_of(widget), "op_server_address", 0);
+	boolean started;
+
+	if (row && text_field_editing(row))
+		text_field_end(TRUE);
+	if (direct_join_active())
+		return TRUE;
+	if (!direct_ip.text[0] && direct_ip.recent != NONE)
+		started = direct_join_saved_start(direct_ip.recent);
+	else
+		started = direct_join_start(direct_ip.text);
+	if (!started)
+		return campaign_fail();
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return TRUE;
+}
+#endif
+
 /* "gamespy screen update": the games' rows (name, map, gametype, players),
 the one chosen's line, the counts over the titles (the PC version's: its
 players, page, servers) */
@@ -6464,14 +6822,25 @@ static void browser_update(struct widget_instance *list)
 		text[NUMBEROF(text) - 1] = 0;
 		text_set(named(list, "ticker_player_info", 0), text);
 		/* (an OpenCE dedicated server's game, by its advertisement: the
-		lists' neutral label) */
+		lists' neutral label; or the project of a host of another project's
+		code, by its Delta tag) */
 		text[0] = 0;
 #ifdef HALO_GAME_BROWSER
-		if (multiplayer.mode != _multiplayer_mode_server_browser && multiplayer.game_count &&
-			network_game_client_advertised_game_opence_server(global_network_game_client_get(),
-				multiplayer.games[multiplayer.game_chosen]))
+		if (multiplayer.mode != _multiplayer_mode_server_browser && multiplayer.game_count)
 		{
-			usnprintf(text, NUMBEROF(text) - 1, L"%s", JOIN_WIDE(HOST_LABEL_OPENCE_SERVER));
+			struct advertised_game *chosen = multiplayer.games[multiplayer.game_chosen];
+			char const *project = network_game_client_advertised_game_project(global_network_game_client_get(), chosen);
+
+			if (network_game_client_advertised_game_opence_server(global_network_game_client_get(), chosen))
+				usnprintf(text, NUMBEROF(text) - 1, L"%s", JOIN_WIDE(HOST_LABEL_OPENCE_SERVER));
+			else if (project)
+			{
+				int index;
+
+				for (index = 0; project[index] && index < (int)NUMBEROF(text) - 1; index++)
+					text[index] = (wchar_t)(unsigned char)project[index];
+				text[index] = 0;
+			}
 		}
 #endif
 		text[NUMBEROF(text) - 1] = 0;
@@ -6640,6 +7009,24 @@ boolean pc_menu_setup_offered(void)
 #ifdef HALO_LAUNCHER
 	return config_boolean("launcher.menu_entry") != 0;
 #else
+	return FALSE;
+#endif
+}
+
+/* the menus' own map didn't load (main_new_map: a pack's maps the game can't
+read): the setup screen, which shows the folder's maps and why, rather than a
+blue screen. FALSE in a run nobody watches and in the builds without it */
+boolean pc_menu_setup_after_failed_menus(char const *map_name)
+{
+#ifdef HALO_LAUNCHER
+	extern BOOL platform_run_is_unwatched(void);
+
+	if (platform_run_is_unwatched())
+		return FALSE;
+	platform_log("the menus' map '%s' doesn't load: starting again on the setup screen", map_name);
+	return launcher_restart_to_setup() != 0;
+#else
+	(void)map_name;
 	return FALSE;
 #endif
 }
@@ -8083,7 +8470,8 @@ with it), the internet play port, the game type (left and right choose
 another, Y or A edits it), and the host's rules of config.toml
 (network.team_change and its margin, network.chat_filter,
 network.block_mouse_aim_assist, network.allow_player_names,
-network.allow_follow_camera, network.opence_welcome), written as START GAME (A) opens the lobby.
+network.allow_follow_camera, network.air_turn_aim, network.opence_welcome), written as START GAME (A)
+opens the lobby.
 The host's rules are a nested list, as the settings screens' are: HOST
 RULES opens it, and B goes back out of it. B leaves them as they were.
 
@@ -8129,6 +8517,7 @@ enum
 	_host_row_aim_assist,
 	_host_row_player_names,
 	_host_row_follow_camera,
+	_host_row_air_turn_aim,
 	_host_row_opence_welcome,
 	/* (the row that opens the host's rules, those above) */
 	_host_row_rules,
@@ -8140,7 +8529,7 @@ static wchar_t const *const host_row_labels[NUMBER_OF_HOST_ROWS] =
 {
 	L"GAME NAME:", L"MAX PLAYERS:", L"PUBLIC LOBBY:", L"PASSWORD:", L"PORT:", L"GAME TYPE:", L"TEAM SWITCHING:",
 	L"TEAM SWITCH MARGIN:", L"CHAT FILTER:", L"MOUSE AIM ASSIST:", L"PLAYER NAMES:",
-	L"FOLLOW CAMERA:", L"OPENCE WELCOME:", L"HOST RULES", L"START GAME",
+	L"FOLLOW CAMERA:", L"180 GLITCH:", L"OPENCE WELCOME:", L"HOST RULES", L"START GAME",
 };
 
 /* the editor's pages, by their screens' names */
@@ -8171,6 +8560,7 @@ static struct
 	boolean block_aim_assist;
 	boolean player_names;
 	boolean follow_camera;
+	boolean air_turn_aim;
 	boolean opence_welcome;
 	long port;
 	/* the rows shown, in their places */
@@ -8191,7 +8581,7 @@ static struct
 	struct game_variant base_variant;
 	struct game_variant_options base_options;
 #endif
-} host_setup = { NULL, 0, 1, TRUE, FALSE, FALSE, FALSE, FALSE, 0, { 0 }, 0, 0, 0, { 0 }, 0 };
+} host_setup = { NULL, 0, 1, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, 0, { 0 }, 0, 0, 0, { 0 }, 0 };
 
 long config_integer(char const *name);
 
@@ -8316,6 +8706,7 @@ static void host_setup_read(void)
 	host_setup.block_aim_assist = config_boolean("network.block_mouse_aim_assist") != 0;
 	host_setup.player_names = config_boolean("network.allow_player_names") != 0;
 	host_setup.follow_camera = config_boolean("network.allow_follow_camera") != 0;
+	host_setup.air_turn_aim = config_boolean("network.air_turn_aim") != 0;
 	host_setup.opence_welcome = config_boolean("network.opence_welcome") != 0;
 	host_setup.port = PIN(config_integer("network.tunnel_port"), 0, 65535);
 }
@@ -8425,6 +8816,9 @@ static boolean host_setup_value(short row, wchar_t *text)
 	case _host_row_follow_camera:
 		ustrncpy(text, host_setup.follow_camera ? L"ALLOWED" : L"OFF", ROW_TEXT_LENGTH - 1);
 		return TRUE;
+	case _host_row_air_turn_aim:
+		ustrncpy(text, host_setup.air_turn_aim ? L"FIXED" : L"XBOX", ROW_TEXT_LENGTH - 1);
+		return TRUE;
 	case _host_row_opence_welcome:
 		ustrncpy(text, host_setup.opence_welcome ? L"ON" : L"OFF", ROW_TEXT_LENGTH - 1);
 		return TRUE;
@@ -8491,11 +8885,14 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_follow_camera:
 		return host_setup.follow_camera ? L"Players can watch a teammate while they wait to respawn." :
 			L"Only the death camera while waiting to respawn, as on the Xbox.";
+	case _host_row_air_turn_aim:
+		return host_setup.air_turn_aim ? L"Shots after a mid-air turn go where players aim." :
+			L"Shots after a mid-air turn leave at an angle, as on the Xbox.";
 	case _host_row_opence_welcome:
 		return host_setup.opence_welcome ? L"OpenCE players get one line about Chupathingy." :
 			L"OpenCE players get no line from you.";
 	case _host_row_rules:
-		return L"Team switching, chat filter, aim assist, player names, follow camera, OpenCE welcome.";
+		return L"Team switching, chat filter, aim assist, player names, follow camera, 180 glitch, OpenCE welcome.";
 	case _host_row_start:
 		return host_help_with_status(L"Open the lobby.", with_status, NUMBEROF(with_status));
 	}
@@ -8570,6 +8967,9 @@ static boolean host_setup_change(short row, short direction)
 	case _host_row_follow_camera:
 		host_setup.follow_camera = !host_setup.follow_camera;
 		return TRUE;
+	case _host_row_air_turn_aim:
+		host_setup.air_turn_aim = !host_setup.air_turn_aim;
+		return TRUE;
 	case _host_row_opence_welcome:
 		host_setup.opence_welcome = !host_setup.opence_welcome;
 		return TRUE;
@@ -8610,6 +9010,7 @@ static boolean host_setup_start(struct widget_instance *widget, boolean *widget_
 	host_write("network.block_mouse_aim_assist", host_setup.block_aim_assist ? "true" : "false");
 	host_write("network.allow_player_names", host_setup.player_names ? "true" : "false");
 	host_write("network.allow_follow_camera", host_setup.follow_camera ? "true" : "false");
+	host_write("network.air_turn_aim", host_setup.air_turn_aim ? "true" : "false");
 	host_write("network.opence_welcome", host_setup.opence_welcome ? "true" : "false");
 	snprintf(text, sizeof(text), "%ld", host_setup.port);
 	host_write("network.tunnel_port", text);
@@ -8663,6 +9064,8 @@ static void host_setup_defaults(void)
 		!strcmp(text, "true");
 	host_setup.player_names = config_default("network.allow_player_names", text, sizeof(text)) && !strcmp(text, "true");
 	host_setup.follow_camera = config_default("network.allow_follow_camera", text, sizeof(text)) &&
+		!strcmp(text, "true");
+	host_setup.air_turn_aim = config_default("network.air_turn_aim", text, sizeof(text)) &&
 		!strcmp(text, "true");
 	host_setup.opence_welcome = config_default("network.opence_welcome", text, sizeof(text)) &&
 		!strcmp(text, "true");
@@ -10202,8 +10605,23 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "direct ip connect go"))
 		{
+#ifdef HALO_GAME_BROWSER
+			/* (DIRECT IP's JOIN; else Direct Link's PASTE LINK) */
+			if (widget->name && strstr(widget->name, "direct_ip"))
+				return direct_ip_go(widget);
+#endif
 			return direct_link_from_clipboard();
 		}
+#ifdef HALO_GAME_BROWSER
+		else if (!strcmp(name, "direct ip connect init"))
+		{
+			return direct_ip_initialize();
+		}
+		else if (!strcmp(name, "direct ip edit field"))
+		{
+			return direct_ip_edit(widget);
+		}
+#endif
 		else if (!strcmp(name, "join controller to mp game"))
 		{
 			return multiplayer_host(widget, event, controller, widget_deleted);
@@ -10415,6 +10833,7 @@ boolean pc_menu_event_function_invoke(
 		{
 			return coop_player2_choose(controller);
 		}
+
 		else if (!strcmp(name, "request del player profile"))
 		{
 			return profile_delete_request();
@@ -10509,6 +10928,10 @@ void pc_menu_game_data_function_invoke(
 		server_settings_update(widget);
 	else if (!strcmp(name, "port password update"))
 		password_screen_update(widget);
+#ifdef HALO_GAME_BROWSER
+	else if (!strcmp(name, "direct ip connect update"))
+		direct_ip_update(widget);
+#endif
 	else if (!strcmp(name, "gamespy screen update"))
 		browser_update(widget);
 	else if (!strcmp(name, "gt edit list update"))
@@ -10557,6 +10980,10 @@ void pc_menu_game_data_function_invoke(
 		profile_gamepad_layout(widget);
 	else if (!strcmp(name, "chupathingy settings picture"))
 		chupathingy_settings_picture(widget);
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+	else if (!strcmp(name, "port duct tape logo"))
+		duct_tape_logo_update(widget);
+#endif
 	else if (!strcmp(name, "port host update"))
 		host_update(widget);
 }

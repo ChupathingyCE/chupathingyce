@@ -474,7 +474,10 @@ static int tls_write(mbedtls_ssl_context *ssl, const unsigned char *data, unsign
 	return CONSOLE_HTTPS_OK;
 }
 
-static int tls_read_all(mbedtls_ssl_context *ssl, char *response, unsigned long size, unsigned long *received)
+/* (*first_byte: the millisecond counter when the reply's first byte came,
+if it was 0) */
+static int tls_read_all(mbedtls_ssl_context *ssl, char *response, unsigned long size, unsigned long *received,
+	unsigned long *first_byte)
 {
 	unsigned long total = 0;
 	int headers = 0;
@@ -499,6 +502,8 @@ static int tls_read_all(mbedtls_ssl_context *ssl, char *response, unsigned long 
 			return CONSOLE_HTTPS_ERROR_TIMEOUT;
 		if (count < 0)
 			return CONSOLE_HTTPS_ERROR_RECEIVE;
+		if (!*first_byte)
+			*first_byte = https_port->milliseconds() | 1;
 		*received += (unsigned long)count;
 		if (!headers)
 		{
@@ -603,15 +608,21 @@ static int tls_read_stream(mbedtls_ssl_context *ssl, struct session *session, st
 	}
 }
 
+/* request (its headers), then body (body_length bytes, none if 0): a POST's
+body goes out as it is, never copied into the request, so a report of any
+size fits (warthog-xbox #140) */
 static int request_locked(const struct console_https_trust *trust, const char *request, int request_length,
-	char *response, unsigned long size, unsigned long *received, unsigned long timeout_ms, struct stream *stream)
+	const char *body, unsigned long body_length, char *response, unsigned long size, unsigned long *received,
+	unsigned long timeout_ms, struct stream *stream)
 {
 	mbedtls_ssl_context ssl;
 	mbedtls_ssl_config config;
 	mbedtls_x509_crt roots;
 	struct session session;
-	unsigned long started = 0, handshake = 0;
+	/* (when each step ended, by the port's counter: 0, not reached) */
+	unsigned long started = 0, connected = 0, handshake = 0, sent = 0, first_byte = 0;
 	int result = CONSOLE_HTTPS_OK;
+	int sending = 0;
 	int code;
 
 	mbedtls_ssl_init(&ssl);
@@ -667,6 +678,7 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 		result = CONSOLE_HTTPS_ERROR_CONNECT;
 		goto done;
 	}
+	connected = https_port->milliseconds() | 1;
 	mbedtls_ssl_set_bio(&ssl, &session, bio_send, NULL, bio_receive);
 	while ((code = mbedtls_ssl_handshake(&ssl)) != 0)
 	{
@@ -687,7 +699,7 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 	}
 	if (result == CONSOLE_HTTPS_OK)
 	{
-		handshake = https_port->milliseconds() - started;
+		handshake = https_port->milliseconds() | 1;
 		result = judge(trust, &ssl);
 		if (result != CONSOLE_HTTPS_OK)
 		{
@@ -698,20 +710,47 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 			log_line(line);
 		}
 	}
-	if (result == CONSOLE_HTTPS_OK)
-		result = tls_write(&ssl, (const unsigned char *)request, (unsigned long)request_length);
-	if (result == CONSOLE_HTTPS_OK)
-		result = stream ? tls_read_stream(&ssl, &session, stream, response, size, timeout_ms) :
-			tls_read_all(&ssl, response, size, received);
+	if (result == CONSOLE_HTTPS_OK && https_port->sending)
+	{
+		https_port->sending(1);
+		sending = 1;
+	}
 	if (result == CONSOLE_HTTPS_OK)
 	{
-		char line[128];
+		result = tls_write(&ssl, (const unsigned char *)request, (unsigned long)request_length);
+		if (result == CONSOLE_HTTPS_OK && body_length)
+			result = tls_write(&ssl, (const unsigned char *)body, body_length);
+		if (result == CONSOLE_HTTPS_OK)
+			sent = https_port->milliseconds() | 1;
+	}
+	if (result == CONSOLE_HTTPS_OK)
+		result = stream ? tls_read_stream(&ssl, &session, stream, response, size, timeout_ms) :
+			tls_read_all(&ssl, response, size, received, &first_byte);
+	if (handshake)
+	{
+		char line[224];
+		int length;
 
-		/* (how long a console takes, for its hardware tests) */
-		snprintf(line, sizeof(line), "https: %s: %s, handshake %lu ms, %lu ms in all", trust->host,
-			mbedtls_ssl_get_version(&ssl), handshake, https_port->milliseconds() - started);
+		/* (how long a console takes, for its hardware tests; each step's
+		time from the start, so a reply that came late shows which wait it
+		was: a server that times out reading the request (408), or one slow
+		to answer) */
+		length = snprintf(line, sizeof(line), "https: %s: %s, connect %lu ms, handshake %lu ms", trust->host,
+			mbedtls_ssl_get_version(&ssl), connected - started, handshake - started);
+		if (sent && length > 0 && length < (int)sizeof(line))
+			length += snprintf(line + length, sizeof(line) - (size_t)length, ", sent %lu ms (%lu bytes)",
+				sent - started, (unsigned long)request_length + body_length);
+		if (first_byte && length > 0 && length < (int)sizeof(line))
+			length += snprintf(line + length, sizeof(line) - (size_t)length, ", first byte %lu ms",
+				first_byte - started);
+		if (length > 0 && length < (int)sizeof(line))
+			snprintf(line + length, sizeof(line) - (size_t)length, ", %lu ms in all%s%s",
+				https_port->milliseconds() - started, result == CONSOLE_HTTPS_OK ? "" : ": ",
+				result == CONSOLE_HTTPS_OK ? "" : console_https_error_string(result));
 		log_line(line);
 	}
+	if (sending)
+		https_port->sending(0);
 	if (code == 0)
 		mbedtls_ssl_close_notify(&ssl);
 	https_port->close(session.socket);
@@ -771,7 +810,7 @@ static int pins_get(int plain, const char *path, char *buffer, unsigned long siz
 		int length;
 
 		if (!github || !(length = build_get(request, sizeof(request), CONSOLE_HTTPS_GITHUB, path)) ||
-			request_locked(github, request, length, buffer, size, &received, timeout_ms, NULL) != CONSOLE_HTTPS_OK)
+			request_locked(github, request, length, NULL, 0, buffer, size, &received, timeout_ms, NULL) != CONSOLE_HTTPS_OK)
 			return 0;
 	}
 	return console_https_parse_response(buffer, received, &status, body, body_size) && status == 200;
@@ -902,6 +941,7 @@ int console_https_request(const char *host, const char *path, const char *body, 
 	} arena;
 	char request[REQUEST_SIZE];
 	const struct console_https_trust *trust;
+	unsigned long body_length = body ? (unsigned long)strlen(body) : 0;
 	int length;
 	int result;
 
@@ -914,9 +954,9 @@ int console_https_request(const char *host, const char *path, const char *body, 
 	if (body)
 		length = snprintf(request, sizeof(request),
 			"POST %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nAccept-Encoding: identity\r\n"
-			"Content-Type: %s\r\nContent-Length: %lu\r\nConnection: close\r\n\r\n%s", path, host,
+			"Content-Type: %s\r\nContent-Length: %lu\r\nConnection: close\r\n\r\n", path, host,
 			https_port->user_agent ? https_port->user_agent : "Warthog/1",
-			content_type ? content_type : "application/json", (unsigned long)strlen(body), body);
+			content_type ? content_type : "application/json", body_length);
 	else
 		length = snprintf(request, sizeof(request),
 			"GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nAccept-Encoding: identity\r\n"
@@ -928,14 +968,14 @@ int console_https_request(const char *host, const char *path, const char *body, 
 		https_port->lock();
 	mbedtls_memory_buffer_alloc_init(arena.bytes, sizeof(arena.bytes));
 	pin_missed = 0;
-	result = request_locked(trust, request, length, response, size, received, timeout_ms, NULL);
+	result = request_locked(trust, request, length, body, body_length, response, size, received, timeout_ms, NULL);
 	/* (the site's key not pinned, or a day since the pin document was last
 	asked for: asked for now, and with new pins the request tried again) */
 	if (!strcmp(trust->host, CONSOLE_HTTPS_SITE) && pins_due(pin_missed) && pins_refresh(timeout_ms) &&
 		result == CONSOLE_HTTPS_ERROR_KEY)
 	{
 		*received = 0;
-		result = request_locked(trust, request, length, response, size, received, timeout_ms, NULL);
+		result = request_locked(trust, request, length, body, body_length, response, size, received, timeout_ms, NULL);
 	}
 #ifdef CONSOLE_HTTPS_TESTS
 	{
@@ -1032,7 +1072,7 @@ int console_https_get_stream(const char *host, const char *path, const char *hea
 		https_port->lock();
 	mbedtls_memory_buffer_alloc_init(arena.bytes, sizeof(arena.bytes));
 	pin_missed = 0;
-	result = request_locked(trust, request, length, buffer, sizeof(buffer), &received, timeout_ms, &stream);
+	result = request_locked(trust, request, length, NULL, 0, buffer, sizeof(buffer), &received, timeout_ms, &stream);
 #ifdef CONSOLE_HTTPS_TESTS
 	{
 		size_t used = 0, blocks = 0;

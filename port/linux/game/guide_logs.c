@@ -87,6 +87,11 @@ char const *guide_logs_row_label(short row)
 	return row == _guide_logs_row_folder ? "OPEN LOGS FOLDER" : "SEND MY LOGS";
 }
 
+char const *guide_logs_row_word(short row)
+{
+	return row == _guide_logs_row_folder ? "OPEN" : "SEND";
+}
+
 char const *guide_logs_row_activate(short row)
 {
 	if (row == _guide_logs_row_folder)
@@ -244,14 +249,6 @@ void guide_logs_modal_click_outside(short x, short y)
 	nothing, so that a stray click loses neither) */
 	if (logs_phase() == _logs_asked && (x < logs_view.x0 || x >= logs_view.x1 || y < logs_view.y0 || y >= logs_view.y1))
 		logs_close();
-}
-
-char const *guide_logs_modal_prompt(void)
-{
-	char const *left, *right;
-
-	phase_buttons(logs_phase(), &left, &right);
-	return logs_view.option && right ? right : left;
 }
 
 static float measure_font(void *context, float size, char const *text)

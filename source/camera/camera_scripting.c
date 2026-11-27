@@ -50,6 +50,7 @@ symbols in this file:
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
 #include "tag_files/tag_groups.h"
+#include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 
 /* ---------- constants */
 
@@ -293,6 +294,18 @@ void scripted_camera_set(
 		camera_script_globals.field_of_view = camera_point->field_of_view;
 	else
 		camera_script_globals.field_of_view = 1.22173047f;
+	/* port: SPV3's camera points may be wider than the Xbox's camera takes
+	(its menus' is 95 degrees); in SPV3 mode they are narrowed to it, and
+	logged (spv3_mode.c) */
+	if (spv3_mode_active() && camera_script_globals.field_of_view > _pi / 2.f)
+	{
+		char what[96];
+
+		snprintf(what, sizeof(what), "camera point %d's field of view %.3f narrowed to %.3f", camera_point_index,
+			camera_script_globals.field_of_view, _pi / 2.f);
+		spv3_mode_note_correction(what);
+		camera_script_globals.field_of_view = _pi / 2.f;
+	}
 	camera_script_globals.relative_object_index = relative_object_index;
 	camera_script_globals.timer = (real)camera_time;
 

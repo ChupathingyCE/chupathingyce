@@ -894,24 +894,6 @@ static void handle_one_player_input(
 		action.desired_zoom_level = player->zoom_level;
 		action.throttle = player->throttle;
 		action.primary_trigger = player->primary_trigger;
-#ifdef HALO_SERVER
-		/* port: a Custom Edition player's actions come from its client
-		(server/src/server_ce.c) */
-		{
-			boolean server_ce_local_action(short local_player_index, struct player_action *action);
-
-			if (server_ce_local_action(local_player_index, &action))
-			{
-				player->desired_angles = action.desired_facing;
-				player->control_flags = action.control_flags;
-				player->throttle = action.throttle;
-				player->primary_trigger = action.primary_trigger;
-				player->desired_weapon_index = action.desired_weapon_index;
-				player->desired_grenade_index = action.desired_grenade_index;
-				player->zoom_level = action.desired_zoom_level;
-			}
-		}
-#endif
 
 		match_assert_valid_real(
 			"c:\\halo\\SOURCE\\game\\player_control.c",
@@ -1050,6 +1032,16 @@ void player_control_unzoom(
 		{
 			player_control_get(player->local_player_index)->zoom_level = NONE;
 		}
+#ifdef HALO_SERVER
+		/* port: a Custom Edition player's choices are kept for it as a local
+		player's are here (server/src/server_ce.c) */
+		else
+		{
+			void server_ce_unzoom(long player_index);
+
+			server_ce_unzoom(player_index);
+		}
+#endif
 	}
 	return;
 }
@@ -1092,6 +1084,15 @@ void player_control_set_desired_weapon(
 			player_control_get(player->local_player_index)->desired_weapon_index =
 				desired_weapon_index;
 		}
+#ifdef HALO_SERVER
+		/* port: (as player_control_unzoom's) */
+		else
+		{
+			void server_ce_set_desired_weapon(long player_index, short desired_weapon_index);
+
+			server_ce_set_desired_weapon(unit->unit.player_index, desired_weapon_index);
+		}
+#endif
 	}
 	return;
 }
@@ -1414,9 +1415,21 @@ static void get_local_player_input_blob(
 						extern int halo_linux_mouse_look(short gamepad_index, real *yaw, real *pitch);
 						real mouse_yaw;
 						real mouse_pitch;
+						boolean mouse_free = TRUE;
 
+#ifndef HALO_CONSOLE_NO_FORGE
+						/* (port: Forge's monitor reads the mouse for its camera,
+						after this, port/linux/game/forge.c; its hidden unit
+						does not take it) */
+						{
+							extern boolean forge_monitor_takes_mouse(short local_player_index);
+
+							mouse_free = !forge_monitor_takes_mouse(local_player_index);
+						}
+#endif
 						/* (port: read, and let go of, while the console is open) */
-						if (halo_linux_mouse_look(gamepad_index, &mouse_yaw, &mouse_pitch) && !console_is_active())
+						if (mouse_free && halo_linux_mouse_look(gamepad_index, &mouse_yaw, &mouse_pitch) &&
+							!console_is_active())
 						{
 							if (player->unit_index != NONE && control->zoom_level != NONE)
 							{
@@ -1433,19 +1446,21 @@ static void get_local_player_input_blob(
 							input->facing_delta.pitch += mouse_pitch;
 						}
 					}
-#ifdef HALO_SWITCH_CONSOLE
+#ifdef HALO_PORT_GYRO_AIM
 					{
 						/* port: the controller's gyroscope (port/linux/src/xinput_sdl.c),
 						as the mouse's turn above, with its own invert; with
 						input.gyro_aim = "zoom" only while zoomed in, for fine aiming
-						(read and dropped otherwise, so that zooming in does not jump) */
+						(read and dropped otherwise, so that zooming in does not jump;
+						and while the console is open, as the mouse's) */
 						extern int halo_linux_gyro_look(short gamepad_index, real *yaw, real *pitch);
 						extern int halo_linux_gyro_zoom_only(void);
 						real gyro_yaw;
 						real gyro_pitch;
 
 						if (halo_linux_gyro_look(gamepad_index, &gyro_yaw, &gyro_pitch) &&
-							!(control->zoom_level == NONE && halo_linux_gyro_zoom_only()))
+							!(control->zoom_level == NONE && halo_linux_gyro_zoom_only()) &&
+							!console_is_active())
 						{
 							if (player->unit_index != NONE && control->zoom_level != NONE)
 							{
@@ -1923,12 +1938,56 @@ void player_control_action_test_note(
 	}
 }
 
+/* port: the reverts there had been when the skip button was last seen up.
+A cinematic is skipped by reverting to its checkpoint, and a10's start
+checkpoint is its opening cinematic's, so after a revert the cinematic can be
+skipped again: A held on (the skip's own press, or the one that took the
+pause menu's REVERT TO CHECKPOINT) skipped it once more on every tick it was
+down. A press skips only once the button has been let go since the last
+revert. (Let go is read from the controllers and the keyboard themselves:
+the player's input has no accept on some frames while the button is still
+down) */
+static unsigned long player_control_skip_up_reverts;
+
+static boolean player_control_skip_button_down(
+	void)
+{
+	short gamepad_index;
+
+	for (gamepad_index = 0; gamepad_index < MAXIMUM_GAMEPADS; gamepad_index++)
+	{
+		struct gamepad_state const *gamepad = input_has_gamepad(gamepad_index) ?
+			input_get_gamepad_state(gamepad_index) : NULL;
+
+		if ((gamepad && gamepad->buttons[_gamepad_analog_button_a]) ||
+			input_abstraction_port_accept(gamepad_index))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static boolean player_control_skip_press_new(
+	boolean accept)
+{
+	unsigned long reverts = game_state_port_revert_count();
+
+	if (!accept && !player_control_skip_button_down())
+	{
+		player_control_skip_up_reverts = reverts;
+		return FALSE;
+	}
+	return accept && player_control_skip_up_reverts == reverts;
+}
+
 static void player_control_action_test_check_reset_input_blob(
 	struct input_blob *input)
 {
 	struct player_control_globals_data *globals;
 
-	if (input->accept && (cinematic_can_be_skipped() || network_coop_skip_offered()))
+	if (player_control_skip_press_new(input->accept != 0) &&
+		(cinematic_can_be_skipped() || network_coop_skip_offered()))
 	{
 		/* port: in network co-op the players vote to skip (network_coop.c) */
 		if (!network_coop_vote_skip())

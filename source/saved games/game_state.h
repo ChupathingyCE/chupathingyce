@@ -38,10 +38,16 @@ void game_state_save(
 	void);
 void game_state_revert(
 	void);
+/* port: checkpoints saved since the game started (game_state.c) */
+unsigned long game_state_port_checkpoints_saved(
+	void);
 /* port: network co-op's (game_state.c) */
 boolean game_state_port_saved_game_valid(
 	void);
 void game_state_port_restamp_revert_time(
+	void);
+/* port: how many reverts there have been (player_control.c) */
+unsigned long game_state_port_revert_count(
 	void);
 void game_state_save_to_persistent_storage(
 	void);
@@ -135,6 +141,24 @@ void game_state_write_to_persistent_storage(
 	unsigned long *header_checksum,
 	long header_size,
 	long buffer_size);
+/* port: the saved game's header alone (every build), then on the native
+builds the whole file read once and checked, then taken
+(game_state_try_and_load_from_persistent_storage) */
+boolean game_state_read_persistent_storage_header(
+	void *header,
+	long header_size);
+#ifndef HALO_XBOX_CONSOLE
+/* the block a saved game, a revert or a core is read into, let go (a map
+that is not a campaign's, and the end) */
+void game_state_image_buffer_release(
+	void);
+void *game_state_read_persistent_storage_image(
+	long checksum_offset,
+	long buffer_size);
+void game_state_take_persistent_storage_image(
+	void *image,
+	long buffer_size);
+#endif
 void game_state_read_from_persistent_storage(
 	void *buffer,
 	long buffer_size);

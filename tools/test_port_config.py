@@ -57,6 +57,7 @@ DEFAULTS = {
 		"display.follow_camera": "off",
 		"network.team_change": "off",
 		"audio.resampling": "xbox",
+		"audio.loudness": "xbox",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
@@ -69,6 +70,7 @@ DEFAULTS = {
 		"display.follow_camera": "off",
 		"network.team_change": "off",
 		"audio.resampling": "xbox",
+		"audio.loudness": "xbox",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
@@ -81,6 +83,7 @@ DEFAULTS = {
 		"display.follow_camera": "off",
 		"network.team_change": "off",
 		"audio.resampling": "xbox",
+		"audio.loudness": "xbox",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
@@ -100,6 +103,7 @@ DEFAULTS = {
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "off",
 		"audio.resampling": "xbox",
+		"audio.loudness": "xbox",
 		"display.player_names": "none",
 		"display.follow_camera": "off",
 		"network.team_change": "off",
@@ -121,14 +125,15 @@ OLD = {
 	"display.follow_camera": "long_waits",
 	"network.team_change": "balanced",
 	"audio.resampling": "sinc",
+	"audio.loudness": "louder",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
-	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling", "audio.loudness"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling", "audio.loudness"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling", "audio.loudness"],
 	"server": [],
 	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player", "display.follow_camera", "network.team_change",
-		"audio.resampling"],
+		"audio.resampling", "audio.loudness"],
 }
 # the changes of the second question (game.defaults_answered = 2), the
 # third (3), the fourth (4), the fifth (5) and the latest
@@ -138,14 +143,17 @@ SECOND = ["network.tunnel_port"]
 THIRD = ["game.start_with_one_player"]
 FOURTH = ["audio.hrtf"]
 FIFTH = ["display.player_names", "display.follow_camera", "network.team_change"]
-LATEST = ["audio.resampling"]
-GENERATION = "6"
+LATEST = ["audio.resampling", "audio.loudness"]
+# (the seventh, the original Xbox's 4:3 picture, is the Xbox's only, which
+# asks nothing: test_xbox_follows_new_defaults; the sixth, audio.resampling,
+# and the eighth, audio.loudness, are both asked after the fifth)
+GENERATION = "8"
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
 # (whose own defaults the native build checks on a Mac)
 DEFINES = {
-	"desktop": ["-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
+	"desktop": ["-DHALO_64BIT", "-DHALO_GAME_BROWSER", "-DHALO_BGFX"],
 	"desktop32": ["-U__APPLE__", "-DHALO_GAME_BROWSER"],
 	"android": ["-U__APPLE__", "-DHALO_ANDROID", "-DHALO_GAME_BROWSER"],
 	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
@@ -637,7 +645,8 @@ def test_readded_by_older_version(program, directory, defaults, kind):
 			"high_res_hud": "false"}
 		block = "".join(f"\n# An older version's comment for {key}.\n# (for one run: HALO_X=<value>)\n{key} = {value}\n"
 			for key, value in old.items())
-		audio = text.index("\n[audio]")
+		# (at the end of [display], before the next section's header)
+		audio = text.index("\n[", text.index("\n[display]") + 1)
 		text = text[:audio].rstrip("\n") + "\n" + block + text[audio:]
 		case.path.write_text(text)
 		values, _ = case.get("display.shadow_resolution", "display.anti_aliasing", "display.interpolation",
@@ -932,6 +941,34 @@ def test_interrupted_write(program, directory, defaults, kind):
 	check(not (case.folder / "config.toml.new").exists(), "after: config.toml.new left beside the file")
 
 
+def test_long_string_write(program, directory, defaults, kind):
+	"""a string value is written whole, its quotes and backslashes escaped,
+	however many it has (the longest taken, all quotes, twice as long in the
+	file); a longer one is refused, said in the log, and the file stays as
+	it was"""
+	if kind not in ("desktop", "desktop32"):
+		return
+	case = Case(program, directory / "long_string")
+	fresh_file(case, kind)
+	longest = '"\\' * 128
+	values, output = case.run("write", "display.window_size", longest)
+	check("write failed" not in output, f"long string: the longest value was refused: {output[-200:]}")
+	check(values["display.window_size"] == longest, "long string: the value read back differs")
+	written, _ = value_lines(case.text(), "window_size")
+	check(written == ['window_size = "' + longest.replace("\\", "\\\\").replace('"', '\\"') + '"'],
+		f"long string: the file's line is {[line[:80] for line in written]}")
+	values, _ = case.get("display.window_size", "display.vsync")
+	check(values["display.window_size"] == longest, "long string: the value read again differs")
+	before = case.text()
+	for length in (257, 4000):
+		values, output = case.run("write", "display.window_size", "x" * length)
+		check("write failed" in output, f"too long ({length}): the value was taken")
+		check(f"display.window_size not written: its value is {length} characters" in output,
+			f"too long ({length}): nothing said in the log")
+		check(case.text() == before, f"too long ({length}): config.toml changed")
+		check(values["display.window_size"] == longest, f"too long ({length}): the value changed")
+
+
 def test_layout(program, directory, defaults, kind):
 	"""A new file's layout: the top block, each section once with its note,
 	the everyday sections first, and the advanced ones ([debug], and
@@ -1179,6 +1216,326 @@ def test_follow_file(program, directory, defaults, kind):
 	check(float(match.group(1)) < 200.0, f"follow/{kind}: config_changes takes {match.group(1)} ns a call")
 
 
+def test_renderer_round_trip(program, directory, defaults, kind):
+	"""The renderer the setup screen chooses (display.renderer, written as
+	its RENDERER row writes it) is what the next start reads (#1665: the
+	setup screen starts the game again for it, a new process), and choosing
+	OpenGL again goes back the same way."""
+	# (the bgfx builds': DEFINES' desktop has HALO_BGFX, as the Windows,
+	# Mac and Linux 64-bit builds do)
+	if kind != "desktop":
+		return
+	case = Case(program, directory / "renderer")
+	fresh_file(case, kind)
+	values, _ = case.get("display.renderer")
+	check(values["display.renderer"] == "gl", f"renderer/{kind}: the default is {values['display.renderer']}")
+	for chosen in ("bgfx", "d3d11", "gl"):
+		case.run("write", "display.renderer", chosen)
+		values, _ = case.get("display.renderer")
+		check(values["display.renderer"] == chosen, f"renderer/{kind}: wrote {chosen}, read {values['display.renderer']}")
+		lines, _ = value_lines(case.text(), "renderer")
+		check(lines == [f'renderer = "{chosen}"'], f"renderer/{kind}: {chosen}: the file has {lines}")
+		# (and the question about new defaults leaves the player's choice)
+		case.run("answer", "new")
+		values, _ = case.get("display.renderer")
+		check(values["display.renderer"] == chosen, f"renderer/{kind}: {chosen} became {values['display.renderer']}")
+
+
+# the [tuning] lines (port_config.c's config_tuning_apply): short, stable,
+# one knob after another as "name=value" with where it came from after a
+# value that is not the default
+TUNING_SOURCE = r"(?:\((?:preset|hand|clamped|invalid)\))?"
+TUNING_KNOB = rf"[a-z_]+=[^ ()]+{TUNING_SOURCE}"
+TUNING_SUMMARY = rf"preset=(?:retail|lan-party|potato)(?: {TUNING_KNOB})*"
+
+
+def tuning_lines(output):
+	"""The log's tuning: lines, without the test's "log: "."""
+	return [line[len("log: "):] for line in output.splitlines() if line.startswith("log: tuning:")]
+
+
+def tuning_knobs(line):
+	"""A summary's knobs: {short name: (value, source)}."""
+	line = line[line.index("preset="):]
+	return {name: (value, source) for name, value, source in
+		re.findall(r"(?:^| )([a-z_]+)=([^ ()]+)(\([a-z]+\))?", line)}
+
+
+def set_tuning_file(case, kind, values):
+	"""A new file with values written in place of their commented lines:
+	{"section.key": "value as TOML"}."""
+	text = fresh_file(case, kind)
+	for name, value in values.items():
+		key = name.split(".", 1)[1]
+		text, count = re.subn(rf"^# {key} = .*$", f"{key} = {value}", text, count=1, flags=re.M)
+		check(count == 1, f"tuning: no {name} line to set")
+	case.path.write_text(text)
+
+
+def test_tuning(program, directory, defaults, kind):
+	"""[tuning]: its section in a new file; retail changes nothing; a preset
+	fills in only the knobs the player left unset, never raises a build's own
+	limit, and the Potato knobs are the setup screen's; a value out of range
+	is held in it and a word that is none of a knob's is its default, each
+	said in the log; the boot, map and change lines keep their form; and the
+	dedicated server has no knobs and says nothing."""
+	case = Case(program, directory / "tuning")
+	values, output = case.get("tuning.preset", "tuning.present_mode", "display.particle_limit")
+	lines = tuning_lines(output)
+	if kind == "server":
+		check(not lines, f"tuning/server: lines {lines}")
+		check("[tuning]" not in case.text(), "tuning/server: a [tuning] section")
+		return
+	text = case.text()
+	check("\n[tuning]\n" in text and '# preset = "retail"' in text and '# present_mode = "vblank"' in text,
+		"tuning: not in a new file")
+	check("texture_cache" not in text, "tuning: the original Xbox's texture_cache in another build's file")
+	check(values["tuning.preset"] == "retail" and values["tuning.present_mode"] == "vblank", f"tuning: {values}")
+	check(values["display.particle_limit"] == defaults.get("display.particle_limit", "4096"), f"tuning: {values}")
+	check(len(lines) == 2, f"tuning: boot lines {lines}")
+	check(re.fullmatch(rf"tuning: at=boot {TUNING_SUMMARY}", lines[0]), f"tuning: boot line {lines[0]!r}")
+	check(lines[1] == "tuning: differs from the defaults: none", f"tuning: {lines[1]!r}")
+	check("(" not in lines[0], f"tuning: retail marks a knob: {lines[0]}")
+	retail = tuning_knobs(lines[0])
+	check({"lights", "specular", "particles", "present"} <= set(retail), f"tuning: knobs {sorted(retail)}")
+	# (the summary function and the map line say the same)
+	_, output = case.run("tuning")
+	summary = re.search(r"^tuning_summary=(.*)$", output, re.M).group(1)
+	check(f"log: tuning: at=map {summary}" in output, f"tuning: map line {output}")
+	check(summary == lines[0][len("tuning: at=boot "):], f"tuning: summary {summary!r}")
+	check(len(summary) < 300, f"tuning: summary {len(summary)} long")
+	check(not re.search(r"\d+\.\d+\.\d+\.\d+|/Users/|/home/|\\\\", summary), f"tuning: summary {summary}")
+	potato = dict(re.findall(r"^potato\.([a-z_.]+)=(.*)$", output, re.M))
+	check(potato.get("display.particle_limit") == "1024" and potato.get("display.dynamic_light_limit") == "8",
+		f"tuning: Potato's knobs {potato}")
+
+	# potato, with the particles set by hand
+	case = Case(program, directory / "tuning_potato")
+	set_tuning_file(case, kind, {"tuning.preset": '"potato"', "display.particle_limit": "512"})
+	values, output = case.get("display.particle_limit", "display.dynamic_light_limit", "display.specular_light_limit",
+		"display.particle_ticks", "display.shadow_resolution")
+	check(values["display.particle_limit"] == "512", f"tuning/potato: the player's 512 lost: {values}")
+	check(values["display.dynamic_light_limit"] == "8" and values["display.specular_light_limit"] == "2",
+		f"tuning/potato: {values}")
+	check(values["display.particle_ticks"] == "true" and values["display.shadow_resolution"] == "128",
+		f"tuning/potato: {values}")
+	lines = tuning_lines(output)
+	knobs = tuning_knobs(lines[0])
+	check(re.fullmatch(rf"tuning: at=boot {TUNING_SUMMARY}", lines[0]), f"tuning/potato: {lines[0]!r}")
+	check(knobs["preset"] == ("potato", "") and knobs["particles"] == ("512", "(hand)"), f"tuning/potato: {knobs}")
+	check(knobs["shadows"] == ("128", "(preset)"), f"tuning/potato: {knobs}")
+	check(lines[1].startswith("tuning: differs from the defaults: preset=potato ") and "particles=512(hand)" in lines[1]
+		and "aniso=" not in lines[1], f"tuning/potato: {lines[1]!r}")
+	# (potato sets knobs here: nothing to own up to)
+	check(not any("changes nothing" in line for line in lines), f"tuning/potato: {lines}")
+	# (each potato knob this build has is at the preset's value but the one set by hand)
+	for name, value in potato.items():
+		if name != "display.particle_limit":
+			got, _ = case.get(name)
+			check(got[name] == value, f"tuning/potato: {name} is {got[name]}, not {value}")
+	# the preset changed by the menus: change lines; the knob set by hand stays
+	_, output = case.run("write", "tuning.preset", "lan-party")
+	changes = [line for line in tuning_lines(output) if line.startswith("tuning: change")]
+	check("tuning: change preset=potato->lan-party" in changes, f"tuning/change: {changes}")
+	check(all(re.fullmatch(rf"tuning: change (?:preset=[a-z-]+->[a-z-]+|{TUNING_KNOB.replace('=[^ ()]+', '=[^ ()]+->[^ ()]+')})",
+		line) for line in changes), f"tuning/change: {changes}")
+	check(not any(line.startswith("tuning: change particles=") for line in changes), f"tuning/change: {changes}")
+	values, _ = case.get("display.dynamic_light_limit", "display.particle_limit", "display.shadow_resolution",
+		"tuning.present_mode")
+	check(values["display.particle_limit"] == "512" and values["display.shadow_resolution"] == defaults["display.shadow_resolution"],
+		f"tuning/lan-party: {values}")
+	check(values["display.dynamic_light_limit"] == "16" and values["tuning.present_mode"] == "adaptive",
+		f"tuning/lan-party: {values}")
+	# the player's knob back to its default: it follows the preset again
+	_, output = case.run("reset", "display.particle_limit")
+	check("tuning: change particles=512->2048(preset)" in tuning_lines(output), f"tuning/reset: {tuning_lines(output)}")
+
+	# out of range and not a word: held, or the default, said once each
+	case = Case(program, directory / "tuning_bad")
+	set_tuning_file(case, kind, {"tuning.preset": '"turbo"', "tuning.present_mode": '"sometimes"',
+		"display.dynamic_light_limit": "-5", "display.particle_limit": "999999"})
+	values, output = case.get("tuning.preset", "tuning.present_mode", "display.dynamic_light_limit",
+		"display.particle_limit")
+	lines = tuning_lines(output)
+	check(values["tuning.preset"] == "retail" and values["tuning.present_mode"] == "vblank", f"tuning/bad: {values}")
+	check(values["display.dynamic_light_limit"] == "0", f"tuning/bad: {values}")
+	most = int(values["display.particle_limit"])
+	check(0 < most < 999999, f"tuning/bad: {values}")
+	check(sum("tuning.preset" in line and "turbo" in line for line in lines) == 1, f"tuning/bad: {lines}")
+	check(sum("present_mode" in line and "sometimes" in line for line in lines) == 1, f"tuning/bad: {lines}")
+	check(sum("display.particle_limit = 999999 is out of" in line for line in lines) == 1, f"tuning/bad: {lines}")
+	knobs = tuning_knobs(next(line for line in lines if line.startswith("tuning: at=boot")))
+	check(knobs["lights"] == ("0", "(clamped)") and knobs["particles"] == (str(most), "(clamped)") and
+		knobs["present"] == ("vblank", "(invalid)"), f"tuning/bad: {knobs}")
+	# (the file is left as the player wrote it)
+	check('preset = "turbo"' in case.text(), "tuning/bad: the file was changed")
+
+	# the environment is the player's too
+	case = Case(program, directory / "tuning_environment")
+	values, output = case.run("get", "display.dynamic_light_limit", "display.particle_limit",
+		environment_extra={"HALO_TUNING_PRESET": "potato", "HALO_PARTICLE_LIMIT": "3000"})
+	check(values["display.dynamic_light_limit"] == "8" and values["display.particle_limit"] == "3000",
+		f"tuning/environment: {values}")
+
+
+def test_tuning_drawing_knobs(program, directory, defaults, kind):
+	"""[tuning]'s drawing knobs (render.c's render_tuning): each in a new
+	file at the retail value (every particle, every pass, the Xbox's 30
+	pixel shadows, no object left out), unmarked in the boot line; a number
+	out of range held in it and a word that is none of tuning.effects' its
+	default, each said in the log; and the environment's value the player's."""
+	if kind == "server":
+		return
+	case = Case(program, directory / "tuning_drawing")
+	values, output = case.get(*DRAWING_KNOBS)
+	text = case.text()
+	for line in ("# particle_thinning = 1", '# effects = "full"', "# shadow_pixels = 30", "# object_cull_pixels = 0"):
+		check(line in text, f"tuning/drawing: no {line!r} in a new file")
+	check(values == {"tuning.particle_thinning": "1", "tuning.effects": "full", "tuning.shadow_pixels": "30",
+		"tuning.object_cull_pixels": "0"}, f"tuning/drawing: {values}")
+	boot = next(line for line in tuning_lines(output) if line.startswith("tuning: at=boot"))
+	knobs = tuning_knobs(boot)
+	check(knobs["thinning"] == ("1", "") and knobs["effects"] == ("full", "") and knobs["shadow_pixels"] == ("30", "")
+		and knobs["cull_pixels"] == ("0", ""), f"tuning/drawing: {knobs}")
+	# (the most they go, by hand: kept, marked as the player's)
+	case = Case(program, directory / "tuning_drawing_most")
+	set_tuning_file(case, kind, {"tuning.particle_thinning": "4", "tuning.effects": '"minimal"',
+		"tuning.shadow_pixels": "400", "tuning.object_cull_pixels": "16"})
+	values, output = case.get(*DRAWING_KNOBS)
+	check(values == {"tuning.particle_thinning": "4", "tuning.effects": "minimal", "tuning.shadow_pixels": "400",
+		"tuning.object_cull_pixels": "16"}, f"tuning/drawing/most: {values}")
+	differs = next(line for line in tuning_lines(output) if line.startswith("tuning: differs"))
+	for knob in ("thinning=4(hand)", "effects=minimal(hand)", "shadow_pixels=400(hand)", "cull_pixels=16(hand)"):
+		check(knob in differs, f"tuning/drawing/most: no {knob} in {differs!r}")
+	# out of range and not a word
+	case = Case(program, directory / "tuning_drawing_bad")
+	set_tuning_file(case, kind, {"tuning.particle_thinning": "9", "tuning.effects": '"ultra"',
+		"tuning.shadow_pixels": "5", "tuning.object_cull_pixels": "-3"})
+	values, output = case.get(*DRAWING_KNOBS)
+	check(values == {"tuning.particle_thinning": "4", "tuning.effects": "full", "tuning.shadow_pixels": "30",
+		"tuning.object_cull_pixels": "0"}, f"tuning/drawing/bad: {values}")
+	lines = tuning_lines(output)
+	for said in ("tuning.particle_thinning = 9 is out of 1 to 4; using 4", "tuning.shadow_pixels = 5 is out of 30 to 400; using 30",
+			"tuning.object_cull_pixels = -3 is out of 0 to 16; using 0", 'tuning.effects = "ultra" is not one of its words; using "full"'):
+		check(sum(said in line for line in lines) == 1, f"tuning/drawing/bad: {said!r} not said once: {lines}")
+	knobs = tuning_knobs(next(line for line in lines if line.startswith("tuning: at=boot")))
+	check(knobs["thinning"] == ("4", "(clamped)") and knobs["effects"] == ("full", "(invalid)") and
+		knobs["shadow_pixels"] == ("30", "(clamped)") and knobs["cull_pixels"] == ("0", "(clamped)"),
+		f"tuning/drawing/bad: {knobs}")
+	# the environment
+	case = Case(program, directory / "tuning_drawing_environment")
+	values, _ = case.run("get", *DRAWING_KNOBS, environment_extra={"HALO_PARTICLE_THINNING": "2",
+		"HALO_TUNING_EFFECTS": "reduced", "HALO_SHADOW_PIXELS": "90", "HALO_OBJECT_CULL_PIXELS": "4"})
+	check(values == {"tuning.particle_thinning": "2", "tuning.effects": "reduced", "tuning.shadow_pixels": "90",
+		"tuning.object_cull_pixels": "4"}, f"tuning/drawing/environment: {values}")
+
+
+DRAWING_KNOBS = ("tuning.particle_thinning", "tuning.effects", "tuning.shadow_pixels", "tuning.object_cull_pixels")
+
+
+def test_xbox_tuning(program, directory):
+	"""The original Xbox's [tuning]: config.toml is its only screen. The
+	knobs it has are in its file (tuning.texture_cache its own, and
+	display.particle_limit at its pool's 1024), the ones it hasn't are not;
+	its presets are its own column, below its own limits, and each sets
+	something (none says it changes nothing); the texture cache is "auto"
+	or MB in range."""
+	case = Case(program, directory / "xbox_tuning")
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	for line in ('# preset = "retail"', '# present_mode = "vblank"', '# texture_cache = "auto"', "# particle_limit = 1024"):
+		check(line in text, f"xbox/tuning: no {line}")
+	check("particle_ticks" not in text and "shadow_resolution" not in text and "light_effects" not in text,
+		"xbox/tuning: a desktop knob in the file")
+	values, output = case.get("display.dynamic_light_limit")
+	lines = tuning_lines(output)
+	check(re.fullmatch(rf"tuning: at=boot {TUNING_SUMMARY}", lines[0]), f"xbox/tuning: {lines}")
+	check(set(tuning_knobs(lines[0])) == {"preset", "lights", "specular", "particles", "present", "thinning", "effects",
+		"shadow_pixels", "cull_pixels", "texture_cache"}, f"xbox/tuning: knobs {lines[0]}")
+	check(lines[1] == "tuning: differs from the defaults: none", f"xbox/tuning: retail {lines}")
+	own = int(values["display.dynamic_light_limit"])
+	for texture, wanted, source in (('"auto"', "auto", "(hand)"), ('"24"', "24", "(hand)"), ('"4"', "19", "(clamped)"),
+			('"600"', "512", "(clamped)"), ('"lots"', "auto", "(invalid)")):
+		text = re.sub(r"^#? ?texture_cache = .*$", f"texture_cache = {texture}", case.text(), flags=re.M)
+		text = re.sub(r"^#? ?preset = .*$", 'preset = "lan-party"', text, flags=re.M)
+		case.path.write_text(text)
+		values, output = case.get("tuning.texture_cache", "display.dynamic_light_limit")
+		knobs = tuning_knobs(next(line for line in tuning_lines(output) if line.startswith("tuning: at=boot")))
+		check(values["tuning.texture_cache"] == wanted and knobs["texture_cache"] == (wanted, source),
+			f"xbox/tuning: texture_cache {texture}: {values} {knobs}")
+		differs = next(line for line in tuning_lines(output) if line.startswith("tuning: differs"))
+		check(("texture_cache=" in differs) == (wanted != "auto"), f"xbox/tuning: {differs}")
+		# (lan-party leaves the lights at the console's own: a network game holds them there)
+		lights = int(values["display.dynamic_light_limit"])
+		check(own == 8 and lights == 8 and knobs["lights"][1] != "(preset)", f"xbox/tuning: lights {lights}, own {own}")
+		check(not any("changes nothing" in line for line in tuning_lines(output)), f"xbox/tuning: {tuning_lines(output)}")
+	# each preset's own values on the Xbox, every one marked as the preset's
+	wanted = {
+		'"lan-party"': {"display.dynamic_light_limit": "8", "display.specular_light_limit": "2",
+			"display.particle_limit": "1024", "tuning.particle_thinning": "1", "tuning.effects": "reduced",
+			"tuning.shadow_pixels": "60", "tuning.object_cull_pixels": "4", "tuning.present_mode": "adaptive"},
+		'"potato"': {"display.dynamic_light_limit": "2", "display.specular_light_limit": "1",
+			"display.particle_limit": "512", "tuning.particle_thinning": "2", "tuning.effects": "minimal",
+			"tuning.shadow_pixels": "120", "tuning.object_cull_pixels": "8", "tuning.present_mode": "adaptive"},
+		'"retail"': {"display.dynamic_light_limit": "8", "display.specular_light_limit": "2",
+			"display.particle_limit": "1024", "tuning.particle_thinning": "1", "tuning.effects": "full",
+			"tuning.shadow_pixels": "30", "tuning.object_cull_pixels": "0", "tuning.present_mode": "vblank"},
+	}
+	for preset, settings in wanted.items():
+		text = re.sub(r"^#? ?texture_cache = .*$", '# texture_cache = "auto"', case.text(), flags=re.M)
+		text = re.sub(r"^#? ?preset = .*$", f"preset = {preset}", text, flags=re.M)
+		case.path.write_text(text)
+		values, output = case.get(*settings)
+		check(values == settings, f"xbox/tuning: {preset}: {values}")
+		lines = tuning_lines(output)
+		check(not any("changes nothing" in line for line in lines), f"xbox/tuning: {preset}: {lines}")
+		differs = next(line for line in lines if line.startswith("tuning: differs"))
+		if preset == '"retail"':
+			check(differs == "tuning: differs from the defaults: none", f"xbox/tuning: {preset}: {differs}")
+		else:
+			check(differs.startswith(f"tuning: differs from the defaults: preset={preset.strip(chr(34))} ") and
+				("lights=" in differs) == (preset == '"potato"') and "(preset)" in differs and "(hand)" not in differs,
+				f"xbox/tuning: {differs}")
+	# the player's own value wins over the Xbox's potato
+	text = re.sub(r"^#? ?particle_limit = .*$", "particle_limit = 768", case.text(), flags=re.M)
+	text = re.sub(r"^#? ?preset = .*$", 'preset = "potato"', text, flags=re.M)
+	case.path.write_text(text)
+	values, output = case.get("display.particle_limit", "display.dynamic_light_limit")
+	knobs = tuning_knobs(next(line for line in tuning_lines(output) if line.startswith("tuning: at=boot")))
+	check(values == {"display.particle_limit": "768", "display.dynamic_light_limit": "2"} and
+		knobs["particles"] == ("768", "(hand)") and knobs["lights"] == ("2", "(preset)"), f"xbox/tuning: hand {values} {knobs}")
+	# (out of the pool: held at 1024)
+	case.path.write_text(re.sub(r"^particle_limit = .*$", "particle_limit = 4096", case.text(), flags=re.M))
+	values, output = case.get("display.particle_limit")
+	check(values["display.particle_limit"] == "1024" and
+		any("display.particle_limit = 4096 is out of 0 to 1024" in line for line in tuning_lines(output)),
+		f"xbox/tuning: particles {values} {tuning_lines(output)}")
+
+
+def test_xbox_retired_console_settings(program, directory):
+	"""console.simulate_64mb and console.large_caches, retired with nothing
+	in their place (config_renamed in port_config.c): a new Xbox file does not
+	list them, and an older one that has them loads without a word about an
+	unknown setting, their lines (help text too) taken out once."""
+	case = Case(program, directory / "xbox_retired")
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	check("simulate_64mb" not in text and "large_caches" not in text, "xbox/retired: a new file lists them")
+	old = ("\n# No longer used. A devkit gets 64 MB from the XBE's own flag now, set\n"
+		"# with tools/xbox_package.py --devkit-64mb.\nsimulate_64mb = true\n"
+		"\n# No longer used. A console with 128 MB or more gets the larger caches\n"
+		"# on its own now (console.memory_class).\n# large_caches = false\n")
+	check("\n[console]\n" in text, "xbox/retired: no [console]")
+	case.path.write_text(text.replace("\n[console]\n", "\n[console]\n" + old, 1))
+	values, output = case.get("console.debug_geometry")
+	check("unknown setting" not in output and "cannot be read" not in output, f"xbox/retired: {output}")
+	after = case.text()
+	check("simulate_64mb" not in after and "large_caches" not in after and "No longer used" not in after,
+		"xbox/retired: the old lines stay")
+	case.get("console.debug_geometry")
+	check(case.text() == after, "xbox/retired: the file changed on the next start")
+
+
 def test_xbox_follows_new_defaults(program, directory):
 	"""The original Xbox has no screen to ask about new defaults on: a file it
 	wrote before one changed, the setting commented out at the old default,
@@ -1190,21 +1547,24 @@ def test_xbox_follows_new_defaults(program, directory):
 	# folder the test runs in)
 	case.path = case.folder / "d:\\config.toml"
 	text = fresh_file(case, "xbox")
-	for key, old in (("start_with_one_player", "false"), ("follow_camera", '"long_waits"')):
+	for key, old in (("start_with_one_player", "false"), ("follow_camera", '"long_waits"'),
+			("widescreen", '"dashboard"')):
 		text = re.sub(rf"^# {key} = .*$", f"# {key} = {old}", text, flags=re.M)
 	case.path.write_text(text)
 	count, output = pending(case)
 	check(count == 0, f"xbox/follow: asked: {count} {output}")
-	values, _ = case.get("game.start_with_one_player", "display.follow_camera")
-	check(values["game.start_with_one_player"] == "true" and values["display.follow_camera"] == "off",
-		f"xbox/follow: {values}")
+	values, _ = case.get("game.start_with_one_player", "display.follow_camera", "display.widescreen")
+	check(values["game.start_with_one_player"] == "true" and values["display.follow_camera"] == "off" and
+		values["display.widescreen"] == "off", f"xbox/follow: {values}")
 	case = Case(program, directory / "xbox_chosen")
 	case.path = case.folder / "d:\\config.toml"
 	text = fresh_file(case, "xbox")
 	text = re.sub(r"^# start_with_one_player = .*$", "start_with_one_player = false", text, flags=re.M)
+	text = re.sub(r"^# widescreen = .*$", 'widescreen = "dashboard"', text, flags=re.M)
 	case.path.write_text(text)
-	values, _ = case.get("game.start_with_one_player")
-	check(values["game.start_with_one_player"] == "false", f"xbox/chosen: {values}")
+	values, _ = case.get("game.start_with_one_player", "display.widescreen")
+	check(values["game.start_with_one_player"] == "false" and values["display.widescreen"] == "dashboard",
+		f"xbox/chosen: {values}")
 
 
 def main():
@@ -1215,12 +1575,13 @@ def main():
 	with tempfile.TemporaryDirectory() as directory:
 		directory = Path(directory)
 		program = build(arguments.cc, "xbox", directory / "xbox")
-		try:
-			test_xbox_follows_new_defaults(program, directory / "xbox" / "cases")
-			print("ok   xbox: test_xbox_follows_new_defaults")
-		except AssertionError as error:
-			print(f"FAIL xbox: test_xbox_follows_new_defaults: {error}")
-			failures += 1
+		for test in (test_xbox_follows_new_defaults, test_xbox_tuning, test_xbox_retired_console_settings):
+			try:
+				test(program, directory / "xbox" / "cases")
+				print(f"ok   xbox: {test.__name__}")
+			except AssertionError as error:
+				print(f"FAIL xbox: {test.__name__}: {error}")
+				failures += 1
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
 			if kind == "desktop32":
@@ -1229,8 +1590,8 @@ def main():
 			for test in (test_unique_settings, test_new_file, test_previous_release_file, test_answered_first_question,
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
-				test_retired_setting, test_delta_renamed, test_interrupted_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
-				test_server_file, test_follow_file):
+				test_retired_setting, test_delta_renamed, test_interrupted_write, test_long_string_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
+				test_server_file, test_follow_file, test_tuning, test_tuning_drawing_knobs, test_renderer_round_trip):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

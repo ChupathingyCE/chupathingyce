@@ -4,9 +4,7 @@ windows64``).
 Like the Linux build (tools/linux_build.py), it compiles the game sources
 with clang for 32-bit x86 Windows (i686-pc-windows-msvc), adds the platform layer shared with
 Linux (``port/linux/src``) and the Windows parts in ``port/windows``, and
-links ``build/windows/chupathingy.exe`` with lld (and the small
-``halo.exe`` beside it that starts it, for what started the game by its old
-name: port/linux/src/rename_stub.h). It is generated only when
+links ``build/windows/chupathingy.exe`` with lld. It is generated only when
 configure.py runs on Windows. See port/windows/README.md for the design.
 
 ``ninja windows64`` compiles the same units for x64 Windows
@@ -39,7 +37,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence
 
 from .version import VERSION_SOURCES, identity_defines, release_build, resource_version, version
-from .linux_build import (LZMA_DIR, OPUS_DIR, VOICE_SOURCE, opus_cflags, opus_sources, COMPRESSED_MAP_DEFINES, MODS_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
+from .linux_build import (JOLT_CXX_FLAGS, JOLT_DEFINES, JOLT_DIR, jolt_sources, LUA_DEFINES, LUA_DIR, lua_sources, LZMA_DIR, OPUS_DIR, VOICE_SOURCE, opus_cflags, opus_sources, COMPRESSED_MAP_DEFINES, MODS_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
@@ -215,7 +213,8 @@ WINDOWS32 = WindowsTarget(
     # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES),
     # as the 32-bit Linux build has them: their tag cache is mapped at the
     # host address they are linked to (port/linux/src/xbox_memory.c)
-    abi_flags=[*WINDOWS_ABI_FLAGS, *CUSTOM_EDITION_DEFINES, *MODS_DEFINES, *COMPRESSED_MAP_DEFINES],
+    abi_flags=[*WINDOWS_ABI_FLAGS, *CUSTOM_EDITION_DEFINES, *MODS_DEFINES, *COMPRESSED_MAP_DEFINES, *LUA_DEFINES,
+               f"-idirafter {LUA_DIR}"],
     game_flags=GAME_FLAGS,
     platform_flags=PLATFORM_FLAGS,
     win32_flags=WIN32_FLAGS,
@@ -246,6 +245,9 @@ WINDOWS64 = WindowsTarget(
         *CUSTOM_EDITION_DEFINES,
         *MODS_DEFINES,
         *COMPRESSED_MAP_DEFINES,
+        # mods' Lua scripts (linux_build.py, LUA_DEFINES)
+        *LUA_DEFINES,
+        f"-idirafter {LUA_DIR}",
     ],
     game_flags=[
         *(flag for flag in GAME_FLAGS if flag not in ("-w", "-Wno-error=int-conversion",
@@ -290,7 +292,9 @@ WINDOWS64_SERVER = replace(
     name="server-windows64",
     # (no mods folder on a server: port_mods.c reads archives through SDL's
     # IO, which the server does not link)
-    abi_flags=[*(flag for flag in WINDOWS64.abi_flags if flag not in MODS_DEFINES), "-DHALO_SERVER"],
+    abi_flags=[*(flag for flag in WINDOWS64.abi_flags
+                 if flag not in MODS_DEFINES and flag not in LUA_DEFINES and flag != f"-idirafter {LUA_DIR}"),
+               "-DHALO_SERVER"],
     comment="The dedicated server for 64-bit Windows (ninja server-windows64)",
     server=True,
     bgfx=False,
@@ -521,9 +525,18 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     # checks its stack frames (/GS), and stops at the first one overrun, as
     # at the first failed assertion; a release build does not, so that an
     # overrun nobody has met cannot end a game)
+    # the ragdolls' Jolt Physics (linux_build.py, JOLT_DIR): the game's, not
+    # the dedicated server's, unless configure.py --without-ragdolls
+    use_jolt = not target.server and getattr(sln, "with_ragdolls", True)
     abi = " ".join(target.abi_flags + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False)
                                                            else ["-fstack-protector-strong"])
-                   + game_browser_defines(sln))
+                   + game_browser_defines(sln) + (["-DHALO_JOLT"] if use_jolt else [])
+                   # configure.py --window-rebase: the 32-bit build's memory
+                   # window wherever it fits (port/linux/src/xbox_memory.c),
+                   # as Chupathingy32 ships it, since 32-bit Windows keeps
+                   # 0x80000000 up for itself (source/cseries/xbox_address.h)
+                   + (["-DHALO_WINDOW_REBASE"] if target is WINDOWS32 and getattr(sln, "window_rebase", False)
+                      else []))
     sdl_include = SDL_DIR / "include"
     # the movies' FFmpeg (port/linux/src/bink_ffmpeg.c), static, built with
     # the same clang for the same target (tools/ffmpeg_build.py); with
@@ -719,6 +732,11 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             add_object(EXPAT_DIR / name, " ".join([abi, "-std=gnu11", f"-I{EXPAT_DIR}", "-w"]))
         # internet play's reliable streams (port/third_party/kcp; p2p.c)
         add_object(KCP_DIR / "ikcp.c", " ".join([abi, "-std=gnu11", "-w"]))
+        # mods' Lua scripts' Lua (port/third_party/lua; lua_scripting.c):
+        # the game's, not the dedicated server's
+        if "-DHALO_LUA" in target.abi_flags:
+            for source in lua_sources():
+                add_object(source, " ".join([abi, "-std=gnu11", f"-I{LUA_DIR}", "-w"]))
         # Link Profile's QR code (port/third_party/qrcodegen; browser.c)
         add_object(QRCODEGEN_DIR / "qrcodegen.c", " ".join([abi, "-std=gnu11", "-w"]))
         # internet play's signatures, for public games' listings
@@ -740,6 +758,15 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         # (port/include/halo_math.h)
         for source in musl_math_sources():
             add_object(source, musl_math_cflags(abi))
+        # the ragdolls' Jolt Physics and its C face, C++ with the C runtime's
+        # own C++ library (no exceptions, as bgfx's)
+        if use_jolt:
+            jolt_flags = " ".join([f"--target={target.triple}", march_flag(sln), "-gcodeview", "-D_HAS_EXCEPTIONS=0",
+                                   "-D_CRT_SECURE_NO_WARNINGS", *(flag for flag in JOLT_CXX_FLAGS
+                                                                  if not flag.startswith("-D_GLIBCXX")),
+                                   *JOLT_DEFINES, f"-I{JOLT_DIR}"])
+            for source in jolt_sources():
+                add_object(source, jolt_flags)
 
         n.build(
             outputs=output,
@@ -810,29 +837,5 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build / "brokers.txt"
     n.build(outputs=brokers, rule=f"{prefix}_copy", inputs=Path("port/assets/network/brokers.txt"))
-    # halo.exe, which starts chupathingy.exe, for shortcuts, Steam entries and
-    # scripts made for the old name, and the updaters from before the rename,
-    # which start halo.exe again (port/rename_stub/halo_stub.c, with the game's
-    # icon; TODO(after 0.9.x): remove)
-    stub = build / "halo.exe"
-    stub_resource = build / "halo_stub.res"
-    stub_object = build / "stub" / "halo_stub.o"
-    n.rule(
-        name=f"{prefix}_stub_rc",
-        command=f"${prefix}_rc /nologo /D HALO_RENAME_STUB /I {build} /I {PORT_DIR} /FO $out $in",
-        description=f"{label} RC $out",
-    )
-    n.build(outputs=stub_resource, rule=f"{prefix}_stub_rc", inputs=PORT_DIR / "halo.rc",
-            implicit=[PORT_DIR / "halo.ico", resource_header])
-    n.build(outputs=stub_object, rule=f"{prefix}_cc", inputs=Path("port/rename_stub/halo_stub.c"),
-            variables={"cflags": " ".join([f"--target={target.triple}", "-O2", "-g", "-gcodeview", *WIN32_FLAGS,
-                                           "-DUNICODE", "-D_UNICODE", "-D_CRT_SECURE_NO_WARNINGS",
-                                           f"-I{LINUX_DIR / 'src'}"])})
-    stub_subsystem = "WINDOWS" if getattr(sln, "port_release", False) else "CONSOLE"
-    n.build(outputs=stub, rule=f"{prefix}_link", inputs=[stub_object, stub_resource],
-            variables={"ldflags": " ".join([f"--target={target.triple}", "-fuse-ld=lld", "-g",
-                                            f"-Wl,/SUBSYSTEM:{stub_subsystem}",
-                                            "-Wl,/ENTRY:wWinMainCRTStartup"]),
-                       "libs": "-luser32"})
-    n.build(outputs=prefix, rule="phony", inputs=[output, stub, sdl_dll, brokers])
+    n.build(outputs=prefix, rule="phony", inputs=[output, sdl_dll, brokers])
     n.newline()

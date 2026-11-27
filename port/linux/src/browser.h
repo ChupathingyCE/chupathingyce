@@ -232,10 +232,6 @@ through an invite). */
 int browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
 	const struct browser_report_player *players, int count, const char *extra);
 
-/* a player's name as a JSON string, appended to out (UTF-8, quoted and
-escaped); returns its length */
-int browser_json_name(char *out, int size, const unsigned short *name, int length);
-
 /* the hosted game's Steam Workshop item (an MCC map's: its id and title, ""
 for none), for the announcement's workshop_id and workshop_title, and the
 map's own name for players without it ("Blood Gulch" for a file named 20,
@@ -288,6 +284,12 @@ int browser_version_state(int version);
 /* the same as browser_game_shown for a bare network version (a broker
 listing the game list lacks). Every build */
 int browser_version_shown(int version);
+/* whether a game's name is on the blocked names list (the site's, else the
+built-in copy: server_names.h), so the lists hide it, whatever
+debug.show_all_games says: a name in UTF-8, or the game's own (UTF-16, at
+most length characters). The game's thread's. Every build */
+int browser_name_blocked_text(const char *name);
+int browser_name_blocked(const unsigned short *name, int length);
 /* debug.show_all_games: the lists show games of every version, marked, for
 tests. Every build */
 int browser_show_all_games(void);
@@ -360,10 +362,6 @@ invite browser_get_games gives as its key hash alone) opened: its joinable
 invite in code (BROWSER_INVITE_LENGTH + 1 at least) when password is its
 own. 1 opened, 0 the wrong password, -1 its listing is no longer heard */
 int browser_unlock_game(const char *invite, const char *password, char *code, int size);
-
-/* whether a listed game's host is an internet play peer of this machine
-(joining it, or joined): its address in the game's network then */
-int browser_game_peer(const char *invite, unsigned long *address);
 
 /* joins a listed game: its invite, as an invite link would (p2p.c). open:
 the listing is a public game's without a password (not one a password

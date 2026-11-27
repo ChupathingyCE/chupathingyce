@@ -45,6 +45,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "stubbs_engine.h"
 #include "stubbs_possession.h"
 #include "stubbs_functions.h"
+#include "content_bytes.h"
 
 #ifndef HALO_CONSOLE_NO_STUBBS
 
@@ -128,15 +129,6 @@ static void stubbs_possession_forget_all(
 
 	for (index = 0; index < MAXIMUM_STUBBS_LOCAL_PLAYERS; index++)
 		stubbs_possession_forget(index);
-}
-
-static long stubbs_read_long(
-	unsigned char const *address)
-{
-	long value;
-
-	csmemcpy(&value, address, 4);
-	return value;
 }
 
 static struct stubbs_possessable_definition const *stubbs_possessable_definition_get(
@@ -238,8 +230,8 @@ void stubbs_possession_note_unit_definition(
 		stubbs_possession_forget_all();
 	}
 	stubbs_possessable_definitions_noted = TRUE;
-	count = stubbs_read_long(unit + STUBBS_UNIT_SEATS_OFFSET);
-	address = (unsigned long)stubbs_read_long(unit + STUBBS_UNIT_SEATS_OFFSET + 4);
+	count = content_s32(unit + STUBBS_UNIT_SEATS_OFFSET);
+	address = (unsigned long)content_s32(unit + STUBBS_UNIT_SEATS_OFFSET + 4);
 	if (count <= 0 || count > MAXIMUM_STUBBS_UNIT_SEATS ||
 		stubbs_possessable_definition_count >= MAXIMUM_STUBBS_POSSESSABLE_DEFINITIONS)
 	{
@@ -263,7 +255,7 @@ void stubbs_possession_note_unit_definition(
 			struct stubbs_possessable_definition *noted =
 				&stubbs_possessable_definitions[stubbs_possessable_definition_count++];
 
-			noted->definition_index = stubbs_read_long(instance + 0x0C);
+			noted->definition_index = content_s32(instance + 0x0C);
 			csmemcpy(noted->marker_name, seat + STUBBS_UNIT_SEAT_MARKER_OFFSET, TAG_STRING_LENGTH);
 			noted->marker_name[TAG_STRING_LENGTH] = 0;
 			if (!noted->marker_name[0])
@@ -403,45 +395,10 @@ boolean stubbs_possession_begin(
 	return TRUE;
 }
 
-void stubbs_possession_release(
-	short local_player_index)
+void stubbs_possession_tags_new_map(void)
 {
-	struct stubbs_possession *possession;
-	long player_index, body_unit_index, hand_unit_index;
-
-	if (local_player_index < 0 || local_player_index >= MAXIMUM_STUBBS_LOCAL_PLAYERS)
-		return;
-	possession = &stubbs_possessions[local_player_index];
-	body_unit_index = possession->body_unit_index;
-	if (body_unit_index == NONE)
-		return;
-	player_index = local_player_get_player_index(local_player_index);
-	hand_unit_index = stubbs_engine_hand_unit(local_player_index);
-	if (player_index != NONE && player_get(player_index)->unit_index == body_unit_index)
-	{
-		long origin_unit_index = stubbs_engine_player_origin_unit(player_index);
-
-		if (origin_unit_index != NONE && origin_unit_index != body_unit_index)
-			players_set_local_player_unit(local_player_index, origin_unit_index);
-	}
-	/* (the hand gone from his head: stubbs_engine.c sees it go and has the
-	hand back on Stubbs's arm) */
-	if (hand_unit_index != NONE && object_try_and_get(hand_unit_index))
-	{
-		if (object_get(hand_unit_index)->object.parent_object_index != NONE)
-			object_detach(hand_unit_index);
-		object_delete(hand_unit_index);
-	}
-	stubbs_possession_give_back(local_player_index);
-	stubbs_possession_forget(local_player_index);
-}
-
-long stubbs_possession_body_unit(
-	short local_player_index)
-{
-	if (local_player_index < 0 || local_player_index >= MAXIMUM_STUBBS_LOCAL_PLAYERS)
-		return NONE;
-	return stubbs_possessions[local_player_index].body_unit_index;
+	/* (the map's tags noted afresh: stubbs_mode_convert_tags) */
+	stubbs_possessable_definitions_noted = FALSE;
 }
 
 void stubbs_possession_player_input(
@@ -452,8 +409,6 @@ void stubbs_possession_player_input(
 	long player_index, unit_index, hand_unit_index;
 	boolean melee_pressed, action_pressed;
 
-	/* (the next map's tags noted afresh) */
-	stubbs_possessable_definitions_noted = FALSE;
 	if (local_player_index < 0 || local_player_index >= MAXIMUM_STUBBS_LOCAL_PLAYERS)
 		return;
 	possession = &stubbs_possessions[local_player_index];

@@ -8,7 +8,10 @@ The first-start screen takes your Xbox disc image. It also accepts your Halo PC 
 `maps_pc`, and the Halo Custom Edition installer (`halocesetup_en_1.00.exe`),
 which fills `maps_ce` (not on Android yet, where **Import maps** takes
 loose `.map` files or a `.zip` of them). Or choose **Make the folders** to get empty `maps`,
-`maps_ce`, `maps_pc` and `maps_md` folders and copy the files in yourself.
+`maps_ce`, `maps_pc` and `maps_md` folders and copy the files in yourself. It also makes `maps_cex`
+(Halo CE+ Xbox), `maps_spv3` (SPV3) and `maps_mcc` (Halo MCC custom maps), each with a short
+`README.txt` that says what goes there. It never replaces a `README.txt` that is already there, and
+it doesn't make `maps_cex` next to `maps_ceplus` or `maps_ce+`, or `maps_mcc` next to `mcc_maps`.
 If you already have a maps folder somewhere else, choose **I already have a maps folder** and pick it.
 
 The folders it makes, and what goes in each, are below.
@@ -19,7 +22,7 @@ On Windows, Mac and Linux the first-start screen is part of a setup screen that 
 It opens by itself when your Xbox maps are missing. To open it any other time:
 
 - hold **Shift** (or **Back**/**View** on a controller) while the game starts,
-- pick **SETUP** in the game's settings, or
+- pick **ADVANCED SETUP** in the game's settings (**SETUP** in the Xbox menus), or
 - start the game with `--setup`.
 
 In Steam Deck Game Mode it only opens when you ask for it.
@@ -52,8 +55,8 @@ and their Map Browser (Multiplayer > MAP BROWSER) downloads them. Each kind has 
 | Folder | What goes in it | Played online as |
 | --- | --- | --- |
 | `maps_ce` | Halo PC Custom Edition maps, with Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` | `<name>@ce` |
-| `maps_md` | HaloMD maps (below) | `<name>@md` |
-| `maps_pc` | the maps of your own Halo PC (retail) disc | `<name>@pc` |
+| `maps_md` | HaloMD maps (below); they read Custom Edition's resource maps from `maps_ce` | `<name>@md` |
+| `maps_pc` | the maps of your own Halo PC (retail) disc, with its `bitmaps.map` and `sounds.map` | `<name>@pc` |
 
 Where the game's `maps` folder is:
 
@@ -91,7 +94,9 @@ release r220 (the "custom edition full shared" package) in `maps_ce` instead of
 the stock ones; keep a copy of yours. Maps with their own HUD use theirs.
 HUD meters made in the Xbox's channel order, such as halopc-restored's Xbox
 order meters or a custom HUD whose meters are flagged "use Xbox shading", draw
-that way.
+that way. A weapon HUD element placed from its own anchor (MCC's field, which
+Chimera reads too), such as halopc-restored's sniper scope ticks and range
+numbers, is drawn from it: a corner or the middle of the screen.
 
 **Playing with OpenCE players.** OpenCE plays Custom Edition maps from
 a `custom_maps` folder. A game on a Custom Edition map is named the same way
@@ -226,7 +231,8 @@ waits for the list a few seconds at most as it starts. If Chupathingy maps
 ever has to stop all downloads at once, the game takes nothing from it
 until it's back. `network.maps_url` in `config.toml` says where the lists
 come from. Set it to `""` to turn Chupathingy maps off: nothing is fetched
-from it, and no map is blocked.
+from it, and no map is blocked. With `network.online` off the game asks it
+nothing either, and holds maps to the blacklist it kept last time.
 
 **Testing Chupathingy maps.** `tools/test_map_repo.py` checks the list
 reader and the downloader against a fake repository on your machine. Its
@@ -293,6 +299,14 @@ They need Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` in
 `maps_ce` too: a HaloMD map keeps Halo's own textures and sounds in those
 shared files, and the game reads them from Custom Edition's copies.
 
+HaloMD maps were made for Halo PC's own `bitmaps.map` and `sounds.map`,
+which hold more than Custom Edition's (the campaign's textures and sounds,
+which many HaloMD maps use). Copy those two files from your Halo PC (retail)
+install into `maps_pc`, and the game reads each map's stock textures and
+sounds from them, as Halo PC did. Without them, those textures are stand-ins
+and those sounds are silent, and the game says on screen which file to add.
+Chupathingy never ships or downloads these files: they are yours.
+
 The maps appear in the multiplayer map list after the Halo PC maps, marked
 [MD], with their names from HaloMD's list. Online, a HaloMD map is played as
 `<name>@md` (`bgplus_5@md`), badged HALOMD in Online Games, and joined only by
@@ -347,3 +361,14 @@ own movies too: put them in a `bink` folder beside its `ui.map`
 the pack doesn't have plays from the game's own `bink` folder. A pack folder
 needs a name of 1 to 8 letters and digits, other than `ce`, `md`, `pc`, `de`,
 `fr`, `es` and `it`.
+
+## MCC maps
+
+Halo 1 MCC custom maps go in `maps_mcc`, beside `maps`: a map's `.map` file, or a Steam Workshop
+item's whole folder. The details are on
+[docs/mcc_maps.md](mcc_maps.md), and the Workshop is on [docs/mcc.md](mcc.md).
+
+## SPV3
+
+SPV3's maps go in `maps_spv3`, beside `maps`. It's early, and it has its
+own page: [docs/spv3.md](spv3.md).

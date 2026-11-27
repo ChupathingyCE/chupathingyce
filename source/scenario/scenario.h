@@ -101,6 +101,7 @@ void scenario_unload(
 struct scenario *global_scenario_get(void);
 struct scenario *global_scenario_try_and_get(void);
 struct structure_bsp *global_structure_bsp_get(void);
+struct structure_bsp *global_structure_bsp_try_and_get(void);
 struct collision_bsp *global_collision_bsp_get(void);
 struct bsp3d *global_bsp3d_get(void);
 struct game_globals *scenario_get_game_globals(void);
@@ -159,6 +160,10 @@ void scenario_get_current_from_weather_palette(
 
 extern long global_scenario_index;
 extern short global_structure_bsp_index;
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+/* port: one more each time the structure bsp is loaded or let go of (scenario.c) */
+extern unsigned long scenario_structure_bsp_generation;
+#endif
 extern struct scenario_globals *scenario_globals;
 
 extern struct scenario *global_scenario;

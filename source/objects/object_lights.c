@@ -145,6 +145,7 @@ symbols in this file:
 #define OBJECTS_H_FILE "c:\\halo\\source\\objects\\objects.h"
 
 #include "cseries/cseries.h"
+#include "opensauce.h" /* port: port/linux/game/opensauce_map.c */
 #include "cseries/errors.h"
 #include "cseries/profile.h"
 #include "bitmaps/bitmaps.h"
@@ -189,6 +190,13 @@ symbols in this file:
 #include "cache/cache_files.h" /* port: tag_iterator (light_port_glow_definition_get) */
 #include "units/units.h"
 #include "plasma_lighting.h" /* port: port/linux/game/plasma_lighting.c (Light effects) */
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
+/* port: the Light effects' own lights' reach (light_compute_bounding_sphere) */
+#include "covenant_emitter_lighting.h"
+#include "covenant_lighting.h"
+#include "muzzle_lighting.h"
+#include "rocket_lighting.h"
+#endif
 #ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
 #include "items/weapon_definitions.h" /* port: light_is_flashlight */
 #include "items/weapon_export_function_mode.h"
@@ -221,6 +229,8 @@ enum
 	_point_light_attached_to_first_person_weapon_bit = 3,
 	/* port: a glow the Light effects made (light_port_glow_new) */
 	_point_light_port_glow_bit = 4,
+	/* port: dark at the last tick's update (light_port_connect_lit) */
+	_point_light_port_dark_bit = 5,
 };
 
 enum
@@ -416,6 +426,10 @@ typedef char verify_lights_globals_size[
 
 #endif
 /* ---------- prototypes */
+
+static boolean light_drawn_axes_valid(
+	real_vector3d const *forward,
+	real_vector3d const *up);
 
 static boolean should_render_lights(
 	void);
@@ -1426,7 +1440,9 @@ void lights_preprocess_scene(
 						light_definition_get(light->definition_index)->flags,
 						_light_definition_dont_fade_active_camouflage_bit))
 				{
-					lens_flare_scale = 1.0f - parent_unit->unit.active_camouflage;
+					/* port: as drawn (an OpenSauce map's scripts may set it
+					past 1: port/linux/game/opensauce_map.c) */
+					lens_flare_scale = 1.0f - opensauce_map_drawn_camouflage(parent_unit->unit.active_camouflage);
 					light->color.red *= lens_flare_scale;
 					light->color.green *= lens_flare_scale;
 					light->color.blue *= lens_flare_scale;
@@ -1570,6 +1586,18 @@ void lights_preprocess_scene(
 								_point_light_attached_to_first_person_weapon_bit,
 								TRUE);
 						}
+					}
+
+					/* port: a drawn direction that came out degenerate (zero,
+					not a number, or its forward along its up) would squeeze the
+					light's gel to a point and light everything around it evenly
+					(warthog-xbox #131): the tick's, which retail drew, instead */
+					if (light->parent_light_index == NONE &&
+						!light_drawn_axes_valid(&light_parameters.forward, &light_parameters.up) &&
+						light_drawn_axes_valid(&light->forward, &light->up))
+					{
+						light_parameters.forward = light->forward;
+						light_parameters.up = light->up;
 					}
 
 					light->rasterizer_light_index = rasterizer_light_submit(
@@ -2057,6 +2085,24 @@ static void render_debug_light(
 
 /* ---------- private code */
 
+/* port: whether a light's drawn forward and up are a usable frame: numbers,
+near unit length, and far from parallel (loose, as a marker's matrix may be
+scaled a little) */
+static boolean light_drawn_axes_valid(
+	real_vector3d const *forward,
+	real_vector3d const *up)
+{
+	real forward_squared = magnitude_squared3d(forward);
+	real up_squared = magnitude_squared3d(up);
+	real dot = dot_product3d(forward, up);
+
+	return
+		valid_real_vector3d(forward) && valid_real_vector3d(up) &&
+		forward_squared > 0.25f && forward_squared < 4.0f &&
+		up_squared > 0.25f && up_squared < 4.0f &&
+		dot*dot < 0.25f*forward_squared*up_squared;
+}
+
 static real light_attenuation(
 	real radius,
 	real distance)
@@ -2130,11 +2176,20 @@ static void light_compute_bounding_sphere(
 		: light->radius;
 
 	/* port: the clusters a light of the Light effects reaches, as far as it
-	lights (a glow's radius is its own) */
+	lights (a glow's radius is its own). A muzzle flash, an emitter, a
+	Covenant bolt's or a rocket's light of its own reaches as far as it was
+	made to, not as far as the map's light it borrowed (from GulchCE by
+	chestahh, granted 2026-11-26) */
 	if (maximum)
 	{
 		if (TEST_FLAG(light->flags, _point_light_port_glow_bit))
 			light_radius = MAX(light_radius, light->intensity_scale);
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
+		light_radius = muzzle_lighting_radius(light_index, light_radius);
+		light_radius = covenant_emitter_lighting_radius(light_index, light_radius);
+		light_radius = covenant_lighting_radius(light_index, light->object_index, light_radius);
+		light_radius = rocket_lighting_radius(light_index, light->object_index, light_radius);
+#endif
 		light_radius = plasma_lighting_radius(light_index, light->object_index, light_radius);
 	}
 
@@ -2255,7 +2310,13 @@ reaches: in Chill Out with 64 players, a frame's 6 lights spent 11.3 ms of
 the Switch's GPU on their specular passes (about 2 ms each, the near ones
 covering most of the screen with the level's big triangles) and 3.7 on their
 diffuse ones. The objects' lighting, which the rasterizer is given every
-light for, is not changed. */
+light for, is not changed. In a network game neither limit goes below the
+consoles' defaults, 8 and 2 (HALO_CONSOLE_LIGHT_LIMITS: the original Xbox's
+"retail"): another player's muzzle flash, plasma or flashlight on the walls
+round a corner tells you where they are, and [tuning] is for what is drawn,
+never for an edge. 0, no limit, stays none */
+#define PORT_NETWORK_LIGHT_FLOOR 8
+#define PORT_NETWORK_SPECULAR_LIGHT_FLOOR 2
 static boolean port_dynamic_light_kept[MAXIMUM_RENDERED_LIGHTS];
 static boolean port_dynamic_light_specular[MAXIMUM_RENDERED_LIGHTS];
 
@@ -2275,8 +2336,48 @@ static void port_dynamic_lights_choose(
 	if (chosen_frame == render.frame_index)
 		return;
 	chosen_frame = render.frame_index;
+#ifdef HALO_CONSOLE_SETTINGS_ON_CHANGE
+	{
+		/* (read again only when the settings change: halo_port_features.h) */
+		extern unsigned long config_changes(void);
+		static unsigned long limits_read_at = (unsigned long)-1;
+		static long limit_read, specular_limit_read;
+
+		if (limits_read_at != config_changes())
+		{
+			limits_read_at = config_changes();
+			limit_read = config_integer("display.dynamic_light_limit");
+			specular_limit_read = config_integer("display.specular_light_limit");
+		}
+		limit = limit_read;
+		specular_limit = specular_limit_read;
+	}
+#else
 	limit = config_integer("display.dynamic_light_limit");
 	specular_limit = config_integer("display.specular_light_limit");
+#endif
+	/* (held in a network game, as display.particle_limit is: said once a
+	pair of values) */
+	if (render_tuning_network_game() &&
+		((limit > 0 && limit < PORT_NETWORK_LIGHT_FLOOR) ||
+		(specular_limit > 0 && specular_limit < PORT_NETWORK_SPECULAR_LIGHT_FLOOR)))
+	{
+		static long said_for = NONE;
+		long pair = limit << 16 | specular_limit;
+
+		if (said_for != pair)
+		{
+			said_for = pair;
+			platform_log("tuning: display.dynamic_light_limit %ld and display.specular_light_limit %ld held at %ld and %ld "
+				"in a network game (the consoles' defaults)", limit, specular_limit,
+				limit > 0 ? (long)MAX(limit, PORT_NETWORK_LIGHT_FLOOR) : 0L,
+				specular_limit > 0 ? (long)MAX(specular_limit, PORT_NETWORK_SPECULAR_LIGHT_FLOOR) : 0L);
+		}
+		if (limit > 0)
+			limit = MAX(limit, PORT_NETWORK_LIGHT_FLOOR);
+		if (specular_limit > 0)
+			specular_limit = MAX(specular_limit, PORT_NETWORK_SPECULAR_LIGHT_FLOOR);
+	}
 	for (light_index = 0; light_index < lights_globals.scene_point_light_count; light_index++)
 	{
 		struct light_datum *light = light_get(lights_globals.scene_point_lights[light_index]);
@@ -2313,11 +2414,15 @@ static void port_dynamic_lights_choose(
 		{
 			port_dynamic_light_kept[index] = FALSE;
 			counted_dropped++;
+			render_tuning_count(_render_tuning_lights_count, 1);
 		}
 		if ((specular_limit > 0 && rank >= specular_limit) || !port_dynamic_light_kept[index])
 		{
 			if (port_dynamic_light_kept[index])
+			{
 				counted_unshone++;
+				render_tuning_count(_render_tuning_shine_count, 1);
+			}
 			port_dynamic_light_specular[index] = FALSE;
 		}
 	}
@@ -2559,6 +2664,112 @@ void light_reconnect_to_map(
 
 	return;
 }
+
+#ifdef HALO_CONSOLE_SKIP_DARK_LIGHTS
+/* port: whether an object's attached light is dark: its function is at 0
+and its definition's color there is black, so lights_preprocess_scene
+would give it no color, and it would light nothing and not be drawn (nor
+its lens flare: lights_queue_lens_flare). A color that blends toward the
+object's change color (an alpha) is not black at 0, nor is one with a
+color at 0 (a plasma pistol's flare glows green). The light's function is
+the one this tick's object_compute_function_values gave. A console that
+draws the functions as sampled each tick (HALO_CONSOLE_NO_SMOOTH_FUNCTIONS)
+draws it by that value until the next tick; one that blends them draws it
+between the last two ticks' (light_port_connect_lit) */
+static boolean light_port_dark(
+	struct light_datum const *light)
+{
+	struct point_light_definition *definition;
+	real intensity;
+
+	if (light->parent_light_index != NONE ||
+		light->object_index == NONE ||
+		light->function_index == NONE ||
+		!TEST_FLAG(light->flags, _point_light_connects_to_map_bit))
+	{
+		return FALSE;
+	}
+	definition = light_definition_get(light->definition_index);
+	if (definition->color_lower_bound.red != 0.0f ||
+		definition->color_lower_bound.green != 0.0f ||
+		definition->color_lower_bound.blue != 0.0f ||
+		definition->color_lower_bound.alpha > _real_epsilon ||
+		definition->color_upper_bound.alpha > _real_epsilon)
+	{
+		return FALSE;
+	}
+	intensity = 1.0f;
+	object_get_function_value(light->object_index, light->function_index, &intensity);
+	return intensity == 0.0f;
+}
+
+/* port: object_connect_lights' work for one light, but a dark light (above)
+is left out of the map's clusters on the object's update (disconnect and
+reconnect), until a tick finds it lit and connects it again. Each tick every
+attached light of a unit, an item or a projectile leaves its clusters and
+joins them again (retail's object_update); most are dark: the flashlights
+and the muzzle flashes, off until used. On a 4-player Beaver Creek game
+they were 24 of the 37 lights connected a tick and 136 of their 175
+clusters (a flashlight reaches 11).
+
+A console that draws the functions as sampled each tick
+(HALO_CONSOLE_NO_SMOOTH_FUNCTIONS: the original Xbox, the Xbox 360, the Wii U)
+leaves a light out on the first tick it is dark. One that blends them between
+the last two ticks (the Switch, with display.interpolation) draws a light that
+went dark this tick fading from the last tick's value until the next tick, so
+it leaves the light out only from the second tick in a row it is dark: the
+frames between them blend two zeros. A light lit on a tick joins at once
+either way.
+
+It is still disconnected only if it is connected, as a dark light may be out
+already. Its color is made black, as a frame would make it:
+object_get_self_illumination reads it */
+void light_port_connect_lit(
+	long light_index,
+	boolean disconnect,
+	boolean reconnect)
+{
+	struct light_datum *light = light_get(light_index);
+
+	if (disconnect &&
+		(!TEST_FLAG(light->flags, _point_light_connects_to_map_bit) ||
+			TEST_FLAG(light->flags, _point_light_connected_to_map_bit)))
+	{
+		light_disconnect_from_map(light_index);
+	}
+	if (reconnect)
+	{
+		if (disconnect)
+		{
+			boolean dark = light_port_dark(light);
+			boolean leave_out = dark;
+
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+			/* (dark at the last tick's update too) */
+			leave_out = dark && TEST_FLAG(light->flags, _point_light_port_dark_bit);
+#endif
+			SET_FLAG(light->flags, _point_light_port_dark_bit, dark);
+			if (leave_out)
+			{
+				light->color = *global_real_rgb_black;
+				return;
+			}
+		}
+		else
+		{
+			/* (joining without the tick's update: the object shown again) */
+			SET_FLAG(light->flags, _point_light_port_dark_bit, FALSE);
+		}
+		light_reconnect_to_map(light_index);
+	}
+	else
+	{
+		SET_FLAG(light->flags, _point_light_port_dark_bit, FALSE);
+	}
+
+	return;
+}
+#endif
 
 /* port: the cluster lights_prepare_for_object_dynamic is finding an object's
 lights in, whose lights behind a closed door are passed over (door_portals.c);

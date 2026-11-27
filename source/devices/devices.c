@@ -574,7 +574,8 @@ boolean device_update(
 real device_get_position(
 	long device_index)
 {
-	if (device_index != NONE)
+	/* port: a device deleted since the script had it is none (#1861) */
+	if (object_try_and_get(device_index))
 	{
 		struct device_datum *device = device_get(device_index);
 
@@ -587,7 +588,8 @@ real device_get_position(
 real device_get_power(
 	long device_index)
 {
-	if (device_index != NONE)
+	/* port: a device deleted since the script had it is none (#1861) */
+	if (object_try_and_get(device_index))
 	{
 		struct device_datum *device = device_get(device_index);
 
@@ -1007,7 +1009,8 @@ void device_set_actual_position(
 	long device_index,
 	real position)
 {
-	if (device_index != NONE)
+	/* port: a device deleted since the script had it is none (#1861) */
+	if (object_try_and_get(device_index))
 	{
 		struct device_datum *device = device_get(device_index);
 
@@ -1026,7 +1029,8 @@ boolean device_set_desired_position(
 	long device_index,
 	real position)
 {
-	if (device_index != NONE)
+	/* port: a device deleted since the script had it is none (#1861) */
+	if (object_try_and_get(device_index))
 	{
 		struct device_datum *device = device_get(device_index);
 
@@ -1045,7 +1049,8 @@ void device_set_power(
 	long device_index,
 	real power)
 {
-	if (device_index != NONE)
+	/* port: a device deleted since the script had it is none (#1861) */
+	if (object_try_and_get(device_index))
 	{
 		struct device_datum *device = device_get(device_index);
 

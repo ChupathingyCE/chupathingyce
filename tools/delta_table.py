@@ -45,6 +45,19 @@ read announce alone: put the newer number in "hosting"):
     "chupa-41a": {"announce": 32, "minimum": 11, "maximum": 42, "hosting": [42],
                   "requires": ["hit_line_of_sight"]}
 
+Beside "wires", a table may carry "platform_floors" (docs/delta/versioning.md,
+"Platform floors"): by a platform's key (delta.h's DELTA_PLATFORM_NAMES), the
+oldest network version a Delta machine of that platform may say in its HELLO
+and still play with our hosts. Each platform's floor is its own; a platform
+without one has none at run time (our consoles keep the build-time console
+floor). Builds before 0.9.2 skip the section:
+
+    "platform_floors": {"dreamcast": {"network": 42}}
+
+This tool refuses a key delta.h does not list, the unknown platform, and on
+--floor a number our clients don't join (HALO_PORT_NETWORK_VERSION_MINIMUM to
+_MAXIMUM).
+
 Its signature,
 legacy.json.sig: the Ed25519 signature of legacy.json's exact bytes, as 128
 hex digits and a line feed. A build reads only its own wire's row
@@ -70,6 +83,9 @@ the numbers the build was made with. At most 16384 bytes.
         --requires WIRE=NAME[,NAME...] adds host protections a host must have
         to announce past its own number (its "requires" list; only added to,
         and kept by every later make)
+        --floor PLATFORM=VERSION sets a platform's floor (the oldest network
+        version its Delta machines play our hosts at), PLATFORM=none takes
+        it away; a make keeps the floors of --from
     delta_table.py sign --key KEY.pem legacy.json      writes legacy.json.sig
     delta_table.py verify [--public-key HEX [--last-epoch N]] legacy.json
         checks legacy.json.sig against the key (or delta_key.h's keys), and
@@ -122,6 +138,10 @@ POLICY_MAXIMUM = 4096
 # pass while it requires anything
 REQUIRES_WIRE = (41, "a")
 REQUIRES_SKIPPED_ANNOUNCE = {"chupa-41a": 32}
+# platform_floors: the most rows a game reads (delta.h's
+# DELTA_PLATFORM_FLOORS_MAXIMUM), and a row's one field
+FLOORS_MAXIMUM = 64
+FLOOR_FIELDS = ("network",)
 # the first wire whose builds read a row's layouts, and their join request's
 # length in them
 LAYOUT_WIRE = (38, "a")
@@ -213,6 +233,54 @@ def host_protections() -> dict:
     block = text[text.index("#define DELTA_HOST_PROTECTIONS(X)"):]
     block = block[:block.index("\n/*")]
     return {name: has == "1" for name, has in re.findall(r"X\((\w+), ([01])\)", block)}
+
+
+def platform_keys() -> dict:
+    """the platforms' keys and numbers (delta.h's DELTA_PLATFORM_NAMES), the
+    unknown platform's left out: it has no floor"""
+    text = DELTA.read_text(encoding="utf-8")
+    numbers = {name: int(value) for name, value in re.findall(r"\b_delta_platform_(\w+) = (\d+),", text)}
+    block = text[text.index("#define DELTA_PLATFORM_NAMES(X)"):]
+    block = block[:block.index("\n\n")]
+    return {key: numbers[symbol] for symbol, key in re.findall(r'X\(_delta_platform_(\w+), "(\w+)"', block)
+            if numbers[symbol]}
+
+
+def check_floors(floors) -> None:
+    """platform_floors, as the game reads it (delta.c's json_floors), and
+    only platforms delta.h lists"""
+    if not isinstance(floors, dict):
+        raise TableError("platform_floors is not an object")
+    if len(floors) > FLOORS_MAXIMUM:
+        raise TableError(f"platform_floors has more than {FLOORS_MAXIMUM} rows (the game drops the table)")
+    keys = platform_keys()
+    for platform, row in floors.items():
+        if platform not in keys:
+            raise TableError(f"platform_floors' {platform!r} is not a platform delta.h lists (or is the unknown one)")
+        if not isinstance(row, dict) or "network" not in row:
+            raise TableError(f"platform_floors' {platform} has no network")
+        for field in row:
+            if field not in FLOOR_FIELDS:
+                raise TableError(f"platform_floors' {platform} has a field named {field!r}")
+        _integer(row["network"], 1, MAXIMUM_VERSION, f"platform_floors' {platform}.network")
+
+
+def parse_floor(text: str) -> tuple:
+    """--floor's PLATFORM=VERSION (or PLATFORM=none): the version within
+    the numbers our clients join"""
+    match = re.fullmatch(r"([a-z0-9_]{1,32})=(\d{1,5}|none)", text)
+    if not match:
+        raise TableError(f"--floor {text}: not PLATFORM=VERSION or PLATFORM=none")
+    if match.group(1) not in platform_keys():
+        raise TableError(f"--floor {text}: {match.group(1)} is not a platform delta.h lists (or is the unknown one)")
+    if match.group(2) == "none":
+        return match.group(1), None
+    version = int(match.group(2))
+    numbers = built_in()
+    if not numbers["minimum"] <= version <= numbers["maximum"]:
+        raise TableError(f"--floor {text}: not a version our clients join ({numbers['minimum']} to "
+                         f"{numbers['maximum']})")
+    return match.group(1), version
 
 
 def reads_requires(name: str) -> bool:
@@ -474,6 +542,8 @@ def parse(document: bytes, own_wire: str = None) -> dict:
             if not NAME.fullmatch(name):
                 raise TableError(f"platform_policy's {platform} has a limit named {name!r}")
             _integer(value, 0, POLICY_MAXIMUM, f"platform_policy's {platform}.{name}")
+    if "platform_floors" in table:
+        check_floors(table["platform_floors"])
     if depth(table) > JSON_DEPTH:
         raise TableError(f"it nests deeper than {JSON_DEPTH} (the game's parser drops it)")
     disabled = table.get("disabled_capabilities", [])
@@ -637,7 +707,7 @@ def numbers(row: dict) -> dict:
 
 
 def make(serial: int, issued: int = None, previous: dict = None, rows: dict = None, take_back: dict = None,
-         layouts: list = None, hosting: list = None, requires: list = None) -> bytes:
+         layouts: list = None, hosting: list = None, requires: list = None, floors: list = None) -> bytes:
     wires = {name: dict(row) for name, row in previous["wires"].items()} if previous else {}
     old = wires.get(wire())
     wires[wire()] = built_in()
@@ -722,7 +792,19 @@ def make(serial: int, issued: int = None, previous: dict = None, rows: dict = No
     }
     if previous and "platform_policy" in previous:
         table["platform_policy"] = previous["platform_policy"]
-    document = (json.dumps(table, indent=2) + "\n").encode()
+    # (the platforms' floors: kept from --from, set or taken away by --floor)
+    kept = {platform: dict(row) for platform, row in ((previous or {}).get("platform_floors") or {}).items()}
+    for platform, version in floors or []:
+        if version is None:
+            kept.pop(platform, None)
+        else:
+            kept[platform] = {"network": version}
+    if kept:
+        keys = platform_keys()
+        table["platform_floors"] = dict(sorted(kept.items(), key=lambda item: keys[item[0]]))
+    # compact: a table with every layout fact must fit DOCUMENT_SIZE (the
+    # game's DELTA_LEGACY_DOCUMENT_SIZE); readers skip whitespace anyway
+    document = (json.dumps(table, separators=(",", ":")) + "\n").encode()
     parse(document, wire())
     return document
 
@@ -891,6 +973,9 @@ def main() -> int:
                          help="host protections (delta.h's DELTA_HOST_PROTECTIONS) a host must have to announce "
                               "past its own number, added to a wire's row (chupa-41a on); a build without one "
                               "announces its own number")
+    command.add_argument("--floor", action="append", default=[], metavar="PLATFORM=VERSION",
+                         help="a platform's floor: the oldest network version its Delta machines play our hosts "
+                              "at (PLATFORM=none takes it away); other platforms' floors are kept")
     command.add_argument("--out", type=Path)
     command = commands.add_parser("sign")
     command.add_argument("--key", type=Path, required=True)
@@ -917,7 +1002,9 @@ def main() -> int:
             layouts = [parse_layout(layout) for layout in arguments.layout]
             hosting = [parse_hosting(text) for text in arguments.hosting]
             requires = [parse_requires(text) for text in arguments.requires]
-            document = make(arguments.serial, arguments.issued, previous, rows, take_back, layouts, hosting, requires)
+            floors = [parse_floor(text) for text in arguments.floor]
+            document = make(arguments.serial, arguments.issued, previous, rows, take_back, layouts, hosting, requires,
+                            floors)
             if arguments.out:
                 arguments.out.write_bytes(document)
             else:
@@ -941,6 +1028,10 @@ def main() -> int:
             row = table["wires"].get(wire())
             print(f"{arguments.document}: signed, serial {table['serial']} (epoch {epoch(table['serial'])}); "
                   f"{wire()}: {row or 'no row'}")
+            floors = table.get("platform_floors") or {}
+            if floors:
+                print("platform floors: " + ", ".join(f"{platform} {row['network']}"
+                                                      for platform, row in floors.items()))
             missing = missing_protections(row or {})
             if missing:
                 print(f"this build hosts no more than its own {built_in()['announce']} by it: it lacks the host "

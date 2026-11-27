@@ -78,6 +78,7 @@ int main(void)
 	CHECK(!strcmp(port_folder_name(_port_folder_gametypes), "gametypes"));
 	CHECK(!strcmp(port_folder_name(_port_folder_screenshots), "screenshots"));
 	CHECK(!strcmp(port_folder_name(_port_folder_clips), "clips"));
+	CHECK(!strcmp(port_folder_name(_port_folder_forge), "forge"));
 	CHECK(!strcmp(port_folder_name(k_port_folder_count), ""));
 	CHECK(!port_folder_in_save_root(_port_folder_data));
 	CHECK(!port_folder_in_save_root(_port_folder_logs));
@@ -86,6 +87,7 @@ int main(void)
 	CHECK(port_folder_in_save_root(_port_folder_cache));
 	CHECK(port_folder_in_save_root(_port_folder_private));
 	CHECK(port_folder_in_save_root(_port_folder_gametypes));
+	CHECK(port_folder_in_save_root(_port_folder_forge));
 
 	/* each in its root (desktop, Docker, Android, Windows) */
 	check_path(_port_folder_data, NULL, "/home/p/halo", "/home/p/.local/share/chupathingyce", "/home/p/halo/data");
@@ -114,6 +116,7 @@ int main(void)
 	check_path(_port_folder_data, "/elsewhere", "/data", "/data/saves", "/data/data");
 	check_path(_port_folder_private, "/elsewhere", "/data", "/data/saves", "/data/saves/private");
 	check_path(_port_folder_gametypes, "/elsewhere", "/data", "/data/saves", "/data/saves/gametypes");
+	check_path(_port_folder_forge, "/elsewhere", "/data", "/data/saves", "/data/saves/forge");
 
 	/* no root */
 	check_path(_port_folder_logs, NULL, NULL, "/data/saves", NULL);

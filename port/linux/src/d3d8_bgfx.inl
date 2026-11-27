@@ -110,6 +110,12 @@ BG_VERTEX_VOLATILE_FRAMES) */
 #define BG_VERTEX_REWRITE_FRAMES 2
 #define BG_VERTEX_VOLATILE_REWRITES 4
 #define BG_VERTEX_VOLATILE_FRAMES 600
+/* the copies of a range kept for different values of the registers its
+streams leave out (one pass of a level's surfaces with one color, the next
+with another): past them, the least used is converted again (game issue
+#1801: SPV3's b30 swapped two of them each frame, which the rewrite count
+took for a range the game keeps writing, and streamed its whole level) */
+#define BG_VERTEX_VARIANTS 4
 /* Metal's uniform space a frame (bgfx built with 32 MB), less a margin:
 draws past it are skipped rather than overrun it */
 #define BG_UNIFORM_BUDGET ((32UL << 20) - (1UL << 20))
@@ -358,6 +364,19 @@ static struct
 	bgfx_texture_handle_t sdr_copy;
 	bgfx_frame_buffer_handle_t sdr_copy_framebuffer;
 	unsigned long sdr_copy_width, sdr_copy_height;
+	/* display.anti_aliasing's FXAA and SMAA (bg_anti_alias): the passes'
+	programs (FXAA, then SMAA's edge detection, blending weights and
+	neighborhood blending), FXAA's and SMAA's each tried once
+	(bg_anti_alias_prepare); their uniforms; the back buffer's copy and
+	SMAA's edges and weights at its size; and SMAA's lookup textures */
+	bgfx_program_handle_t anti_alias[4];
+	BOOL anti_alias_tried[2], anti_alias_ready[2];
+	bgfx_uniform_handle_t anti_alias_metrics, anti_alias_bounds;
+	bgfx_texture_handle_t anti_alias_copy, anti_alias_edges, anti_alias_weights;
+	bgfx_frame_buffer_handle_t anti_alias_edges_framebuffer, anti_alias_weights_framebuffer;
+	unsigned long anti_alias_width, anti_alias_height;
+	BOOL anti_alias_wide;
+	bgfx_texture_handle_t anti_alias_area, anti_alias_search;
 	/* a player's screenshot taken from the back buffer (bg_capture's
 	readback), as the HDR10 window cannot be read as 8 bits */
 	BOOL capture_for_shot;
@@ -413,6 +432,11 @@ static struct
 		double translate_seconds, load_seconds, vertex_seconds;
 		uint32_t libraries, pipelines;
 		double library_seconds, pipeline_seconds;
+		/* Vulkan's pipelines made with the cache folder's data, and written
+		to it (bg_callback_cache_read, bg_callback_cache_write) */
+		uint32_t pipelines_cached, pipelines_written;
+		/* the time in bgfx_frame */
+		double frame_seconds;
 	} account;
 
 	/* debug.screenshot_every's copy of the back buffer, read back */
@@ -451,8 +475,11 @@ and passed on after the frame (bg_present) */
 	unsigned long uniform_bytes;
 	unsigned long drawn, skipped, stat_tests, stat_seen, stat_waited;
 	/* draws left out because the frame's transient vertices or indices ran
-	out */
+	out and no buffer of their own could be made (bg_draw) */
 	unsigned long stat_starved;
+	/* draws past the frame's transient vertices or indices, drawn from
+	buffers of their own */
+	unsigned long stat_overflow;
 	/* time in bgfx_frame (waiting for the render thread and the GPU) */
 	double stat_frame_wait;
 } bg;
@@ -1260,7 +1287,11 @@ then Metal's language (SPIRV-Cross) or Vulkan's container, a few
 milliseconds each. That is done
 on compiler threads, never in a frame: a draw whose shaders are not made
 yet is left out until they are (a frame or two, the first time a shader is
-seen). What they make is kept in the cache folder (paths.cache, safe to
+seen). On Metal they also compile the Metal source, as bgfx would in the
+frame that makes the shader (a frame of tens of milliseconds a shader, each
+time a new build sees it: Metal keeps its compiles for each build), so a
+shader read from the cache folder goes to them too, and bgfx's compile
+then finds Metal's. What they make is kept in the cache folder (paths.cache, safe to
 delete: bgfx/<backend>/<hash>.shader, by a hash of the shader's GLSL, the
 backend and the compilers' versions; an entry that does not match is
 ignored and made again), and each map's programs are listed there
@@ -1276,6 +1307,10 @@ Vulkan container's layout, the entries' format) */
 #define BG_SHADER_CACHE_MAXIMUM (64UL << 20)
 #define BG_SHADER_CACHE_TRIMMED (48UL << 20)
 #define BG_COMPILER_THREADS 2
+/* on Metal, where the threads also compile each shader's Metal source (tens
+of milliseconds the first time a build sees it): up to this many, half the
+processor's cores */
+#define BG_METAL_COMPILER_THREADS 6
 /* the most of a map's programs made in one frame of its loading screen */
 #define BG_WARM_PER_FRAME 48
 
@@ -1283,7 +1318,11 @@ struct bg_shader_job
 {
 	struct bg_shader_job *next;
 	struct bg_shader *shader;
+	/* the shader's Vulkan GLSL, to compile; or NULL and its code, read from
+	the cache folder, for Metal to compile (bg_metal_prepares) */
 	char *source;
+	char *code;
+	unsigned long code_size;
 	char what[32];
 };
 
@@ -1311,6 +1350,12 @@ static struct
 	BOOL warm_pending;
 	Uint64 *warm_list;
 	unsigned long warm_count, warm_next;
+	/* the listed programs whose shaders are still being made, in pairs */
+	struct bg_shader **warm_waiting;
+	unsigned long warm_waiting_count, warm_waiting_capacity;
+	/* on macOS, bgfx's Metal device: the threads compile each shader's Metal
+	source on it (macos_metal_library_prepare) */
+	void *metal_device;
 } bg_jobs = { PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, PTHREAD_COND_INITIALIZER };
 
 static void bg_cache_entry_path(char *path, size_t size, Uint64 hash)
@@ -1387,11 +1432,16 @@ static void bg_cache_write(Uint64 hash, unsigned long uniform_size, const char *
 	file = fopen(temporary, "wb");
 	if (!file)
 		return;
-	if (fwrite(&header, sizeof(header), 1, file) == 1 && fwrite(msl, 1, header.length, file) == header.length &&
-		fclose(file) == 0)
-		rename(temporary, path);
-	else
-		remove(temporary);
+	{
+		BOOL written = fwrite(&header, sizeof(header), 1, file) == 1 &&
+			fwrite(msl, 1, header.length, file) == header.length;
+
+		/* (closed first, written or not: an open file can't be removed on
+		Windows. SDL_RenamePath: Windows' rename does not replace a file
+		that is there, and a failed one would leave the temporary file) */
+		if (!(fclose(file) == 0 && written && SDL_RenamePath(temporary, path)))
+			remove(temporary);
+	}
 }
 
 /* the backend's code for a shader's Vulkan GLSL (malloc'd, *size its
@@ -1446,6 +1496,11 @@ static char *bg_compile(const char *source, BOOL fragment, const char *what, cha
 	return code;
 }
 
+#ifdef __APPLE__
+/* (port/macos/src/macos_video.c) */
+int macos_metal_library_prepare(void *device, const char *source);
+#endif
+
 static void *bg_compiler_thread(void *unused)
 {
 	(void)unused;
@@ -1464,9 +1519,23 @@ static void *bg_compiler_thread(void *unused)
 			bg_jobs.last = NULL;
 		pthread_mutex_unlock(&bg_jobs.lock);
 
-		msl = bg_compile(job->source, job->shader->fragment, job->what, &error, &size);
-		if (msl)
-			bg_cache_write(job->shader->hash, job->shader->uniform_size, msl, size);
+		if (job->code)
+		{
+			msl = job->code, job->code = NULL;
+			size = job->code_size;
+		}
+		else
+		{
+			msl = bg_compile(job->source, job->shader->fragment, job->what, &error, &size);
+			if (msl)
+				bg_cache_write(job->shader->hash, job->shader->uniform_size, msl, size);
+		}
+#ifdef __APPLE__
+		/* (Metal's compile of the source, kept by Metal: bgfx's of the same
+		source, in the frame that makes the shader, is then quick) */
+		if (msl && bg_jobs.metal_device)
+			macos_metal_library_prepare(bg_jobs.metal_device, msl);
+#endif
 
 		pthread_mutex_lock(&bg_jobs.lock);
 		job->shader->code = msl;
@@ -1476,6 +1545,27 @@ static void *bg_compiler_thread(void *unused)
 		pthread_cond_broadcast(&bg_jobs.finished);
 	}
 	return NULL;
+}
+
+/* whether the compiler threads make Metal's libraries too, so that a shader
+read from the cache folder goes to them as well (bg_shader_get, bg_warm) */
+static BOOL bg_metal_prepares(void)
+{
+	return bg_jobs.started && bg_jobs.metal_device != NULL;
+}
+
+static int bg_compiler_threads(void)
+{
+#ifdef __APPLE__
+	if (bg_jobs.metal_device)
+	{
+		int cores = SDL_GetNumLogicalCPUCores() / 2;
+
+		return cores < BG_COMPILER_THREADS ? BG_COMPILER_THREADS : cores > BG_METAL_COMPILER_THREADS ?
+			BG_METAL_COMPILER_THREADS : cores;
+	}
+#endif
+	return BG_COMPILER_THREADS;
 }
 
 /* the backend's name in the cache: its folder, and part of its versions */
@@ -1567,7 +1657,14 @@ static void bg_cache_start(void)
 		free(entries);
 		SDL_free(names);
 	}
-	for (index = 0; index < BG_COMPILER_THREADS; index++)
+#ifdef __APPLE__
+	{
+		const bgfx_internal_data_t *internal = bgfx_get_internal_data();
+
+		bg_jobs.metal_device = internal ? internal->context : NULL;
+	}
+#endif
+	for (index = 0; index < bg_compiler_threads(); index++)
 	{
 		pthread_t thread;
 
@@ -1619,12 +1716,13 @@ static BOOL bg_shader_ready(struct bg_shader *shader)
 	error = shader->error, shader->error = NULL;
 	job = shader->job, shader->job = NULL;
 	pthread_mutex_unlock(&bg_jobs.lock);
-	bg.account.translated++;
+	if (job->source)
+		bg.account.translated++;
 	if (msl)
 		bg_shader_finish(shader, msl, size, job->what);
 	else
 		bg_shader_failed(shader, job->what, error ? error : "it does not compile");
-	if (!msl && config_boolean("debug.gpu_stats"))
+	if (!msl && job->source && config_boolean("debug.gpu_stats"))
 		platform_log("%s", job->source);
 	free(msl);
 	free(error);
@@ -1658,6 +1756,29 @@ static struct bg_shader *bg_shader_add(Uint64 hash, BOOL fragment, unsigned long
 	return shader;
 }
 
+/* a shader handed to a compiler thread: its Vulkan GLSL to compile, or its
+code from the cache folder for Metal (both taken) */
+static void bg_shader_queue(struct bg_shader *shader, char *source, char *code, unsigned long code_size,
+	const char *what)
+{
+	struct bg_shader_job *job = calloc(1, sizeof(*job));
+
+	job->shader = shader;
+	job->source = source;
+	job->code = code;
+	job->code_size = code_size;
+	snprintf(job->what, sizeof(job->what), "%s", what);
+	shader->job = job;
+	pthread_mutex_lock(&bg_jobs.lock);
+	if (bg_jobs.last)
+		bg_jobs.last->next = job;
+	else
+		bg_jobs.first = job;
+	bg_jobs.last = job;
+	pthread_cond_signal(&bg_jobs.wake);
+	pthread_mutex_unlock(&bg_jobs.lock);
+}
+
 /* a shader of the translators' GLSL: found, read from the cache folder, or
 handed to a compiler thread (bg_shader_ready tells when it is made; wait
 waits for it, for the renderer's own shaders) */
@@ -1676,11 +1797,28 @@ static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, int flag
 	if ((shader = bg_shader_find(hash)) != NULL)
 	{
 		free(source);
+		/* (asked for before, and still on a compiler thread: waited for) */
+		if (wait && shader->job)
+		{
+			pthread_mutex_lock(&bg_jobs.lock);
+			while (!shader->done)
+				pthread_cond_wait(&bg_jobs.finished, &bg_jobs.lock);
+			pthread_mutex_unlock(&bg_jobs.lock);
+			bg_shader_ready(shader);
+		}
 		return shader;
 	}
 	shader = bg_shader_add(hash, fragment, uniform_size);
 	if ((msl = bg_cache_read(hash, NULL, &size)) != NULL)
 	{
+		if (!wait && bg_metal_prepares())
+		{
+			bg_shader_queue(shader, NULL, msl, size, what);
+			free(source);
+			bg.account.loaded++;
+			bg.account.load_seconds += stats_seconds() - start;
+			return shader;
+		}
 		bg_shader_finish(shader, msl, size, what);
 		free(msl);
 		free(source);
@@ -1709,22 +1847,7 @@ static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, int flag
 		bg.account.translate_seconds += stats_seconds() - start;
 		return shader;
 	}
-	{
-		struct bg_shader_job *job = calloc(1, sizeof(*job));
-
-		job->shader = shader;
-		job->source = source;
-		snprintf(job->what, sizeof(job->what), "%s", what);
-		shader->job = job;
-		pthread_mutex_lock(&bg_jobs.lock);
-		if (bg_jobs.last)
-			bg_jobs.last->next = job;
-		else
-			bg_jobs.first = job;
-		bg_jobs.last = job;
-		pthread_cond_signal(&bg_jobs.wake);
-		pthread_mutex_unlock(&bg_jobs.lock);
-	}
+	bg_shader_queue(shader, source, NULL, 0, what);
 	return shader;
 }
 
@@ -1754,7 +1877,12 @@ static struct bg_shader *bg_fragment_shader(const struct nv2a_pixel_shader_key *
 		if (entry->hash == hash && entry->flags == flags && !memcmp(&entry->key, key, sizeof(*key)))
 			return bg_shader_ready(entry->shader) ? entry->shader : NULL;
 	}
+	/* (bgfx's samplers have no LOD bias: the water's ripples' bias,
+	D3DTSS_MIPMAPLODBIAS, is the lookup's, as on OpenGL ES; bg_uniforms sets
+	texture_lod_bias) */
+	nv2a_pixel_shader_lod_bias = TRUE;
 	glsl = nv2a_pixel_shader_to_glsl(key);
+	nv2a_pixel_shader_lod_bias = FALSE;
 	entry = calloc(1, sizeof(*entry));
 	entry->hash = hash;
 	entry->key = *key;
@@ -1828,6 +1956,46 @@ static void bg_map_loaded(const char *map)
 
 static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_shader *fragment);
 
+/* the pipelines bgfx's Vulkan renderer made while a map was loaded, its
+loading screen included: each is timed from bgfx asking for the cache
+folder's data (bg_callback_cache_read_size, the first thing it does for a
+draw state it has not made a pipeline for this run) to its handing the
+driver's data back (bg_callback_cache_write), the driver's compile in
+between. Logged when the next map loads (bg_warm), so a log says how much of
+a map's time went to them without debug.gpu_stats; a frame's are in
+bg.account */
+static struct
+{
+	unsigned long made, cached, written;
+	double seconds, worst, started;
+	/* the frame that spent the most on them */
+	unsigned long frame_made;
+	double frame_seconds, frame_worst;
+	unsigned long frame_worst_made;
+} bg_pipelines;
+
+static void bg_pipelines_log(const char *map)
+{
+	if (bg_vulkan && bg_pipelines.made && *map)
+		platform_log("bgfx: %s made %lu Vulkan pipelines, %.0f ms in all (the slowest %.1f ms; %lu in one frame, "
+			"%.0f ms), %lu with the cache folder's data, %lu written to it", map, bg_pipelines.made,
+			bg_pipelines.seconds * 1000.0, bg_pipelines.worst * 1000.0, bg_pipelines.frame_worst_made,
+			bg_pipelines.frame_worst * 1000.0, bg_pipelines.cached, bg_pipelines.written);
+	memset(&bg_pipelines, 0, sizeof(bg_pipelines));
+}
+
+/* after bgfx_frame: the frame that spent the most on pipelines so far */
+static void bg_pipelines_frame_end(void)
+{
+	if (bg_pipelines.frame_seconds > bg_pipelines.frame_worst)
+	{
+		bg_pipelines.frame_worst = bg_pipelines.frame_seconds;
+		bg_pipelines.frame_worst_made = bg_pipelines.frame_made;
+	}
+	bg_pipelines.frame_made = 0;
+	bg_pipelines.frame_seconds = 0.0;
+}
+
 /* a map has loaded since bgfx started (the main menu's ui.map is the first):
 the Vulkan start note's frames are counted from it (bg_frame_out) */
 static BOOL bg_map_seen;
@@ -1849,6 +2017,8 @@ static void bg_warm(void)
 		bg_jobs.warm_pending = FALSE;
 		pthread_mutex_unlock(&bg_jobs.lock);
 		bg_map_seen = TRUE;
+		/* (the last map's pipelines: its name is still bg_jobs.map) */
+		bg_pipelines_log(bg_jobs.map);
 		/* the list of the map now loaded */
 		if (bg_jobs.pairs_file)
 			fclose(bg_jobs.pairs_file);
@@ -1910,16 +2080,58 @@ static void bg_warm(void)
 				if (msl)
 				{
 					pair[which] = bg_shader_add(hash, which == 1, uniform_size);
-					bg_shader_finish(pair[which], msl, size, which ? "pixel" : "vertex");
-					free(msl);
+					if (bg_metal_prepares())
+						bg_shader_queue(pair[which], NULL, msl, size, which ? "pixel" : "vertex");
+					else
+					{
+						bg_shader_finish(pair[which], msl, size, which ? "pixel" : "vertex");
+						free(msl);
+					}
 					bg.account.loaded++;
 				}
 			}
 		}
-		if (pair[0] && pair[1] && BGFX_HANDLE_IS_VALID(pair[0]->shader) && BGFX_HANDLE_IS_VALID(pair[1]->shader))
-			bg_program_get(pair[0], pair[1]);
+		/* (the program once both are made: a frame or more later on Metal,
+		whose threads compile them) */
+		if (pair[0] && pair[1] && !pair[0]->failed && !pair[1]->failed)
+		{
+			if (bg_jobs.warm_waiting_count + 2 > bg_jobs.warm_waiting_capacity)
+			{
+				unsigned long capacity = bg_jobs.warm_waiting_capacity ? bg_jobs.warm_waiting_capacity * 2 : 256;
+				struct bg_shader **grown = realloc(bg_jobs.warm_waiting, capacity * sizeof(*grown));
+
+				if (grown)
+				{
+					bg_jobs.warm_waiting = grown;
+					bg_jobs.warm_waiting_capacity = capacity;
+				}
+			}
+			if (bg_jobs.warm_waiting_count + 2 <= bg_jobs.warm_waiting_capacity)
+			{
+				bg_jobs.warm_waiting[bg_jobs.warm_waiting_count++] = pair[0];
+				bg_jobs.warm_waiting[bg_jobs.warm_waiting_count++] = pair[1];
+			}
+		}
 		bg_jobs.warm_next += 2;
 		made++;
+	}
+	{
+		unsigned long index, kept = 0;
+
+		for (index = 0; index < bg_jobs.warm_waiting_count; index += 2)
+		{
+			struct bg_shader *vertex = bg_jobs.warm_waiting[index], *fragment = bg_jobs.warm_waiting[index + 1];
+			BOOL vertex_ready = bg_shader_ready(vertex), fragment_ready = bg_shader_ready(fragment);
+
+			if (vertex_ready && fragment_ready)
+				bg_program_get(vertex, fragment);
+			else if (!vertex->failed && !fragment->failed)
+			{
+				bg_jobs.warm_waiting[kept++] = vertex;
+				bg_jobs.warm_waiting[kept++] = fragment;
+			}
+		}
+		bg_jobs.warm_waiting_count = kept;
 	}
 	if (bg_jobs.warm_next && bg_jobs.warm_next >= bg_jobs.warm_count)
 	{
@@ -2120,7 +2332,8 @@ the resolved pixels. Every target at the screen's size is multisampled, the
 back buffer, its depth buffer and what is drawn with them (a frame
 buffer's attachments have the same samples). A change of the setting
 between frames makes new targets (bg_target_get's key), cleared once as
-any new one. FXAA, SMAA and supersampling are the OpenGL path's only. */
+any new one. Supersampling is the screen's size (screen_mode_choose);
+FXAA and SMAA are passes over the 3D view (bg_anti_alias). */
 static int bg_screen_samples(void)
 {
 	static int unsupported;
@@ -2644,10 +2857,26 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 	int dxt = description->compressed ? xgpu_texture_dxt(description) : 0;
 	unsigned long levels = description->levels ? description->levels : 1, level, full = 1, size, face, provided;
 	BOOL volume = description->depth > 1;
+	BOOL bc7 = description->compressed && xgpu_texture_bc7(description);
 
-	if (description->compressed && !dxt)
+	/* a BC7 one (a Custom Edition map's bitmap in MCC's high-quality
+	compression) is sent as BC7 where the backend samples it, and decoded
+	by the OpenGL upload's decoder where it doesn't. A Halo PC HUD meter or
+	multipurpose map is decoded too, so its texels are where a later move
+	of its channels can reach them; bgfx doesn't move them yet for any
+	format (OpenGL does it with the texture's swizzle) */
+	if (bc7)
 	{
-		bg_log_once("compressed textures other than DXT");
+		uint16_t wanted = volume ? BGFX_CAPS_FORMAT_TEXTURE_3D : description->cube_map ? BGFX_CAPS_FORMAT_TEXTURE_CUBE :
+			BGFX_CAPS_FORMAT_TEXTURE_2D;
+
+		if (!description->pc_meter && !description->pc_multipurpose &&
+			(bgfx_get_caps()->formats[BGFX_TEXTURE_FORMAT_BC7] & wanted))
+			dxt = 7;
+	}
+	else if (description->compressed && !dxt)
+	{
+		bg_log_once("compressed textures other than DXT and BC7");
 		entry->failed = TRUE;
 		return;
 	}
@@ -2664,7 +2893,7 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 	if (!entry->created)
 	{
 		bgfx_texture_format_t format = dxt == 1 ? BGFX_TEXTURE_FORMAT_BC1 : dxt == 3 ? BGFX_TEXTURE_FORMAT_BC2 :
-			dxt == 5 ? BGFX_TEXTURE_FORMAT_BC3 : BGFX_TEXTURE_FORMAT_BGRA8;
+			dxt == 5 ? BGFX_TEXTURE_FORMAT_BC3 : dxt == 7 ? BGFX_TEXTURE_FORMAT_BC7 : BGFX_TEXTURE_FORMAT_BGRA8;
 
 		if (volume)
 			entry->texture = bgfx_create_texture_3d((uint16_t)description->width, (uint16_t)description->height,
@@ -2958,8 +3187,8 @@ static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struc
 
 /* flat: a 2D texture (not a cube or 3D one), the only kind given the
 anisotropy display.anisotropic_filtering forces, on the same terms as the
-OpenGL path's configure_sampler: mipmapped and filtered. bgfx's level is
-16x (bg_reset_flags) whatever the setting's number. */
+OpenGL path's configure_sampler: mipmapped and filtered, at the setting's
+level (bg_reset_flags). */
 static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires, BOOL flat)
 {
 	DWORD *state = D3D__TextureState[stage];
@@ -3133,7 +3362,11 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 					}
 				}
 			}
-			if (description.linear)
+			/* port: a Halo PC map's linear bitmap is sampled as Halo PC samples every
+			texture, its coordinates 0 to 1 (the game's draws of its bitmaps give
+			them so: xbox_texture_cache.c's D3DCOMMON_PORT_PC_LAYOUT); the Xbox's own
+			linear textures by texel */
+			if (description.linear && !(texture->Common & D3DCOMMON_PORT_PC_LAYOUT))
 			{
 				texture_scale[stage][0] = 1.0f / (float)description.width;
 				texture_scale[stage][1] = 1.0f / (float)description.height;
@@ -3500,6 +3733,20 @@ static void bg_vertex_cache_trim(void)
 	}
 }
 
+/* whether a kept range was made with the current values of the registers
+its streams leave out */
+static BOOL bg_vertex_attributes_match(const struct bg_vertex_entry *entry, unsigned short provided)
+{
+	unsigned long index;
+
+	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+	{
+		if (!(provided & (1U << index)) && memcmp(entry->attributes[index], device.attributes[index], 4 * sizeof(float)))
+			return FALSE;
+	}
+	return TRUE;
+}
+
 /* the draw's vertices kept on the GPU, converted again if the game wrote
 them; invalid when they are to stream (outside the contiguous window,
 rewritten often, or no room) */
@@ -3534,19 +3781,40 @@ static bgfx_vertex_buffer_handle_t bg_vertex_cache_get(const struct vertex_shade
 	for (stream = 0; stream < 16; stream++)
 		hash = hash * 33 + address[stream];
 	hash = (hash ^ (hash >> 13) ^ (hash >> 23)) % BG_VERTEX_BUCKETS;
-	for (entry = bg.vertex_buckets[hash]; entry; entry = entry->next)
 	{
-		if (entry->declaration == declaration && entry->vertex_count == vertex_count &&
-			entry->provided == provided && entry->element_count == declaration->element_count &&
-			!memcmp(entry->address, address, sizeof(address)) && !memcmp(entry->stride, stride, sizeof(stride)) &&
-			!memcmp(entry->elements, declaration->elements, declaration->element_count * sizeof(entry->elements[0])))
-			break;
+		struct bg_vertex_entry *least_used = NULL;
+		unsigned long variants = 0;
+
+		for (entry = bg.vertex_buckets[hash]; entry; entry = entry->next)
+		{
+			if (entry->declaration == declaration && entry->vertex_count == vertex_count &&
+				entry->provided == provided && entry->element_count == declaration->element_count &&
+				!memcmp(entry->address, address, sizeof(address)) && !memcmp(entry->stride, stride, sizeof(stride)) &&
+				!memcmp(entry->elements, declaration->elements, declaration->element_count * sizeof(entry->elements[0])))
+			{
+				if (bg_vertex_attributes_match(entry, provided))
+					break;
+				variants++;
+				if (!least_used || entry->used_frame < least_used->used_frame)
+					least_used = entry;
+			}
+		}
+		/* (a range already kept with as many other values as it may have: the
+		least used of them, converted again below) */
+		if (!entry && variants >= BG_VERTEX_VARIANTS)
+			entry = least_used;
 	}
 	if (!entry)
 	{
 		entry = calloc(1, sizeof(*entry));
 		if (!entry)
 			return none;
+		/* (the values it is made with: converted below, not a rewrite) */
+		for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+		{
+			if (!(provided & (1U << index)))
+				memcpy(entry->attributes[index], device.attributes[index], 4 * sizeof(float));
+		}
 		entry->declaration = declaration;
 		memcpy(entry->elements, declaration->elements, sizeof(entry->elements));
 		entry->element_count = declaration->element_count;
@@ -3674,13 +3942,14 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	bgfx_program_handle_t handle;
 	bgfx_transient_vertex_buffer_t vertices;
 	bgfx_transient_index_buffer_t generated_indices;
-	bgfx_vertex_buffer_handle_t cached = BGFX_INVALID_HANDLE;
+	bgfx_vertex_buffer_handle_t cached = BGFX_INVALID_HANDLE, own_vertices = BGFX_INVALID_HANDLE;
+	bgfx_index_buffer_handle_t own_indices = BGFX_INVALID_HANDLE;
 	float texture_scale[4][4];
 	unsigned short rect[4];
 	unsigned long generated, uniform_bytes;
 	uint32_t stencil, back_stencil, rgba;
 	uint64_t state;
-	BOOL has_depth, native, starved;
+	BOOL has_depth, native, starved = FALSE;
 	int stage;
 
 	if (!vertex_count || !program || !declaration || !program->instructions)
@@ -3702,6 +3971,8 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT0] = 0;
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT1] = 0;
 	key.texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
+	/* (MCC's alternate bump flag on an environment shader: mcc_environment_shader_gl.c) */
+	key.mcc_bump_attenuation = mcc_environment_shader_active();
 	bg_bind_textures(&key, texture_scale);
 	if (!bg_bind_targets(&has_depth) ||
 		!bg_target_rect((float)device.viewport.X, (float)device.viewport.Y, (float)device.viewport.Width,
@@ -3768,29 +4039,66 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		return;
 	}
 #endif
-	starved = (!BGFX_HANDLE_IS_VALID(cached) &&
-			bgfx_get_avail_transient_vertex_buffer((uint32_t)(vertex_count + BG_OVERLAY_RESERVE_VERTICES), &bg.layout) <
-				vertex_count + BG_OVERLAY_RESERVE_VERTICES) ||
-		(generated && bgfx_get_avail_transient_index_buffer((uint32_t)generated, false) < generated);
-	if (starved && BGFX_HANDLE_IS_VALID(handle))
-	{
-		/* (the scene loses this draw; the picture is still presented,
-		bg_blit) */
-		static BOOL logged;
-
-		if (!logged)
-			platform_log("bgfx: a frame ran out of transient vertices or indices; its draws past them are left out");
-		logged = TRUE;
-		bg.stat_starved++;
-	}
-	if (!BGFX_HANDLE_IS_VALID(handle) || (!native && !generated) || bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET ||
-		starved)
+	if (!BGFX_HANDLE_IS_VALID(handle) || (!native && !generated) || bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET)
 	{
 		/* (drop the textures set for it) */
 		bgfx_discard(BGFX_DISCARD_ALL);
 		bg.skipped++;
 		return;
 	}
+	/* a frame whose transient vertices or indices ran out (a map as dense
+	as SPV3's b30, game issue #1801): the draw's own buffers, made for it and
+	let go after its submit (bgfx keeps them until the frame is drawn), as
+	OpenGL streams any amount. Slower than the transient ones, so only past
+	them; left out only if bgfx has no buffer left to give */
+	if (!BGFX_HANDLE_IS_VALID(cached) &&
+		bgfx_get_avail_transient_vertex_buffer((uint32_t)(vertex_count + BG_OVERLAY_RESERVE_VERTICES), &bg.layout) <
+			vertex_count + BG_OVERLAY_RESERVE_VERTICES)
+	{
+		const bgfx_memory_t *memory = bgfx_alloc((uint32_t)(vertex_count * BG_VERTEX_BYTES));
+
+		if (immediate)
+			memcpy(memory->data, device.immediate_vertices, vertex_count * BG_VERTEX_BYTES);
+		else
+			bg_vertices_convert(memory->data, declaration, first, vertex_count);
+		own_vertices = bgfx_create_vertex_buffer(memory, &bg.layout, BGFX_BUFFER_NONE);
+		starved = !BGFX_HANDLE_IS_VALID(own_vertices);
+	}
+	if (!starved && generated && bgfx_get_avail_transient_index_buffer((uint32_t)generated, false) < generated)
+	{
+		const bgfx_memory_t *memory = bgfx_alloc((uint32_t)(generated * sizeof(WORD)));
+
+		bg_indices(type, indices, indices ? index_count : vertex_count, rebase, (WORD *)memory->data);
+		own_indices = bgfx_create_index_buffer(memory, BGFX_BUFFER_NONE);
+		starved = !BGFX_HANDLE_IS_VALID(own_indices);
+	}
+	if (BGFX_HANDLE_IS_VALID(own_vertices) || BGFX_HANDLE_IS_VALID(own_indices) || starved)
+	{
+		static BOOL logged;
+
+		if (!logged)
+			platform_log("bgfx: a frame ran out of transient vertices or indices; its draws past them are drawn from "
+				"buffers of their own");
+		logged = TRUE;
+	}
+	if (starved)
+	{
+		/* (no buffer left: the scene loses this draw; the picture is still
+		presented, bg_blit) */
+		static BOOL logged;
+
+		if (!logged)
+			platform_log("bgfx: no buffer left for a draw past the frame's transient vertices or indices; it is left out");
+		logged = TRUE;
+		if (BGFX_HANDLE_IS_VALID(own_vertices))
+			bgfx_destroy_vertex_buffer(own_vertices);
+		bg.stat_starved++;
+		bgfx_discard(BGFX_DISCARD_ALL);
+		bg.skipped++;
+		return;
+	}
+	if (BGFX_HANDLE_IS_VALID(own_vertices) || BGFX_HANDLE_IS_VALID(own_indices))
+		bg.stat_overflow++;
 	bg.uniform_bytes += uniform_bytes;
 
 	/* the vertices: every input register, from the declaration's elements or
@@ -3800,6 +4108,11 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	{
 		bgfx_set_vertex_buffer(0, cached, 0, (uint32_t)vertex_count);
 		bg.stat_cached_vertices += vertex_count;
+	}
+	else if (BGFX_HANDLE_IS_VALID(own_vertices))
+	{
+		bgfx_set_vertex_buffer(0, own_vertices, 0, (uint32_t)vertex_count);
+		bg.stat_streamed_vertices += vertex_count;
 	}
 	else
 	{
@@ -3811,7 +4124,9 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		bgfx_set_transient_vertex_buffer(0, &vertices, 0, (uint32_t)vertex_count);
 		bg.stat_streamed_vertices += vertex_count;
 	}
-	if (generated)
+	if (BGFX_HANDLE_IS_VALID(own_indices))
+		bgfx_set_index_buffer(own_indices, 0, (uint32_t)generated);
+	else if (generated)
 	{
 		bgfx_alloc_transient_index_buffer(&generated_indices, (uint32_t)generated, false);
 		bg_indices(type, indices, indices ? index_count : vertex_count, rebase, (WORD *)generated_indices.data);
@@ -3837,6 +4152,11 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	{
 		bgfx_submit(bg.view, handle, 0, BGFX_DISCARD_ALL);
 	}
+	/* (bgfx lets them go once the frame that drew from them is done) */
+	if (BGFX_HANDLE_IS_VALID(own_vertices))
+		bgfx_destroy_vertex_buffer(own_vertices);
+	if (BGFX_HANDLE_IS_VALID(own_indices))
+		bgfx_destroy_index_buffer(own_indices);
 	bg.view_used = TRUE;
 	bg.drawn++;
 }
@@ -4193,17 +4513,37 @@ static const char bg_crt_fragment_source[] =
 	"\tfragment_color = vec4(color, 1.0);\n"
 	"}\n";
 
-/* bgfx's reset flags: vertical sync, and the most anisotropy (16x) when
-display.anisotropic_filtering forces it (bg_sampler_flags; bgfx's samplers
-have either that or none) */
-/* (sdl_platform.c's: display.vsync, or display.vrr on) */
-int platform_vsync_on(void);
+/* bgfx's reset flags: vertical sync as every renderer's frames are shown
+(platform_present_mode: display.vsync, display.vrr, tuning.present_mode), and
+anisotropy when display.anisotropic_filtering forces it (bg_sampler_flags;
+bgfx's samplers have either that or none), at the setting's level: 2, 4, 8
+or 16 as the OpenGL path's forced_anisotropy rounds it, at most the device's
+(bgfx_max_anisotropy, tools/bgfx-patches/0008, which each backend reads with
+the flags). Adaptive's late frames shown at once are Vulkan's FIFO_RELAXED
+(bgfx_vsync_relaxed, tools/bgfx-patches/0007), set before the swap chain is
+made again; Direct3D 11 has no such mode, and there each frame waits, which
+the log says once */
+extern int bgfx_vsync_relaxed;
+extern int bgfx_max_anisotropy;
 
 static unsigned long bg_reset_flags(void)
 {
-	unsigned long flags = platform_vsync_on() ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	int present = platform_present_mode();
+	unsigned long flags = present != PLATFORM_PRESENT_IMMEDIATE ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	long value = config_integer("display.anisotropic_filtering");
 
-	if (config_integer("display.anisotropic_filtering") >= 2)
+	bgfx_vsync_relaxed = present == PLATFORM_PRESENT_ADAPTIVE;
+	/* (bg_d3d11: set before bgfx_init, whose flags these are first) */
+	if (present == PLATFORM_PRESENT_ADAPTIVE && bg_d3d11)
+	{
+		static BOOL said;
+
+		if (!said)
+			platform_log("tuning: present=adaptive is not in bgfx's Direct3D 11 yet: each frame waits for the display");
+		said = TRUE;
+	}
+	bgfx_max_anisotropy = value >= 16 ? 16 : value >= 8 ? 8 : value >= 4 ? 4 : value >= 2 ? 2 : 0;
+	if (bgfx_max_anisotropy)
 		flags |= BGFX_RESET_MAXANISOTROPY;
 	return flags;
 }
@@ -4275,21 +4615,13 @@ static BOOL bg_hdr_targets(void)
 	return bg.wide_targets;
 }
 
-/* display.hdr's tone mapping over a window's 3D view (the game's x0, y0 to
-x1, y1 on the screen) before the HUD: the back buffer copied (bgfx reads no
-target a draw goes into), and the curve drawn back over the rectangle, in a
-view of its own; the next draw's view is a new one (bg_view_set) */
-static void bg_tone_map(short x0, short y0, short x1, short y1)
+/* a window's 3D view (the game's x0, y0 to x1, y1 on the screen) in the
+back buffer's pixels: x, y, width, height; FALSE if it has none */
+static BOOL bg_window_rect(const struct bg_target *back_buffer, short x0, short y0, short x1, short y1,
+	unsigned short rect[4])
 {
-	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
-	bgfx_frame_buffer_handle_t framebuffer;
-	unsigned short rect[4];
 	long px0, py0, px1, py1;
-	float tone[4];
 
-	if (!back_buffer || !back_buffer->wide || !BGFX_HANDLE_IS_VALID(bg.tone_map) ||
-		!BGFX_HANDLE_IS_VALID(bg.full_quad))
-		return;
 	px0 = scaled_pixel((float)x0, back_buffer->scale[0]);
 	py0 = scaled_pixel((float)y0, back_buffer->scale[1]);
 	px1 = scaled_pixel((float)x1, back_buffer->scale[0]);
@@ -4299,11 +4631,28 @@ static void bg_tone_map(short x0, short y0, short x1, short y1)
 	px1 = px1 > (long)back_buffer->pixel_width ? (long)back_buffer->pixel_width : px1;
 	py1 = py1 > (long)back_buffer->pixel_height ? (long)back_buffer->pixel_height : py1;
 	if (px1 <= px0 || py1 <= py0)
-		return;
+		return FALSE;
 	rect[0] = (unsigned short)px0;
 	rect[1] = (unsigned short)py0;
 	rect[2] = (unsigned short)(px1 - px0);
 	rect[3] = (unsigned short)(py1 - py0);
+	return TRUE;
+}
+
+/* display.hdr's tone mapping over a window's 3D view (the game's x0, y0 to
+x1, y1 on the screen) before the HUD: the back buffer copied (bgfx reads no
+target a draw goes into), and the curve drawn back over the rectangle, in a
+view of its own; the next draw's view is a new one (bg_view_set) */
+static void bg_tone_map(short x0, short y0, short x1, short y1)
+{
+	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
+	bgfx_frame_buffer_handle_t framebuffer;
+	unsigned short rect[4];
+	float tone[4];
+
+	if (!back_buffer || !back_buffer->wide || !BGFX_HANDLE_IS_VALID(bg.tone_map) ||
+		!BGFX_HANDLE_IS_VALID(bg.full_quad) || !bg_window_rect(back_buffer, x0, y0, x1, y1, rect))
+		return;
 	if (!BGFX_HANDLE_IS_VALID(bg.tone_copy) || bg.tone_copy_width != back_buffer->pixel_width ||
 		bg.tone_copy_height != back_buffer->pixel_height)
 	{
@@ -4345,6 +4694,285 @@ static void bg_tone_map(short x0, short y0, short x1, short y1)
 	bgfx_set_texture(0, bg.samplers[0], bg.tone_copy, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_TRISTRIP, 0);
 	bgfx_submit(bg.view, bg.tone_map, 0, BGFX_DISCARD_ALL);
+	bg.view_used = TRUE;
+}
+
+/* ---------- display.anti_aliasing's FXAA and SMAA
+
+The OpenGL path's passes (xgpu_post.c), from the same shader text: FXAA
+written after Timothy Lottes' description, and SMAA (port/third_party/smaa,
+MIT) at its HIGH preset. Each window's 3D view is antialiased before the HUD
+is drawn over it, after display.hdr's tone mapping: the back buffer is
+copied (bgfx reads no target a draw goes into), then each pass is a view of
+its own, drawn with the blit's vertex shader over the rectangle; only color
+is written back, as the game keeps values of its own in destination alpha.
+SMAA's edges and weights are emptied first, all of them, as OpenGL's are,
+so that no edge of another window's pass is found. */
+
+/* SMAA.hlsl's shading language for Vulkan's GLSL, where each sampler is a
+texture and a sampler (bg_vulkan_glsl) and a sampler2D made of the two can
+only be used where it is made, not passed to SMAA's functions: they take
+and pass the two, and make the sampler2D where they sample. Elsewhere SMAA
+is SMAA_GLSL_4, as OpenGL's */
+static const char bg_smaa_vulkan_language[] =
+	"#define SMAA_CUSTOM_SL 1\n"
+	"#define SMAATexture2D(tex) texture2D tex##_texture, sampler tex##_sampler\n"
+	"#define SMAATexturePass2D(tex) tex##_texture, tex##_sampler\n"
+	"#define SMAA_SAMPLER_2D(tex) sampler2D(tex##_texture, tex##_sampler)\n"
+	"#define SMAASampleLevelZero(tex, coord) textureLod(SMAA_SAMPLER_2D(tex), coord, 0.0)\n"
+	"#define SMAASampleLevelZeroPoint(tex, coord) textureLod(SMAA_SAMPLER_2D(tex), coord, 0.0)\n"
+	"#define SMAASampleLevelZeroOffset(tex, coord, offset) textureLodOffset(SMAA_SAMPLER_2D(tex), coord, 0.0, offset)\n"
+	"#define SMAASample(tex, coord) texture(SMAA_SAMPLER_2D(tex), coord)\n"
+	"#define SMAASamplePoint(tex, coord) texture(SMAA_SAMPLER_2D(tex), coord)\n"
+	"#define SMAASampleOffset(tex, coord, offset) texture(SMAA_SAMPLER_2D(tex), coord, offset)\n"
+	"#define SMAAGather(tex, coord) textureGather(SMAA_SAMPLER_2D(tex), coord)\n"
+	"#define SMAA_FLATTEN\n"
+	"#define SMAA_BRANCH\n"
+	"#define lerp(a, b, t) mix(a, b, t)\n"
+	"#define saturate(a) clamp(a, 0.0, 1.0)\n"
+	"#define mad(a, b, c) fma(a, b, c)\n"
+	"#define float2 vec2\n"
+	"#define float3 vec3\n"
+	"#define float4 vec4\n"
+	"#define int2 ivec2\n"
+	"#define int3 ivec3\n"
+	"#define int4 ivec4\n"
+	"#define bool2 bvec2\n"
+	"#define bool3 bvec3\n"
+	"#define bool4 bvec4\n";
+
+/* a pass's program from xgpu_post.c's text, its samplers renamed to the
+stages' (tex0 to tex2) */
+static bgfx_program_handle_t bg_anti_alias_program(int pass)
+{
+	static const char *const names[4] =
+	{
+		"FXAA pixel", "SMAA edge detection pixel", "SMAA blending weight pixel", "SMAA neighborhood blending pixel"
+	};
+	static const char *const samplers[][2] =
+	{
+		{ "color_texture", "tex0" }, { "edges_texture", "tex0" }, { "area_texture", "tex1" },
+		{ "search_texture", "tex2" }, { "weights_texture", "tex1" },
+	};
+	struct xgpu_text text = { 0 };
+	struct bg_shader *vertex, *fragment;
+	char *source = xgpu_post_anti_alias_source(pass, bg_vulkan ? bg_smaa_vulkan_language : NULL);
+	unsigned long index;
+
+	if (!source)
+		return (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	xgpu_text_append(&text, "%s", source);
+	free(source);
+	for (index = 0; index < sizeof(samplers) / sizeof(samplers[0]); index++)
+		bg_replace_all(&text, samplers[index][0], samplers[index][1]);
+	vertex = bg_shader_get(bg_blit_vertex_source, FALSE, 0, "blit vertex", TRUE);
+	fragment = bg_shader_get(text.buffer, TRUE, 0, names[pass], TRUE);
+	free(text.buffer);
+	if (vertex->failed || fragment->failed || !BGFX_HANDLE_IS_VALID(vertex->shader) ||
+		!BGFX_HANDLE_IS_VALID(fragment->shader))
+		return (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	return bgfx_create_program(vertex->shader, fragment->shader, false);
+}
+
+/* SMAA's lookup texture (xgpu_post_smaa_lookup), or an invalid handle */
+static bgfx_texture_handle_t bg_anti_alias_lookup(BOOL search)
+{
+	unsigned long width, height, texel_size;
+	unsigned char *texels = xgpu_post_smaa_lookup(search, &width, &height, &texel_size);
+	bgfx_texture_handle_t texture = BGFX_INVALID_HANDLE;
+
+	if (texels)
+		texture = bgfx_create_texture_2d((uint16_t)width, (uint16_t)height, false, 1,
+			search ? BGFX_TEXTURE_FORMAT_R8 : BGFX_TEXTURE_FORMAT_RG8, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
+			bgfx_copy(texels, (uint32_t)(width * height * texel_size)), 0);
+	free(texels);
+	return texture;
+}
+
+/* FXAA's program, or SMAA's programs and lookup textures, made now (as the
+setting is chosen, not in the middle of a frame: SMAA's are large); FALSE if
+they cannot be (once FALSE, it stays so) */
+static BOOL bg_anti_alias_prepare(BOOL smaa)
+{
+	int set = smaa ? 1 : 0, pass;
+
+	if (!bg.ready)
+		return TRUE;
+	if (bg.anti_alias_tried[set])
+		return bg.anti_alias_ready[set];
+	bg.anti_alias_tried[set] = TRUE;
+	for (pass = smaa ? 1 : 0; pass <= (smaa ? 3 : 0); pass++)
+	{
+		if (!BGFX_HANDLE_IS_VALID(bg.anti_alias[pass]))
+			bg.anti_alias[pass] = bg_anti_alias_program(pass);
+		if (!BGFX_HANDLE_IS_VALID(bg.anti_alias[pass]))
+			return FALSE;
+	}
+	if (smaa)
+	{
+		bg.anti_alias_area = bg_anti_alias_lookup(FALSE);
+		bg.anti_alias_search = bg_anti_alias_lookup(TRUE);
+		if (!BGFX_HANDLE_IS_VALID(bg.anti_alias_area) || !BGFX_HANDLE_IS_VALID(bg.anti_alias_search))
+		{
+			platform_log("anti-aliasing: cannot inflate SMAA's lookup textures");
+			return FALSE;
+		}
+	}
+	bg.anti_alias_ready[set] = TRUE;
+	return TRUE;
+}
+
+/* the back buffer's copy, and SMAA's edges and weights, at the back
+buffer's size and format; FALSE if one cannot be made */
+static BOOL bg_anti_alias_targets(const struct bg_target *back_buffer, BOOL smaa)
+{
+	if (bg.anti_alias_width != back_buffer->pixel_width || bg.anti_alias_height != back_buffer->pixel_height ||
+		bg.anti_alias_wide != back_buffer->wide)
+	{
+		bgfx_frame_buffer_handle_t *framebuffers[2] = { &bg.anti_alias_edges_framebuffer,
+			&bg.anti_alias_weights_framebuffer };
+		bgfx_texture_handle_t *textures[3] = { &bg.anti_alias_copy, &bg.anti_alias_edges, &bg.anti_alias_weights };
+		int index;
+
+		for (index = 0; index < 2; index++)
+		{
+			if (BGFX_HANDLE_IS_VALID(*framebuffers[index]))
+				bgfx_destroy_frame_buffer(*framebuffers[index]);
+			*framebuffers[index] = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
+		}
+		for (index = 0; index < 3; index++)
+		{
+			if (BGFX_HANDLE_IS_VALID(*textures[index]))
+				bgfx_destroy_texture(*textures[index]);
+			*textures[index] = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+		}
+		bg.anti_alias_width = back_buffer->pixel_width;
+		bg.anti_alias_height = back_buffer->pixel_height;
+		bg.anti_alias_wide = back_buffer->wide;
+		/* (the back buffer's format: bgfx's blit copies between one format) */
+		bg.anti_alias_copy = bgfx_create_texture_2d((uint16_t)bg.anti_alias_width, (uint16_t)bg.anti_alias_height,
+			false, 1, back_buffer->wide ? BGFX_TEXTURE_FORMAT_RGBA16F : BGFX_TEXTURE_FORMAT_BGRA8,
+			BGFX_TEXTURE_BLIT_DST | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+	}
+	if (smaa && !BGFX_HANDLE_IS_VALID(bg.anti_alias_edges))
+	{
+		bg.anti_alias_edges = bgfx_create_texture_2d((uint16_t)bg.anti_alias_width, (uint16_t)bg.anti_alias_height,
+			false, 1, BGFX_TEXTURE_FORMAT_RG8, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+		bg.anti_alias_weights = bgfx_create_texture_2d((uint16_t)bg.anti_alias_width,
+			(uint16_t)bg.anti_alias_height, false, 1, BGFX_TEXTURE_FORMAT_RGBA8,
+			BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+		if (BGFX_HANDLE_IS_VALID(bg.anti_alias_edges))
+			bg.anti_alias_edges_framebuffer = bgfx_create_frame_buffer_from_handles(1, &bg.anti_alias_edges, false);
+		if (BGFX_HANDLE_IS_VALID(bg.anti_alias_weights))
+			bg.anti_alias_weights_framebuffer = bgfx_create_frame_buffer_from_handles(1, &bg.anti_alias_weights,
+				false);
+	}
+	return BGFX_HANDLE_IS_VALID(bg.anti_alias_copy) && (!smaa ||
+		(BGFX_HANDLE_IS_VALID(bg.anti_alias_edges_framebuffer) &&
+		BGFX_HANDLE_IS_VALID(bg.anti_alias_weights_framebuffer)));
+}
+
+/* a pass's view: into framebuffer over rect, emptied first (SMAA's
+intermediates: all of it, the pass drawn in the rectangle alone) or not */
+static void bg_anti_alias_view(bgfx_frame_buffer_handle_t framebuffer, const unsigned short rect[4], BOOL empty)
+{
+	bg.view++;
+	bgfx_set_view_mode(bg.view, BGFX_VIEW_MODE_SEQUENTIAL);
+	bgfx_set_view_frame_buffer(bg.view, framebuffer);
+	if (empty)
+	{
+		bgfx_set_view_clear(bg.view, BGFX_CLEAR_COLOR, 0, 1.0f, 0);
+		bgfx_set_view_rect(bg.view, 0, 0, (uint16_t)bg.anti_alias_width, (uint16_t)bg.anti_alias_height, 0.0f,
+			1.0f);
+		bgfx_set_scissor(rect[0], rect[1], rect[2], rect[3]);
+	}
+	else
+	{
+		bgfx_set_view_clear(bg.view, BGFX_CLEAR_NONE, 0, 1.0f, 0);
+		bgfx_set_view_rect(bg.view, rect[0], rect[1], rect[2], rect[3], 0.0f, 1.0f);
+	}
+}
+
+/* a pass drawn in the current view: the color alone (color_only), or every
+channel of an intermediate */
+static void bg_anti_alias_submit(int pass, BOOL color_only)
+{
+	float metrics[4];
+
+	metrics[0] = 1.0f / (float)bg.anti_alias_width;
+	metrics[1] = 1.0f / (float)bg.anti_alias_height;
+	metrics[2] = (float)bg.anti_alias_width;
+	metrics[3] = (float)bg.anti_alias_height;
+	bgfx_set_uniform(bg.anti_alias_metrics, metrics, 1);
+	bgfx_set_vertex_buffer(0, bg.full_quad, 0, 4);
+	bgfx_set_state(BGFX_STATE_WRITE_RGB | (color_only ? 0 : BGFX_STATE_WRITE_A) | BGFX_STATE_PT_TRISTRIP, 0);
+	bgfx_submit(bg.view, bg.anti_alias[pass], 0, BGFX_DISCARD_ALL);
+}
+
+/* display.anti_aliasing's FXAA or SMAA over a window's 3D view (the game's
+x0, y0 to x1, y1 on the screen) before the HUD; the next draw's view is a
+new one (bg_view_set) */
+static void bg_anti_alias(BOOL smaa, short x0, short y0, short x1, short y1)
+{
+	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
+	bgfx_frame_buffer_handle_t framebuffer;
+	unsigned short rect[4];
+	const uint32_t clamp = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+
+	/* (made already, as the setting was chosen; a multisampled back buffer
+	is the frame the setting changed in) */
+	if (!bg_anti_alias_prepare(smaa) || !back_buffer || back_buffer->samples > 1 ||
+		!BGFX_HANDLE_IS_VALID(bg.full_quad) || !bg_window_rect(back_buffer, x0, y0, x1, y1, rect) ||
+		!bg_anti_alias_targets(back_buffer, smaa))
+		return;
+	framebuffer = bg_framebuffer_get(back_buffer, NULL);
+	if (!BGFX_HANDLE_IS_VALID(framebuffer))
+		return;
+	if (bg.view_used)
+		bg.view++;
+	if (bg.view + 5 >= BG_MAXIMUM_VIEWS)
+	{
+		bg_log_once("more views than a frame has");
+		return;
+	}
+	/* (the copy, in a view before the passes': bgfx blits as a view starts) */
+	bgfx_set_view_mode(bg.view, BGFX_VIEW_MODE_SEQUENTIAL);
+	bgfx_set_view_clear(bg.view, BGFX_CLEAR_NONE, 0, 1.0f, 0);
+	bg_blit_2d(bg.view, bg.anti_alias_copy, 0, back_buffer->texture, (uint16_t)bg.anti_alias_width,
+		(uint16_t)bg.anti_alias_height);
+	if (!smaa)
+	{
+		float bounds[4];
+
+		/* (split screen: no texel of the next window is read) */
+		bounds[0] = ((float)rect[0] + 0.5f) / (float)bg.anti_alias_width;
+		bounds[1] = ((float)rect[1] + 0.5f) / (float)bg.anti_alias_height;
+		bounds[2] = ((float)(rect[0] + rect[2]) - 0.5f) / (float)bg.anti_alias_width;
+		bounds[3] = ((float)(rect[1] + rect[3]) - 0.5f) / (float)bg.anti_alias_height;
+		bg_anti_alias_view(framebuffer, rect, FALSE);
+		bgfx_set_uniform(bg.anti_alias_bounds, bounds, 1);
+		bgfx_set_texture(0, bg.samplers[0], bg.anti_alias_copy, clamp);
+		bg_anti_alias_submit(0, TRUE);
+	}
+	else
+	{
+		bg_anti_alias_view(bg.anti_alias_edges_framebuffer, rect, TRUE);
+		bgfx_set_texture(0, bg.samplers[0], bg.anti_alias_copy, clamp);
+		bg_anti_alias_submit(1, FALSE);
+
+		bg_anti_alias_view(bg.anti_alias_weights_framebuffer, rect, TRUE);
+		bgfx_set_texture(0, bg.samplers[0], bg.anti_alias_edges, clamp);
+		bgfx_set_texture(1, bg.samplers[1], bg.anti_alias_area, clamp);
+		bgfx_set_texture(2, bg.samplers[2], bg.anti_alias_search, clamp);
+		bg_anti_alias_submit(2, FALSE);
+
+		bg_anti_alias_view(framebuffer, rect, FALSE);
+		bgfx_set_texture(0, bg.samplers[0], bg.anti_alias_copy, clamp);
+		bgfx_set_texture(1, bg.samplers[1], bg.anti_alias_weights, clamp);
+		bg_anti_alias_submit(3, TRUE);
+	}
+	bg.view_framebuffer = framebuffer;
+	memcpy(bg.view_rect, rect, sizeof(bg.view_rect));
 	bg.view_used = TRUE;
 }
 
@@ -4799,7 +5427,8 @@ loads remove (bg_frame_out): the main menu's, or the map's a command line
 starts on. The setup screen's frames never count, so a start that closes
 loading that first map still leaves it. A note still there at the next start
 says the last one closed, crashed or hung before them: a driver that refused a pipeline, a GPU fault, a swap chain
-that never presented (game issue #1046, AMD's drivers and RADV). That start
+that never presented (game issue #1046, AMD's drivers and RADV). The setup
+screen's own restart takes it away (xgpu_bgfx_start_note_clear). That start
 draws with OpenGL, and the player is asked whether to stay on OpenGL for
 good (platform_offer_opengl): display.renderer changes only on a yes, and a
 no asks again the next time Vulkan does not get going.
@@ -4849,6 +5478,22 @@ static void bg_start_note(void)
 			"Found at a start, it means the last start closed before them, and that start draws with OpenGL.\n", file);
 		fclose(file);
 	}
+}
+
+/* the setup screen starts the game again for the settings that need it
+(launcher.c): the note goes, and the next start tries Vulkan again (game
+issue #1665). Every other way a start closes before its first map (Quit,
+Escape, the window closed, a crash or a hang) leaves it: a window that
+never showed a picture is closed those ways too */
+void xgpu_bgfx_start_note_clear(void)
+{
+	char path[1024];
+
+	if (!bg_vulkan || !bg_start_note_wanted())
+		return;
+	bg_start_note_path(path, sizeof(path));
+	if (remove(path) == 0)
+		platform_log("bgfx: the setup screen closed this Vulkan start itself, so the next start tries Vulkan again");
 }
 
 /* a frame of the game's went out to the window: the note goes at the
@@ -4914,35 +5559,69 @@ reads it */
 extern int bgfx_vk_gpu_timer;
 
 /* this frame's shader and vertex work, for debug.gpu_stats's slow frames
-(D3DDevice_Present, after the frame); the next frame's starts */
+(D3DDevice_Present, after the frame); the next frame's starts. Pipelines are
+Metal's (its compile stats) or Vulkan's (bgfx's cache callbacks: the ones it
+made this frame, how many it had the cache folder's data for, and how many
+it wrote there); in bgfx_frame is the frame's submit, drawing and present */
 static void bg_frame_account(char *text, size_t size)
 {
 	snprintf(text, size, "; bgfx: %lu shaders translated %.1f ms, %lu from disk %.1f ms, %lu programs, "
-		"Metal %u libraries %.1f ms, %u pipelines %.1f ms; vertices converted %.1f ms",
+		"%u pipelines %.1f ms (%u from the cache folder, %u written), Metal %u libraries %.1f ms; "
+		"vertices converted %.1f ms; in bgfx_frame %.1f ms",
 		bg.account.translated, bg.account.translate_seconds * 1000.0, bg.account.loaded,
-		bg.account.load_seconds * 1000.0, bg.account.programs, bg.account.libraries,
-		bg.account.library_seconds * 1000.0, bg.account.pipelines, bg.account.pipeline_seconds * 1000.0,
-		bg.account.vertex_seconds * 1000.0);
+		bg.account.load_seconds * 1000.0, bg.account.programs, bg.account.pipelines,
+		bg.account.pipeline_seconds * 1000.0, bg.account.pipelines_cached, bg.account.pipelines_written,
+		bg.account.libraries, bg.account.library_seconds * 1000.0, bg.account.vertex_seconds * 1000.0,
+		bg.account.frame_seconds * 1000.0);
 	memset(&bg.account, 0, sizeof(bg.account));
 }
 
-/* with vsync off, whether this frame goes to the window: a window's
-picture waits for the display (Metal hands out the next one only once the
-display has taken one, about 3 behind), so frames faster than the display
-draw the game but go to the window only as often as the display shows them,
-leaving the game to run faster as the OpenGL path does */
-static double bg_window_next, bg_window_interval = -1.0;
+/* with vsync off, whether this frame goes to the window. On Metal a
+window's picture waits for the display (Metal hands out the next one only
+once the display has taken one, about 3 behind), so frames faster than the
+display draw the game but go to the window only as often as the display
+shows them, leaving the game to run faster as the OpenGL path does. Vulkan
+(its immediate or mailbox mode, tools/bgfx-patches/0007) and Direct3D 11
+show a frame without waiting, so there every frame goes to the window, as
+OpenGL's do: held to the display's rate, a frame that came a little early
+was left out, and a frame limit at the refresh rate (display.max_fps 144 at
+144 Hz) showed a frame twice a few times a second. A swap chain that waits
+all the same (neither mode: bgfx falls back to the display's pace) is
+noticed by its presents (bg_window_presented) and paced as Metal's.
 
-/* the display's frame interval, in seconds */
+Only presents that wait for the display count: each held half a frame of
+the display or more and came a display's frame after the one before (within
+a tenth), 30 in a row. A loading screen's frames, or a busy GPU's, take long
+too but come at no such beat: once they made every later frame wait for the
+display, on a computer whose window never did (#1367's log: V-Sync off,
+no frame limit, and bgfx at the display's rate where OpenGL ran free). A
+paced window is looked at again when a setting changes and every
+BG_WINDOW_RECHECK seconds, but on the Mac, whose Metal always waits. */
+static double bg_window_next, bg_window_last_end;
+static BOOL bg_window_paced
+#ifdef __APPLE__
+	= TRUE
+#endif
+	;
+/* presents in a row that waited for the display (bg_window_presented) */
+static int bg_window_waits;
+#define BG_WINDOW_WAITS_TO_PACE 30
+#ifndef __APPLE__
+#define BG_WINDOW_RECHECK 30.0
+/* when the window was paced, and config_changes() then */
+static double bg_window_paced_at;
+static unsigned long bg_window_paced_changes;
+#endif
+
+/* the display's frame interval, in seconds: the refresh rate every
+renderer's pacing reads (sdl_platform.c's, read again after a display
+event or a second), so that a window moved to another display or a new
+display mode is paced to it */
 static double bg_display_interval(void)
 {
-	if (bg_window_interval < 0.0)
-	{
-		const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(platform_sdl_window()));
+	float refresh = platform_display_refresh_rate();
 
-		bg_window_interval = mode && mode->refresh_rate > 0.0f ? 1.0 / mode->refresh_rate : 1.0 / 60.0;
-	}
-	return bg_window_interval;
+	return refresh > 0.0f ? 1.0 / refresh : 1.0 / 60.0;
 }
 
 static BOOL bg_window_due(void)
@@ -4952,8 +5631,23 @@ static BOOL bg_window_due(void)
 	if (bg.reset_flags & BGFX_RESET_VSYNC)
 		return TRUE;
 	interval = bg_display_interval();
+	if (!bg_window_paced)
+		return TRUE;
 	now = stats_seconds();
-	if (now < next)
+#ifndef __APPLE__
+	if (config_changes() != bg_window_paced_changes || now - bg_window_paced_at >= BG_WINDOW_RECHECK)
+	{
+		/* (every frame to the window again, until its presents say) */
+		bg_window_paced = FALSE;
+		bg_window_waits = 0;
+		bg_window_last_end = 0.0;
+		return TRUE;
+	}
+#endif
+	/* (a frame a little early goes too, rather than one left out and the one
+	before shown twice: with display.max_fps at the refresh rate, 60 at 60
+	Hz, the Mac's Metal showed 56 a second; its present waits the rest) */
+	if (now < next - interval * 0.25)
 		return FALSE;
 	/* (a frame more than an interval late starts the count again) */
 	bg_window_next = now - next > interval ? now + interval : next + interval;
@@ -4962,11 +5656,38 @@ static BOOL bg_window_due(void)
 
 /* after a frame went to the window: when it waited for the display, the
 next goes an interval after the display took one (the display's own
-timing, which the count above drifts from) */
+timing, which the count above drifts from); unpaced, a swap chain whose
+presents keep waiting for the display, at its beat, is paced from then on */
 static void bg_window_presented(double start, double end)
 {
-	if (!(bg.reset_flags & BGFX_RESET_VSYNC) && end - start > bg_window_interval * 0.25)
-		bg_window_next = end + bg_window_interval;
+	double interval, since;
+
+	if (bg.reset_flags & BGFX_RESET_VSYNC)
+		return;
+	interval = bg_display_interval();
+	since = bg_window_last_end > 0.0 ? end - bg_window_last_end : 0.0;
+	bg_window_last_end = end;
+	if (!bg_window_paced)
+	{
+		BOOL waited = end - start > interval * 0.5 && since > interval * 0.9 && since < interval * 1.1;
+
+		bg_window_waits = waited ? bg_window_waits + 1 : 0;
+		if (bg_window_waits >= BG_WINDOW_WAITS_TO_PACE)
+		{
+			platform_log("bgfx: the window waits for the display with V-Sync off (%d presents in a row, each "
+				"%.1f ms apart at %.2f Hz), so frames go to it at the display's rate", bg_window_waits,
+				since * 1000.0, 1.0 / interval);
+			bg_window_paced = TRUE;
+			bg_window_next = end + interval;
+#ifndef __APPLE__
+			bg_window_paced_at = end;
+			bg_window_paced_changes = config_changes();
+#endif
+		}
+		return;
+	}
+	if (end - start > interval * 0.25)
+		bg_window_next = end + interval;
 }
 
 /* whether the window can't be seen (bg_present's pacing): SDL's flags, and
@@ -5241,8 +5962,13 @@ static void bg_present(void)
 	}
 	frame_end = stats_seconds();
 	bg.stat_frame_wait += frame_end - frame_start;
+	bg.account.frame_seconds += frame_end - frame_start;
+	bg_pipelines_frame_end();
 	if (window)
+	{
 		bg_window_presented(frame_start, frame_end);
+		stats_log_frame_shown();
+	}
 	/* (a covered or minimized window: bgfx shows nothing then, so nothing
 	waits for the display, and the game would run as fast as it can; the
 	frames are paced to the display's rate here instead) */
@@ -5308,15 +6034,16 @@ static void bg_present(void)
 			(double)stats->gpuTimerFreq : 0.0;
 		double cpu = stats->cpuTimerFreq ? (double)stats->cpuTimeFrame * 1000.0 / (double)stats->cpuTimerFreq : 0.0;
 
-		platform_log("bgfx frame %lu: %lu draws, %lu skipped (%lu for transient room), %u views, %lu KB uniforms; "
+		platform_log("bgfx frame %lu: %lu draws, %lu skipped (%lu for transient room), %lu past the transient room, "
+			"%u views, %lu KB uniforms; "
 			"GPU %.2f ms, frame %.2f ms; %lu visibility tests, %lu seen, %lu waited; in bgfx_frame %.2f ms; vertices %lu cached, %lu streamed, "
-			"cache %lu MB", device.frame, bg.drawn / 60, bg.skipped / 60, bg.stat_starved / 60,
+			"cache %lu MB", device.frame, bg.drawn / 60, bg.skipped / 60, bg.stat_starved / 60, bg.stat_overflow / 60,
 			(unsigned)bg.present_view + 1, bg.uniform_bytes / 1024, gpu, cpu, bg.stat_tests / 60, bg.stat_seen / 60,
 			bg.stat_waited / 60, bg.stat_frame_wait * 1000.0 / 60.0, bg.stat_cached_vertices / 60,
 			bg.stat_streamed_vertices / 60, bg.vertex_cache_bytes >> 20);
 		bg.stat_frame_wait = 0.0;
 		bg.stat_cached_vertices = bg.stat_streamed_vertices = 0;
-		bg.drawn = bg.skipped = bg.stat_starved = bg.stat_tests = bg.stat_seen = bg.stat_waited = 0;
+		bg.drawn = bg.skipped = bg.stat_starved = bg.stat_overflow = bg.stat_tests = bg.stat_seen = bg.stat_waited = 0;
 	}
 	platform_video_swap();
 	bg_window_update();
@@ -5369,6 +6096,42 @@ beside the shaders as <hash>.pipeline so that the next run makes them from
 what the driver made the last time. The driver checks the data is its own
 (the device's and the driver's versions are in it) and makes the pipeline
 from scratch when it is not. */
+/* the pipelines read from the cache folder this run, by their data's hash:
+bgfx hands each back to be written once it has made it, and when the
+driver made it from that data, that is the same data again. Writing it
+anyway was a file made and renamed for every pipeline a run first drew
+with, in its frame (on Windows, where a new file is scanned, a few
+milliseconds each) */
+#define BG_PIPELINE_READ_BUCKETS 512
+
+struct bg_pipeline_read
+{
+	struct bg_pipeline_read *next;
+	uint64_t id;
+	uint32_t size;
+	Uint64 check;
+};
+
+static struct bg_pipeline_read *bg_pipelines_read[BG_PIPELINE_READ_BUCKETS];
+
+static struct bg_pipeline_read *bg_pipeline_read_find(uint64_t id, BOOL add)
+{
+	struct bg_pipeline_read **bucket = &bg_pipelines_read[id % BG_PIPELINE_READ_BUCKETS], *entry;
+
+	for (entry = *bucket; entry; entry = entry->next)
+	{
+		if (entry->id == id)
+			return entry;
+	}
+	if (add && (entry = calloc(1, sizeof(*entry))) != NULL)
+	{
+		entry->id = id;
+		entry->next = *bucket;
+		*bucket = entry;
+	}
+	return entry;
+}
+
 static void bg_pipeline_path(char *path, size_t size, uint64_t id)
 {
 	snprintf(path, size, "%s/%016llx.pipeline", bg_jobs.folder, (unsigned long long)id);
@@ -5380,6 +6143,11 @@ static uint32_t bg_callback_cache_read_size(bgfx_callback_interface_t *self, uin
 	SDL_PathInfo info;
 
 	(void)self;
+	/* (a pipeline bgfx is about to make: bg_pipelines) */
+	bg_pipelines.started = stats_seconds();
+	bg_pipelines.made++;
+	bg_pipelines.frame_made++;
+	bg.account.pipelines++;
 	if (!*bg_jobs.folder)
 		return 0;
 	bg_pipeline_path(path, sizeof(path), id);
@@ -5401,28 +6169,72 @@ static bool bg_callback_cache_read(bgfx_callback_interface_t *self, uint64_t id,
 		return false;
 	read = fread(data, 1, size, file) == size;
 	fclose(file);
+	if (read)
+	{
+		struct bg_pipeline_read *entry = bg_pipeline_read_find(id, TRUE);
+
+		if (entry)
+		{
+			entry->size = size;
+			entry->check = bg_hash(data, size, 14695981039346656037ULL);
+		}
+		bg_pipelines.cached++;
+		bg.account.pipelines_cached++;
+	}
 	return read;
 }
 
-static void bg_callback_cache_write(bgfx_callback_interface_t *self, uint64_t id, const void *data, uint32_t size)
+/* a pipeline's data written to the cache folder: whether it was */
+static BOOL bg_pipeline_write(uint64_t id, const void *data, uint32_t size)
 {
 	char path[1100], temporary[1120];
 	FILE *file;
 
-	(void)self;
 	if (!*bg_jobs.folder || !size)
-		return;
+		return FALSE;
+	{
+		struct bg_pipeline_read *entry = bg_pipeline_read_find(id, FALSE);
+
+		if (entry && entry->size == size && entry->check == bg_hash(data, size, 14695981039346656037ULL))
+			return FALSE;
+	}
 	bg_pipeline_path(path, sizeof(path), id);
 	snprintf(temporary, sizeof(temporary), "%s.tmp", path);
 	if (!(file = fopen(temporary, "wb")))
-		return;
+		return FALSE;
 	{
 		BOOL written = fwrite(data, 1, size, file) == size;
 
-		if (fclose(file) == 0 && written)
-			rename(temporary, path);
-		else
-			remove(temporary);
+		/* (SDL_RenamePath: Windows' rename does not replace a file that is
+		there, so a pipeline whose data changed, after a driver update, kept
+		the old file, which the driver turns down, and was made from scratch
+		and written again in every run) */
+		if (fclose(file) == 0 && written && SDL_RenamePath(temporary, path))
+			return TRUE;
+		remove(temporary);
+	}
+	return FALSE;
+}
+
+static void bg_callback_cache_write(bgfx_callback_interface_t *self, uint64_t id, const void *data, uint32_t size)
+{
+	(void)self;
+	if (bg_pipeline_write(id, data, size))
+	{
+		bg_pipelines.written++;
+		bg.account.pipelines_written++;
+	}
+	/* (the pipeline's time: the driver's compile and the write) */
+	if (bg_pipelines.started > 0.0)
+	{
+		double seconds = stats_seconds() - bg_pipelines.started;
+
+		bg_pipelines.started = 0.0;
+		bg_pipelines.seconds += seconds;
+		bg_pipelines.frame_seconds += seconds;
+		if (seconds > bg_pipelines.worst)
+			bg_pipelines.worst = seconds;
+		bg.account.pipeline_seconds += seconds;
 	}
 }
 
@@ -5626,6 +6438,19 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 	init.fallback = false;
 	init.limits.maxTransientVbSize = 64u << 20;
 	init.limits.maxTransientIbSize = 8u << 20;
+	/* (HALO_BGFX_TRANSIENT_MB: a smaller transient vertex buffer, in MB, for
+	a test of the draws past it on a stock map, bg_draw) */
+	{
+		const char *transient = getenv("HALO_BGFX_TRANSIENT_MB");
+
+		if (transient && atoi(transient) >= 2 && atoi(transient) < 64)
+		{
+			init.limits.maxTransientVbSize = (uint32_t)atoi(transient) << 20;
+			init.limits.maxTransientIbSize = (uint32_t)atoi(transient) << 17;
+			platform_log("bgfx: transient buffers of %d MB of vertices, %d KB of indices (HALO_BGFX_TRANSIENT_MB)",
+				atoi(transient), atoi(transient) << 7);
+		}
+	}
 	init.callback = &bg_callback;
 	if (!init.swapChain.nwh)
 	{
@@ -5688,6 +6513,10 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 		bgfx_shutdown();
 		return FALSE;
 	}
+	/* (supersampling's limit, as the OpenGL path's GL_MAX_TEXTURE_SIZE:
+	screen_mode_choose draws the screen's targets at twice the size, at
+	most this) */
+	maximum_target_size = (GLint)bgfx_get_caps()->limits.maxTextureSize;
 	return TRUE;
 }
 
@@ -5711,6 +6540,12 @@ static BOOL bg_initialize(void)
 	bg.sdr_copy_framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.copy = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.crt = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	for (index = 0; index < 4; index++)
+		bg.anti_alias[index] = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.anti_alias_copy = bg.anti_alias_edges = bg.anti_alias_weights = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	bg.anti_alias_area = bg.anti_alias_search = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	bg.anti_alias_edges_framebuffer = bg.anti_alias_weights_framebuffer =
+		(bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.present_quad = (bgfx_dynamic_vertex_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.full_quad = (bgfx_vertex_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.overlay = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
@@ -5819,6 +6654,9 @@ static BOOL bg_initialize(void)
 		them by) */
 		bg.tone = bgfx_create_uniform("tone", BGFX_UNIFORM_TYPE_VEC4, 1);
 		bg.output_encoding = bgfx_create_uniform("output_encoding", BGFX_UNIFORM_TYPE_VEC4, 1);
+		/* (and display.anti_aliasing's, bg_anti_alias) */
+		bg.anti_alias_metrics = bgfx_create_uniform("metrics", BGFX_UNIFORM_TYPE_VEC4, 1);
+		bg.anti_alias_bounds = bgfx_create_uniform("bounds", BGFX_UNIFORM_TYPE_VEC4, 1);
 		vertex = bg_shader_get(bg_blit_vertex_source, FALSE, 0, "blit vertex", TRUE);
 		fragment = bg_shader_get(bg_blit_fragment_source, TRUE, 0, "blit pixel", TRUE);
 		if (!vertex->failed && !fragment->failed)
@@ -5841,6 +6679,15 @@ static BOOL bg_initialize(void)
 			bg.crt = bgfx_create_program(vertex->shader, fragment->shader, false);
 	}
 
+	/* (the overlay's shaders, which its first draw waits for, made by the
+	compiler threads meanwhile: on Metal its compile was a frame of over
+	100 ms the first time a build drew the overlay, in the menus) */
+	if (bg_metal_prepares())
+	{
+		bg_shader_get(bg_overlay_vertex_source, FALSE, 0, "overlay vertex", FALSE);
+		bg_shader_get(bg_overlay_fragment_source, TRUE, 0, "overlay pixel", FALSE);
+	}
+
 	/* (gl_initialize's: the guest memory writes that make textures stale,
 	the attributes' w, and the debug settings) */
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
@@ -5850,5 +6697,8 @@ static BOOL bg_initialize(void)
 	halo_screen_width();
 	bg.ready = TRUE;
 	bgfx_set_view_mode(0, BGFX_VIEW_MODE_SEQUENTIAL);
+	/* (display.anti_aliasing's passes, read before bgfx started) */
+	if (anti_aliasing_value >= 0)
+		anti_aliasing_prepare();
 	return TRUE;
 }

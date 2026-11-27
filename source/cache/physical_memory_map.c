@@ -75,15 +75,24 @@ unsigned long xbox_memory_texture_cache_maximum_address(void);
 #endif
 #ifndef HALO_XBOX_CONSOLE
 #define SOUND_CACHE_MAXIMUM_ADDRESS -1
+#define SOUND_CACHE_ALLOCATE(size, address) XPhysicalAlloc(size, address, 0, PAGE_READWRITE)
+#define SOUND_CACHE_FREE(address) XPhysicalFree(address)
 #else
 /* port: the console's, by its memory class too (the Xbox's 4 MB, 8 MB on a
-console above the 64 MB baseline, kept in the low 128 MB) */
+console above the 64 MB baseline). The console makes it: on a 64 MB console
+as the Xbox did; above that, it may already have made it outside the memory
+the graphics chip needs in one piece, before the texture cache
+(port/xbox/src/xbox_memory.c), and frees it the same way */
 unsigned long xbox_memory_sound_cache_size(void);
 unsigned long xbox_memory_sound_cache_maximum_address(void);
+void *xbox_memory_sound_cache_allocate(unsigned long size, unsigned long address);
+void xbox_memory_sound_cache_free(void *address);
 
 #undef SOUND_CACHE_SIZE
 #define SOUND_CACHE_SIZE xbox_memory_sound_cache_size()
 #define SOUND_CACHE_MAXIMUM_ADDRESS xbox_memory_sound_cache_maximum_address()
+#define SOUND_CACHE_ALLOCATE(size, address) xbox_memory_sound_cache_allocate(size, address)
+#define SOUND_CACHE_FREE(address) xbox_memory_sound_cache_free(address)
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
@@ -148,10 +157,13 @@ void physical_memory_allocate(
 
 	physical_memory_map_globals.texture_cache_base_address = XPhysicalAlloc(TEXTURE_CACHE_SIZE, TEXTURE_CACHE_MAXIMUM_ADDRESS, 0, PAGE_READWRITE | PAGE_WRITECOMBINE);
 	PHYSICAL_MEMORY_LOG("texture cache", TEXTURE_CACHE_SIZE, physical_memory_map_globals.texture_cache_base_address);
+	/* (port: said plainly on the halt screen: a desktop build's cache is
+	448 MB, which Windows can refuse to commit) */
 #line 55 "c:\\halo\\SOURCE\\cache\\physical_memory_map.c"
-	match_assert(__FILE__, __LINE__, physical_memory_map_globals.texture_cache_base_address);
+	match_vassert(__FILE__, __LINE__, physical_memory_map_globals.texture_cache_base_address,
+		"Not enough memory for the texture cache");
 
-	physical_memory_map_globals.sound_cache_base_address = XPhysicalAlloc(SOUND_CACHE_SIZE, SOUND_CACHE_MAXIMUM_ADDRESS, 0, PAGE_READWRITE);
+	physical_memory_map_globals.sound_cache_base_address = SOUND_CACHE_ALLOCATE(SOUND_CACHE_SIZE, SOUND_CACHE_MAXIMUM_ADDRESS);
 	PHYSICAL_MEMORY_LOG("sound cache", SOUND_CACHE_SIZE, physical_memory_map_globals.sound_cache_base_address);
 #line 58 "c:\\halo\\SOURCE\\cache\\physical_memory_map.c"
 	match_assert(__FILE__, __LINE__, physical_memory_map_globals.sound_cache_base_address);
@@ -196,7 +208,7 @@ void physical_memory_free(
 	if (physical_memory_map_globals.texture_cache_base_address)
 		XPhysicalFree(physical_memory_map_globals.texture_cache_base_address);
 	if (physical_memory_map_globals.sound_cache_base_address)
-		XPhysicalFree(physical_memory_map_globals.sound_cache_base_address);
+		SOUND_CACHE_FREE(physical_memory_map_globals.sound_cache_base_address);
 
 	return;
 }

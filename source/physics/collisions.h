@@ -54,6 +54,11 @@ enum
 	/* port: no players' bipeds (a player's own movement in a co-op game
 	without player collisions: network_coop_player_collisions) */
 	_collision_test_skip_player_bipeds_bit,
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: Forge's PHASED objects met too (shots and every other line pass
+	them: the monitor's crosshair must not; forge_physics.inc) */
+	_collision_test_forge_phased_objects_bit,
+#endif
 
 	NUMBER_OF_COLLISION_TEST_FLAGS,
 
@@ -144,6 +149,15 @@ boolean collision_test_vector(
 	real_vector3d const *vector,
 	long ignore_object_index,
 	struct collision_result *collision);
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+/* port: whether collision_test_vector would hit anything (the sound
+obstruction rays), answered as soon as that is known (collisions.c) */
+boolean collision_test_vector_obstructed(
+	unsigned long flags,
+	real_point3d const *point,
+	real_vector3d const *vector,
+	long ignore_object_index);
+#endif
 boolean collision_fix_pill(
 	unsigned long flags,
 	real_point3d const *old_position,

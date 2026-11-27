@@ -33,6 +33,7 @@ never hosts.
 #include "p2p.h"
 #include "halo_port_limits.h"
 #include "delta.h"
+#include "networks_game.h"
 #include "server_control.h"
 
 #include <signal.h>
@@ -81,7 +82,7 @@ static void print_usage(FILE *stream)
 		"                                  panel on, the panel's first-run setup chooses it)\n"
 		"  HALO_DEDICATED_NAME             the server's name (15 characters at most)\n"
 		"  HALO_DEDICATED_MINIMUM_PLAYERS  players a game waits for (1)\n"
-		"  HALO_DEDICATED_MAXIMUM_PLAYERS  players a game takes (12)\n"
+		"  HALO_DEDICATED_MAXIMUM_PLAYERS  players a game takes (16)\n"
 		"  HALO_DEDICATED_IDLE_LIMIT       minutes without a score that end a game (5; 0 never)\n"
 		"  HALO_DEDICATED_PUBLIC           false: not listed in the in-game Server Browser\n"
 		"  HALO_DEDICATED_COMMANDS         a file of commands in the data folder, run at start\n"
@@ -347,6 +348,10 @@ static void server_arguments(void)
 	server_check_data();
 	/* (the legacy table: a newer one fetched meanwhile) */
 	delta_legacy_start();
+#ifdef HALO_DELTA_PEER_IDENTITY
+	/* (the networks whose players' names are checked: networks_game.h) */
+	networks_start();
+#endif
 #ifdef _WIN32
 	/* Ctrl+C, Ctrl+Break and the window closed stop it at the next frame
 	(Windows has no SIGPIPE: a closed connection's write fails) */

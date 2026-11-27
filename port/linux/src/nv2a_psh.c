@@ -348,32 +348,41 @@ static void dot_input(struct xgpu_text *text, const DWORD *state, int stage)
 #define SHADER_VERSION ""
 #endif
 
+/* (xgpu.h) */
+BOOL nv2a_pixel_shader_lod_bias;
+
 static void sample(struct xgpu_text *text, const struct nv2a_pixel_shader_key *key, int stage, const char *coordinates)
 {
 	switch (key->sampler_type[stage])
 	{
 	case _xgpu_sampler_3d:
-		xgpu_text_append(text, "texture(tex%d, (%s).xyz" SAMPLE_BIAS ")", stage, coordinates
+		xgpu_text_append(text, "texture(tex%d, (%s).xyz" SAMPLE_BIAS, stage, coordinates
 #ifdef HALO_GL_ES
 			, stage
 #endif
 			);
 		break;
 	case _xgpu_sampler_cube:
-		xgpu_text_append(text, "texture(tex%d, (%s).xyz" SAMPLE_BIAS ")", stage, coordinates
+		xgpu_text_append(text, "texture(tex%d, (%s).xyz" SAMPLE_BIAS, stage, coordinates
 #ifdef HALO_GL_ES
 			, stage
 #endif
 			);
 		break;
 	default:
-		xgpu_text_append(text, "texture(tex%d, (%s).xy * texture_scale[%d].xy" SAMPLE_BIAS ")", stage, coordinates, stage
+		xgpu_text_append(text, "texture(tex%d, (%s).xy * texture_scale[%d].xy" SAMPLE_BIAS, stage, coordinates, stage
 #ifdef HALO_GL_ES
 			, stage
 #endif
 			);
 		break;
 	}
+#ifndef HALO_GL_ES
+	/* (a renderer whose samplers have no LOD bias: the lookup's, as ES's) */
+	if (nv2a_pixel_shader_lod_bias)
+		xgpu_text_append(text, ", texture_lod_bias[%d]", stage);
+#endif
+	xgpu_text_append(text, ")");
 }
 
 /* texture 0's texel read as the high-res text's distance field
@@ -687,6 +696,10 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 		"in float xFog;\n"
 		"layout(location = 0) out vec4 fragment_color;\n"
 		XGPU_PIXEL_UNIFORMS);
+#ifndef HALO_GL_ES
+	if (nv2a_pixel_shader_lod_bias)
+		xgpu_text_append(&text, "uniform vec4 texture_lod_bias;\n");
+#endif
 	for (stage = 0; stage < 4; stage++)
 		xgpu_text_append(&text, "uniform %s tex%d;\n", sampler_declaration(key->sampler_type[stage]), stage);
 	if (key->per_pixel_lighting)

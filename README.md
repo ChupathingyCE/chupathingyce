@@ -82,7 +82,7 @@ Download the latest release from the [Releases page](https://github.com/Chupathi
 | Android 9 or later, 64-bit | `chupathingyce-android64-release.zip` |
 | FreeBSD | `chupathingyce-freebsd64-release.zip` |
 
-Step-by-step setup for each system, including the Steam Deck, is in [docs/install.md](docs/install.md#getting-started). Older 32-bit PCs and the Linux zip are there too.
+Step-by-step setup for each system, including the Steam Deck, is in [docs/install.md](docs/install.md#getting-started). The 32-bit builds and the Linux zip are there too. On a 32-bit Windows PC, use [Chupathingy32](https://github.com/ChupathingyCE/chupathingy32/releases).
 
 The game checks for updates when it starts and asks before installing one. It only installs updates we've signed. On a Mac, it opens the download page instead.
 
@@ -107,6 +107,7 @@ Where your maps, settings and saves go: [docs/install.md](docs/install.md#where-
 - **Join a game.** Open **Multiplayer > Online Games**, pick a game and press **A**. Or press **Join** on [stats.chupathingy.org](https://stats.chupathingy.org).
 - **Host a game.** In Online Games, press **Y** to create one. Everyone can see it on the list.
 - **Invite a friend.** Send them your game's invite link.
+- **Join by address.** On **System Link**, pick **DIRECT IP** (or press **X**) and type the host's address or name, like at a LAN party. [More](docs/online.md#join-by-address).
 - **Play the campaign together.** Host it online from Create Game. [Here's how](docs/online.md#online-co-op).
 
 Chupathingy players on every platform play together. They also play with players on other Halo CE builds when the versions match.
@@ -134,6 +135,7 @@ Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends
 - Missing maps download when you join, and each one is checked before it's used
 - Community Xbox map packs, like Halo CE+
 - Stubbs the Zombie, an early work in progress, from your own Xbox maps (off by default)
+- SPV3, an early first look, from your own copy ([try it](docs/spv3.md))
 
 **Your stats**
 - A carnage report with medals for every finished game
@@ -285,11 +287,20 @@ with their authors credited in each commit.
 - goatbutt and the OpenH1 team: the high-res text drawn from distance
   fields (sharp at any size), the fixed benchmark, the variable refresh
   cap and the camouflaged weapon fix.
+- [hkmodd](https://github.com/hkmodd) (OpenCE): HDR (`display.hdr`): the
+  OpenGL half-float path and the tone mapping curves, from his OpenCE pull
+  request 280 as it stood before OpenCE's license change. The glows past
+  white and the brightness in nits follow goatbutt's and the OpenH1 team's
+  HDR.
 - chestahh (GulchCE): lens flares and light
   glows back on AMD graphics, less stutter the first time a texture is drawn
   on Windows, host cheat and shadow setup fixes, and the Halo MCC map
   loader: MCC Workshop and MCC install maps, their scripts, HUDs, effects
   and campaigns.
+- Dynamic Lighting, Dynamic Shadows and shared renderer optimisations by
+  [chestahh](https://github.com/chestahh), originally developed for
+  [GulchCE](https://github.com/chestahh/GulchCE). [Original OpenCE port](https://github.com/chestahh/GulchCE/tree/035f47bb8fc682675456323dbb3095b506502ec6).
+  Used under GPL-3.0-or-later; our changes are in the git history.
 - PeterRichardsonGolf and the other GulchCE contributors: the Steam
   Workshop catalog with its items' titles and collections, and the MCC
   sharing rules.
@@ -354,12 +365,27 @@ with their authors credited in each commit.
   repositories, as Chimera uses them (maps.halonet.net, the HAC2 map
   repository, and its mirrors). Chupathingy's downloader is its own code;
   Chimera showed where the repositories are and how they answer.
-- [Chimera](https://github.com/SnowyMouse/chimera) by SnowyMouse and
-  contributors (GPL-3.0): Halo PC fixes reference and the compressed map
-  format.
+- [Chimera](https://github.com/SnowyMouse/chimera) by SnowyMouse, its
+  current developers Aerocatia and Cambidd, and contributors (GPL-3.0):
+  Halo PC fixes reference, the compressed map format, and the Lua API that
+  mods' scripts use (`lua.scripts`), adapted from Chimera's own in
+  `port/linux/game/lua_chimera_api.c` (GPL-3.0-only).
+- [OpenSauce](https://github.com/HaloMods/OpenSauce) by Kornner Studios
+  (GPL-3.0): its Halo Custom Edition message definitions, the reference for
+  the fields Custom Edition players' clients are sent; its Halo PC object
+  structures and engine addresses, the reference for the memory Lua
+  scripts read (`port/linux/game/lua_twiddlings_objects.c`,
+  `port/linux/game/lua_opensauce.c`); its cache header, tag definitions and
+  memory upgrades, the reference for how OpenSauce maps are read and
+  checked (`port/linux/game/opensauce_map.c`,
+  `port/linux/game/tag_schema_opensauce.c`); its post-processing (effects,
+  shader parameters, render stages, G-buffer formats and its bloom shader),
+  the reference for how OpenSauce maps' post-processing is drawn
+  (`port/linux/game/opensauce_postprocess.c`,
+  `port/linux/src/opensauce_postprocess_gl.inl`).
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
-- Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
+- Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, Lua, tomlc17, musl's maths,
   Expat, Monocypher, zlib, Zstandard (BSD-3-Clause), the LZMA SDK's decoder
   (Igor Pavlov, public domain), SMAA, Project Nayuki's QR Code generator
   (MIT), and msdfgen by Viktor Chlumsky (MIT; its algorithms translated to
@@ -377,7 +403,7 @@ with their authors credited in each commit.
   most of the Custom Edition fixes.
 - Sabriel, roundzabout and Mega: Grifball playtesting and the bugs and
   tweaks it turned up.
-- Testing, with bug reports and logs over many builds: FASTNOOB, FLTHY, Fujibayashi Kyou, Mega, OpenRift, roundzabout, Sabriel, Shadow Phoenix, snapchipper, TanFlo and ugoboom.
+- Testing, with bug reports and logs over many builds: FASTNOOB, FLTHY, Fujibayashi Kyou, Mega, OpenRift, roundzabout, Sabriel, Shadow Phoenix, snapchipper, TanFlo, ugoboom and Wonka.
 - Console testing on real hardware (original Xbox, Xbox 360, Wii U and
   Switch): BoganEsky, claire, deeechrome, grizz_85, JanusDuo, LD50 II, LukeShortCloud, magoostus, re4thewin, The Real Napsta, TomiG117, UncookedMoa, X-ISO, xpb4me and Xiyl.
 

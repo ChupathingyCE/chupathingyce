@@ -24,7 +24,6 @@ struct mcc_resource_candidates {
 int mcc_resources_fingerprint_match(char const *name, struct mcc_cache_source const *source,
     unsigned char const expected[32], char paths[2][128], char *reason, size_t reason_size);
 int mcc_resources_checksum(struct mcc_runtime *runtime, unsigned mask, uint32_t *checksum);
-int mcc_resources_probe(char const *name, struct mcc_cache_source const *source, uint32_t *checksum);
 int mcc_resources_probe_explain(char const *name, struct mcc_cache_source const *source,
     uint32_t *checksum, char *reason, size_t size);
 int mcc_resources_read(struct mcc_runtime *runtime, unsigned type,

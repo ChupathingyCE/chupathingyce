@@ -352,6 +352,9 @@ enum
 	off (off unless set), and its text (the built-in one unless set) */
 	SERVER_SETTING_OPENCE_WELCOME,
 	SERVER_SETTING_OPENCE_WELCOME_TEXT,
+	/* a shot fired while turned in mid-air goes where the player aims (the
+	180 glitch fixed; port/linux/game/host_rules.h): off unless set */
+	SERVER_SETTING_AIR_TURN_AIM,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,

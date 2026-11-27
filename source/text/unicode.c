@@ -1458,10 +1458,11 @@ int usprintf(
 		"c:\\halo\\SOURCE\\text\\unicode.c",
 		751,
 		string && format);
-	match_assert(
-		"c:\\halo\\SOURCE\\text\\unicode.c",
-		752,
-		wcslen(string) < MAXIMUM_STRING_SIZE);
+	/* port: not the length of what the destination holds before it is
+	written (752: wcslen(string) < MAXIMUM_STRING_SIZE). Callers pass
+	buffers they have not written yet (the scoreboard's score strings,
+	game_engine_generate_title_string), so the check read on past them to
+	the first zero it found */
 	match_assert(
 		"c:\\halo\\SOURCE\\text\\unicode.c",
 		753,

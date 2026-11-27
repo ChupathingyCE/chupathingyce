@@ -78,6 +78,7 @@ keeps fewer lines. HALO_CONSOLE_NO_CHAT leaves all of it out.
 #include "text/draw_string.h"
 #include "text/font_group.h"
 #include "text/unicode.h"
+#include "net_monitor.h"
 #include "halo_keyboard.h"
 #include "network_coop.h"
 #include "network_distributed.h"
@@ -88,6 +89,10 @@ keeps fewer lines. HALO_CONSOLE_NO_CHAT leaves all of it out.
 #include "../src/delta_moderation.h"
 
 #include "chat.h"
+#ifdef HALO_GAME_BROWSER
+#include "../src/ui_overlay.h"
+#include "lobby_screen.h"
+#endif
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 #include "halo_profile_screen.h"
 #endif
@@ -139,8 +144,10 @@ enum
 	/* the host's settings told each OpenCE machine again this often (as
 	OpenCE's host does: one that joined since learns them) */
 	BRIDGE_CONFIG_TIME = 3000,
-	/* an OpenCE host's console notices kept in the chat: the same line
-	again within this long (milliseconds) is left out, of the last few */
+	/* the server's lines kept in the chat, a host's notices and Delta's
+	server lines alike: the same line again within this long
+	(milliseconds) is left out, of the last few (a screen of notices sent
+	each second, or a host that sends a line both ways) */
 	NOTICE_REPEAT_TIME = 15000,
 	NOTICE_RECENT = 8,
 };
@@ -259,8 +266,8 @@ static struct
 	struct delta_chat_bridge_budget bridge_budgets[MACHINES];
 #endif
 	boolean bridge_logged;
-	/* an OpenCE host's console notices put in the chat lately (their
-	fingerprints, and when) */
+	/* the server's lines put in the chat lately (their fingerprints, and
+	when) */
 	delta_u32 notice_fingerprints[NOTICE_RECENT];
 	unsigned long notice_times[NOTICE_RECENT];
 	short notice_next;
@@ -478,6 +485,37 @@ static void filter_read(void)
 #endif
 }
 
+/* whether the server's line was put in the chat within NOTICE_REPEAT_TIME
+(its text, spaces at either end left out); if not, it is noted as put there
+now */
+static boolean server_line_repeated(char const *text, int length)
+{
+	unsigned long now = system_milliseconds();
+	delta_u32 fingerprint;
+	int index;
+
+	while (length > 0 && *text == ' ')
+	{
+		text++;
+		length--;
+	}
+	while (length > 0 && text[length - 1] == ' ')
+		length--;
+	fingerprint = delta_chat_fingerprint(text, length);
+	for (index = 0; index < NOTICE_RECENT; index++)
+	{
+		if (chat.notice_times[index] && chat.notice_fingerprints[index] == fingerprint &&
+			now - chat.notice_times[index] < NOTICE_REPEAT_TIME)
+		{
+			return TRUE;
+		}
+	}
+	chat.notice_fingerprints[chat.notice_next] = fingerprint;
+	chat.notice_times[chat.notice_next] = now ? now : 1;
+	chat.notice_next = (short)((chat.notice_next + 1) % NOTICE_RECENT);
+	return FALSE;
+}
+
 /* a player's or the server's line heard (or the host's own): kept, as the
 player's settings say */
 static void line_heard(struct delta_wire_chat_line const *line)
@@ -493,9 +531,12 @@ static void line_heard(struct delta_wire_chat_line const *line)
 	short machine = line->speaker_machine == DELTA_WIRE_NO_MACHINE ? NONE : line->speaker_machine;
 	int blocked;
 
+	/* (the server monitor counts every line heard, and keeps the server's) */
+	net_monitor_chat(!server ? 0 : line->kind == _delta_chat_kind_server ? 1 : 2, line->length,
+		server ? line->text : NULL);
 	if (server)
 	{
-		if (!config_boolean("display.server_messages"))
+		if (!config_boolean("display.server_messages") || server_line_repeated(line->text, line->length))
 			return;
 	}
 	else
@@ -1275,19 +1316,17 @@ void chat_bridge_message(long machine_index, int type, void const *entry, int si
 	}
 }
 
-/* (a client) an OpenCE host's console notice as a system line too, as its
-own players see it in their chat. Blank lines are left out, and a line seen
-again within NOTICE_REPEAT_TIME (a screen of notices sent each second) */
+/* (a client) the host's console notice as a system line too, as an OpenCE
+host's own players see it in their chat: any host's, one with Delta's chat
+too (a dedicated server of ours, or one built on it, may send its welcome
+and its announcements this way). Blank lines are left out, and a line put
+in the chat within NOTICE_REPEAT_TIME, either way (line_heard) */
 void chat_host_console_notice(char const *text)
 {
 	struct delta_wire_chat_line line;
-	unsigned long now = system_milliseconds();
-	delta_u32 fingerprint;
-	int length, index;
+	int length;
 
-	/* (a host with Delta's chat says its lines there: its console notices
-	stay the console's) */
-	if (!text || game_connection() != _game_connection_network_client || delta_peer_game_chat_ready() ||
+	if (!text || game_connection() != _game_connection_network_client ||
 		delta_capability_disabled(_delta_capability_chat))
 	{
 		return;
@@ -1301,18 +1340,6 @@ void chat_host_console_notice(char const *text)
 		return;
 	if (length > DELTA_WIRE_CHAT_TEXT_SIZE)
 		length = DELTA_WIRE_CHAT_TEXT_SIZE;
-	fingerprint = delta_chat_fingerprint(text, length);
-	for (index = 0; index < NOTICE_RECENT; index++)
-	{
-		if (chat.notice_times[index] && chat.notice_fingerprints[index] == fingerprint &&
-			now - chat.notice_times[index] < NOTICE_REPEAT_TIME)
-		{
-			return;
-		}
-	}
-	chat.notice_fingerprints[chat.notice_next] = fingerprint;
-	chat.notice_times[chat.notice_next] = now ? now : 1;
-	chat.notice_next = (short)((chat.notice_next + 1) % NOTICE_RECENT);
 	csmemset(&line, 0, sizeof(line));
 	line.kind = _delta_chat_kind_system;
 	line.speaker_machine = DELTA_WIRE_NO_MACHINE;
@@ -2319,12 +2346,17 @@ void chat_draw(short local_player_index)
 	long shown = 0, index;
 	real anchor_x, anchor_y;
 
-	/* (not over a menu: the pause menu, the pregame's) */
+	/* (not over a menu: the pause menu, the pregame's; nor under the
+	lobby, which draws them over itself, chat_draw_overlay) */
 	if (local_player_index != local_player_get_next(NONE) || font_index == NONE || !chat_role() ||
 		ui_widgets_active_for_local_player(local_player_index))
 	{
 		return;
 	}
+#ifdef HALO_GAME_BROWSER
+	if (lobby_screen_active())
+		return;
+#endif
 	font = font_definition_get(font_index);
 	line_height = (short)(font->ascending_height + font->descending_height + font->leading_height);
 	/* (the lower left, above the motion sensor, short of the middle) */
@@ -2446,5 +2478,233 @@ void chat_draw(short local_player_index)
 	}
 	rasterizer_text_set_scale(1.0f, 0.0f, 0.0f);
 }
+
+#ifdef HALO_GAME_BROWSER
+/* ---------- over the lobby (lobby_screen.c)
+
+The lobby's screens are the overlay's, drawn over the game's whole picture
+when the frame is presented, so the lines chat_draw puts on the game's
+picture would be under them (it leaves them out over menus). There the same
+lines are drawn in the overlay instead: the line being typed (or the quick
+line), the recent lines fading as they do over the HUD, and more of them
+while a line is typed or the log is open. The menus' face, a size smaller
+than the lobby's rows, the name part in its color over the HUD, each entry
+on a dark backing so that it reads over the lobby's rows. */
+
+#define OVERLAY_TEXT_SIZE 8.5f
+#define OVERLAY_LINE_HEIGHT 11.0f
+#define OVERLAY_ENTRY_GAP 2.0f
+#define OVERLAY_PADDING 4.0f
+#define OVERLAY_BACKING 0x000814A0u
+/* (a line's bytes as UTF-8: the name part and the text, and a caret) */
+#define OVERLAY_TEXT_BYTES (3 * (NAME_LENGTH + 16 + TEXT_LENGTH) + 8)
+#define OVERLAY_MAXIMUM_LINES 8
+
+static unsigned int overlay_color(real_argb_color color, real alpha)
+{
+	unsigned int red = (unsigned int)(PIN(color.red, 0.0f, 1.0f) * 255.0f + 0.5f);
+	unsigned int green = (unsigned int)(PIN(color.green, 0.0f, 1.0f) * 255.0f + 0.5f);
+	unsigned int blue = (unsigned int)(PIN(color.blue, 0.0f, 1.0f) * 255.0f + 0.5f);
+	unsigned int opacity = (unsigned int)(PIN(color.alpha * alpha, 0.0f, 1.0f) * 255.0f + 0.5f);
+
+	return (red << 24) | (green << 16) | (blue << 8) | opacity;
+}
+
+/* the width of the first length bytes of text */
+static float overlay_width(char const *text, int length)
+{
+	char piece[OVERLAY_TEXT_BYTES];
+
+	length = MIN(length, (int)sizeof(piece) - 1);
+	memcpy(piece, text, (size_t)length);
+	piece[length] = 0;
+	return length > 0 ? ui_overlay_text_width(UI_FONT_MENU, OVERLAY_TEXT_SIZE, piece) : 0.0f;
+}
+
+/* the bytes of text (length of them) that fit width: past its last whole
+word that does, or as many characters as fit (one at least) */
+static int overlay_break(char const *text, int length, float width)
+{
+	int end = 0, fits = 0;
+
+	while (end < length)
+	{
+		int next = end;
+
+		while (next < length && text[next] == ' ')
+			next++;
+		while (next < length && text[next] != ' ')
+			next++;
+		if (overlay_width(text, next) > width)
+			break;
+		fits = end = next;
+	}
+	if (!fits)
+	{
+		int index = 0;
+
+		while (index < length)
+		{
+			int step = 1;
+
+			while (index + step < length && ((unsigned char)text[index + step] & 0xC0) == 0x80)
+				step++;
+			if (index && overlay_width(text, index + step) > width)
+				break;
+			index += step;
+		}
+		fits = index;
+	}
+	return fits;
+}
+
+/* an entry's lines: where each begins in text and how long it is; the
+first follows the name part (name_width wide). Their count */
+static int overlay_lines(char const *text, int length, float name_width, float width, int *starts, int *lengths)
+{
+	int count = 0, at = 0;
+
+	while (at < length && count < OVERLAY_MAXIMUM_LINES)
+	{
+		float room = count ? width : width - name_width;
+		int fits;
+
+		/* (a name too wide for any words after it: they begin below it) */
+		if (!count && room < width * 0.25f)
+		{
+			starts[count] = at;
+			lengths[count++] = 0;
+			continue;
+		}
+		fits = overlay_break(text + at, length - at, room);
+		starts[count] = at;
+		lengths[count++] = fits;
+		at += fits;
+		while (at < length && text[at] == ' ')
+			at++;
+	}
+	if (!count)
+	{
+		starts[0] = 0;
+		lengths[0] = 0;
+		count = 1;
+	}
+	return count;
+}
+
+/* one entry, its bottom at bottom, in the area left to right, no higher
+than top: its top, or bottom itself if it did not fit */
+static float overlay_entry(struct chat_entry const *entry, float left, float right, float top, float bottom,
+	real alpha, boolean caret)
+{
+	wchar_t name_wide[NAME_LENGTH + 16];
+	char name[OVERLAY_TEXT_BYTES], text[OVERLAY_TEXT_BYTES], line[OVERLAY_TEXT_BYTES];
+	int starts[OVERLAY_MAXIMUM_LINES], lengths[OVERLAY_MAXIMUM_LINES];
+	real_argb_color name_color, text_color;
+	float width = right - left - 2 * OVERLAY_PADDING, name_width, height, y;
+	int length, count, index;
+
+	entry_words(entry, name_wide, NUMBEROF(name_wide));
+	wide_to_utf8(name_wide, NUMBEROF(name_wide), name, sizeof(name));
+	length = wide_to_utf8(entry->text, TEXT_LENGTH, text, sizeof(text) - 2);
+	if (caret)
+	{
+		text[length++] = '_';
+		text[length] = 0;
+	}
+	entry_colors(entry, &name_color, &text_color);
+	name_width = name[0] ? ui_overlay_text_width(UI_FONT_MENU, OVERLAY_TEXT_SIZE, name) : 0.0f;
+	count = overlay_lines(text, length, name_width, width, starts, lengths);
+	height = count * OVERLAY_LINE_HEIGHT + 2 * OVERLAY_PADDING - (OVERLAY_LINE_HEIGHT - OVERLAY_TEXT_SIZE);
+	if (bottom - height < top)
+		return bottom;
+	y = bottom - height;
+	ui_overlay_rect(left, y, right - left, height, 3, (OVERLAY_BACKING & 0xFFFFFF00u) |
+		(unsigned int)((OVERLAY_BACKING & 0xFF) * PIN(alpha, 0.0f, 1.0f)));
+	if (name[0])
+		ui_overlay_text(UI_FONT_MENU, OVERLAY_TEXT_SIZE, left + OVERLAY_PADDING, y + OVERLAY_PADDING, UI_ALIGN_LEFT,
+			overlay_color(name_color, alpha), name);
+	for (index = 0; index < count; index++)
+	{
+		if (!lengths[index])
+			continue;
+		memcpy(line, text + starts[index], (size_t)lengths[index]);
+		line[lengths[index]] = 0;
+		ui_overlay_text(UI_FONT_MENU, OVERLAY_TEXT_SIZE,
+			left + OVERLAY_PADDING + (index ? 0.0f : name_width), y + OVERLAY_PADDING + index * OVERLAY_LINE_HEIGHT,
+			UI_ALIGN_LEFT, overlay_color(text_color, alpha), line);
+	}
+	return y;
+}
+
+void chat_draw_overlay(float left, float top, float right, float bottom)
+{
+	unsigned long now = system_milliseconds();
+	long shown = 0, index;
+
+	if (!chat_role() || right - left < 4 * OVERLAY_PADDING || bottom - top < OVERLAY_LINE_HEIGHT)
+		return;
+	/* the line typed, or the quick line picked */
+	if (chat.typing || chat.quick_shown)
+	{
+		struct chat_entry entry;
+		char lines[MAXIMUM_QUICK][QUICK_SIZE];
+		char text[INPUT_SIZE + QUICK_SIZE + 32];
+		float entry_top;
+
+		csmemset(&entry, 0, sizeof(entry));
+		entry.kind = _entry_player;
+		entry.team = NO_TEAM;
+		if (chat.typing)
+		{
+			wide_from_ascii(chat.typing_scope == _delta_chat_scope_team ? "Say to team" : "Say", entry.name,
+				NAME_LENGTH);
+			snprintf(text, sizeof(text), "%s", chat.input);
+		}
+		else
+		{
+			short count = quick_lines(lines);
+
+			wide_from_ascii("Quick", entry.name, NAME_LENGTH);
+			snprintf(text, sizeof(text), "%s   D-pad down: send", count ? lines[MIN(chat.quick_index, count - 1)] :
+				"");
+		}
+		utf8_to_wide(text, (int)strlen(text), entry.text, TEXT_LENGTH);
+		entry_top = overlay_entry(&entry, left, right, top, bottom, 1.0f, chat.typing);
+		if (entry_top >= bottom)
+			return;
+		bottom = entry_top - OVERLAY_ENTRY_GAP * 2;
+	}
+	/* the recent lines, as chat_draw shows them */
+	for (index = (long)chat.log_count - 1; index >= 0 && index >= (long)chat.log_count - LOG_LINES; index--)
+	{
+		struct chat_entry const *entry = &chat.log[index % LOG_LINES];
+		unsigned long age = now - entry->time;
+		unsigned long time = entry->kind == _entry_note ? NOTE_TIME : LINE_TIME;
+		real alpha = 1.0f;
+		float entry_top;
+
+		if (chat.log_open || chat.typing)
+		{
+			if (shown >= LOG_SHOWN_LINES)
+				break;
+		}
+		else
+		{
+			if (shown >= SHOWN_LINES || age >= time + FADE_TIME)
+				break;
+			if (entry->log_only)
+				continue;
+			if (age > time)
+				alpha = 1.0f - (real)(age - time) / (real)FADE_TIME;
+		}
+		entry_top = overlay_entry(entry, left, right, top, bottom, alpha, FALSE);
+		if (entry_top >= bottom)
+			break;
+		bottom = entry_top - OVERLAY_ENTRY_GAP;
+		shown++;
+	}
+}
+#endif
 
 #endif

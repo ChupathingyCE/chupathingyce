@@ -182,6 +182,12 @@ short ui_widget_spinner_extra_description(
 boolean ui_widget_spinner_item_pictured(
 	struct widget_instance *spinner,
 	short item_index);
+/* port: and whether its list's picture shows the plain gamepad for it (as
+this frame: ui_widget.c draws it) */
+#define UI_WIDGET_PLAIN_GAMEPAD_FRAME 0x7E00
+boolean ui_widget_spinner_item_plain_gamepad(
+	struct widget_instance *spinner,
+	short item_index);
 void ui_widget_delete(
 	struct widget_instance *widget);
 void ui_widgets_close_all(
@@ -236,6 +242,15 @@ struct widget_instance *ui_widget_load_by_name_or_tag(
 PC menus' own where they are loaded (port/linux/game/menu_tags.c) */
 char const *pc_menus_screen(
 	char const *name);
+#ifdef HALO_GAME_BROWSER
+/* port: System Link's list when it ends with a DIRECT IP row (the
+Chupathingy menus'), NONE otherwise, and the DIRECT IP screen the row
+opens (port/linux/game/menu_tags.c) */
+long pc_menus_direct_ip_list(
+	void);
+long pc_menus_direct_ip_screen(
+	void);
+#endif
 void main_screen_shell_load(
 	void);
 void network_game_reset_to_pregame_ui(

@@ -48,6 +48,19 @@ def test_server_bans(tmp_path):
     # (the queue's file: no address in it)
     log = (data / "reports.log").read_text(encoding="utf-8")
     assert "\"event\": \"report\"" in log and "\"event\": \"closed\"" in log
+    # (a key with a newline after it, as one copied in: its first 32 bytes,
+    # the same refs, and nothing kept aside)
+    key = data / "shared_bans.key"
+    assert len(key.read_bytes()) == 32
+    before = subprocess.run([str(binary), str(data), "ref"], capture_output=True, text=True)
+    assert before.returncode == 0, before.stdout + before.stderr
+    bad = sorted(path.name for path in data.glob("shared_bans.key.bad-*"))
+    key.write_bytes(key.read_bytes() + b"\n")
+    after = subprocess.run([str(binary), str(data), "ref"], capture_output=True, text=True)
+    assert after.returncode == 0, after.stdout + after.stderr
+    assert before.stdout.strip() and after.stdout == before.stdout
+    assert sorted(path.name for path in data.glob("shared_bans.key.bad-*")) == bad
+    assert len(key.read_bytes()) == 33
 
 
 def test_poll_sends_without_extras_before_failing():
@@ -88,9 +101,11 @@ def test_only_bound_identities_reach_reports_and_bans():
     # (the server takes Delta Peer's own struct, so the layout can't drift)
     assert '#include "../../port/linux/src/delta_moderation.h"' in moderation
     assert "struct delta_peer_identity\n{" not in moderation and _struct_fields(peer_header, "delta_peer_identity")
-    assert "identity && identity->bound ? identity : NULL" in peer
+    # (and only the home network's: another network's player gets no role or ban)
+    assert "identity && identity->bound && !identity->other_network ? identity : NULL" in peer
     assert "if (identity && !identity->bound)\n\t\tidentity = NULL;" in moderation
     start = peer_game.index("int delta_peer_game_machine_identity_text(")
     assert "!identity.bound" in peer_game[start:peer_game.index("\n}\n", start)]
+    assert "identity.other_network" in peer_game[start:peer_game.index("\n}\n", start)]
     assert "server_moderation_machine_account(" in reports
     assert "delta_peer_game_player_identity" not in reports and "delta_peer_identity(" not in reports

@@ -121,6 +121,7 @@ options below, and every option by name in `sln.args`. While
 | `--release` | assertions are not checked; a failed one is logged and the game goes on |
 | `--console-players {16,24,32,64}` | the players the network tables hold (`HALO_CONSOLE_PLAYERS`). 16 is the original Xbox's; more are test builds |
 | `--console-debug-tools` | keeps the debug decomp's developer tools (`HALO_CONSOLE_DEBUG_TOOLS`), which console builds leave out by default |
+| `--console-checkpoint-trace` | a test build: the log says which safety check (`game_safe_to_save`) holds up each checkpoint, and traces the script `mission_shoot` (`HALO_CONSOLE_CHECKPOINT_TRACE`). Off by default |
 | `--console-no-debug-asserts` | the release-style build: the debug decomp's asserts compiled out as retail compiled them out, but for the memory checks of `source/memory` and `source/cseries` (`HALO_CONSOLE_NO_DEBUG_ASSERTS`) |
 
 A port adds its own options (toolchains and SDK libraries) with
@@ -157,6 +158,7 @@ and what each hook asks of the port, or on its compile lines:
 | `HALO_CONSOLE_BRINGUP_LOG` | with the developer tools, a console's bring-up logs (frame stages, the main loop's pulse, init.txt's `later` commands) |
 | `HALO_BIG_ENDIAN` | a big-endian console: the maps' headers and tags byte-swapped as they load (`port/console/game`, `tools/tag_swap_generate.py`) |
 | `HALO_WINDOW_TRANSLATED` | with `HALO_64BIT`, a 32-bit console's Xbox addresses in a window placed wherever it has room (`source/cseries/xbox_address.h`) |
+| `HALO_CONSOLE_WINDOW_LOW` | with `HALO_WINDOW_TRANSLATED`, where a console with less memory starts that window (set in the port's own build; 0x7D000000 gives a 48 MB game heap), its heap's room logged at start and a full heap stopping the game with a message |
 
 ### Link Profile on a console
 
@@ -186,4 +188,4 @@ console repository then moves its submodule to it.
 | Option | What it does |
 | --- | --- |
 | `--console-limits` | a desktop build with the original Xbox's network and object limits, to test the console's side of cross-play on one computer; never a build to ship |
-| `--window-rebase` | the 32-bit Linux build with its Xbox memory window wherever `HALO_WINDOW_BASE` puts it, as the Switch's guest has it; never a build to ship |
+| `--window-rebase` | the 32-bit Linux build with its Xbox memory window wherever `HALO_WINDOW_BASE` puts it, as the Switch's guest has it, never a build to ship; the 32-bit Windows build with its window wherever it fits, as Chupathingy32 ships it (32-bit Windows keeps `0x80000000` for itself) |

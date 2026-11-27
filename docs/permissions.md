@@ -9,6 +9,7 @@ permissions are kept on file and can be shown on request.
 | Who | What | Terms | Permission since |
 | --- | --- | --- | --- |
 | chester (chestahh) | His code in GulchCE, including its Halo MCC map support (`port/linux/game/mcc_*`, `port/linux/src/mcc_*`) | Relicensed by him to GPL-3.0, with credit | 2026-10-29 |
+| chester (chestahh) | Dynamic Lighting, Dynamic Shadows and shared renderer optimisations (GulchCE, [original OpenCE port](https://github.com/chestahh/GulchCE/tree/035f47bb8fc682675456323dbb3095b506502ec6), eda84c9a..035f47bb) | AGPL-3.0-or-later or GPL-3.0-or-later at our choice; we use GPL-3.0-or-later; his lines only | 2026-11-26 |
 | The GulchCE contributors (PeterRichardsonGolf and others) | Their work in GulchCE: the Steam Workshop catalog and the MCC sharing rules | Relicensed by them to GPL-3.0, with credit; OpenCE's own code inside GulchCE is not included | 2026-11-11 |
 | mOTA-lEV (SutlabSol) | His own code in OpenCE-Faber: medals, service records, Forge, Firefight | GPL-3.0, with attribution and links to his originals | 2026-11-07 |
 | thelinkin3000 | His Switch port work (warthog-switch) | GPL-3.0-or-later | 2026-10-21 |
@@ -33,7 +34,13 @@ authors.
 
 - **OpenCE, before its license change.** Code merged into OpenCE before
   2026-10-19 07:12 UTC, when it moved to the AGPL, was released under terms
-  that let us use it. We take nothing added after that time.
+  that let us use it. We take nothing added after that time. A pull request
+  opened before then counts too, even if OpenCE merged it later: we take only
+  its author's own commits as they stood before the change, never later
+  review edits or the merge. For example, hkmodd's HDR comes from OpenCE pull
+  request 280: opened 2026-10-11, last commit 2026-10-16, under CC0 1.0 at
+  the time. OpenCE merged it on 2026-10-19 at 14:29 UTC, after the change,
+  and we don't use that merge.
 - **OpenH1, before its license change.** Commits authored before the same
   time. Later work by the OpenH1 team's own authors is covered by their
   permission above; OpenCE's later code carried in OpenH1 is not, and we

@@ -105,7 +105,7 @@ SCREENS = {
              "Sync frames to the display.", NOT_CONSOLE),
             # (display.vrr: sdl_platform.c's platform_vrr, port/linux/src/vrr.h)
             ("VARIABLE REFRESH:", "display.vrr", [("OFF", "off"), ("ON", "on"), ("AUTO", "auto")],
-             "For G-SYNC or FreeSync: V-Sync with the frame rate held\njust under the refresh rate. Auto follows the system.",
+             "For G-SYNC or FreeSync. V-Sync with the frame rate\nheld under the refresh rate. Auto follows the system.",
              "desktop"),
             # (port/linux/game/menu_functions.c: 30 also turns display.interpolation
             # off, the others on, on every platform. Instant Aim,
@@ -131,7 +131,7 @@ SCREENS = {
         "views": [
             # (the view's own rows, the field of view first: a page of their
             # own, so that the main list and ADVANCED sit 24 apart)
-            ("view", "VIEW", "The field of view, in and out of vehicles, and the reticle.", [
+            ("view", "VIEW", "The field of view, the weapon and the reticle.", [
                 ("FIELD OF VIEW:", "display.field_of_view",
                  [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
                   for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
@@ -144,7 +144,7 @@ SCREENS = {
                  [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
                  "How wide your weapon is drawn.\nSame follows the view.", None),
                 ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
-                 "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
+                 "Size the reticle to the field of view.", None),
                 ("RETICLE SIZE:", "display.reticle_scale", RETICLE_SIZES,
                  "The reticle's size. 100% is the Xbox's.", None),
                 ("WEAPON MODEL:", "display.first_person_weapon", ON_OFF,
@@ -181,6 +181,10 @@ SCREENS = {
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
+                # (port/linux/game/ragdolls.c: the builds with Jolt Physics,
+                # HALO_PORT_RAGDOLLS)
+                ("RAGDOLLS:", "display.ragdolls", ON_OFF,
+                 "Dead bodies fall limp and come to rest.\nOff looks like the Xbox.", "desktop"),
             ]),
             # (the menus, text, buttons, HUD and scoreboard in one list:
             # more rows than fit above the help line, so it scrolls:
@@ -189,9 +193,9 @@ SCREENS = {
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
                  [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox")],
-                 "Takes effect on restart.", NOT_CONSOLE),
+                 "The menus' look. Takes effect on restart.", NOT_CONSOLE),
                 ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
-                 "Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files.",
+                 "Classic looks like Halo's titles. Cyborg matches\nthe text. Halo makes them from your own Halo files.",
                  # (not on the consoles, the Switch included, which have the
                  # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE)
                  "desktop android"),
@@ -199,6 +203,11 @@ SCREENS = {
                  "Draw text and titles in high resolution.", NOT_CONSOLE),
                 ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
                  "Draw the HUD in high resolution.", NOT_CONSOLE),
+                # (display.hud_safe_zone: hud_draw.c's hud_safe_zone_bounds;
+                # two numbers are in config.toml alone)
+                ("SAFE ZONES:", "display.hud_safe_zone",
+                 [("ON", "xbox"), ("SINGLE SCREEN", "auto"), ("OFF", "pc")],
+                 "Keep the HUD in from the edges, as on the Xbox.\nSingle Screen skips it in split screen.", None),
                 # (the ~ key's console: terminal.c's drop-down one, or the
                 # Xbox's lines at the bottom)
                 ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
@@ -210,11 +219,11 @@ SCREENS = {
                 ("BUTTON STYLE:", "input.button_style",
                  [("AUTO", "auto"), ("DUKE", "duke"), ("XBOX", "xbox"), ("PLAYSTATION", "playstation"),
                   ("SWITCH", "switch")],
-                 "The buttons prompts show. Auto follows the controller\nyou use.", "desktop android switch"),
+                 "The buttons in prompts. Auto follows the controller\nyou use.", "desktop android switch"),
                 ("MENU BUTTONS:", "input.button_look", [("GEM", "gem"), ("FLAT", "flat")],
                  "The buttons in menus and the Guide.", "desktop android switch"),
                 ("HUD BUTTONS:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
-                 "Classic: the game's own buttons.", "desktop android switch"),
+                 "The buttons in a game's prompts. Classic is\nthe map's own, HD the flat ones.", "desktop android switch"),
                 ("PLAYER NAMES:", "display.player_names",
                  [("NONE", "none"), ("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies")],
                  "Names above players, where the host allows them.", NOT_CONSOLE),
@@ -234,7 +243,7 @@ SCREENS = {
                  "Show the time left, or the time played, in multiplayer.", None),
                 ("FOLLOW CAMERA:", "display.follow_camera",
                  [("OFF", "off"), ("LONG WAITS", "long_waits"), ("ALWAYS", "always")],
-                 "While dead, follow a player's view, if the host allows it.", None),
+                 "While dead, follow a player's view,\nif the host allows it.", None),
             ]),
             ("hdr", "HDR SETUP", "HDR, the HDR display, tone mapping and brightness.", [
                 ("HDR:", "display.hdr", ON_OFF,
@@ -282,14 +291,14 @@ SCREENS = {
             ("HEADPHONE 3D:", "audio.hrtf", [("OFF", "off"), ("ON", "on"), ("AUTO", "auto")],
              "3D sound as on the Xbox. Turn off for speakers.", None),
             ("REVERB:", "audio.reverb", ON_OFF,
-             "Room echo, and muffled sound behind walls.", None),
+             "Echo that matches the place you are in.", None),
             ("DOPPLER:", "audio.doppler", ON_OFF,
              "Pitch shift of moving sounds, as on the Xbox.", None),
             ("HIT SOUNDS:", "audio.hit_sounds", ON_OFF,
              "A tone when your shot hits another player.", None),
             # (the mods folder's tag files: port/linux/game/mods.c, docs/mods.md)
             ("MODS:", "game.mods", ON_OFF,
-             "Sound tags from the mods folder replace a map's.\nLocal games only; see docs/mods.md.", None),
+             "Sound tags from the mods folder replace a map's.\nLocal games only.", None),
         ],
     },
     # (chat.quick_messages, a list of lines, is in config.toml alone. The
@@ -329,12 +338,12 @@ SCREENS = {
         ],
         "views": [
             # (update.channel's help is update.h's UPDATE_CHANNEL_HELP, as
-            # the setup screen shows it)
+            # the setup screen shows it, on two lines to fit the help line)
             ("updates", "UPDATES", "Update checks, and which builds you get.", [
                 ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
                  "Check for a new version at startup.", NOT_CONSOLE),
                 ("CHANNEL:", "update.channel", [("RELEASE", "release"), ("TESTING", "testing"), ("NIGHTLY", "nightly")],
-                 UPDATE_CHANNEL_HELP, NOT_CONSOLE),
+                 UPDATE_CHANNEL_HELP.replace(". ", ".\n", 1), NOT_CONSOLE),
                 # (shown once a newer version is found; how the install
                 # goes is its value and the help line: menu_functions.c)
                 INSTALL_UPDATE,
@@ -398,6 +407,31 @@ GAMEPAD_ROWS = [
      "Change the thumbstick layout.", None),
     ("VIBRATION:", "profile.vibration", ON_OFF, "Rumble the controller.", None),
     ("IN-GAME HELP:", "profile.ingame_help", ON_OFF, "Show control hints during play.", None),
+]
+
+# the controller's GYRO page (gyro aiming: port/linux/src/gyro_aim.c, the
+# input.gyro_* settings), the desktop's and Android's. The Switch's port has
+# its own page (its tools/switch_menus.py adds GYRO to CONTROLLER_PAGES and
+# its rows), so this one is left out when CONTROLLER_PAGES has GYRO already
+GYRO_SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in
+                      (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10)]
+GYRO_DEADZONES = [("OFF", "0")] + [(f"{value:g}", f"{value:g}") for value in (0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10)]
+GYRO_PLATFORMS = "desktop android"
+GYRO_ROWS = [
+    ("GYRO AIM:", "input.gyro_aim", ON_OFF + [("ONLY ON ZOOM", "zoom")],
+     "Turn the view with the gyroscope.", GYRO_PLATFORMS),
+    ("HORIZONTAL SENSITIVITY:", "input.gyro_sensitivity_horizontal", GYRO_SENSITIVITIES,
+     "How far the view turns left and right.", GYRO_PLATFORMS),
+    ("VERTICAL SENSITIVITY:", "input.gyro_sensitivity_vertical", GYRO_SENSITIVITIES,
+     "How far the view turns up and down.", GYRO_PLATFORMS),
+    ("HORIZONTAL AXIS:", "input.gyro_horizontal_axis", [("YAW", "yaw"), ("ROLL", "roll")],
+     "Turn the controller, or tilt it like a wheel.", GYRO_PLATFORMS),
+    ("INVERT HORIZONTAL:", "input.gyro_invert_horizontal", YES_NO,
+     "Turning it right looks left.", GYRO_PLATFORMS),
+    ("INVERT VERTICAL:", "input.gyro_invert_vertical", YES_NO,
+     "Tilting it up looks down.", GYRO_PLATFORMS),
+    ("DEADZONE:", "input.gyro_deadzone", GYRO_DEADZONES,
+     "Ignore motion slower than this, in degrees a second.", GYRO_PLATFORMS),
 ]
 
 # Controls Setup: the keyboard and mouse's actions, in groups (the order of
@@ -798,10 +832,12 @@ def _controls_rows() -> tuple:
                      [])
     mark("mouse")
     settings(MOUSE_ROWS, 2)
-    # the controller's
-    mark("gamepad_buttons")
+    # the controller's (GYRO_ROWS' page too, unless the Switch's own is
+    # added: GYRO_PLATFORMS)
+    gyro = "GYRO" not in CONTROLLER_PAGES
+    mark("gamepad_buttons_gyro" if gyro else "gamepad_buttons")
     rows.append((f"{base}/op_page", NOT_CONSOLE, 1))
-    extra += _chooser(base, "page", "SHOW:", CONTROLLER_PAGES)
+    extra += _chooser(base, "page", "SHOW:", [*CONTROLLER_PAGES, "GYRO"] if gyro else CONTROLLER_PAGES)
     mark("gamepad")
     rows.append((f"{base}/op_layout", None, 2))
     extra += _widget(f"{base}/op_layout", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
@@ -837,6 +873,9 @@ def _controls_rows() -> tuple:
     extra += _widget(f"{base}/button_value",
                      [("type", "text"), ("controller", 1), ("width", 147), ("height", 22), ("font", "ui\\large_ui"),
                       ("color", "#FF2896FF"), ("align", "center"), ("text_y", 3), ("text_flags", "no_focus_test")], [])
+    if gyro:
+        mark("gyro")
+        settings(GYRO_ROWS, 2)
     # (the settings' labels and helps, by label as the settings screens';
     # the other rows' helps are menu_functions.c's own)
     extra += _strings(f"{base}/labels", labels)
@@ -1096,6 +1135,11 @@ STRING_OVERRIDES.update({
         "Play the campaign with a\\nfriend in split screen.",
         "Set all the attributes for your \\nmultiplayer gametypes and\\nkeep them for future use.",
     ],
+    # (DIRECT IP: a game joined by its address, port/linux/game/
+    # direct_join.c. The PC version's PASSWORD row is RECENT, the addresses
+    # joined before: a system link join has no password)
+    f"{MT}/direct_ip/cap_direct_ip_options": ["Enter the host's address or name.", "Pick a server you joined before."],
+    f"{MT}/direct_ip/direct_ip_options": ["SERVER ADDRESS", "RECENT"],
     "main_menu/gametype_select/var_gametype_banks": ["STANDARD", "CUSTOM"],
     # (the PC's weapon sets, then the Xbox's NO GRENADES: menu_functions.c's
     # gametype_options maps them to the engine's)
@@ -1141,6 +1185,26 @@ MAP_KIND_CHOOSER = "main_menu/new_select/list_item_0_map_kind"
 # changes to the PC version's widgets (by our names): attributes set, all
 # their handlers replaced, children added, game data inputs added
 WIDGET_PATCHES = {
+    # DIRECT IP's JOIN GAME (the PC version's said START GAME), and its
+    # PASSWORD row as RECENT (menu_functions.c's direct_ip_*)
+    f"{MT}/direct_ip/direct_ip_button_join": {"set": {"text": "JOIN GAME", "string_list": None,
+                                                         "string_index": None}},
+    f"{MT}/direct_ip/server_password_label": {"set": {"string_list": f"{MT}/direct_ip/direct_ip_options",
+                                                        "string_index": 1}},
+    # (the help line: menu_functions.c's direct_ip_update writes it, the
+    # strings' first line or how the join goes)
+    f"{MT}/direct_ip/direct_ip_help_text": {"set": {"string_list": None, "text_flags": "no_focus_test"}},
+    # (the values drawn as Server Setup's are: menu_functions.c sets them)
+    f"{MT}/direct_ip/server_address_value_label": {"set": {"controller": 1, "text_flags": "no_focus_test"}},
+    f"{MT}/direct_ip/server_password_value_label": {"set": {"font": "ui\\small_ui", "controller": 1,
+                                                              "text_flags": "no_focus_test"}},
+    # (the rows take A themselves: the PC version's value labels had it, which
+    # never have the focus here)
+    **{f"{MT}/direct_ip/op_{row}": {"handlers": [
+        '<on event="a" run="direct ip edit field"/>',
+        '<on event="start" run="direct ip edit field"/>',
+        '<on event="left_mouse" run="mouse emit accept event"/>',
+    ]} for row in ("server_address", "server_password")},
     # The host returns here after a round with no menu history. Back must
     # reopen the main menu when it closes the last screen, as the lobby does.
     f"{MT}/connected/connected_map_select_wrapper": {"set": {
@@ -1653,11 +1717,11 @@ HOST_OPTIONS = {
          "Allow or block aim assist for mouse players.",
          None),
         ("PLAYER NAMES:", "network.allow_player_names", [("OFF", "false"), ("ALLOWED", "true")],
-         "Let players show names above heads. Off: as on the Xbox.", None),
+         "Let players show names above heads.\nOff, as on the Xbox.", None),
         ("FOLLOW CAMERA:", "network.allow_follow_camera", [("OFF", "false"), ("ALLOWED", "true")],
          "Let players watch others while they wait to respawn.", None),
         ("PORT:", "network.tunnel_port", [("RANDOM", "0")] + [(str(port), str(port)) for port in range(2302, 2311)],
-         "The UDP port for hosting. Forward it on your router if friends can't join.",
+         "The UDP port for hosting. Forward it on your\nrouter if friends can't join.",
          None),
     ],
 }
@@ -2002,3 +2066,13 @@ def multiplayer_files() -> dict:
 
 
 REPLACED_FOLDERS = [f"{MT}/server_settings"]
+
+
+def generated_files() -> dict:
+    """every file the rows here make, by its path in port/assets/menus, as
+    tools/ce_menus.py --settings writes it (tools/test_settings_generated.py
+    checks the committed ones are the same)"""
+    files = {f"ce/{name}": "\n".join(lines) for name, lines in [*settings_files().items(),
+                                                                 *multiplayer_files().items()]}
+    files["chupathingy/settings_pages.xml"] = "\n".join(chupathingy_settings_pages())
+    return files

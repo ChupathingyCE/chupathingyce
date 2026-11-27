@@ -194,6 +194,8 @@ struct game_options;
 #include "cseries/cseries_windows.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "game_modes.h" /* port: the game modes layer (docs/modes.md) */
+#include "lua_scripting.h" /* port: mods' Lua scripts (port/linux/game/lua_scripting.c) */
+#include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -349,6 +351,8 @@ void game_tick(
 	actors, made the first light from it (Sentry NATIVE-7) */
 	game_state_check_data_arrays();
 	lights_port_recover();
+	/* port: mods' Lua scripts' "pretick" (port/linux/game/lua_scripting.c) */
+	lua_scripting_pretick();
 
 	/* port: a client of another's game, the host's rules (its own cheats and
 	game speed, set before it joined too, put back) */
@@ -375,6 +379,16 @@ void game_tick(
 	seconds_per_tick = game_globals->players_are_double_speed
 		? 1.0f / (2 * TICKS_PER_SECOND)
 		: 1.0f / TICKS_PER_SECOND;
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge game's or a layout's effects started when due and its
+	decals laid (port/linux/game/forge_effects.inc); nothing in any other
+	game */
+	{
+		extern void forge_effects_tick(void);
+
+		forge_effects_tick();
+	}
+#endif
 	HALO_PERF_BEGIN(_halo_perf_tick_effects);
 	effects_update(seconds_per_tick);
 	HALO_PERF_END(_halo_perf_tick_effects);
@@ -397,6 +411,15 @@ void game_tick(
 	decisions that belong to the host. */
 	if (!(network_game_distributed_client() && network_coop_active()))
 		hs_update();
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge game's or a layout's volumes act on what is in them
+	(port/linux/game/forge_volumes.inc); nothing in any other game */
+	{
+		extern void forge_volumes_tick(void);
+
+		forge_volumes_tick();
+	}
+#endif
 	recorded_animations_update();
 	HALO_PERF_BEGIN(_halo_perf_tick_objects);
 	objects_update();
@@ -412,6 +435,8 @@ void game_tick(
 	/* port: and at its end, before the frame draws the lights */
 	game_state_check_data_arrays();
 	lights_port_recover();
+	/* port: mods' Lua scripts' "tick" (lua_scripting.c) */
+	lua_scripting_tick();
 
 	profile_exit(game_update_section);
 	collision_log_end_period();
@@ -563,57 +588,70 @@ boolean game_all_quiet(
 	return TRUE;
 }
 
+/* port: says which check made it unsafe, as before (debug_game_save), and
+with HALO_CONSOLE_CHECKPOINT_TRACE keeps its name for main_save_map's trace
+in the log (warthog-xbox #84) */
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+char const *game_save_unsafe_check = NULL;
+#endif
+
+static void game_save_unsafe(
+	char const *check)
+{
+	if (debug_game_save)
+		console_warning("not safe to save: %s", check);
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	game_save_unsafe_check = check;
+#endif
+}
+
 boolean game_safe_to_save(
 	void)
 {
 	boolean safe = TRUE;
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	game_save_unsafe_check = NULL;
+#endif
+
 	if (ai_enemies_can_see_player())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: ai_enemies_can_see_player");
+		game_save_unsafe("ai_enemies_can_see_player");
 		safe = FALSE;
 	}
 	if (safe && dangerous_projectiles_near_player())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: dangerous_projectiles_near_player");
+		game_save_unsafe("dangerous_projectiles_near_player");
 		safe = FALSE;
 	}
 	if (safe && dangerous_items_near_player())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: dangerous_items_near_player");
+		game_save_unsafe("dangerous_items_near_player");
 		safe = FALSE;
 	}
 	if (safe && dangerous_effects_near_player())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: dangerous_effects_near_player");
+		game_save_unsafe("dangerous_effects_near_player");
 		safe = FALSE;
 	}
 	if (safe && any_unit_is_dangerous())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: any_unit_is_dangerous");
+		game_save_unsafe("any_unit_is_dangerous");
 		safe = FALSE;
 	}
 	if (safe && any_player_is_in_the_air())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: any_player_is_in_the_air");
+		game_save_unsafe("any_player_is_in_the_air");
 		safe = FALSE;
 	}
 	if (safe && any_player_is_dead())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: any_player_is_dead");
+		game_save_unsafe("any_player_is_dead");
 		safe = FALSE;
 	}
 	if (safe && vehicle_moving_near_any_player())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: vehicle_moving_near_any_player");
+		game_save_unsafe("vehicle_moving_near_any_player");
 		safe = FALSE;
 	}
 
@@ -705,6 +743,11 @@ void game_initialize_for_new_map(
 	the host's indices, not its own objects' of the last game's */
 	network_distributed_new_game();
 	render_interpolation_reset();
+#ifdef HALO_PORT_RAGDOLLS
+	/* port: the last map's ragdolls let go, and its level's mesh
+	(port/linux/game/ragdolls.c) */
+	ragdolls_new_map();
+#endif
 	render_initialize_for_new_map();
 	structures_initialize_for_new_map();
 	breakable_surfaces_initialize_for_new_map();
@@ -720,6 +763,16 @@ void game_initialize_for_new_map(
 	game_sound_initialize_for_new_map();
 	weather_particle_systems_initialize_for_new_map();
 	point_physics_initialize_for_new_map();
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge game's or a layout's teleporters (and game type
+	objects) as the map's netgame flags, before the game type reads them
+	(port/linux/game/forge_netgame.inc); any other game the map's own */
+	{
+		extern void forge_netgame_flags_prepare(void);
+
+		forge_netgame_flags_prepare();
+	}
+#endif
 	game_engine_initialize_for_new_map();
 	game_statistics_start();
 	update_server_new();
@@ -742,6 +795,16 @@ void game_initialize_for_new_map(
 	from now on go elsewhere, port/linux/game/network_objects.c) */
 	network_objects_placed();
 	ui_widgets_safe_to_load(TRUE);
+	/* port: mods' Lua scripts: the map's load, and their "map load"
+	(port/linux/game/lua_scripting.c) */
+	lua_scripting_map_load();
+	/* port: the [tuning] knobs the map is drawn with, a line in the log for
+	each game (port/linux/src/port_config.c) */
+	{
+		void config_tuning_log(const char *where);
+
+		config_tuning_log("map");
+	}
 #ifdef HALO_XBOX_CONSOLE
 	/* port: a test build of more than 16 players logs its memory at each
 	map's start (port/xbox/src/xbox_memory.c; nothing in a stock build) */
@@ -1056,6 +1119,9 @@ boolean game_precache_new_map_refusable(
 void game_dispose_from_old_map(
 	void)
 {
+	/* port: the map's Lua scripts' "unload", and they close
+	(port/linux/game/lua_scripting.c) */
+	lua_scripting_map_unload();
 #ifdef HALO_XBOX_CONSOLE
 	/* port: and at its end, with the objects' peaks over it */
 	{
@@ -1125,6 +1191,8 @@ void game_frame(
 		585,
 		game_globals->active);
 
+	/* port: mods' Lua scripts' "preframe" (port/linux/game/lua_scripting.c) */
+	lua_scripting_preframe();
 	collision_log_begin_period(1);
 	particles_update(frame_dt);
 	contrails_update(frame_dt);
@@ -1137,6 +1205,8 @@ void game_frame(
 	rasterizer_frame_update(frame_dt);
 	numeric_countdown_timer_update();
 	collision_log_end_period();
+	/* port: and their "frame" */
+	lua_scripting_frame();
 
 	return;
 }

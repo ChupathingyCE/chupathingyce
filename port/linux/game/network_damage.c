@@ -263,6 +263,9 @@ largest damage scale a client's hit has: a melee blow's, airborne
 (unit_update_melee), anything else's all of it */
 #define REPORT_WORLD_BOUND 32768.0f
 #define REPORT_MAXIMUM_MELEE_SCALE 1.5f
+/* the parts of a unit a blow lands on (model_animations.c's
+NUMBER_OF_DAMAGE_PARTS): the aftermath's ping animation is chosen by one */
+#define DAMAGE_PART_COUNT 11
 
 /* the damage flags a client's hit has: what its own object_cause_damage is
 given (neither the host's instant kills nor its passengers' passthrough) */
@@ -392,8 +395,9 @@ static struct distributed_damage_event damage_events[MAXIMUM_DAMAGE_EVENTS_PER_T
 static short damage_event_count;
 /* ... dealing a client's report */
 static boolean damage_dealing_report;
-/* ... each player's weapons of late, and hits left */
-static struct
+/* ... each player's weapons of late, and hits left (in the host's tables,
+damage_host, below) */
+struct damage_player
 {
 	long definition_indices[MAXIMUM_RECENT_WEAPONS];
 	long times[MAXIMUM_RECENT_WEAPONS];
@@ -407,10 +411,10 @@ static struct
 	long unarmed_time;
 	real hit_seconds;
 	long hit_seconds_time;
-} damage_players[MAXIMUM_TRACKED_PLAYERS];
+};
 /* ... the explosions whose hits came this tick, each paid for once, and
-the objects each hit (each once), each player's */
-static struct
+the objects each hit (each once), each player's (in the host's tables too) */
+struct damage_player_explosions
 {
 	long time;
 	short count;
@@ -420,7 +424,7 @@ static struct
 		real_point3d epicenter;
 		long object_index;
 	} explosions[MAXIMUM_EXPLOSIONS_PER_TICK];
-} damage_explosions[MAXIMUM_TRACKED_PLAYERS];
+};
 /* where a player could see and fire from (MAXIMUM_SIGHT_POINTS) */
 struct damage_sight
 {
@@ -463,20 +467,27 @@ struct damage_rate_cache_entry
 	byte kinds;
 	struct damage_reach reach;
 };
-/* ... the three above, the host's alone: allocated while this machine hosts
+/* ... the three above, and each player's weapons and explosions, the
+host's alone: allocated while this machine hosts
 (network_damage_host_tables_allocate, from network_game_server_create), so
 that a machine that only joins (most consoles, most of the time) doesn't
-carry them; NULL otherwise (about 400 KB) */
+carry them; NULL otherwise (about 400 KB). Only the checks of the clients'
+hit reports read them, which a host without them doesn't make (it deals
+none of the reports: network_damage_handle_reports) */
 static struct damage_host_tables
 {
 	struct damage_history_tick history[TARGET_HISTORY_TICKS];
 	struct damage_trail_point trails[MAXIMUM_TRACKED_PLAYERS][PLAYER_TRAIL_POINTS];
 	struct damage_rate_cache_entry rate_cache[DAMAGE_RATE_CACHE_SIZE];
+	struct damage_player players[MAXIMUM_TRACKED_PLAYERS];
+	struct damage_player_explosions explosions[MAXIMUM_TRACKED_PLAYERS];
 } *damage_host;
 static boolean damage_host_missing_logged;
 #define damage_history (damage_host->history)
 #define damage_trails (damage_host->trails)
 #define damage_rate_cache (damage_host->rate_cache)
+#define damage_players (damage_host->players)
+#define damage_explosions (damage_host->explosions)
 /* ... the players each damage event of this tick goes to the machines of
 (NONE for every machine), and the machine of its owner */
 static struct
@@ -811,7 +822,13 @@ version 34 the host deals itself, whoever placed it) */
 		/* (from network version 34, a static target's own damage, a
 		tripmine's going off, dealt here whoever placed it, unless the
 		placer's machine still reports it: an older build's) */
+		/* (port: nor a virtual machine's player, a dedicated server's Custom
+		Edition client's: no report comes from it, the host deals its hits as
+		its own players', network_server_manager.c) */
+		boolean network_game_server_port_machine_is_virtual(long machine_index);
+
 		if (owner && !owner->quit_out_of_game && owner_machine != NONE &&
+			!network_game_server_port_machine_is_virtual(owner->network_player_data.machine_index) &&
 			!(network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
 				damage->owner_object_index != NONE && static_target(damage->owner_object_index) &&
 				!network_game_server_machine_reports_static_damage(owner_machine)))
@@ -1821,6 +1838,10 @@ static void distributed_note_weapons(
 	struct data_iterator iterator;
 	struct player_datum *player;
 
+	/* (kept in the host's tables, for the checks of the reports, which a
+	host without them doesn't make) */
+	if (!damage_host)
+		return;
 	data_iterator_new(&iterator, player_data);
 	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
 	{
@@ -2766,8 +2787,10 @@ void network_damage_handle_events(
 			break;
 		}
 		case _damage_event_aftermath:
+			/* (a part a unit has, or none: build_damage_animation_index's) */
 			if (network_objects_client_has(event->object_index) &&
-				object_try_and_get_and_verify_type(event->object_index, _object_mask_unit))
+				object_try_and_get_and_verify_type(event->object_index, _object_mask_unit) &&
+				(event->body_part == NONE || (event->body_part >= 0 && event->body_part < DAMAGE_PART_COUNT)))
 			{
 				/* (what harm it did the units' states bring: no death from here) */
 				damage_replay_aftermath(event->object_index, &damage,
@@ -2909,7 +2932,7 @@ void network_damage_note_grenade(
 		mcc_network_note_extra_grenade(unit_index, grenade_type);
 		return;
 	}
-	if (game_connection() != _game_connection_network_server || unit->unit.player_index == NONE ||
+	if (game_connection() != _game_connection_network_server || !damage_host || unit->unit.player_index == NONE ||
 		grenade_type < 0 || grenade_type >= NUMBER_OF_UNIT_GRENADE_TYPES)
 	{
 		return;
@@ -2941,6 +2964,19 @@ static void damage_host_tables_reset(
 
 	if (!damage_host)
 		return;
+	csmemset(damage_players, 0, sizeof(damage_players));
+	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
+	{
+		for (index = 0; index < MAXIMUM_RECENT_WEAPONS; index++)
+			damage_players[player_index].definition_indices[index] = NONE;
+		damage_players[player_index].unarmed_melee_damage_index = NONE;
+		for (index = 0; index < MAXIMUM_GRENADE_THROWS; index++)
+			damage_players[player_index].throw_times[index] = NONE;
+		damage_players[player_index].driven_time = -RECENT_WEAPON_TICKS - 1;
+		damage_players[player_index].hit_seconds = HIT_REPORT_BURST_SECONDS;
+		damage_explosions[player_index].time = NONE;
+		damage_explosions[player_index].count = 0;
+	}
 	for (index = 0; index < TARGET_HISTORY_TICKS; index++)
 		damage_history[index].time = NONE;
 	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
@@ -2964,7 +3000,7 @@ boolean network_damage_host_tables_allocate(
 		if (!damage_host_missing_logged)
 		{
 			damage_host_missing_logged = TRUE;
-			error(_error_silent, "network damage: no memory for the host's tables (%lu KB): clients' hits not dealt",
+			error(_error_silent, "network damage: no memory for the host's tables (%lu KB)",
 				(unsigned long)(sizeof(struct damage_host_tables) / 1024));
 		}
 		return FALSE;
@@ -2985,28 +3021,11 @@ void network_damage_host_tables_free(
 void network_damage_new_game(
 	void)
 {
-	short player_index;
-
 	damage_event_count = 0;
 	damage_report_count = 0;
 	damage_dealing_report = FALSE;
 	damage_replaying_kill = FALSE;
-	csmemset(damage_players, 0, sizeof(damage_players));
 	damage_host_tables_reset();
-	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
-	{
-		short index;
-
-		for (index = 0; index < MAXIMUM_RECENT_WEAPONS; index++)
-			damage_players[player_index].definition_indices[index] = NONE;
-		damage_players[player_index].unarmed_melee_damage_index = NONE;
-		for (index = 0; index < MAXIMUM_GRENADE_THROWS; index++)
-			damage_players[player_index].throw_times[index] = NONE;
-		damage_players[player_index].driven_time = -RECENT_WEAPON_TICKS - 1;
-		damage_players[player_index].hit_seconds = HIT_REPORT_BURST_SECONDS;
-		damage_explosions[player_index].time = NONE;
-		damage_explosions[player_index].count = 0;
-	}
 }
 
 #ifdef HALO_BIG_ENDIAN
@@ -3070,7 +3089,7 @@ boolean network_damage_wire_entries(
 }
 #endif
 
-#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+#ifdef HALO_NETWORK_WIRE_SAMPLES
 /* (network_distributed.h) this module's sample entries */
 static void distributed_damage_sample(
 	struct distributed_damage *damage)

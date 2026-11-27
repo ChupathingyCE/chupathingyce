@@ -42,6 +42,7 @@ an AI unit the same way it kills a player's.
 #include "units/units.h"
 #include "units/unit_control_data.h"
 #include "network_coop.h"
+#include "net_monitor.h"
 #include "network_distributed.h"
 
 #include <math.h>
@@ -540,7 +541,9 @@ static boolean actor_state_apply(
 			network_objects_reconcile(state->unit_index, &state->position, &forward, &up, &velocity, NULL,
 				REMOTE_BLEND_DISTANCE))
 		{
-			distributed_count_correction();
+			real distance = (real)sqrt(dx * dx + dy * dy + dz * dz);
+
+			distributed_count_correction(_net_monitor_actor, distance, net_monitor_snap(distance, REMOTE_BLEND_DISTANCE));
 		}
 	}
 	return TRUE;
@@ -952,7 +955,7 @@ boolean network_actors_wire_entries(
 }
 #endif
 
-#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+#ifdef HALO_NETWORK_WIRE_SAMPLES
 /* (network_distributed.h) this module's sample entries */
 word network_actors_wire_sample(
 	byte type,

@@ -12,7 +12,7 @@ the file.
 | `HALO_DEDICATED` | (none) | The playlist, a path inside the data folder: `playlists/free_for_all.txt`. Without it, a server whose control panel is on waits for its [first-run setup](moderation.md#first-run-setup-no-console-needed), where you pick the playlist. With the panel off, it only says how to start one. |
 | `HALO_DEDICATED_NAME` | `Dedicated` | The server's name on the lists. 15 characters at most, the game's limit. |
 | `HALO_DEDICATED_MINIMUM_PLAYERS` | `1` | The players a game waits for before its countdown starts. |
-| `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players a game takes, up to 128 (`sv_maxplayers` in [admin.md](admin.md) changes it while running, until a restart: set here, the environment wins over the settings file). |
+| `HALO_DEDICATED_MAXIMUM_PLAYERS` | `16` | The players a game takes, up to 128 (`sv_maxplayers` in [admin.md](admin.md) changes it while running, until a restart: set here, the environment wins over the settings file). |
 | `HALO_DEDICATED_IDLE_LIMIT` | `5` | A game in which nobody scores for this many minutes ends. `0`: never. |
 | `HALO_DEDICATED_PUBLIC` | `true` | A public game, listed in every in-game Server Browser (OpenCE's and Chupathingy's) through internet play's brokers. `false`: not listed there; the game list still lists it, and its invite still works. |
 | `HALO_DEDICATED_NAME_FILTER` | `false` | `true`: players with a blocked name are warned and kicked ([below](#blocked-names)); `sv_name_filter 1` on the console does the same. |
@@ -30,6 +30,7 @@ the file.
 | `HALO_DEDICATED_VOICE_KBPS` | `24` | Voice quality, 8 to 64 kbps (`voice_kbps`). Each talker costs the server about 5 KB/s of upload for each player hearing them at 24. |
 | `HALO_DEDICATED_ALLOW_FOLLOW_CAMERA` | `false` | `true`: Chupathingy players may watch a living player's view while they wait to respawn (their `display.follow_camera`). `false` plays as the Xbox did: the death camera alone (`allow_follow_camera`). |
 | `HALO_DEDICATED_LATE_JOIN_HOLD` | `false` | `true`: a player who joins a game in progress watches through the follow camera until the next game starts (everyone, OpenCE players too). `false` spawns them at once, as Halo does (`late_join_hold`). |
+| `HALO_DEDICATED_AIR_TURN_AIM` | `false` | `true`: a shot fired while turned around in mid-air goes where the player aims (the "180 glitch" fixed) for Chupathingy players, who are told over Delta Peer. OpenCE, Custom Edition, console and older Chupathingy players fire as on the Xbox (Chupathingy players' games draw their turned shots as fixed; hits follow each shooter's own game). It also lifts aim holding on the ground. `false` plays as the Xbox did (`air_turn_aim`). |
 | `HALO_DEDICATED_BAN_SHARE` | `false` | `true`: while linked, your bans that name a Delta account or device go to your shared ban list on the site (`ban_share`). Never an address. |
 | `HALO_DEDICATED_WELCOME` | (none) | A welcome: a server message each Chupathingy player gets in their chat as they join, up to 127 printable ASCII characters (`sv_welcome` sets it). OpenCE players get it as the host's notice in their chat, while they may chat. |
 | `HALO_DEDICATED_OPENCE_WELCOME` | `false` | `true`: each OpenCE player (no Delta) gets one line in their chat, a few seconds after they first spawn, once each time they join: that this is a Chupathingy server (`opence_welcome`). It goes as the host's notice, which OpenCE's client shows in its chat even where its own chat is off. Chupathingy players never see it. |
@@ -63,7 +64,7 @@ The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
 `public` (from the next start), `name_filter`, `chat`, `chat_filter`,
 `welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, `team_change`
-(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, `max_machines_per_address`, `betrayal_kick`, `afk_kick_minutes`, `keep_parties_together`, `late_join_hold`, `ban_share`, `voice`, `voice_team`, `voice_proximity`, `voice_everyone`, `voice_party`, `voice_lobby`, `voice_range`, `voice_kbps`, `opence_welcome`, `opence_welcome_text`, and the playlist
+(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, `max_machines_per_address`, `betrayal_kick`, `afk_kick_minutes`, `keep_parties_together`, `late_join_hold`, `ban_share`, `voice`, `voice_team`, `voice_proximity`, `voice_everyone`, `voice_party`, `voice_lobby`, `voice_range`, `voice_kbps`, `opence_welcome`, `opence_welcome_text`, `air_turn_aim`, and the playlist
 `sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
 the rest of the line as the value (quotes optional).
 
@@ -179,9 +180,10 @@ player's name goes in the log; the CD key hash is not logged).
 
 The player joins while a game is being played on a map they have too: a
 Custom Edition map (`bloodgulch@ce`, the same .map file on both sides). They
-play as one of the server's own players, moved by their client's input.
-On any other map, or with no seat left, the join is refused with Custom
-Edition's own message, not a timeout. This is new: test it on your server
+play as a player on a machine of their own in the game, moved by their
+client's input. On any other map, or in a game that already has 16
+players, the join is refused with Custom Edition's own message, not a
+timeout. This is new: test it on your server
 before you rely on it.
 
 What works:
@@ -191,15 +193,24 @@ What works:
 - The other players, their weapons and their shots, as the server's game
   has them.
 - Shield and health on their HUD, deaths and the respawn countdown.
-- The scoreboard: kills, assists, betrayals, deaths, suicides and Slayer's
-  scores.
+- The scoreboard: kills, assists, betrayals, deaths, suicides and each game
+  type's scores, each team's in a team game.
+- Slayer, Capture the Flag, Oddball, King of the Hill and Race, free for
+  all or in teams, with the game type's own settings (score, respawn, radar
+  and the rest), and its HUD messages and announcer sounds (a flag taken
+  or returned, the minutes left). In a team game they are on their team,
+  their teammates are friends, and a team change (`sv_team`) follows them.
+- Up to 16 players in a game, theirs and ours together (16 is the most a
+  Custom Edition client's game holds). Each of them is a machine of its own
+  in the game, so the other players see them as any other player.
+- Weapon and grenade switching and zoom.
 - Weapons and equipment on the ground, picking them up and dropping them.
 - Vehicles: getting in and out of seats, and driving.
 - A welcome line in their chat a minute into their first game (`ce_welcome`), and `sv_say`.
 - The end of a game and the next one: the scores come up on their screen,
   and when the next game starts they join it again by themselves (their
   client reconnects, as it does on Custom Edition's own servers) and keep
-  their seat. They are let go when the next map is not a Custom Edition
+  their place. They are let go when the next map is not a Custom Edition
   map, or when they don't come back within 45 seconds.
 - `sv_kick` and `sv_ban` (a ban is by their address). The bans, the limit
   on players from one address (`max_machines_per_address`) and the
@@ -209,10 +220,11 @@ What works:
 
 Not yet:
 
-- At most 4 Custom Edition players at once (they are seats of the server's
-  own machine); a fifth is told the server is full.
-- Their client is told the game is Slayer, free for all: play Slayer with
-  them. Other game types and teams are not shown right on their side.
+- Bomb is shown to them as Slayer, free for all.
+- Oddball, King of the Hill and Race are not yet played with a real Custom
+  Edition client on our server (their messages are checked against
+  captures of Custom Edition's own server).
+- Every player's ping shows as 0 on their scoreboard.
 - A join between games waits up to 12 seconds for the next one. On an
   empty server, their player goes into the lobby and a game starts after a
   short countdown.
@@ -248,6 +260,7 @@ settings is left as it is and still works.
 | `HALO_NET_LIST_GAMES` | `true` | `false`: not listed on the game list (invites and the Server Browser still work). |
 | `HALO_NET_REPORT_HOSTED` | `true` | `false`: the server stays listed, but sends no carnage reports or Delta Stats of its games. |
 | `HALO_NET_ONLINE` | `true` | Internet play: how players outside your network reach the server. `false` keeps it to the local network. |
+| `HALO_NET_DIRECT_IP_HOST` | `false` | `true`: the server also answers game searches from internet addresses, no more than four answers a second (`network.direct_ip_host`). Off, it answers its local network's and internet play's searches only; the game list and Online Games pings don't need it. |
 | `HALO_NET_TUNNEL_PORT` | `0` (any) | The UDP port internet play uses. A fixed one can be forwarded, for networks whose NAT stops connections. |
 | `HALO_NET_PUBLIC_ADDRESS` | (none) | The address players reach the server at, as `host` or `host:port`, when they come in through a relay or tunnel with its own address (a VPS forwarding UDP to a Docker bridge, frp). The server advertises it to the game list, invites and Online Games pings in place of the address STUN finds, and UPnP isn't asked. The port defaults to `HALO_NET_TUNNEL_PORT`, so set that too. The server then only answers players who reach it there and sends nothing to their addresses first, which a relay couldn't pass on. |
 | `HALO_NET_ALLOW_UPNP` | `true` | Let internet play ask the router to forward its port (UPnP). |
@@ -273,6 +286,15 @@ problem (the log then says so at the first one). `0`, `false`, `no` and
 `off` leave it off, as for every switch here that only has to be set. Logs
 written with it on hold everyone's address: delete them once the problem is
 found.
+
+Joins and passwords: a game with a password takes a machine from the local
+network (the private ranges, link-local, loopback, and 100.64.0.0/10, which
+internet play's players and networks such as Tailscale's use) as before. A
+machine that reaches the game's port from any other address is refused with
+the password message, whichever kind of join it sent, since only internet
+play's invite asks for the password. A game without a password, which is
+every dedicated server's (there is no `sv_password`, [admin.md](admin.md#why-there-is-no-sv_password)),
+takes every join as before.
 
 The settings for hosts in `config.toml`, `network.host_cheats`
 (`HALO_NET_HOST_CHEATS`, `false`) and `network.host_console_objects`

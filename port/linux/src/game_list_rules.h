@@ -18,6 +18,11 @@ or older number than the range, nor one that says no number (0: a host
 from before there were numbers). debug.show_all_games shows them all again,
 for tests. The site's list hides the same games (puma's game_list_rules).
 
+A game heard only on the brokers (OpenCE's public listings, p2p_lobby.c)
+goes by the same rules, by its own number: every network this build joins
+is listed, old builds' games too. A game whose name is on the blocked
+names list (server_names.h) is never shown.
+
 Header only, no game dependency; tested by port/linux/tests/
 game_list_rules_test.c (tools/test_game_list_rules.py).
 

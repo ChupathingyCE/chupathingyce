@@ -68,6 +68,20 @@ enum
 	IDENTITY_CAN_DEVICES = 0x20,
 };
 
+/* the capabilities field's top byte: account marks, facts the issuing
+network vouches for about the account (docs/delta/link.md, "Device
+identity": account marks). A mark grants nothing, and counts only from a certificate this copy
+checked, of its own network (the card's other_network clear), while its
+player shows by their verified name. Unknown marks are ignored */
+#define IDENTITY_CAPABILITY_BITS 0x00FFFFFFUL
+#define IDENTITY_MARK_BITS 0xFF000000UL
+enum
+{
+	/* a developer of the network's project: a blue flame on the helmet
+	(port/linux/game/developer_flames.c) */
+	IDENTITY_MARK_DEVELOPER = 0x01000000,
+};
+
 /* sign-in by code (Quick Connect): the code's characters (as a console's
 Link Profile code), and the text the device shows, ABCD-EFGH and a NUL */
 enum
@@ -149,6 +163,12 @@ int identity_parse_issuer(const unsigned char *data, int size, struct identity_i
 and in date */
 int identity_check_issuer(const unsigned char *data, int size, const unsigned char (*roots)[IDENTITY_KEY_SIZE],
 	int root_count, unsigned long now, struct identity_issuer *issuer);
+/* whether an issuer certificate is well-formed and signed by that one root
+key (not all zero), whatever its dates: which network it belongs to
+(networks.c) */
+int identity_issuer_signed_by(const unsigned char *data, int size, const unsigned char *root);
+/* whether a public key is of small order (never one to trust) */
+int identity_key_weak(const unsigned char *public_key);
 int identity_parse_device(const unsigned char *data, int size, struct identity_device *device);
 /* signed by that (checked) issuer, issued in its time and in date */
 int identity_check_device(const unsigned char *data, int size, const struct identity_issuer *issuer,
@@ -400,15 +420,17 @@ int identity_proof_fresh(unsigned long time, unsigned long now, unsigned long ag
 /* a name's look-alike key (UTF-8 in, lowercase a-z and digits out, into
 out of IDENTITY_LOOKALIKE_MOST + 1): digits and signs read as the letters
 they look like (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b, @ a, $ s, ! i, | i;
-2, 6 and 9 stay digits), accented Latin letters (Latin-1 and Latin
-Extended-A) as their base letters, Cyrillic and Greek look-alikes as Latin,
+2, 6 and 9 stay digits), full-width digits and letters as the plain ones,
+accented Latin letters (Latin-1 and Latin Extended-A) as their base letters, Cyrillic and Greek look-alikes as Latin,
 everything else dropped, then rn read as m, vv as w and l as i; the site's
 (puma's lookalike_key) is the same. Its length */
 int identity_lookalike_key(const char *name, char *out);
 /* an unverified player's game name as shown while verified names carry the
 Delta mark (UCS-2, as the game's names: length letters at most, into out of
-size): every @ taken out (and its full-width and small forms), wherever it
-is (a handle's sign), then any spaces, invisible marks, dots, Deltas and
+size): every @ taken out (and its full-width and small forms, and the
+copyright sign, the circled a's and the enclosing circle that read as one),
+wherever it is (a handle's sign), and every combining mark and Hangul
+filler, then any spaces, invisible marks, dots, Deltas and
 triangles left at the front (" @Name", ".@Name", "\u00B7@Name", "\u0394Name"
 and "\u25B2 Name" all show "Name"). Its length (0: nothing left) */
 int identity_unverified_name(const unsigned short *name, int length, unsigned short *out, int size);

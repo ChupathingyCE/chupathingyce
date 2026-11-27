@@ -156,12 +156,8 @@ void map_download_reset(void);
 
 /* ---------- from the host (map_download.c, "From the host") */
 
-/* network.map_downloads_from_host (MAP_HOST_DOWNLOADS_*: "off", "ask" or
-"always"; anything else is off), and its words */
-int map_download_host_setting_from(const char *text);
-const char *map_download_host_setting_word(int setting);
-/* the setting, on a build that downloads from hosts (else off), and set
-(written to config.toml) */
+/* network.map_downloads_from_host (MAP_HOST_DOWNLOADS_*), on a build that
+downloads from hosts (else off), and set (written to config.toml) */
 int map_download_host_setting(void);
 void map_download_host_set_setting(int setting);
 /* the most a map from a host may be, in bytes

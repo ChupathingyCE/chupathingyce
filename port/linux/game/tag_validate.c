@@ -19,9 +19,14 @@ walked once through its group's schema:
   it take longer than its size. The one overlap allowed is a shared one
   (shared_extent_overlap): Halo CE+'s maps store bytes that two tags,
   blocks or data have alike once, and point both at them. A root, block or
-  data may start where an earlier one starts and read its bytes, as long
-  as no runtime value of either is in them (unless both read them as the
-  same structure) and nothing the walk corrects changes them;
+  data may start where an earlier one starts and read its bytes as the
+  same structure or data, as long as nothing the walk corrects changes
+  them (read as another, a check of one could write in bytes the other
+  has already been checked to read). Where the
+  loader gives the walk room past the tags (tag_validate_room_proc: a
+  Custom Edition or HaloMD map's, whose tools overlapped tags' strings,
+  fonts and blocks), one that overlaps another's any other way is copied
+  there and walked as its own;
 - counts are cut to what the game has room for, indices, enums and tags
   past what they name are corrected, runtime values reset (tag_schema.h);
 - then, once every tag has been through it, the checks that look at other
@@ -53,6 +58,8 @@ runs it alone on a map file.
 /* NULL for Xbox/Custom Edition and in the asset-free standalone validator. */
 struct mcc_validation_dispatch const *mcc_validation_callbacks;
 
+unsigned long (*tag_validate_room_proc)(unsigned long size);
+
 /* ---------- constants */
 
 enum
@@ -76,9 +83,18 @@ enum
 	MAXIMUM_LOGGED_CORRECTIONS = 64,
 	MAXIMUM_MESSAGE_LENGTH = 512,
 
-	/* the claims: a bit for each byte of the tag cache */
+	/* the claims: a bit for each byte of the largest tag cache a layout
+	has (a Custom Edition map's: cache_files.c's CE_TAG_CACHE_SIZE; on a
+	64-bit desktop, OpenSauce's, 0x02280000: tag_schema_opensauce.c) */
 	CLAIM_BITS = 32,
-	CLAIM_WORDS = TAG_CACHE_SIZE / CLAIM_BITS,
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_64BIT) && !defined(HALO_CONSOLE)
+	CLAIM_CACHE_SIZE = TAG_CACHE_SIZE > 0x02280000 ? TAG_CACHE_SIZE : 0x02280000,
+#elif defined(HALO_CUSTOM_EDITION)
+	CLAIM_CACHE_SIZE = TAG_CACHE_SIZE > 0x01700000 ? TAG_CACHE_SIZE : 0x01700000,
+#else
+	CLAIM_CACHE_SIZE = TAG_CACHE_SIZE,
+#endif
+	CLAIM_WORDS = CLAIM_CACHE_SIZE / CLAIM_BITS,
 
 	/* the shared extents' tables (shared_extent_claim): one for the tags,
 	one for the bsp loaded, each a power of two of entries; how far one is
@@ -91,6 +107,21 @@ enum
 	MAXIMUM_SHARED_EXTENT_PROBES = 64,
 	MAXIMUM_SHARED_WALK_FACTOR = 4,
 	MAXIMUM_SHARED_OVERLAPS = 8192,
+	/* how many of them may be shared as another structure or data (Halo
+	CE+'s maps have one), each checked again after every check */
+	MAXIMUM_SHARED_AS_OTHERS = 64,
+	/* how many times tags whose blocks overlap are checked, until nothing
+	more is corrected (tag_validate_tags_layout) */
+	MAXIMUM_OVERLAP_PASSES = 4,
+	/* how many of the roots, blocks and data copied apart are logged one by
+	one (overlap_copied) */
+	MAXIMUM_LOGGED_COPIES = 16,
+	/* the most roots, blocks and data copied apart, and their most bytes
+	in all (overlap_copied): the same on every platform, whatever room the
+	loader has, so that a map's checked tags are the same everywhere (one
+	whose copies there is no room for is refused) */
+	MAXIMUM_COPIES = 4096,
+	MAXIMUM_COPIED_BYTES = 0x400000,
 };
 
 /* the passes of the walk over a tag */
@@ -149,6 +180,23 @@ struct tag_validate_structure_bsp_header
 
 typedef char verify_tag_validate_instance_size[sizeof(struct tag_validate_instance) == 0x20 ? 1 : -1];
 typedef char verify_tag_validate_header_size[sizeof(struct tag_validate_header) == 0x24 ? 1 : -1];
+/* Halo PC's tag header (cache_files.c's struct cache_file_ce_tag_header):
+the Xbox's first four fields, then its model data's, then the signature */
+enum
+{
+	PC_TAG_HEADER_SIZE = 0x28,
+	PC_TAG_HEADER_SIGNATURE_OFFSET = 0x24,
+};
+
+static unsigned long pc_header_signature(
+	struct tag_validate_header const *header)
+{
+	unsigned long signature;
+
+	memcpy(&signature, (byte const *)header + PC_TAG_HEADER_SIGNATURE_OFFSET, sizeof(signature));
+	return signature;
+}
+
 typedef char verify_tag_validate_structure_bsp_header_size[
 	sizeof(struct tag_validate_structure_bsp_header) == 0x18 ? 1 : -1];
 
@@ -177,6 +225,14 @@ struct shared_overlap
 	unsigned long hash;
 	/* the tag that shares them, for the message */
 	long tag_index;
+	/* bytes walked again as another's (overlap_walked), not shared: what
+	they were is not kept, but nothing is copied apart whose pointer is in
+	them (overlap_copied) */
+	boolean walked;
+	/* shared as another structure or data than the first's (an Xbox map's,
+	Halo CE+'s: shared_extent_overlap), checked again after every check
+	(shared_as_others_unchanged) */
+	boolean as_other;
 };
 
 /* an element being walked: its bytes, its definition, and where it is (for
@@ -221,11 +277,20 @@ static struct
 {
 	/* the tags last checked (tag_validate_tags) */
 	struct tag_validate_header *header;
+	/* their layout, and its tag cache's size (no more than the claims') */
+	struct tag_schema_layout const *layout;
+	unsigned long tag_cache_size;
 	long tag_data_size;
 	long file_length;
 	char map_name[64];
 	long corrections;
-} tag_validate_globals;
+	/* the roots, blocks and data that overlapped others' and were walked as
+	their own (_tag_schema_layout_overlaps_walked_bit) */
+	long overlaps;
+	/* some of them could not be remembered (overlap_walked): nothing more
+	is copied apart (overlap_copied) */
+	boolean overlaps_unremembered;
+} tag_validate_globals = { NULL, &tag_schema_xbox_layout, TAG_CACHE_SIZE };
 
 /* the tags' and the loaded bsp's shared extents (shared_extent_claim): on
 the console made with the claims (claims_ready), where without them nothing
@@ -243,6 +308,12 @@ static struct shared_overlap *tag_validate_overlaps;
 tag_overlap_count on */
 static long tag_validate_overlap_count;
 static long tag_validate_tag_overlap_count;
+/* the shared overlaps read as another structure or data
+(shared_extent_overlap): their places in tag_validate_overlaps, and how many
+of them are the tags' (the rest, a bsp's) */
+static long tag_validate_as_others[MAXIMUM_SHARED_AS_OTHERS];
+static long tag_validate_as_other_count;
+static long tag_validate_tag_as_other_count;
 
 /* a bit for each byte of the tag cache that a tag's root, block or data
 holds */
@@ -302,6 +373,21 @@ static boolean claims_ready(
 each tag in the table (at most UNSIGNED_SHORT_MAX), walked once, as that one */
 static unsigned long tag_validate_shared_roots[0x10000 / CLAIM_BITS];
 
+/* the roots, blocks and data copied apart from bytes another's overlap, in
+the room past the tags (overlap_copied): where the copies are, as offsets
+in the tag cache, and how many bytes and copies. Kept through every check
+of the tags (tag_validate_tags_layout), as the copies are */
+static struct
+{
+	unsigned long first;
+	unsigned long end;
+	unsigned long bytes;
+	long count;
+	/* each copy's offset and end, in the order made (and so in the tag
+	cache's: the room only moves up) */
+	unsigned long extents[MAXIMUM_COPIES][2];
+} tag_validate_copies;
+
 /* (in the Xbox address space on the 64-bit builds, where the tags'
 pointers are Xbox addresses: xbox_address.h) */
 #ifdef HALO_64BIT
@@ -339,7 +425,7 @@ static struct tag_schema_group const *schema_group_get(
 {
 	struct tag_schema_group const *const *list;
 
-	for (list = tag_schema_group_lists; *list; list++)
+	for (list = tag_validate_globals.layout->group_lists; *list; list++)
 	{
 		struct tag_schema_group const *group;
 
@@ -351,6 +437,21 @@ static struct tag_schema_group const *schema_group_get(
 	}
 
 	return NULL;
+}
+
+/* the layout's group taken for group_tag (group_aliases), or 0 */
+static unsigned long group_alias_get(
+	unsigned long group_tag)
+{
+	unsigned long const (*alias)[2] = tag_validate_globals.layout->group_aliases;
+
+	for (; alias && (*alias)[0]; alias++)
+	{
+		if ((*alias)[0] == group_tag)
+			return (*alias)[1];
+	}
+
+	return 0;
 }
 
 static char *tag_to_text(
@@ -438,7 +539,31 @@ static void validation_message(
 	tag_validate_report(message);
 }
 
-/* whether size bytes at address lie in the region being checked */
+/* the end (an offset in the tag cache) of the copy made past the tags that
+the byte at offset is in (overlap_copied), or offset itself if it is in
+none: only what the validator wrote there is a tag's */
+static unsigned long copy_end(
+	unsigned long offset)
+{
+	long low = 0, high = tag_validate_copies.count;
+
+	while (low < high)
+	{
+		long middle = low + (high - low) / 2;
+
+		if (tag_validate_copies.extents[middle][1] <= offset)
+			low = middle + 1;
+		else
+			high = middle;
+	}
+	if (low < tag_validate_copies.count && tag_validate_copies.extents[low][0] <= offset)
+		return tag_validate_copies.extents[low][1];
+
+	return offset;
+}
+
+/* whether size bytes at address lie in the region being checked (or, for
+the tags, in one of the copies made past them: overlap_copied) */
 static boolean region_contains(
 	struct tag_validation *validation,
 	void const *address,
@@ -446,9 +571,15 @@ static boolean region_contains(
 {
 	unsigned long offset = (unsigned long)(POINTER_BITS(address) - POINTER_BITS(validation->region));
 
-	return POINTER_BITS(address) >= POINTER_BITS(validation->region) &&
+	if (POINTER_BITS(address) >= POINTER_BITS(validation->region) &&
 		offset <= validation->region_size &&
-		size <= validation->region_size - offset;
+		size <= validation->region_size - offset)
+	{
+		return TRUE;
+	}
+	return validation->region == (byte *)tag_validate_globals.header &&
+		POINTER_BITS(address) >= POINTER_BITS(validation->region) &&
+		size <= copy_end(offset) - offset;
 }
 
 /* marks size bytes at address (in the tag cache, as the region is) as a
@@ -464,7 +595,7 @@ static boolean claim(
 
 	if (!size)
 		return TRUE;
-	if (first > TAG_CACHE_SIZE || size > TAG_CACHE_SIZE - first)
+	if (first > tag_validate_globals.tag_cache_size || size > tag_validate_globals.tag_cache_size - first)
 		return FALSE;
 
 	/* (whole words where they can be) */
@@ -503,7 +634,7 @@ static void unclaim(
 	unsigned long end = first + size;
 	unsigned long bit;
 
-	if (first > TAG_CACHE_SIZE || size > TAG_CACHE_SIZE - first)
+	if (first > tag_validate_globals.tag_cache_size || size > tag_validate_globals.tag_cache_size - first)
 		return;
 	for (bit = first; bit < end; )
 	{
@@ -659,11 +790,11 @@ static unsigned long bytes_hash(
 /* whether size bytes at address read as kind, which overlap bytes already
 claimed, share them with an earlier root, block or data as Halo CE+'s maps
 do: the overlap must start where that one starts, and anything past the
-longest that starts there must be no one's (it is claimed now). Read as
-the same structure as the first and the longest of them (a block
-of the same elements, or the same data), the two read and write the same
-fields; read as another, neither may have a runtime value in the bytes
-they share. Either way the bytes are remembered, and nothing the walk
+longest that starts there must be no one's (it is claimed now), and it
+must be read as the same structure as the first and the longest of them
+(a block of the same elements, or the same data): the two read and write
+the same fields, and what one's check writes is what the other's reads
+as checked. The bytes are remembered, and nothing the walk
 corrects may change them (shared_overlaps_unchanged), so that each reads
 what was checked for it. The one that shares is walked as its own */
 static boolean shared_extent_overlap(
@@ -679,7 +810,16 @@ static boolean shared_extent_overlap(
 	unsigned long shared;
 	unsigned long longest;
 
+	boolean as_other = entry && (entry->kind != kind || entry->longest_kind != kind);
+
+	/* (read as another structure or data than the first and the longest
+	that start there, only where the loader gives no room to copy them
+	apart instead, overlap_copied: an Xbox map's, Halo CE+'s; and then
+	checked again after every check, shared_as_others_unchanged, as one's
+	check could write in bytes the other's check reads after its own were
+	checked, a string's terminator in a block's pointer) */
 	if (!entry || !entry->kind || entry->offset != offset ||
+		(as_other && (tag_validate_room_proc || tag_validate_as_other_count >= MAXIMUM_SHARED_AS_OTHERS)) ||
 		tag_validate_overlap_count >= MAXIMUM_SHARED_OVERLAPS ||
 		size > validation->region_size * MAXIMUM_SHARED_WALK_FACTOR - validation->shared_size)
 	{
@@ -710,6 +850,288 @@ static boolean shared_extent_overlap(
 	overlap->size = (unsigned int)shared;
 	overlap->hash = bytes_hash(address, shared);
 	overlap->tag_index = validation->tag_index;
+	overlap->walked = FALSE;
+	overlap->as_other = as_other;
+	if (as_other)
+		tag_validate_as_others[tag_validate_as_other_count++] = tag_validate_overlap_count - 1;
+
+	return TRUE;
+}
+
+/* whether the bytes shared as another structure or data
+(shared_extent_overlap) are still as they were when they were first shared:
+checked before the checks and after each, so that no check reads through
+bytes another's corrected after they were checked for it. The map is
+refused if not */
+static boolean shared_as_others_unchanged(
+	struct tag_validation *validation)
+{
+	/* (a bsp's own: the tags' were checked as they were, and the game's
+	runtime values are in none of them) */
+	long index = validation->region == (byte *)tag_validate_globals.header ? 0 : tag_validate_tag_as_other_count;
+
+	for (; index < tag_validate_as_other_count && !validation->refused; index++)
+	{
+		struct shared_overlap const *overlap = &tag_validate_overlaps[tag_validate_as_others[index]];
+		byte const *bytes = (byte const *)tag_validate_globals.header + overlap->offset;
+
+		if (bytes_hash(bytes, overlap->size) != overlap->hash)
+		{
+			tag_validate_refuse(validation, "shares %lu bytes at %08lx with another tag that reads them as another "
+				"structure, and a correction changed them", (unsigned long)overlap->size,
+				(unsigned long)XBOX_ADDRESS(bytes));
+			return FALSE;
+		}
+	}
+
+	return TRUE;
+}
+
+/* whether the walk may write to an element of definition as it checks it:
+a runtime value it resets, a block's or data's definition it clears, what
+a check of it may correct, or a value it corrects (validate_value: a
+reference's name, tag and group, a tag index, a block index, an enum, a
+string's terminator). Only an element it never writes to may be walked
+where another's bytes are (overlap_walked): a correction there would change
+bytes the other was already checked to read (a block's or data's pointer
+or count), and a later check, or the game, would read through them
+unchecked */
+static boolean definition_writes(
+	struct tag_schema_definition const *definition,
+	short depth)
+{
+	struct tag_schema_field const *field;
+
+	if (depth > MAXIMUM_VALIDATION_DEPTH)
+		return TRUE;
+	for (field = definition->fields; field->type != _tag_schema_terminator; field++)
+	{
+		/* (every field the schema lists is one the walk checks, and
+		corrects where it is wrong; a structure's are its fields') */
+		if (field->type != _tag_schema_struct || definition_writes(field->definition, depth + 1))
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
+/* whether an element of definition has a check (its structures' too): a
+check may correct what it reads in the element's blocks, those with no
+fields of their own too (a collision bsp's leaves) */
+static boolean definition_checks(
+	struct tag_schema_definition const *definition,
+	short depth)
+{
+	struct tag_schema_field const *field;
+
+	if (depth > MAXIMUM_VALIDATION_DEPTH)
+		return TRUE;
+	for (field = definition->fields; field->type != _tag_schema_terminator; field++)
+	{
+		if (field->type == _tag_schema_check ||
+			(field->type == _tag_schema_struct && definition_checks(field->definition, depth + 1)))
+		{
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
+/* whether size bytes at address, which overlap bytes already claimed in a
+way shared_extent_overlap does not let them, may be walked as their own: in
+a layout whose tools overlapped them (_tag_schema_layout_overlaps_walked_bit:
+Halo PC retail's), and within what the walk may take again (as shared
+bytes are). They are claimed, and counted */
+static boolean overlap_walked(
+	struct tag_validation *validation,
+	void const *address,
+	unsigned long size,
+	struct tag_schema_definition const *definition)
+{
+	byte const *tag_cache = (byte const *)tag_validate_globals.header;
+	unsigned long first = (unsigned long)((byte const *)address - tag_cache);
+	unsigned long bit;
+	short depth;
+
+	/* (not one the walk may write to, definition_writes, nor one in an
+	element whose check may, definition_checks: what it writes would change
+	what the other reads after it was checked) */
+	for (depth = 0; depth < validation->depth; depth++)
+	{
+		if (definition_checks(validation->frames[depth].definition, 0))
+			return FALSE;
+	}
+	if (!TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_overlaps_walked_bit) ||
+		definition_writes(definition, 0) ||
+		first > tag_validate_globals.tag_cache_size || size > tag_validate_globals.tag_cache_size - first ||
+		size > validation->region_size * MAXIMUM_SHARED_WALK_FACTOR - validation->shared_size)
+	{
+		return FALSE;
+	}
+	validation->shared_size += size;
+	for (bit = first; bit < first + size; bit++)
+		tag_validate_claims[bit / CLAIM_BITS] |= 1UL << (bit % CLAIM_BITS);
+	tag_validate_globals.overlaps++;
+	/* (remembered, so that nothing whose pointer is in them is copied
+	apart: overlap_copied; or, with no room to, nothing more is. They take
+	places of the shared overlaps' MAXIMUM_SHARED_OVERLAPS, which only a
+	Halo PC map that copies apart reaches them in: past it, it shares and
+	copies no more, and what overlaps is made none or refused) */
+	if (tag_validate_overlap_count < MAXIMUM_SHARED_OVERLAPS)
+	{
+		struct shared_overlap *overlap = &tag_validate_overlaps[tag_validate_overlap_count++];
+
+		overlap->offset = (unsigned int)first;
+		overlap->size = (unsigned int)size;
+		overlap->hash = 0;
+		overlap->tag_index = validation->tag_index;
+		overlap->walked = TRUE;
+	}
+	else
+	{
+		tag_validate_globals.overlaps_unremembered = TRUE;
+	}
+
+	return TRUE;
+}
+
+/* size bytes at address, read as kind, which overlap bytes already claimed
+in a way shared_extent_overlap does not let them: copied to room of their
+own past the tags, where the loader gives it (tag_validate_room_proc: no
+more than MAXIMUM_COPIES of them, and MAXIMUM_COPIED_BYTES in all), and
+claimed there, so that neither what the walk corrects nor what the game
+writes in one changes what another reads (Halo PC retail's tools shared a
+string's bytes with another's, a font's characters with another tag's).
+The pointer to them, pointer_size bytes at pointer, is then the copy's:
+never one in bytes another root, block or data shares or walks again
+(shared_extent_overlap, overlap_walked), as it would change what that one
+reads after it was checked. Their copy, or NULL: not copied (then they
+are walked where they are, made none or refused, as before), or, with no
+room for it, the map refused */
+static void *overlap_copied(
+	struct tag_validation *validation,
+	void const *address,
+	unsigned long size,
+	void const *kind,
+	boolean is_data,
+	void const *pointer,
+	unsigned long pointer_size)
+{
+	byte const *tag_cache = (byte const *)tag_validate_globals.header;
+	unsigned long pointer_offset = (unsigned long)(POINTER_BITS(pointer) - POINTER_BITS(tag_cache));
+	unsigned long room;
+	unsigned long offset;
+	byte *copy;
+	long index;
+
+	/* (what is copied depends on the tags alone, never on the room the
+	loader has: the same on every platform) */
+	if (!tag_validate_room_proc || validation->region != tag_cache || !size ||
+		tag_validate_globals.overlaps_unremembered || tag_validate_copies.count >= MAXIMUM_COPIES ||
+		size > MAXIMUM_COPIED_BYTES - tag_validate_copies.bytes)
+	{
+		return NULL;
+	}
+	/* (the pointer in the tags' bytes, and in none another shares: the
+	tag index, or a root, block or data that is only its own) */
+	if (POINTER_BITS(pointer) < POINTER_BITS(tag_cache) || pointer_offset > tag_validate_globals.tag_cache_size ||
+		pointer_size > tag_validate_globals.tag_cache_size - pointer_offset)
+	{
+		return NULL;
+	}
+	for (index = 0; index < tag_validate_overlap_count; index++)
+	{
+		struct shared_overlap const *overlap = &tag_validate_overlaps[index];
+
+		if (pointer_offset < (unsigned long)overlap->offset + overlap->size &&
+			(unsigned long)overlap->offset < pointer_offset + pointer_size)
+		{
+			return NULL;
+		}
+	}
+	/* (past the tags and every earlier copy, and in the tag cache: the
+	room is the loader's, and is not trusted to be. A map whose copies it
+	has no room for is refused, never loaded without them: its tags would
+	be other than another platform's) */
+	room = tag_validate_room_proc(size);
+	copy = room ? xbox_pointer(room) : NULL;
+	offset = (unsigned long)(POINTER_BITS(copy) - POINTER_BITS(tag_cache));
+	if (!copy || POINTER_BITS(copy) < POINTER_BITS(tag_cache) || offset < validation->region_size ||
+		offset < tag_validate_copies.end || offset > tag_validate_globals.tag_cache_size ||
+		size > tag_validate_globals.tag_cache_size - offset ||
+		!shared_extent_claim(copy, size, kind, is_data))
+	{
+		tag_validate_refuse(validation, "has %lu bytes at %08lx, which overlap another's, and no room in the tag "
+			"cache to copy them apart", size, (unsigned long)XBOX_ADDRESS(address));
+		return NULL;
+	}
+	memcpy(copy, address, size);
+	if (!tag_validate_copies.end)
+		tag_validate_copies.first = offset;
+	tag_validate_copies.end = offset + size;
+	tag_validate_copies.extents[tag_validate_copies.count][0] = offset;
+	tag_validate_copies.extents[tag_validate_copies.count][1] = offset + size;
+	tag_validate_copies.bytes += size;
+	tag_validate_copies.count++;
+	if (tag_validate_copies.count <= MAXIMUM_LOGGED_COPIES)
+	{
+		char message[MAXIMUM_MESSAGE_LENGTH];
+		size_t length;
+
+		snprintf(message, sizeof(message), "the map '%s' has its own copy made: ", tag_validate_globals.map_name);
+		length = strlen(message);
+		validation_where(validation, message + length, sizeof(message) - length);
+		length = strlen(message);
+		snprintf(message + length, sizeof(message) - length, " has %lu bytes at %08lx, which overlap another's",
+			size, (unsigned long)XBOX_ADDRESS(address));
+		tag_validate_report(message);
+	}
+
+	return copy;
+}
+
+/* size bytes at address, read as kind, which overlap bytes already claimed,
+pointed to by pointer_size bytes at pointer: shared with the one they
+overlap, read as the same structure or data (shared_extent_overlap), or
+given a copy of their own (overlap_copied), *copy then. FALSE if neither
+(and then never shared as another: a check of either could write in bytes
+the other's check reads after its own were checked, a string's terminator
+in another tag's block); the map may then have been refused */
+static boolean overlap_kept(
+	struct tag_validation *validation,
+	void const *address,
+	unsigned long size,
+	void const *kind,
+	boolean is_data,
+	void const *pointer,
+	unsigned long pointer_size,
+	void **copy)
+{
+	*copy = NULL;
+	if (shared_extent_overlap(validation, address, size, kind, is_data))
+		return TRUE;
+	*copy = overlap_copied(validation, address, size, kind, is_data, pointer, pointer_size);
+
+	return *copy != NULL;
+}
+
+/* data whose bytes overlap others' in a way shared_extent_overlap does not
+let them, in a layout whose tools overlapped them (Halo PC retail's: a
+HaloMD map's strings point into other tags' bytes, where its engine read
+whatever was there): none, as data is only bytes the game reads, which
+another tag's runtime values or corrections may change under it. TRUE if
+it was made none */
+static boolean overlap_data_none(
+	struct tag_validation *validation,
+	struct tag_data *data)
+{
+	if (!TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_overlaps_walked_bit))
+		return FALSE;
+	tag_validate_correct(validation, "has %ld bytes at %08lx, overlapping another's: none", data->size,
+		(unsigned long)data->address);
+	data->size = 0;
+	data->address = XBOX_NULL;
 
 	return TRUE;
 }
@@ -728,7 +1150,15 @@ static boolean shared_overlaps_unchanged(
 		struct shared_overlap const *overlap = &tag_validate_overlaps[index];
 		byte const *bytes = (byte const *)tag_validate_globals.header + overlap->offset;
 
-		if (bytes_hash(bytes, overlap->size) != overlap->hash)
+		if (overlap->walked)
+			continue;
+		if (bytes_hash(bytes, overlap->size) != overlap->hash &&
+			TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_overlaps_walked_bit))
+		{
+			/* (checked again until nothing changes: tag_validate_tags_layout) */
+			tag_validate_globals.overlaps++;
+		}
+		else if (bytes_hash(bytes, overlap->size) != overlap->hash)
 		{
 			validation->tag_index = overlap->tag_index;
 			validation->depth = 0;
@@ -759,8 +1189,11 @@ static boolean string_valid(
 	game copies and formats names into buffers of that size) */
 	if (region_contains(validation, string, 1))
 	{
-		return memchr(string, 0, MIN(validation->region_size - offset, (unsigned long)MAXIMUM_TAG_NAME_LENGTH)) !=
-			NULL;
+		/* (one in the copies past the tags, overlap_copied, ends in them) */
+		unsigned long left = offset < validation->region_size ? validation->region_size - offset :
+			copy_end(offset) - offset;
+
+		return memchr(string, 0, MIN(left, (unsigned long)MAXIMUM_TAG_NAME_LENGTH)) != NULL;
 	}
 	if (tags && POINTER_BITS(string) >= POINTER_BITS(tags) &&
 		tags_offset < (unsigned long)tag_validate_globals.tag_data_size)
@@ -796,9 +1229,12 @@ static boolean instance_in_groups(
 		return TRUE;
 	for (; *groups; groups++)
 	{
+		unsigned long alias = group_alias_get(*groups);
+
 		if (instance->group_tag == *groups ||
 			instance->parent_group_tags[0] == *groups ||
-			instance->parent_group_tags[1] == *groups)
+			instance->parent_group_tags[1] == *groups ||
+			(alias && instance->group_tag == alias))
 		{
 			return TRUE;
 		}
@@ -893,12 +1329,27 @@ static struct tag_block const *block_index_target(
 	return (struct tag_block const *)(base + field->target_offset);
 }
 
+/* a field's most elements or bytes in the layout being checked: the one
+given (the field's), or the layout's own (tag_schema_layout's field_maximum) */
+static long field_maximum(
+	struct tag_schema_field const *field,
+	long maximum)
+{
+	return tag_validate_globals.layout && tag_validate_globals.layout->field_maximum ?
+		tag_validate_globals.layout->field_maximum(field, maximum) : maximum;
+}
+
 static void validate_block_extent(
 	struct tag_validation *validation,
 	struct tag_block *block,
 	struct tag_schema_field const *field)
 {
 	struct tag_schema_definition const *definition = field->definition;
+	/* (Halo PC's most, in its layout: TAG_SCHEMA_PC_BLOCK; or the layout's
+	own where it has one, field_maximum) */
+	long maximum = field_maximum(field, field->target_offset &&
+		TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_tool_maxima_kept_bit) ?
+		field->target_offset : field->maximum);
 
 	block->definition = XBOX_NULL;
 	if (block->count < 0)
@@ -907,13 +1358,14 @@ static void validate_block_extent(
 		return;
 	}
 	/* (a block of the tools' maximum, _tag_schema_tool_maximum_bit, is cut
-	too: this build's Halo PC maps, which go past them, are checked by their
-	own loader, ce_map_checks.c, not here) */
-	if (field->maximum > 0 && block->count > field->maximum)
+	too, but in a layout whose tools went past them: Halo PC's) */
+	if (maximum > 0 && block->count > maximum &&
+		!(TEST_FLAG(field->flags, _tag_schema_tool_maximum_bit) &&
+			TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_tool_maxima_kept_bit)))
 	{
 		tag_validate_correct(validation, "has %ld elements, more than the game's %ld: cut to %ld",
-			block->count, field->maximum, field->maximum);
-		block->count = field->maximum;
+			block->count, maximum, maximum);
+		block->count = maximum;
 	}
 	if (block->count &&
 		((unsigned long)block->count > validation->region_size / (unsigned long)definition->size ||
@@ -924,10 +1376,39 @@ static void validate_block_extent(
 		return;
 	}
 	if (!shared_extent_claim(xbox_pointer(block->address), (unsigned long)block->count * definition->size,
-			definition, FALSE) &&
-		!shared_extent_overlap(validation, xbox_pointer(block->address),
-			(unsigned long)block->count * definition->size, definition, FALSE))
+			definition, FALSE))
 	{
+		void *copy;
+
+		if (overlap_kept(validation, xbox_pointer(block->address), (unsigned long)block->count * definition->size,
+				definition, FALSE, block, sizeof(*block), &copy))
+		{
+			if (copy)
+				block->address = XBOX_ADDRESS(copy);
+			return;
+		}
+		if (validation->refused)
+			return;
+	}
+	else
+	{
+		if (!block->count)
+			block->address = XBOX_NULL;
+		return;
+	}
+	if (!overlap_walked(validation, xbox_pointer(block->address), (unsigned long)block->count * definition->size,
+			definition))
+	{
+		/* (one the walk would write to: none, in a layout whose tools
+		overlapped blocks, as its engine read whatever was there) */
+		if (TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_overlaps_walked_bit))
+		{
+			tag_validate_correct(validation, "has %ld elements of %ld bytes at %08lx, which overlap another's: none",
+				block->count, definition->size, (unsigned long)block->address);
+			block->count = 0;
+			block->address = XBOX_NULL;
+			return;
+		}
 		tag_validate_refuse(validation, "has %ld elements of %ld bytes at %08lx, which overlap another's",
 			block->count, definition->size, (unsigned long)block->address);
 		return;
@@ -943,20 +1424,26 @@ static void validate_data_extent(
 	struct tag_data *data,
 	struct tag_schema_field const *field)
 {
+	long maximum = field_maximum(field, field->maximum);
+
 	data->definition = XBOX_NULL;
 	if (data->size < 0)
 	{
 		tag_validate_refuse(validation, "has %ld bytes", data->size);
 		return;
 	}
-	if (field->maximum > 0 && data->size > field->maximum)
+	if (maximum > 0 && data->size > maximum)
 	{
 		tag_validate_correct(validation, "has %ld bytes, more than the game's %ld: cut to %ld",
-			data->size, field->maximum, field->maximum);
-		data->size = field->maximum;
+			data->size, maximum, maximum);
+		data->size = maximum;
 	}
 	if (field->type == _tag_schema_file_data)
 	{
+		/* (in a file of the loader's, perhaps, which it checks it against:
+		_tag_schema_layout_file_data_elsewhere_bit) */
+		if (TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_file_data_elsewhere_bit))
+			return;
 		if (data->file_offset < 0 || data->file_offset > tag_validate_globals.file_length - data->size)
 		{
 			tag_validate_refuse(validation, "has %ld bytes at %08lx, outside the map's %ld",
@@ -968,10 +1455,37 @@ static void validate_data_extent(
 	into a block of its own, stubbs_mode.c) */
 	if (data->size && stubbs_mode_owns_data(xbox_pointer(data->address), data->size))
 		return;
-	if (data->size &&
-		(!region_contains(validation, xbox_pointer(data->address), data->size) ||
-			(!shared_extent_claim(xbox_pointer(data->address), data->size, field, TRUE) &&
-				!shared_extent_overlap(validation, xbox_pointer(data->address), data->size, field, TRUE))))
+	/* (Halo PC retail's tools left some data pointing past the tags, which
+	its engine read whatever was there: none, _tag_schema_layout_overlaps_walked_bit) */
+	if (data->size && !region_contains(validation, xbox_pointer(data->address), data->size) &&
+		TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_overlaps_walked_bit))
+	{
+		tag_validate_correct(validation, "has %ld bytes at %08lx, outside the tags: none", data->size,
+			(unsigned long)data->address);
+		data->size = 0;
+		data->address = XBOX_NULL;
+		return;
+	}
+	if (data->size && region_contains(validation, xbox_pointer(data->address), data->size) &&
+		!shared_extent_claim(xbox_pointer(data->address), data->size, field, TRUE))
+	{
+		void *copy;
+
+		if (overlap_kept(validation, xbox_pointer(data->address), (unsigned long)data->size, field, TRUE, data,
+				sizeof(*data), &copy))
+		{
+			if (copy)
+				data->address = XBOX_ADDRESS(copy);
+			return;
+		}
+		if (!validation->refused && !overlap_data_none(validation, data))
+		{
+			tag_validate_refuse(validation, "has %ld bytes at %08lx, outside the tags or overlapping another's",
+				data->size, (unsigned long)data->address);
+		}
+		return;
+	}
+	if (data->size && !region_contains(validation, xbox_pointer(data->address), data->size))
 	{
 		tag_validate_refuse(validation, "has %ld bytes at %08lx, outside the tags or overlapping another's",
 			data->size, (unsigned long)data->address);
@@ -1064,11 +1578,30 @@ static void validate_value(
 	{
 		long value = integer_get(address, field->size, is_unsigned);
 		long none = integer_none(field->size, is_unsigned);
+		long maximum = field->target_offset &&
+			TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_pc_shader_types_bit) ?
+			field->target_offset : field->maximum;
 
-		if ((value >= 0 && value < field->maximum && value != none) || (none_allowed && value == none))
+		if ((value >= 0 && value < maximum && value != none) || (none_allowed && value == none))
 			break;
+		/* (a Halo PC map's short that names one of its values in the other
+		byte order is that value: HaloMD's tools wrote some so, 256 for 1,
+		as a shotgun's weapon type) */
+		if (field->size == 2 && TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_pc_header_bit))
+		{
+			unsigned short bytes = (unsigned short)value;
+			long swapped = (long)(unsigned short)((bytes >> 8) | (bytes << 8));
+
+			if (swapped < maximum && swapped != none)
+			{
+				tag_validate_correct(validation, "is %ld, past its %ld values: %ld, its bytes the other way round",
+					value, maximum, swapped);
+				integer_set(address, field->size, swapped);
+				break;
+			}
+		}
 		tag_validate_correct(validation, "is %ld, past its %ld values: %s",
-			value, field->maximum, none_allowed ? "none" : "0");
+			value, maximum, none_allowed ? "none" : "0");
 		integer_set(address, field->size, none_allowed ? NONE : 0);
 		break;
 	}
@@ -1154,6 +1687,10 @@ static void validate_fields(
 					if (!validation->refused)
 						tag_validate_refuse(validation, "failed its check");
 				}
+				/* (what it corrected read through by the next check only as
+				it was checked: shared_as_others_unchanged) */
+				if (validation->pass == _pass_checks && tag_validate_as_other_count)
+					shared_as_others_unchanged(validation);
 				break;
 
 			default:
@@ -1285,18 +1822,26 @@ static boolean definition_fits(
 	return TRUE;
 }
 
-/* whether every group's schema fits (definition_fits), found once */
+/* whether every group's schema of a layout fits (definition_fits), found
+once for each of the last few layouts */
 static boolean schemas_fit(
-	void)
+	struct tag_schema_layout const *layout)
 {
-	static short fit = NONE;
+	static struct tag_schema_layout const *layouts[4];
+	static short fits[4];
+	short slot;
+	short fit;
 
-	if (fit == NONE)
+	for (slot = 0; slot < (short)NUMBEROF(layouts); slot++)
+	{
+		if (layouts[slot] == layout)
+			return (boolean)fits[slot];
+	}
 	{
 		struct tag_schema_group const *const *list;
 
 		fit = TRUE;
-		for (list = tag_schema_group_lists; *list && fit; list++)
+		for (list = layout->group_lists; *list && fit; list++)
 		{
 			struct tag_schema_group const *group;
 
@@ -1306,6 +1851,13 @@ static boolean schemas_fit(
 					fit = FALSE;
 			}
 		}
+	}
+	for (slot = 0; slot < (short)NUMBEROF(layouts) && layouts[slot]; slot++)
+		;
+	if (slot < (short)NUMBEROF(layouts))
+	{
+		layouts[slot] = layout;
+		fits[slot] = fit;
 	}
 
 	return (boolean)fit;
@@ -1398,11 +1950,165 @@ boolean tag_validate_tags(
 	long file_length,
 	char const *map_name)
 {
+	return tag_validate_tags_layout(&tag_schema_xbox_layout, tag_header, tag_data_size, file_length, map_name);
+}
+
+static boolean validate_tags_once(
+	struct tag_schema_layout const *layout,
+	void *tag_header,
+	long tag_data_size,
+	long file_length,
+	char const *map_name);
+
+/* (in a layout whose overlapping blocks are walked as their own, a
+correction made for one may have changed what another reads: the tags are
+checked again until nothing more is corrected, a few times at most) */
+boolean tag_validate_tags_layout(
+	struct tag_schema_layout const *layout,
+	void *tag_header,
+	long tag_data_size,
+	long file_length,
+	char const *map_name)
+{
+	long corrections = 0;
+	short pass;
+	boolean valid = TRUE;
+
+	memset(&tag_validate_copies, 0, sizeof(tag_validate_copies));
+	for (pass = 0; pass < MAXIMUM_OVERLAP_PASSES && valid; pass++)
+	{
+		valid = validate_tags_once(layout, tag_header, tag_data_size, file_length, map_name);
+		corrections += tag_validate_globals.corrections;
+		if (!TEST_FLAG(layout->flags, _tag_schema_layout_overlaps_walked_bit) || !tag_validate_globals.overlaps ||
+			!tag_validate_globals.corrections)
+		{
+			break;
+		}
+	}
+	/* (corrections still made in the last pass may have changed what another
+	overlapping block reads, unchecked: the map is refused, as one whose
+	overlaps are not safe to play) */
+	if (valid && pass == MAXIMUM_OVERLAP_PASSES)
+	{
+		struct tag_validation validation;
+
+		validation_new(&validation, tag_header, (unsigned long)tag_data_size);
+		tag_validate_refuse(&validation, "has overlapping blocks whose corrections still change others after %d checks",
+			(int)MAXIMUM_OVERLAP_PASSES);
+		valid = FALSE;
+	}
+	tag_validate_globals.corrections = corrections;
+	if (tag_validate_copies.count)
+	{
+		char message[MAXIMUM_MESSAGE_LENGTH];
+
+		snprintf(message, sizeof(message), "the map '%s' has %ld roots, blocks and data overlapping others' given "
+			"their own copies (%lu bytes)", map_name, tag_validate_copies.count, tag_validate_copies.bytes);
+		tag_validate_report(message);
+	}
+
+	return valid;
+}
+
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_NO_FORGE)
+/* port: another map's tags (Forge's AI characters on the multiplayer maps,
+port/linux/game/forge_ai_tags.c), checked as tag_validate_tags checks a
+map's, with what the loaded map's check keeps for its structure bsps (its
+header, the claims, the shared extents) put back after */
+struct tag_validate_kept_state
+{
+	__typeof__(tag_validate_globals) globals;
+	struct shared_extent shared_tags[SHARED_EXTENT_TAG_ENTRIES];
+	struct shared_extent shared_bsp[SHARED_EXTENT_BSP_ENTRIES];
+	struct shared_overlap overlaps[MAXIMUM_SHARED_OVERLAPS];
+	long overlap_count;
+	long tag_overlap_count;
+	long as_others[MAXIMUM_SHARED_AS_OTHERS];
+	long as_other_count;
+	long tag_as_other_count;
+	unsigned long claims[CLAIM_WORDS];
+	unsigned long shared_roots[0x10000 / CLAIM_BITS];
+	__typeof__(tag_validate_copies) copies;
+};
+
+/* (while another map's tags are checked) where the loaded map's check
+state waits: made by tag_validate_other_tags_room, before the other tags
+take their memory */
+static struct tag_validate_kept_state *tag_validate_kept;
+
+boolean tag_validate_other_tags_room(
+	boolean wanted)
+{
+	if (wanted && !tag_validate_kept)
+		tag_validate_kept = malloc(sizeof(*tag_validate_kept));
+	else if (!wanted && tag_validate_kept)
+	{
+		free(tag_validate_kept);
+		tag_validate_kept = NULL;
+	}
+	return !wanted || tag_validate_kept != NULL;
+}
+
+boolean tag_validate_other_tags(
+	void *tag_header,
+	long tag_data_size,
+	long file_length,
+	char const *map_name)
+{
+	struct tag_validate_kept_state *kept = tag_validate_kept;
+	boolean valid;
+
+	if (!kept)
+	{
+		error(_error_silent, "the map '%s''s tags cannot be checked: no room for the loaded map's check (%lu KB)",
+			map_name, (unsigned long)(sizeof(*kept) >> 10));
+		return FALSE;
+	}
+	kept->globals = tag_validate_globals;
+	memcpy(kept->shared_tags, tag_validate_shared_tags, sizeof(kept->shared_tags));
+	memcpy(kept->shared_bsp, tag_validate_shared_bsp, sizeof(kept->shared_bsp));
+	memcpy(kept->overlaps, tag_validate_overlaps, sizeof(kept->overlaps));
+	kept->overlap_count = tag_validate_overlap_count;
+	kept->tag_overlap_count = tag_validate_tag_overlap_count;
+	memcpy(kept->as_others, tag_validate_as_others, sizeof(kept->as_others));
+	kept->as_other_count = tag_validate_as_other_count;
+	kept->tag_as_other_count = tag_validate_tag_as_other_count;
+	memcpy(kept->claims, tag_validate_claims, sizeof(kept->claims));
+	memcpy(kept->shared_roots, tag_validate_shared_roots, sizeof(kept->shared_roots));
+	kept->copies = tag_validate_copies;
+	valid = tag_validate_tags_layout(&tag_schema_xbox_layout, tag_header, tag_data_size, file_length, map_name);
+	tag_validate_globals = kept->globals;
+	memcpy(tag_validate_shared_tags, kept->shared_tags, sizeof(kept->shared_tags));
+	memcpy(tag_validate_shared_bsp, kept->shared_bsp, sizeof(kept->shared_bsp));
+	memcpy(tag_validate_overlaps, kept->overlaps, sizeof(kept->overlaps));
+	tag_validate_overlap_count = kept->overlap_count;
+	tag_validate_tag_overlap_count = kept->tag_overlap_count;
+	memcpy(tag_validate_as_others, kept->as_others, sizeof(kept->as_others));
+	tag_validate_as_other_count = kept->as_other_count;
+	tag_validate_tag_as_other_count = kept->tag_as_other_count;
+	memcpy(tag_validate_claims, kept->claims, sizeof(kept->claims));
+	memcpy(tag_validate_shared_roots, kept->shared_roots, sizeof(kept->shared_roots));
+	tag_validate_copies = kept->copies;
+	return valid;
+}
+#endif
+
+static boolean validate_tags_once(
+	struct tag_schema_layout const *layout,
+	void *tag_header,
+	long tag_data_size,
+	long file_length,
+	char const *map_name)
+{
 	struct tag_validate_header *header = tag_header;
 	struct tag_validation validation;
+	boolean pc_header = TEST_FLAG(layout->flags, _tag_schema_layout_pc_header_bit);
 	long absolute_index;
 
 	memset(&tag_validate_globals, 0, sizeof(tag_validate_globals));
+	tag_validate_globals.layout = layout;
+	/* (no more than the claims hold) */
+	tag_validate_globals.tag_cache_size = MIN(layout->tag_cache_size, (unsigned long)CLAIM_CACHE_SIZE);
 #ifdef HALO_XBOX_CONSOLE
 	tag_validate_skipped = !claims_ready();
 	if (tag_validate_skipped)
@@ -1410,7 +2116,10 @@ boolean tag_validate_tags(
 #endif
 	tag_validate_globals.header = header;
 	tag_validate_globals.tag_data_size = tag_data_size;
-	tag_validate_globals.file_length = file_length;
+	/* (data in other files than the map is the loader's to check:
+	_tag_schema_layout_file_data_elsewhere_bit) */
+	tag_validate_globals.file_length = TEST_FLAG(layout->flags, _tag_schema_layout_file_data_elsewhere_bit) ?
+		0x7FFFFFFF : file_length;
 	snprintf(tag_validate_globals.map_name, sizeof(tag_validate_globals.map_name), "%s", map_name);
 	memset(tag_validate_claims, 0, CLAIM_WORDS * sizeof(*tag_validate_claims));
 	memset(tag_validate_shared_roots, 0, sizeof(tag_validate_shared_roots));
@@ -1418,6 +2127,8 @@ boolean tag_validate_tags(
 	shared_extents_clear(tag_validate_shared_bsp, SHARED_EXTENT_BSP_ENTRIES);
 	tag_validate_overlap_count = 0;
 	tag_validate_tag_overlap_count = 0;
+	tag_validate_as_other_count = 0;
+	tag_validate_tag_as_other_count = 0;
 	validation_new(&validation, tag_header, (unsigned long)tag_data_size);
 #ifdef HALO_64BIT
 	if (!tag_validate_empty_name)
@@ -1430,23 +2141,28 @@ boolean tag_validate_tags(
 	tag_validate_empty_name[0] = 0;
 #endif
 
-	if (!schemas_fit())
+	if (!schemas_fit(layout))
 	{
 		tag_validate_refuse(&validation, "cannot be checked: a tag schema is wrong");
 		return FALSE;
 	}
-	if (tag_data_size < (long)sizeof(*header) || tag_data_size > TAG_CACHE_SIZE ||
-		header->signature != TAG_HEADER_SIGNATURE ||
+	if (tag_data_size < (pc_header ? PC_TAG_HEADER_SIZE : (long)sizeof(*header)) ||
+		(unsigned long)tag_data_size > tag_validate_globals.tag_cache_size ||
+		(pc_header ? pc_header_signature(header) : header->signature) != TAG_HEADER_SIGNATURE ||
 		header->tag_count <= 0 || header->tag_count > UNSIGNED_SHORT_MAX ||
 		!region_contains(&validation, instances_get(header), header->tag_count * sizeof(struct tag_validate_instance)))
 	{
 		tag_validate_refuse(&validation, "has a damaged tag header");
 		return FALSE;
 	}
-	if (!claim(header, sizeof(*header)) ||
+	/* (Halo PC's header has its model data where the Xbox's has its
+	buffers, and no buffers: its models' are made as they load,
+	port/linux/game/ce_models.c) */
+	if (!claim(header, pc_header ? PC_TAG_HEADER_SIZE : sizeof(*header)) ||
 		!claim(instances_get(header), header->tag_count * sizeof(struct tag_validate_instance)) ||
-		!validate_buffers(&validation, xbox_pointer(header->vertex_buffers), header->vertex_buffer_count,
-			xbox_pointer(header->index_buffers), header->index_buffer_count))
+		(!pc_header &&
+			!validate_buffers(&validation, xbox_pointer(header->vertex_buffers), header->vertex_buffer_count,
+				xbox_pointer(header->index_buffers), header->index_buffer_count)))
 	{
 		if (!validation.refused)
 			tag_validate_refuse(&validation, "has a damaged tag header");
@@ -1518,8 +2234,22 @@ boolean tag_validate_tags(
 					tag_validate_shared_roots[absolute_index / CLAIM_BITS] |= 1UL << (absolute_index % CLAIM_BITS);
 					continue;
 				}
-				/* (or that shares an earlier one's bytes otherwise) */
-				if (shared_extent_overlap(&validation, root, group->definition->size, group->definition, FALSE))
+				/* (or that shares an earlier one's bytes otherwise, or has
+				them copied apart) */
+				{
+					void *copy;
+
+					if (overlap_kept(&validation, root, (unsigned long)group->definition->size, group->definition,
+							FALSE, &instance->base_address, sizeof(instance->base_address), &copy))
+					{
+						if (copy)
+							instance->base_address = XBOX_ADDRESS(copy);
+						continue;
+					}
+					if (validation.refused)
+						break;
+				}
+				if (overlap_walked(&validation, root, group->definition->size, group->definition))
 					continue;
 			}
 			tag_validate_refuse(&validation, "has its data at %08lx, outside the tags or overlapping another's",
@@ -1531,11 +2261,16 @@ boolean tag_validate_tags(
 	/* every tag through its schema, then every tag's checks */
 	for (absolute_index = 0; absolute_index < header->tag_count && !validation.refused; absolute_index++)
 		validate_instance(&validation, &instances_get(header)[absolute_index], _pass_values);
+	/* (no check reads through bytes shared as another structure that a
+	correction changed: shared_as_others_unchanged, again after each) */
+	if (!validation.refused)
+		shared_as_others_unchanged(&validation);
 	for (absolute_index = 0; absolute_index < header->tag_count && !validation.refused; absolute_index++)
 		validate_instance(&validation, &instances_get(header)[absolute_index], _pass_checks);
 	if (!validation.refused)
 		shared_overlaps_unchanged(&validation, 0);
 	tag_validate_tag_overlap_count = tag_validate_overlap_count;
+	tag_validate_tag_as_other_count = tag_validate_as_other_count;
 
 	/* each tag's name, now that every root, block and data is claimed: a
 	name in any of their bytes could lose its terminator to what is written
@@ -1560,6 +2295,15 @@ boolean tag_validate_tags(
 	}
 
 	tag_validate_globals.corrections = validation.corrections;
+	if (tag_validate_globals.overlaps && !validation.refused)
+	{
+		char message[MAXIMUM_MESSAGE_LENGTH];
+
+		snprintf(message, sizeof(message), "the map '%s' has %ld roots, blocks and data overlapping others', as %s's "
+			"tools left them: each checked as its own", tag_validate_globals.map_name, tag_validate_globals.overlaps,
+			layout->name);
+		tag_validate_report(message);
+	}
 
 	return !validation.refused;
 }
@@ -1586,15 +2330,18 @@ boolean tag_validate_structure_bsp(
 	if (!header || !instance || instance->group_tag != STRUCTURE_BSP_GROUP_TAG ||
 		size < (long)sizeof(*bsp_header) ||
 		tag_cache_offset < (unsigned long)tag_validate_globals.tag_data_size ||
-		tag_cache_offset > TAG_CACHE_SIZE || (unsigned long)size > TAG_CACHE_SIZE - tag_cache_offset)
+		tag_cache_offset > tag_validate_globals.tag_cache_size ||
+		(unsigned long)size > tag_validate_globals.tag_cache_size - tag_cache_offset)
 	{
 		tag_validate_refuse(&validation, "has a structure bsp outside the tag cache");
 		return FALSE;
 	}
 	/* (another bsp may have been where this one is) */
-	unclaim(tag_validate_globals.tag_data_size, TAG_CACHE_SIZE - tag_validate_globals.tag_data_size);
+	unclaim(tag_validate_globals.tag_data_size,
+		tag_validate_globals.tag_cache_size - tag_validate_globals.tag_data_size);
 	shared_extents_clear(tag_validate_shared_bsp, SHARED_EXTENT_BSP_ENTRIES);
 	tag_validate_overlap_count = tag_validate_tag_overlap_count;
+	tag_validate_as_other_count = tag_validate_tag_as_other_count;
 
 	if (bsp_header->signature != STRUCTURE_BSP_HEADER_SIGNATURE ||
 		!claim(bsp_header, sizeof(*bsp_header)) ||
@@ -1615,6 +2362,8 @@ boolean tag_validate_structure_bsp(
 			return FALSE;
 		}
 		validate_tag(&validation, tag_index, xbox_pointer(bsp_header->base_address), group->definition, _pass_values);
+		if (!validation.refused)
+			shared_as_others_unchanged(&validation);
 		if (!validation.refused)
 			validate_tag(&validation, tag_index, xbox_pointer(bsp_header->base_address), group->definition, _pass_checks);
 		if (!validation.refused)
@@ -1639,7 +2388,7 @@ boolean tag_validate_claimed(
 	unsigned long offset = (unsigned long)(POINTER_BITS(address) - POINTER_BITS(tag_validate_globals.header));
 
 	if (!tag_validate_globals.header || POINTER_BITS(address) < POINTER_BITS(tag_validate_globals.header) ||
-		offset >= TAG_CACHE_SIZE)
+		offset >= tag_validate_globals.tag_cache_size)
 	{
 		return FALSE;
 	}
@@ -1660,7 +2409,7 @@ boolean tag_validate_any_claimed(
 	unsigned long bit;
 
 	if (!tag_validate_globals.header || POINTER_BITS(address) < POINTER_BITS(tag_validate_globals.header) ||
-		offset > TAG_CACHE_SIZE || size > TAG_CACHE_SIZE - offset)
+		offset > tag_validate_globals.tag_cache_size || size > tag_validate_globals.tag_cache_size - offset)
 	{
 		return TRUE;
 	}
@@ -1754,6 +2503,17 @@ void tag_validate_correct(
 	}
 
 	return;
+}
+
+unsigned long tag_validate_layout_flags(
+	struct tag_validation *validation)
+{
+	/* (an MCC map's tags are checked as the Xbox's layout, by its own
+	walk: mcc_tag_validate.c) */
+	if (mcc_validation_callbacks && mcc_validation_callbacks->owns(validation))
+		return 0;
+
+	return tag_validate_globals.layout->flags;
 }
 
 long tag_validate_file_length(

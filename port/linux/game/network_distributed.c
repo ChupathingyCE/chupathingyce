@@ -78,6 +78,7 @@ machine (their datum identifiers need not be).
 #include "conduct_rules.h"
 #include "network_distributed.h"
 #include "mcc_network_messages.h"
+#include "net_monitor.h"
 #include "network_rules.h"
 #include "../src/delta_chat_bridge.h"
 #ifdef HALO_GAME_BROWSER
@@ -129,6 +130,8 @@ boolean main_menu_is_active(void);
 int config_boolean(char const *name);
 long config_integer(char const *name);
 unsigned int network_game_client_host_network_version(void);
+/* (network_client_message_handler.c's: the project whose plain game the host plays, -1 none) */
+int network_game_client_host_fork_get(void);
 unsigned long system_milliseconds(void);
 void console_warning(const char *format, ...);
 
@@ -707,6 +710,13 @@ stream (network_distributed_handle_stream_message) */
 static boolean distributed_handling_stream_message;
 /* a client: the host's latest tick it has had a message of */
 static long distributed_host_time = NONE;
+/* ... and when (system_milliseconds) it last had one, for the ping meter;
+heard is FALSE before the first of a game */
+static struct
+{
+	boolean heard;
+	unsigned long time;
+} distributed_host_heard;
 /* the host: each client's round trip, in ticks, and its jitter */
 static struct
 {
@@ -739,6 +749,9 @@ static struct
 	long sent;
 	long received;
 	long corrections;
+	/* (of them, this machine's own players': the host pulling a prediction
+	back) */
+	long own_corrections;
 } distributed_statistics;
 
 /* ---------- shared (network_distributed.h) */
@@ -754,9 +767,14 @@ void network_distributed_statistics(
 }
 
 void distributed_count_correction(
-	void)
+	int kind,
+	real distance,
+	boolean snap)
 {
 	distributed_statistics.corrections++;
+	if (kind == _net_monitor_own_player || kind == _net_monitor_own_vehicle)
+		distributed_statistics.own_corrections++;
+	net_monitor_correction(kind, distance, snap);
 }
 
 boolean distributed_real_valid(
@@ -872,22 +890,6 @@ void distributed_vector_unpack(
 	result->i = (real)vector->i / scale;
 	result->j = (real)vector->j / scale;
 	result->k = (real)vector->k / scale;
-}
-
-void distributed_unit_vector_unpack(
-	struct distributed_vector const *vector,
-	real_vector3d *result)
-{
-	real length;
-
-	distributed_vector_unpack(vector, DISTRIBUTED_UNIT_SCALE, result);
-	length = (real)sqrt(result->i * result->i + result->j * result->j + result->k * result->k);
-	if (length > 0.0f)
-	{
-		result->i /= length;
-		result->j /= length;
-		result->k /= length;
-	}
 }
 
 word distributed_vitality_pack(
@@ -1606,6 +1608,7 @@ static void distributed_fill_header(
 	header->header = 0;
 	build_message_header(&header->header, size, 2, 0);
 	distributed_statistics.sent++;
+	net_monitor_message_out(type, size);
 }
 
 /* the size of each of a message's entries, when they are alike, else 0 */
@@ -1911,6 +1914,16 @@ real distributed_own_round_trip_ticks(
 	void)
 {
 	return distributed_own_round_trip;
+}
+
+long distributed_host_silent_milliseconds(
+	void)
+{
+	if (!distributed_host_heard.heard)
+		return NONE;
+	/* (a difference, which the millisecond clock's wrap leaves right; at
+	most an hour) */
+	return (long)MIN(system_milliseconds() - distributed_host_heard.time, 3600000UL);
 }
 
 long distributed_player_machine(
@@ -2250,6 +2263,7 @@ tolerance from it: within blend_distance part of the way, further all of it,
 no faster than maximum_speed across and up and maximum_fall_speed down (0
 for any); FALSE for a state that cannot be */
 static boolean distributed_apply_state(
+	int correction_kind,
 	long unit_index,
 	struct distributed_unit_state const *state,
 	real_point3d const *position,
@@ -2290,7 +2304,11 @@ static boolean distributed_apply_state(
 	if (error.i * error.i + error.j * error.j + error.k * error.k <= tolerance * tolerance)
 		return TRUE;
 	if (network_objects_reconcile(unit_index, position, &forward, &up, &velocity, NULL, blend_distance))
-		distributed_statistics.corrections++;
+	{
+		real distance = (real)sqrt(error.i * error.i + error.j * error.j + error.k * error.k);
+
+		distributed_count_correction(correction_kind, distance, net_monitor_snap(distance, blend_distance));
+	}
 	return TRUE;
 }
 
@@ -2399,7 +2417,8 @@ static void distributed_correct_own_unit(
 				position.x = before.x + error.i;
 				position.y = before.y + error.j;
 				position.z = before.z + error.k;
-				distributed_apply_state(unit_index, state, &position, LOCAL_CORRECTION_TOLERANCE, 0.0f, 0.0f, 0.0f);
+				distributed_apply_state(_net_monitor_own_player, unit_index, state, &position,
+					LOCAL_CORRECTION_TOLERANCE, 0.0f, 0.0f, 0.0f);
 				/* (the ticks noted since moved as it was, not corrected again) */
 				error.i = object->object.position.x - before.x;
 				error.j = object->object.position.y - before.y;
@@ -2419,7 +2438,8 @@ static void distributed_correct_own_unit(
 			}
 		}
 	}
-	distributed_apply_state(unit_index, state, &position, LOCAL_CORRECTION_TOLERANCE, 0.0f, 0.0f, 0.0f);
+	distributed_apply_state(_net_monitor_own_player, unit_index, state, &position,
+		LOCAL_CORRECTION_TOLERANCE, 0.0f, 0.0f, 0.0f);
 }
 
 /* (a client) its own players' units, to the host */
@@ -2819,7 +2839,8 @@ static void distributed_take_prediction(
 		return;
 	}
 	/* (the client told which of its ticks the host has it at) */
-	if (distributed_apply_state(unit_index, state, &position, 0.0f, HOST_BLEND_DISTANCE, bound->speed,
+	if (distributed_apply_state(_net_monitor_host, unit_index, state, &position, 0.0f, HOST_BLEND_DISTANCE,
+		bound->speed,
 		distributed_on_foot_fall_speed(bound, position.z)))
 	{
 		distributed_predictions[player_index].taken_time = distributed_predictions[player_index].time;
@@ -2979,6 +3000,10 @@ static void distributed_handle_unit_state(
 	{
 		if (player->unit_index != NONE)
 			network_player_detach_unit(player_index);
+		/* (a respawn: its countdown's last beep, if this machine's countdown
+		hadn't reached it, #1418) */
+		else
+			game_engine_client_respawned(player_index);
 		distributed_unit_release_others(player_index, state->unit_index);
 		network_player_attach_unit(player_index, state->unit_index);
 		/* (a unit of a life this machine missed the end of, no player's
@@ -3042,7 +3067,8 @@ static void distributed_handle_unit_state(
 			distributed_correct_own_unit(player, unit_index, state);
 		else
 		{
-			distributed_apply_state(unit_index, state, &state->position, REMOTE_CORRECTION_TOLERANCE,
+			distributed_apply_state(_net_monitor_remote_player, unit_index, state, &state->position,
+				REMOTE_CORRECTION_TOLERANCE,
 				REMOTE_BLEND_DISTANCE, 0.0f, 0.0f);
 		}
 		/* moved further than a step at once (the host's teleporter sent
@@ -3074,6 +3100,7 @@ static void distributed_handle_unit_states(
 		if (!size)
 			break;
 		data += size;
+		net_monitor_unit_state(state.player_index);
 		distributed_handle_unit_state(&state);
 	}
 }
@@ -4001,12 +4028,6 @@ static short distributed_shield_effects = 0;
 /* (whether the host has said them this game, for the log) */
 static boolean distributed_shield_effects_heard = FALSE;
 
-short network_shield_effects(
-	void)
-{
-	return distributed_shield_effects;
-}
-
 /* OpenCE's distributed message 92, client_build, which this build never
 sends and drops unread */
 #define DISTRIBUTED_CLIENT_BUILD_KIND 92
@@ -4034,7 +4055,9 @@ static void distributed_vote_dropped(
 	distributed_vote_machines_told[machine_index >> 3] |= (byte)(1 << (machine_index & 7));
 	error(_error_log, "network: machine %ld sent an OpenCE vote (kind %d), dropped: this host has no votes",
 		machine_index, (int)type);
+#ifdef HALO_PORT_CHAT
 	chat_host_notice_to_machine((short)machine_index, "Voting isn't supported on this server; ask a moderator.");
+#endif
 }
 
 /* whether this build knows a distributed message's kind (network_distributed.h) */
@@ -4083,6 +4106,11 @@ static void distributed_unknown_kind(
 		}
 		return;
 	}
+	/* (another project's host's own kinds in its plain games, a third
+	person policy, its game privacy, platforms: dropped unread and unlogged,
+	network_rules.h, "other projects' hosts") */
+	if (machine_index == NONE && network_rules_fork_drops(network_game_client_host_fork_get(), type))
+		return;
 	if (distributed_unknown_kinds_seen[type >> 3] & (1 << (type & 7)))
 		return;
 	distributed_unknown_kinds_seen[type >> 3] |= (byte)(1 << (type & 7));
@@ -4478,6 +4506,7 @@ void network_distributed_new_game(
 	distributed_machines.in_tick = FALSE;
 	distributed_machines.valid = FALSE;
 	distributed_host_time = NONE;
+	distributed_host_heard.heard = FALSE;
 	/* (a client: blocked until the host speaks, if the host is known to have
 	a version with the policy; a host not known, such as one joined by an
 	invitation, is heard when it speaks) */
@@ -4504,14 +4533,16 @@ void network_distributed_new_game(
 /* every 10 seconds of a network game, each player's network health in the
 log (debug.txt), for playtests: "net health:", the ping (ms, the host's
 round trip to the player's machine; a client's as the host told it) and its
-jitter (the host's), this machine's corrections of its own players (the
-host pulling a prediction back: a rubber band) since the last line, and the
-messages sent and received */
+jitter (the host's), this machine's corrections since the last line (every
+unit it moved toward the host's word: mostly other players smoothed, and in
+brackets its own players alone, the host pulling a prediction back: a
+rubber band), and the messages sent and received */
 static void distributed_log_health(
 	void)
 {
 	static long last_tick = -1;
 	static long last_corrections = 0;
+	static long last_own_corrections = 0;
 	short player_index;
 	char line[1024];
 	int length = 0;
@@ -4521,11 +4552,14 @@ static void distributed_log_health(
 	if (last_tick >= 0 && game_time_get() - last_tick < 10 * TICKS_PER_SECOND)
 		return;
 	last_tick = game_time_get();
-	length = snprintf(line, sizeof(line), "net health: %s tick %ld corrections +%ld sent %ld received %ld |",
+	length = snprintf(line, sizeof(line),
+		"net health: %s tick %ld corrections +%ld (own +%ld) sent %ld received %ld |",
 		game_connection() == _game_connection_network_server ? "host" : "client", (long)game_time_get(),
-		distributed_statistics.corrections - last_corrections, distributed_statistics.sent,
+		distributed_statistics.corrections - last_corrections,
+		distributed_statistics.own_corrections - last_own_corrections, distributed_statistics.sent,
 		distributed_statistics.received);
 	last_corrections = distributed_statistics.corrections;
+	last_own_corrections = distributed_statistics.own_corrections;
 	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS && length > 0 && length < (int)sizeof(line) - 64;
 		player_index++)
 	{
@@ -4699,11 +4733,6 @@ static boolean distributed_message_stale(
 	case _distributed_message_damage_animations:
 	case _distributed_message_coop_screen_effect:
 	case _distributed_message_coop_device_states:
-#ifdef HALO_MCC_NETWORK
-	case _distributed_message_mcc_grenades:
-	case _distributed_message_mcc_campaign:
-	case _distributed_message_mcc_object_names:
-#endif
 		break;
 	default:
 		return FALSE;
@@ -5685,12 +5714,6 @@ static word distributed_kind_entry_size(
 	case _distributed_message_unit_states: size = DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE; break;
 	case _distributed_message_player_statistics: size = sizeof(struct distributed_player_statistics); break;
 	case _distributed_message_pings: size = sizeof(struct distributed_player_ping); break;
-#ifdef HALO_MCC_NETWORK
-	case _distributed_message_mcc_grenades: size = mcc_network_inventory_entry_size(); break;
-	case _distributed_message_mcc_campaign: size = mcc_network_campaign_entry_size(); break;
-	case _distributed_message_mcc_game_speed: size = sizeof(real); break;
-	case _distributed_message_mcc_object_names: size = mcc_object_names_entry_size(); break;
-#endif
 	case _distributed_message_actor_states: size = network_actors_entry_size(); break;
 	case _distributed_message_structure_bsp: size = sizeof(struct distributed_structure_bsp); break;
 	case _distributed_message_coop_presentation: size = network_coop_presentation_entry_size(); break;
@@ -5742,7 +5765,12 @@ static void distributed_handle_message(
 
 	/* (none between games: loading, or in the menus) */
 	if (size < sizeof(header) || !game_in_progress())
+	{
+		if (machine_index == NONE && !distributed_handling_batch)
+			net_monitor_warning(_net_monitor_not_in_game, size >= sizeof(header) ?
+				((struct distributed_message_header const *)message)->type : 0, size);
 		return;
+	}
 #ifdef HALO_BIG_ENDIAN
 	/* (a big-endian console: the message in this machine's order; a batch's
 	messages each as it is handled) */
@@ -5753,11 +5781,13 @@ static void distributed_handle_message(
 	}
 #endif
 	csmemcpy(&header, message, sizeof(header));
-#ifdef HALO_MCC_NETWORK
-	/* MCC messages never execute in an ordinary OpenCE session, even in a batch. */
-	if (header.type >= _distributed_message_mcc_grenades && !mcc_cache_tags_loaded())
-		return;
-#endif
+	/* (the server monitor: each message, and a datagram's tick from the host
+	as it arrived) */
+	if (machine_index == NONE)
+	{
+		net_monitor_message_in(header.type, size, header.game_time, distributed_handling_batch,
+			!distributed_handling_batch && network_connection_last_read_was_unreliable());
+	}
 	/* a tick's messages in one: each as if it came alone */
 	if (header.type == _distributed_message_batch)
 	{
@@ -5797,26 +5827,24 @@ static void distributed_handle_message(
 	{
 		if (network_distributed_mcc_session())
 			distributed_mcc_message(machine_index, &header, entries, size);
+		else
+			net_monitor_warning(_net_monitor_mcc, header.type, size);
 		return;
 	}
 	/* (a kind this build does not know: dropped before anything reads it) */
 	if (!distributed_kind_known(header.type))
 	{
+		net_monitor_warning(_net_monitor_unknown_kind, header.type, size);
 		distributed_unknown_kind(machine_index, header.type);
 		return;
 	}
 	/* (entries of a size of their own: their least here, and each read no
 	further than the message's end) */
-#ifdef HALO_MCC_NETWORK
-	/* A clock command is host-only and ordered, never accepted from datagrams. */
-	if (header.type == _distributed_message_mcc_game_speed &&
-		(machine_index != NONE || network_connection_last_read_was_unreliable() ||
-			header.count != 1 || size != sizeof(header) + sizeof(real))) return;
-#endif
 	entry_size = distributed_kind_entry_size(header.type, NULL);
 	if (header.type == 0 || header.type >= NUMBER_OF_DISTRIBUTED_MESSAGES ||
 		size < sizeof(header) + header.count * entry_size)
 	{
+		net_monitor_warning(_net_monitor_malformed, header.type, size);
 #ifdef HALO_PORT_CHAT
 		/* (OpenCE's chat: dropped, and said in the log once) */
 		if (header.type >= _distributed_message_chat_up && header.type <= _distributed_message_chat_config)
@@ -5857,6 +5885,7 @@ static void distributed_handle_message(
 			header.type == _distributed_message_hit_reports) &&
 		!distributed_handling_stream_message)
 	{
+		net_monitor_warning(_net_monitor_wrong_sender, header.type, size);
 		return;
 	}
 	/* (each kind from the host, or from a client) */
@@ -5871,16 +5900,23 @@ static void distributed_handle_message(
 	case _distributed_message_coop_skip_vote:
 	case _distributed_message_chat_up:
 		if (machine_index == NONE || game_connection() != _game_connection_network_server)
+		{
+			net_monitor_warning(_net_monitor_wrong_sender, header.type, size);
 			return;
+		}
 		break;
 	default:
 		if (game_connection() != _game_connection_network_client)
+		{
+			net_monitor_warning(_net_monitor_wrong_sender, header.type, size);
 			return;
+		}
 		break;
 	}
 	if (!distributed_message_time_bounded(machine_index, header.game_time,
 		machine_index == NONE ? !network_connection_last_read_was_unreliable() : distributed_handling_stream_message))
 	{
+		net_monitor_warning(_net_monitor_out_of_window, header.type, size);
 		return;
 	}
 	/* (a client: the host's latest tick, which its input messages tell it
@@ -5890,9 +5926,15 @@ static void distributed_handle_message(
 	{
 		distributed_host_time = header.game_time;
 	}
+	if (machine_index == NONE)
+	{
+		distributed_host_heard.heard = TRUE;
+		distributed_host_heard.time = system_milliseconds();
+	}
 	if ((distributed_handling_batch || header.type != _distributed_message_damage_events) &&
 		distributed_message_stale(machine_index, &header))
 	{
+		net_monitor_warning(_net_monitor_stale, header.type, size);
 		return;
 	}
 	/* (the host: a client's clock, by its messages' ticks; and its players'
@@ -5905,6 +5947,7 @@ static void distributed_handle_message(
 		!network_rules_client_takes_unsynchronized(header.type, !network_connection_last_read_was_unreliable(),
 			distributed_handling_batch))
 	{
+		net_monitor_warning(_net_monitor_unsynchronized, header.type, size);
 		return;
 	}
 	if (machine_index != NONE)
@@ -6007,20 +6050,6 @@ static void distributed_handle_message(
 	case _distributed_message_inventories:
 		network_objects_handle_inventories(entries, header.count);
 		break;
-#ifdef HALO_MCC_NETWORK
-	case _distributed_message_mcc_grenades:
-		mcc_network_handle_inventories(entries, header.count);
-		break;
-	case _distributed_message_mcc_campaign:
-		mcc_network_handle_campaign(entries, header.count);
-		break;
-	case _distributed_message_mcc_game_speed:
-		mcc_game_speed_receive(entries, header.count);
-		break;
-	case _distributed_message_mcc_object_names:
-		mcc_object_names_receive(entries, header.count, header.game_time);
-		break;
-#endif
 	case _distributed_message_object_changes:
 		network_objects_handle_changes(entries, header.count);
 		break;
@@ -6076,6 +6105,7 @@ static void distributed_handle_message(
 			length = MAXIMUM_NOTICE_LENGTH - 1;
 		csmemcpy(text, entries, length);
 		text[length] = 0;
+		net_monitor_notice(text, (int)length);
 		for (index = 0; index < length && text[index]; index++)
 		{
 			if (text[index] < 32 || text[index] > 126)
@@ -6083,7 +6113,7 @@ static void distributed_handle_message(
 		}
 		console_warning("%s", text);
 #ifdef HALO_PORT_CHAT
-		/* (an OpenCE host's: in the chat too, as its own players see it) */
+		/* (in the chat too, as an OpenCE host's own players see it) */
 		chat_host_console_notice(text);
 #endif
 #ifdef HALO_CONSOLE_LOG_THROTTLE
@@ -6396,7 +6426,11 @@ void network_distributed_handle_message(
 	byte type;
 
 	if (size < sizeof(struct distributed_message_header) || !game_in_progress())
+	{
+		if (machine_index == NONE)
+			net_monitor_warning(_net_monitor_not_in_game, size >= 3 ? ((byte const *)message)[2] : 0, size);
 		return;
+	}
 	layout = distributed_wire_layout();
 	if (!layout->header_extra)
 	{
@@ -6412,7 +6446,13 @@ void network_distributed_handle_message(
 	narrow_size = network_rules_header_strip((uint8_t const *)message, size, (uint8_t *)narrow, layout->header_extra,
 		has_epoch, distributed_epoch, 0, &epoch);
 	if (!narrow_size)
+	{
+		if (machine_index == NONE)
+			net_monitor_warning(_net_monitor_epoch, type, size);
 		return;
+	}
+	if (machine_index == NONE)
+		net_monitor_layout_bytes(size - narrow_size);
 	if (has_epoch && type != _distributed_message_batch)
 	{
 		if (type == layout->epoch_kind)
@@ -6427,6 +6467,8 @@ void network_distributed_handle_message(
 			!network_rules_host_takes(epoch, distributed_epoch, type, narrow_size, ((byte const *)narrow)[3],
 				distributed_handling_stream_message, FALSE))
 		{
+			if (machine_index == NONE)
+				net_monitor_warning(_net_monitor_epoch, type, narrow_size);
 			return;
 		}
 	}
@@ -6652,7 +6694,7 @@ void *distributed_wire_copy(
 }
 #endif
 
-#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+#ifdef HALO_NETWORK_WIRE_SAMPLES
 /* ---------- the wire's samples (network_distributed.h)
 
 Every kind of message the byte order turns, filled field by field with
@@ -7234,4 +7276,17 @@ long network_wire_self_test(
 	return failed;
 }
 #endif
+#endif
+
+#if defined(HALO_BIG_ENDIAN) && !defined(HALO_NETWORK_WIRE_SAMPLES)
+/* the self-test without its samples, which are a developer tool on a
+big-endian build (--console-debug-tools): none compared, none failed */
+long network_wire_self_test(
+	char *report,
+	long report_size)
+{
+	if (report_size > 0)
+		snprintf(report, (size_t)report_size, "not checked (debug tools only)");
+	return 0;
+}
 #endif

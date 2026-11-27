@@ -62,6 +62,9 @@ It is the 64-bit build of the other systems (`HALO_64BIT`: see
   if it cannot get that address. The executable does not use high-entropy
   address randomization, which could put the first allocations of the
   process in that range.
+- The game's heap (`port/linux/src/xbox_heap.c`) commits its part of
+  that space in 16 MB steps as the game uses it, not all 976 MB at start:
+  on Windows, committed memory must fit in memory plus the page file.
 - The write tracking and the crash reports of `src/win32_memory_watch.c`
   convert between Xbox addresses and the pointers of the process. A crash
   report gives the address of `chupathingy.exe` in that run, and the calls come
@@ -77,8 +80,8 @@ and the other ports over the network, and it is a dedicated server too
 
 ## Start the game
 
-Enter `build\windows\chupathingy.exe`. The small `halo.exe` beside it starts
-`chupathingy.exe`, for shortcuts made before the rename in 0.9.0.
+Enter `build\windows\chupathingy.exe`. (Until 0.9.2 a small `halo.exe` beside
+it started `chupathingy.exe`, for shortcuts made before the rename in 0.9.0.)
 
 The game finds the game data as on Linux. Refer to "Start the game" in
 [port/linux/README.md](../linux/README.md#start-the-game).
@@ -104,7 +107,14 @@ the structure layout, the 16-bit `wchar_t` and the calling conventions.
 Thus the Windows build needs fewer changes than the Linux build.
 
 The executable is large-address-aware, because the platform layer reserves
-the Xbox memory at `0x80000000`.
+the Xbox memory at `0x80000000`. 32-bit Windows keeps that half of the
+address space for itself, so this build starts only on 64-bit Windows.
+Chupathingy32's build (`configure.py --window-rebase`) puts the memory
+wherever it fits instead: at `0x80000000` where there is room, otherwise
+at the first free 512 MB below it, and the game's addresses are moved
+there as it reads them (`HALO_WINDOW_REBASE`,
+`source/cseries/xbox_address.h`). `HALO_WINDOW_BASE` (in hex) forces a
+place, to test that on 64-bit Windows.
 
 The game plays the Custom Edition maps of Halo PC (`maps_ce/`), HaloMD's
 maps (`maps_md/`) and Halo PC's own (`maps_pc/`), as the Linux build does (`HALO_CUSTOM_EDITION`). Their

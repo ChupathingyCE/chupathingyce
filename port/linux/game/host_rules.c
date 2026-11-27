@@ -12,7 +12,8 @@ everyone in the game:
   player's host reads config.toml (network.allow_player_names,
   network.allow_follow_camera); a dedicated
   server its settings (host_rules_set_*).
-- **A client** plays by its host's rules as last heard. A host that says
+- **A client** plays by its host's rules as last heard (its own players'
+  shots too: network.air_turn_aim, units.c). A host that says
   nothing (OpenCE's, an older Chupathingy, a console without Delta) gets
   the Xbox's rules: no extras.
 - **A game played alone** (split screen, a campaign) is its own host's.
@@ -63,6 +64,8 @@ static struct
 	boolean follow_camera;
 	boolean late_join_hold_set;
 	boolean late_join_hold;
+	boolean air_turn_aim_set;
+	boolean air_turn_aim;
 	/* (the host's, any host's) */
 	boolean joins_locked;
 	/* when nobody it keeps out could matter began (0: not now) */
@@ -85,6 +88,12 @@ void host_rules_set_late_join_hold(boolean wait)
 {
 	host_rules.late_join_hold_set = TRUE;
 	host_rules.late_join_hold = wait ? TRUE : FALSE;
+}
+
+void host_rules_set_air_turn_aim(boolean fixed)
+{
+	host_rules.air_turn_aim_set = TRUE;
+	host_rules.air_turn_aim = fixed ? TRUE : FALSE;
 }
 
 void host_rules_set_joins_locked(boolean locked)
@@ -155,6 +164,13 @@ boolean host_rules_host_late_join_hold(void)
 	if (host_rules.late_join_hold_set)
 		return host_rules.late_join_hold;
 	return config_boolean("network.late_join_hold") ? TRUE : FALSE;
+}
+
+boolean host_rules_host_air_turn_aim(void)
+{
+	if (host_rules.air_turn_aim_set)
+		return host_rules.air_turn_aim;
+	return config_boolean("network.air_turn_aim") ? TRUE : FALSE;
 }
 
 boolean host_rules_host_follow_camera(void)
@@ -231,15 +247,19 @@ boolean host_rules_late_join_hold(void)
 	return FALSE;
 }
 
-boolean host_rules_host_says_locked(void)
+boolean host_rules_air_turn_aim(void)
 {
 #ifdef HOST_RULES_DELTA
 	struct delta_wire_host_rules rules;
-
-	if (host_rules_joined() && host_rules_heard(&rules))
-		return (rules.flags & DELTA_WIRE_HOST_JOINS_LOCKED) != 0;
 #endif
-	return host_rules_joined() ? FALSE : host_rules.joins_locked;
+
+	if (!host_rules_joined())
+		return host_rules_host_air_turn_aim();
+#ifdef HOST_RULES_DELTA
+	if (host_rules_heard(&rules))
+		return (rules.flags & DELTA_WIRE_HOST_AIR_TURN_AIM) != 0;
+#endif
+	return FALSE;
 }
 
 boolean host_rules_team_change(int *policy)
@@ -276,6 +296,8 @@ void host_rules_update(void)
 		rules.flags |= DELTA_WIRE_HOST_LATE_JOIN_HOLD;
 	if (host_rules.joins_locked)
 		rules.flags |= DELTA_WIRE_HOST_JOINS_LOCKED;
+	if (host_rules_host_air_turn_aim())
+		rules.flags |= DELTA_WIRE_HOST_AIR_TURN_AIM;
 	rules.team_change = (unsigned char)(policy == _team_change_allow ? DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW :
 		policy == _team_change_balanced ? DELTA_WIRE_HOST_TEAM_CHANGE_BALANCED : DELTA_WIRE_HOST_TEAM_CHANGE_OFF);
 	rules.team_change_margin = (unsigned char)(margin < 0 ? 0 : margin > DELTA_WIRE_HOST_TEAM_CHANGE_MAXIMUM_MARGIN ?

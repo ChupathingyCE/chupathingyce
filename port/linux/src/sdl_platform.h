@@ -82,6 +82,8 @@ BOOL platform_run_is_quiet(void);
 not Game Mode, which shows the setup screen, drawn in the game's own window):
 no setup screen either */
 BOOL platform_run_is_unwatched(void);
+/* whether this is the thread with the window and its events */
+int platform_on_event_thread(void);
 
 /* the maps out of a file the player picked (the first start, the
 launcher's Add maps), on a thread of their own: the kind of file it is
@@ -125,6 +127,9 @@ display's modes the game can draw at, largest first, each once, but the
 display's own (Native), and display.resolution's where it is none of them;
 how many. None on Android. */
 int platform_display_resolutions(long *widths, long *heights, int maximum);
+/* the size Native is: the window's display's own, in pixels; 0 if not
+known (Android) */
+int platform_display_native_size(long *width, long *height);
 /* Video Setup's window sizes: those of each shape (4:3, 16:10, 16:9, 21:9)
 that fit the desktop, and display.window_size's; how many. None on
 Android. */
@@ -145,7 +150,28 @@ void platform_video_present_area(int *x, int *y, int *width, int *height);
 /* the window's mode and size and V-Sync, from config.toml as Settings has
 just written it (the main thread's) */
 void platform_display_apply(void);
+/* the frame's end, every renderer's: OpenGL's window swapped (bgfx and the
+Android Vulkan renderer present on their own first), then the clock that
+holds display.max_fps with V-Sync off, or display.vrr's ceiling */
 void platform_video_swap(void);
+/* How every renderer shows its frames, from display.vsync, display.vrr and
+tuning.present_mode, decided here once for all of them: OpenGL's swap
+interval (sdl_platform.c), bgfx's reset flags and Vulkan present mode
+(d3d8_bgfx.inl, tools/bgfx-patches) and the Android Vulkan renderer's
+swapchain (d3d8_vk.inl, port/android/host/host_vk_present.c). */
+enum
+{
+	/* V-Sync off: each frame shown at once, torn if need be */
+	PLATFORM_PRESENT_IMMEDIATE,
+	/* each frame waits for the display (V-Sync on, or VRR) */
+	PLATFORM_PRESENT_VBLANK,
+	/* tuning.present_mode = "adaptive": each frame waits, but one that
+	missed the display is shown at once, with a tear */
+	PLATFORM_PRESENT_ADAPTIVE,
+};
+int platform_present_mode(void);
+/* the window's display's refresh rate in Hz, 0 where it is not known */
+float platform_display_refresh_rate(void);
 /* frames between the 30 Hz ticks at the display's refresh rate, unless
 display.interpolation is false (port/linux/game/render_interpolation.c) */
 int halo_interpolation_enabled(void);
@@ -167,6 +193,12 @@ void platform_input_read(struct platform_input_state *state, BOOL consume_motion
 joystick ID: the controller's reading ORs them into what is held, so a tap
 between two readings still counts */
 void platform_gamepad_presses_take(Uint32 id, Uint32 *buttons, unsigned int *triggers);
+#ifdef HALO_PORT_GYRO_SDL
+/* a gamepad's sensor reading (SDL_EVENT_GAMEPAD_SENSOR_UPDATE), for gyro
+aiming (xinput_sdl.c): sensor is SDL's SDL_SENSOR_GYRO or SDL_SENSOR_ACCEL,
+data its three values, timestamp_ns when it was read */
+void platform_gamepad_sensor(Uint32 id, int sensor, const float *data, Uint64 timestamp_ns);
+#endif
 /* the pointer in the menus (d3d8_gl.c, halo_ui_pointer_update) */
 struct platform_ui_pointer
 {
@@ -202,6 +234,10 @@ void platform_test_pointer_event(float x, float y, int button, int wheel);
 which differ from the drawable's pixels on displays that scale */
 void platform_video_window_size(int *width, int *height);
 BOOL platform_next_keystroke(struct platform_keystroke *keystroke);
+/* debug.test_input's typing (press: and type:): a key pressed and let go,
+as the keyboard's would be, into the keystrokes the game reads (a text
+box's, the console's); modifiers are SDL's (SDL_KMOD_*) */
+void platform_test_keystroke(int scancode, int modifiers);
 /* nonzero when a key, mouse button or touch was pressed since the last call
 (which forgets them): a movie's skip (bink_playback.c) */
 int platform_movie_skip_pressed(void);

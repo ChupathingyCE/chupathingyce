@@ -390,13 +390,6 @@ static unsigned long cr_hash(const void *data, unsigned long size, unsigned long
 	return hash;
 }
 
-static unsigned long cr_level_dimension(unsigned long base, unsigned long level)
-{
-	unsigned long value = base >> level;
-
-	return value ? value : 1;
-}
-
 static void cr_texture_upload(struct cr_texture *entry, const unsigned char *base, const D3DCOLOR *palette)
 {
 	struct xgpu_texture_description *description = &entry->description;
@@ -571,7 +564,11 @@ static unsigned long cr_bind_textures(struct nv2a_pixel_shader_key *key, float t
 					key->sampler_type[stage] = _xgpu_sampler_2d;
 				description.levels = 1;
 			}
-			if (description.linear)
+			/* port: a Halo PC map's linear bitmap is sampled as Halo PC samples every
+			texture, its coordinates 0 to 1 (the game's draws of its bitmaps give
+			them so: xbox_texture_cache.c's D3DCOMMON_PORT_PC_LAYOUT); the Xbox's own
+			linear textures by texel */
+			if (description.linear && !(texture->Common & D3DCOMMON_PORT_PC_LAYOUT))
 			{
 				texture_scale[stage][0] = 1.0f / (float)description.width;
 				texture_scale[stage][1] = 1.0f / (float)description.height;

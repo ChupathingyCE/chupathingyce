@@ -28,6 +28,10 @@ the last map's */
 void stubbs_possession_note_unit_definition(void const *tag_instance, void const *definition,
 	void const *tag_cache, unsigned long tag_data_size);
 
+/* a map's tags about to be converted (stubbs_mode_convert_tags), as
+stubbs_engine_tags_new_map */
+void stubbs_possession_tags_new_map(void);
+
 /* a local player's input of a tick (player_control.c's
 handle_one_player_input, after stubbs_engine_player_input): driving the
 hand, melee or action by a human's head takes him; while a human is taken,
@@ -45,21 +49,14 @@ long stubbs_possession_find_target(long hand_unit_index);
 it happened) */
 boolean stubbs_possession_begin(short local_player_index, long hand_unit_index, long human_unit_index);
 
-/* the player back in Stubbs, the hand gone, the human back to his own
-mind (for scripts and the console; black goes through stubbs_engine.c) */
-void stubbs_possession_release(short local_player_index);
-
-/* the human a local player drives through the hand (NONE for none) */
-long stubbs_possession_body_unit(short local_player_index);
-
 #else
 /* (a console leaves Stubbs mode out: each hook is an empty one here) */
 static __inline void stubbs_possession_note_unit_definition(void const *tag_instance, void const *definition,
 	void const *tag_cache, unsigned long tag_data_size)
 { (void)tag_instance; (void)definition; (void)tag_cache; (void)tag_data_size; }
+static __inline void stubbs_possession_tags_new_map(void) { }
 static __inline void stubbs_possession_player_input(short local_player_index, unsigned long unit_control_flags)
 { (void)local_player_index; (void)unit_control_flags; }
-static __inline long stubbs_possession_body_unit(short local_player_index) { (void)local_player_index; return NONE; }
 #endif
 
 #endif

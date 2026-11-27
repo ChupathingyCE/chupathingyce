@@ -604,12 +604,27 @@ void ui_style_panel(float x, float y, float width, float height, float share)
 	ui_overlay_outline(x, y, width, height, 12, 1.0f, fade(PALETTE(PANEL_EDGE), share));
 }
 
+/* ui_style_selection_rest's */
+static int selection_rest;
+
+void ui_style_selection_rest(int rest)
+{
+	selection_rest = rest != 0;
+}
+
 void ui_style_row(float x, float y, float width, float height, int selected)
 {
-	if (selected)
+	if (selected && selection_rest)
+		ui_style_glass(x, y, width, height, 7, PALETTE(ROW), PALETTE(SELECTED_EDGE));
+	else if (selected)
 		ui_style_surface(x, y, width, height, 7, PALETTE(ROW_ON), PALETTE(SELECTED_EDGE), 1);
 	else
 		ui_style_glass(x, y, width, height, 7, PALETTE(ROW), PALETTE(ROW_EDGE));
+}
+
+void ui_style_row_chosen(float x, float y, float width, float height)
+{
+	ui_style_glass(x, y, width, height, 7, PALETTE(ROW), PALETTE(SELECTED_EDGE));
 }
 
 /* a setting's value in room (UI_FONT_MENU at size): as it is, or cut with
@@ -647,18 +662,54 @@ static void value_fit(const char *value, float size, float room, char *out, int 
 	snprintf(out, (size_t)out_size, "...");
 }
 
-/* the next ui_style_setting's value without its arrows (ui_style_setting_plain) */
-static int setting_plain;
+/* the next ui_style_setting's value without its arrows (ui_style_setting_plain),
+and with a chevron (ui_style_setting_opens) */
+static int setting_plain, setting_opens;
 
 void ui_style_setting_plain(void)
 {
 	setting_plain = 1;
 }
 
+void ui_style_setting_opens(void)
+{
+	setting_opens = 1;
+}
+
+void ui_style_info(float x, float y, float width, float height, const char *label, const char *value, int rule)
+{
+	float size = ui_style_text_size(UI_TEXT_NAME), scale = 1.0f, label_end, room, value_width;
+	float right = x + width - size * 1.2f;
+	char shown[160];
+
+	label_end = x + size * 1.1f + ui_style_text(UI_TEXT_LABEL, x + size * 1.1f, y + (height -
+		ui_style_text_size(UI_TEXT_LABEL)) * 0.5f, UI_ALIGN_LEFT, label);
+	if (rule)
+		ui_overlay_rect(x + size * 0.6f, y + height - 1, width - size * 1.2f, 1, 0, fade(PALETTE(RULE), 0.5f));
+	if (!value || !value[0])
+		return;
+	/* (a long value, a nightly's version: smaller, then cut) */
+	room = right - (label_end + size * 1.5f);
+	value_width = ui_overlay_text_width(UI_FONT_MENU, size, value);
+	if (value_width > room && room > 0)
+		scale = room / value_width < 0.75f ? 0.75f : room / value_width;
+	value_fit(value, size * scale, room, shown, sizeof(shown));
+	ui_style_text_scaled(UI_TEXT_NAME, scale, right, y + (height - size * scale) * 0.5f, UI_ALIGN_RIGHT, shown);
+}
+
+float ui_style_row_chevron(float x, float y, float width, float height, float size)
+{
+	float right = x + width - size * 0.6f;
+
+	ui_overlay_text(UI_FONT_MENU, size, right, y + (height - size) * 0.5f, UI_ALIGN_RIGHT, PALETTE(TAB),
+		"\xE2\x80\xBA");
+	return size * 0.6f + ui_overlay_text_width(UI_FONT_MENU, size, "\xE2\x80\xBA") + size * 0.5f;
+}
+
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected)
 {
-	int plain = setting_plain;
+	int plain = setting_plain, opens = setting_opens;
 	float size = ui_style_text_size(UI_TEXT_NAME) * scale;
 	float text_y = y + (height - size) * 0.5f, right = x + width - size * 1.2f, label_end;
 	float value_width;
@@ -680,6 +731,18 @@ void ui_style_setting(float x, float y, float width, float height, float scale, 
 		label_end = badge_x + badge_width;
 	}
 	setting_plain = 0;
+	setting_opens = 0;
+	/* (a row that opens a list or a screen: the chevron at the arrow's
+	place, its value before it) */
+	if (opens)
+	{
+		ui_overlay_text(UI_FONT_MENU, size, right, text_y, UI_ALIGN_RIGHT, PALETTE(TAB), "\xE2\x80\xBA");
+		if (!value)
+			return;
+		value_fit(value, size, right - size * 1.2f - (label_end + size * 1.5f), shown, sizeof(shown));
+		ui_style_text_scaled(UI_TEXT_NAME, scale, right - size * 1.2f, text_y, UI_ALIGN_RIGHT, shown);
+		return;
+	}
 	/* (an action row, ABOUT's or SEND MY LOGS': no value, no arrows) */
 	if (!value)
 		return;
@@ -710,12 +773,23 @@ static float bumper(int button, const char *key, float size, float x, float y, i
 	return measure_only ? ui_overlay_button_width(button, size) : ui_overlay_button(button, size, x, y, 0xFFFFFFFF);
 }
 
+/* the next ui_style_tabs' end buttons (ui_style_tabs_buttons); the bumpers
+when unset */
+static int tabs_left_button = UI_BUTTON_LEFT_SHOULDER, tabs_right_button = UI_BUTTON_RIGHT_SHOULDER;
+
+void ui_style_tabs_buttons(int left_button, int right_button)
+{
+	tabs_left_button = left_button;
+	tabs_right_button = right_button;
+}
+
 void ui_style_tabs(float left, float right, float y, float height, const char *const *names, int count,
 	int selected, const char *left_key, const char *right_key, float *starts, float *ends)
 {
 	float size = height * 0.45f, pad = height * 0.4f, gap = 3.0f, total = 0.0f, x;
 	float glyph = height * 0.64f;
 	int index;
+	int left_button = tabs_left_button, right_button = tabs_right_button;
 
 	float text = 0.0f, room;
 
@@ -723,8 +797,8 @@ void ui_style_tabs(float left, float right, float y, float height, const char *c
 		text += ui_overlay_text_width(UI_FONT_MENU, size, names[index]);
 	/* (more tabs than fit between the bumpers: their padding narrowed, then
 	their text made smaller, so none runs under a bumper) */
-	room = right - left - bumper(UI_BUTTON_LEFT_SHOULDER, left_key, glyph, 0, 0, 1) -
-		bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph, 0, 0, 1) - 4 * gap;
+	room = right - left - bumper(left_button, left_key, glyph, 0, 0, 1) -
+		bumper(right_button, right_key, glyph, 0, 0, 1) - 4 * gap;
 	if (count > 0 && text + count * 2 * pad + (count - 1) * gap > room)
 	{
 		pad = (room - text - (count - 1) * gap) / (2.0f * count);
@@ -737,10 +811,12 @@ void ui_style_tabs(float left, float right, float y, float height, const char *c
 				text += ui_overlay_text_width(UI_FONT_MENU, size, names[index]);
 		}
 	}
+	tabs_left_button = UI_BUTTON_LEFT_SHOULDER;
+	tabs_right_button = UI_BUTTON_RIGHT_SHOULDER;
 	total = text + count * 2 * pad + (count - 1) * gap;
-	bumper(UI_BUTTON_LEFT_SHOULDER, left_key, glyph, left, y + (height - glyph) * 0.5f, 0);
-	bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph,
-		right - bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph, 0, 0, 1), y + (height - glyph) * 0.5f, 0);
+	bumper(left_button, left_key, glyph, left, y + (height - glyph) * 0.5f, 0);
+	bumper(right_button, right_key, glyph,
+		right - bumper(right_button, right_key, glyph, 0, 0, 1), y + (height - glyph) * 0.5f, 0);
 	x = (left + right) * 0.5f - total * 0.5f;
 	for (index = 0; index < count; index++)
 	{

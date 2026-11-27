@@ -1,0 +1,63 @@
+name: No runner
+
+# A Build job that no runner took: GitHub cancels a job it could not give a
+# runner ("The job was not acquired by Runner of type hosted even after
+# multiple attempts"), after 15 to 20 minutes in the queue. macOS's Apple
+# silicon runners have been short at busy hours, and ci-ok then fails a run
+# in which nothing failed. Such a Build's failed and canceled jobs are run
+# again, once (its first attempt only); a run canceled by a newer commit is
+# left alone. It runs no code from the run: only GitHub's API.
+on:
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  rerun:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      checks: read
+    steps:
+      - name: Run the jobs again
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN: ${{ github.event.workflow_run.id }}
+          WORKFLOW: ${{ github.event.workflow_run.workflow_id }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          set -euo pipefail
+          # (canceled jobs that never had a runner, and why: their annotations)
+          jobs=$(gh api --paginate "repos/$REPOSITORY/actions/runs/$RUN/jobs?per_page=100" \
+            --jq '.jobs[] | select(.conclusion == "cancelled" and (.runner_name // "") == "") | "\(.id) \(.name)"')
+          unacquired=""
+          while read -r id name; do
+            [ -n "$id" ] || continue
+            if gh api "repos/$REPOSITORY/check-runs/$id/annotations" --jq '.[].message' \
+              | grep -q "was not acquired by Runner"; then
+              unacquired="$unacquired $name"
+            fi
+          done <<< "$jobs"
+          if [ -z "$unacquired" ]; then
+            echo "every job of run $RUN had a runner: nothing to do"
+            exit 0
+          fi
+          # (a branch's runs share a concurrency group that cancels the one in
+          # progress: a run again of an older commit would cancel its newer run)
+          if [ "$EVENT" != workflow_dispatch ]; then
+            newest=$(gh api -X GET "repos/$REPOSITORY/actions/workflows/$WORKFLOW/runs" \
+              -f branch="$BRANCH" -f event="$EVENT" -F per_page=1 --jq '.workflow_runs[0].id')
+            if [ "$newest" != "$RUN" ]; then
+              echo "no runner took:$unacquired; run $newest is newer on $BRANCH: nothing to do"
+              exit 0
+            fi
+          fi
+          echo "::notice::no runner took:$unacquired; running run $RUN's failed jobs again"
+          gh run rerun "$RUN" --failed -R "$REPOSITORY"

@@ -48,12 +48,13 @@ with it under the lock.
 #include "browser_ping.h"
 #include "qrcodegen.h"
 #include "delta_profile.h"
+#include "server_names.h"
 #ifndef HALO_CONSOLE_NO_GUIDE
 #include "social.h"
 #endif
 #ifdef HALO_DELTA_PEER_IDENTITY
 #include "identity.h"
-#include "identity_key.h"
+#include "networks_game.h"
 #endif
 
 #include <stdarg.h>
@@ -751,14 +752,16 @@ static int take_certificate(const unsigned char *certificate, int certificate_si
 {
 	unsigned char seed[IDENTITY_SEED_SIZE], public_key[IDENTITY_KEY_SIZE], id[IDENTITY_ID_SIZE];
 	struct identity_device device;
+	const unsigned char (*roots)[NETWORKS_KEY_SIZE];
 	unsigned long now = identity_clock();
-	int reason;
+	int reason, root_count;
 
 	if (!device_key(seed, public_key, id))
 		return 0;
 	identity_wipe(seed, sizeof(seed));
-	reason = identity_accept(certificate, certificate_size, issuer, issuer_size, identity_root_keys,
-		IDENTITY_ROOT_KEY_COUNT, public_key, now, &device);
+	roots = networks_home_roots(&root_count);
+	reason = identity_accept(certificate, certificate_size, issuer, issuer_size, roots, root_count, public_key, now,
+		&device);
 	if (reason == IDENTITY_OK)
 	{
 		identity_have_certificate(&identity, &device, refresh_after, now);
@@ -776,8 +779,8 @@ static int take_certificate(const unsigned char *certificate, int certificate_si
 	when it was issued; one that doesn't check is as none, and enrolls) */
 	if (saved && (reason == IDENTITY_EXPIRED || reason == IDENTITY_NOT_YET) &&
 		identity_parse_device(certificate, certificate_size, &device) &&
-		identity_accept(certificate, certificate_size, issuer, issuer_size, identity_root_keys,
-			IDENTITY_ROOT_KEY_COUNT, public_key, device.issued, &device) == IDENTITY_OK)
+		identity_accept(certificate, certificate_size, issuer, issuer_size, roots, root_count, public_key,
+			device.issued, &device) == IDENTITY_OK)
 	{
 		identity_have_certificate(&identity, &device, 0, now);
 		identity.refresh_at = 0;
@@ -1198,17 +1201,17 @@ static int take_revoked(const unsigned char *list, int list_size, const unsigned
 	struct identity_revoked parsed;
 	time_t now = time(NULL);
 	int taken = 0;
-
-	int issuer_check;
+	const unsigned char (*roots)[NETWORKS_KEY_SIZE];
+	int issuer_check, root_count;
 
 	/* (an issuer past its dates still vouches for the list this copy kept,
 	taken while it was good: an old list is better than none, and is said
 	to be stale. One fetched is taken only from an issuer within its dates:
 	a key past them is no longer looked after, and a list it signed could
 	take revoked devices off) */
+	roots = networks_home_roots(&root_count);
 	issuer_check = list_size > REVOKED_BYTES ? IDENTITY_MALFORMED :
-		identity_check_issuer(issuer_data, issuer_size, identity_root_keys, IDENTITY_ROOT_KEY_COUNT,
-			now > 0 ? (unsigned long)now : 0, &issuer);
+		identity_check_issuer(issuer_data, issuer_size, roots, root_count, now > 0 ? (unsigned long)now : 0, &issuer);
 	if (!identity_revoked_issuer_usable(issuer_check, !save) ||
 		identity_check_revoked(list, list_size, &issuer, &parsed) != IDENTITY_OK)
 	{
@@ -4197,6 +4200,57 @@ int browser_clip_state(void)
 	return state;
 }
 
+/* the site's blocked names (/v1/blocked-names: blocked_names.txt's lines,
+the site's own additions among them), read again each NAMES_INTERVAL and
+handed to the game's thread (take_list_names); until one is read, and when
+the site has none, the lists use the built-in copy */
+enum { NAMES_INTERVAL = 3600, NAMES_RETRY = 300, NAMES_RESPONSE_SIZE = 32768 };
+static unsigned long names_asked;
+/* (read, not yet taken: under browser_lock) */
+static struct server_names_list *names_pending;
+
+/* the length of a blocked-names response's whole lines: all of it, unless it
+filled the buffer, when its last line may be cut short (a word cut short
+blocks other names than the site meant), so that line is left out */
+static size_t names_complete_length(const char *response)
+{
+	size_t length = strlen(response);
+	const char *last;
+
+	if (length < NAMES_RESPONSE_SIZE - 1)
+		return length;
+	last = strrchr(response, '\n');
+	return last ? (size_t)(last - response) + 1 : 0;
+}
+
+static void update_names(void)
+{
+	char url[512], error[256];
+	struct server_names_list *list;
+	char *response;
+	time_t now = time(NULL);
+
+	if (now <= 0 || (names_asked && (unsigned long)now < names_asked))
+		return;
+	names_asked = (unsigned long)now + NAMES_RETRY;
+	server_url("/v1/blocked-names", url, sizeof(url));
+	response = malloc(NAMES_RESPONSE_SIZE);
+	list = malloc(sizeof(*list));
+	if (response && list &&
+		posix_browser_request(url, NULL, NULL, response, NAMES_RESPONSE_SIZE, error, sizeof(error)) == 200 &&
+		server_names_list_parse(list, response, names_complete_length(response)) > 0)
+	{
+		pthread_mutex_lock(&browser_lock);
+		free(names_pending);
+		names_pending = list;
+		list = NULL;
+		pthread_mutex_unlock(&browser_lock);
+		names_asked = (unsigned long)now + NAMES_INTERVAL;
+	}
+	free(response);
+	free(list);
+}
+
 static void *browser_thread(void *unused)
 {
 	(void)unused;
@@ -4227,6 +4281,7 @@ static void *browser_thread(void *unused)
 			update_party();
 #endif
 			update_cards();
+			update_names();
 			update_list();
 			update_anchors();
 			update_clip_upload();
@@ -4374,11 +4429,6 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 static int json_name(char *out, int size, const unsigned short *name, int length)
 {
 	return game_report_json_name(out, size, name, length);
-}
-
-int browser_json_name(char *out, int size, const unsigned short *name, int length)
-{
-	return json_name(out, size, name, length);
 }
 
 /* a line's tag: its player's address's hash with the invite (the host's
@@ -4871,7 +4921,11 @@ static int add_direct(struct browser_game *games, int count, int maximum_count, 
 			locked_code(listing, sealed);
 			code = sealed;
 		}
-		if (strlen(code) != BROWSER_INVITE_LENGTH ||
+		/* (a blocked name, checked on the name as the host sent it: the
+		names here are ASCII, where a letter outside it is '?') */
+		if (browser_name_blocked_text(listing->name_utf8))
+			continue;
+		if (strlen(code) != BROWSER_INVITE_LENGTH || !browser_version_shown(listing->version) ||
 			!SDL_strncasecmp(code, own, 2 * P2P_KEY_HASH_SIZE) || listing_on_list(listing, code, games, listed))
 		{
 			continue;
@@ -4957,10 +5011,55 @@ static void add_known(struct browser_game *games, int count)
 /* (every build, with the game browser or without: the menus' lobbies ask
 it too, port/linux/game/menu_functions.c) */
 #include "browser.h"
+#include "delta_chat.h"
 #include "game_list_rules.h"
 #include "port_config.h"
+#include "server_names.h"
 
+#include <stdlib.h>
 #include <string.h>
+
+/* the blocked names the lists hide games of (server_names.h, compared as the
+site compares them): the site's (update_names), else the built-in copy of
+the list (delta_chat_blocked_words). The game's thread's alone */
+static struct server_names_list *list_names;
+
+/* the site's list, once the browser thread has read one */
+static void take_list_names(void)
+{
+#ifdef HALO_GAME_BROWSER
+	struct server_names_list *list;
+
+	pthread_mutex_lock(&browser_lock);
+	list = names_pending;
+	names_pending = NULL;
+	pthread_mutex_unlock(&browser_lock);
+	if (list)
+	{
+		free(list_names);
+		list_names = list;
+	}
+#endif
+	if (!list_names && (list_names = malloc(sizeof(*list_names))) != NULL)
+		server_names_list_parse(list_names, delta_chat_blocked_words, strlen(delta_chat_blocked_words));
+}
+
+int browser_name_blocked_text(const char *name)
+{
+	take_list_names();
+	return server_names_list_blocked_text(list_names, name);
+}
+
+int browser_name_blocked(const unsigned short *name, int length)
+{
+	unsigned int characters[64];
+	int count;
+
+	take_list_names();
+	for (count = 0; count < length && count < 64 && name[count]; count++)
+		characters[count] = name[count];
+	return server_names_list_blocked(list_names, characters, count);
+}
 
 /* whether two names are the same, ASCII letters in either case (every
 build has this: the server's and Android's link no SDL string functions) */
@@ -5104,6 +5203,20 @@ static int keep_shown(struct browser_game *games, int count)
 	return kept;
 }
 
+/* the games of count whose names are not blocked (browser_name_blocked,
+even with debug.show_all_games), in their order; returns how many */
+static int keep_named(struct browser_game *games, int count)
+{
+	int index, kept;
+
+	for (index = kept = 0; index < count; index++)
+	{
+		if (!browser_name_blocked(games[index].name, BROWSER_NAME_LENGTH))
+			games[kept++] = games[index];
+	}
+	return kept;
+}
+
 int browser_get_games(struct browser_game *games, int maximum_count)
 {
 	int count;
@@ -5134,6 +5247,7 @@ int browser_get_games(struct browser_game *games, int maximum_count)
 	count = keep_shown(games, count);
 	count = add_direct(games, count, maximum_count, browser_list_status() == BROWSER_LIST_ANSWERED);
 	count = keep_shown(games, count);
+	count = keep_named(games, count);
 	add_known(games, count);
 	return count;
 }
@@ -5242,23 +5356,6 @@ void browser_follow_listings(int on)
 		browser.anchors_wanted = 1;
 		pthread_mutex_unlock(&browser_lock);
 	}
-}
-
-int browser_game_peer(const char *invite, unsigned long *address)
-{
-	unsigned char identifier[P2P_IDENTIFIER_SIZE];
-	int index;
-
-	/* (the invite: the host's identifier, then the token) */
-	for (index = 0; index < P2P_IDENTIFIER_SIZE; index++)
-	{
-		unsigned int byte;
-
-		if (sscanf(invite + 2 * index, "%2x", &byte) != 1)
-			return 0;
-		identifier[index] = (unsigned char)byte;
-	}
-	return p2p_peer_address(identifier, address);
 }
 
 int browser_join(const char *invite, int open)

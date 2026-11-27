@@ -1512,6 +1512,12 @@ void tgaLoadHeader(
 	fread(&image->height, 2, 1, file);
 	fread(&image->pixel_depth, 1, 1, file);
 	fread(&ignored_byte, 1, 1, file);
+#ifdef HALO_BIG_ENDIAN
+	/* port: a TGA's sizes are little-endian (320 read as 16385 here left
+	every picture unread on the Xbox 360 and the Wii U) */
+	image->width= (short)((((unsigned short)image->width & 0xff)<<8) | ((unsigned short)image->width>>8));
+	image->height= (short)((((unsigned short)image->height & 0xff)<<8) | ((unsigned short)image->height>>8));
+#endif
 
 	return;
 }
@@ -2021,10 +2027,15 @@ static void progress_bar_render(
 	(halo_loading_screen_on_gpu, port/linux/game/loading_screen.c) */
 	boolean on_gpu= halo_loading_screen_on_gpu();
 
+	/* (unread in the original Xbox's build, which draws as the Xbox did) */
+	(void)on_gpu;
+#ifndef HALO_XBOX_CONSOLE
 	/* port: a step each refresh, as the Xbox's (loading_screen.c); the
-	Xbox's drawing paces itself (its BlockUntilVerticalBlank) */
+	Xbox's drawing paces itself (its BlockUntilVerticalBlank), on OpenGL and
+	in the original Xbox's own build, below */
 	if (!on_gpu && !loading_screen_step_due())
 		return;
+#endif
 	wobble_phase+= 0.01f;
 	progress= (real)((sin(wobble_phase)*0.05 + progress - last_t)*0.2 + last_t);
 	if (progress>1.0)
@@ -2046,10 +2057,13 @@ static void progress_bar_render(
 		}
 	}
 
+#ifndef HALO_XBOX_CONSOLE
 	/* port: without OpenGL's front buffer (GetBackBuffer with -1, read
 	through a texture made from its address: this_is_awful) and
 	fixed-function draws, the CPU makes the same picture from the same
-	textures (port/linux/game/loading_screen.c) */
+	textures (port/linux/game/loading_screen.c). The original Xbox's build
+	has the Xbox's Direct3D, and draws it so (its loading_screen_draw is an
+	empty one) */
 	if (on_gpu)
 		;
 	else if (progress_bar_mode.texture0 && progress_bar_mode.texture1)
@@ -2066,6 +2080,7 @@ static void progress_bar_render(
 	}
 	if (!on_gpu)
 		return;
+#endif
 
 	current_time= GetTickCount();
 	IDirect3DDevice8_GetTransform(global_d3d_device, D3DTS_WORLD, &progress_bar_globals.saved_world);
@@ -2323,6 +2338,7 @@ static void progress_bar_load_loading_texture(
 	D3DLOCKED_RECT locked_rect;
 	unsigned long *pixels;
 	FILE *file;
+	boolean picture_read= FALSE;
 
 	/* port: a console short of memory may not get it: no loading picture,
 	and the loading screen drawn plainly (progress_bar_make_stuff_ready) */
@@ -2345,6 +2361,15 @@ static void progress_bar_load_loading_texture(
 	sprintf(source_path, "z%sloading.tga", map_directory + 1);
 #endif
 	file= fopen(source_path, "rb");
+#ifdef HALO_CONSOLE_NO_LOADING_PICTURE
+	/* port: the disc's own when the utility drive has no copy of it
+	(progress_bar_initialize copies it there) */
+	if (!file)
+	{
+		sprintf(source_path, "d%sloading.tga", map_directory + 1);
+		file= fopen(source_path, "rb");
+	}
+#endif
 	if (file)
 	{
 		image.width= 0;
@@ -2358,8 +2383,20 @@ static void progress_bar_load_loading_texture(
 		{
 			image.pixels= pixels;
 			tgaLoadImageData(file, &image);
+			picture_read= TRUE;
 		}
 		fclose(file);
+	}
+	/* port: without the picture the texture is black, not whatever its
+	memory held before (on the original Xbox, colored streaks drawn as the
+	loading screen: warthog-xbox #171) */
+	if (!picture_read)
+	{
+		long row;
+
+		for (row= 0; row<240; row++)
+			csmemset((byte *)pixels + row*locked_rect.Pitch, 0, 320*sizeof(*pixels));
+		error(_error_silent, "loading screen: no 320x240 24-bit loading.tga in the maps folder; drawn without its picture");
 	}
 	IDirect3DTexture8_UnlockRect(*texture, 0);
 

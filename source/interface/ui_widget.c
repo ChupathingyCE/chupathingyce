@@ -700,6 +700,13 @@ struct widget_instance;
 /* port: Controller Buttons asking for a button (menu_functions.c) */
 boolean pc_menu_controller_capture(void);
 #endif
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+/* port: the Konami code on the Chupathingy main menu (menu_functions.c): a
+controller's press, whether the menu should not get it; and the keyboard's
+B and A letters, each frame */
+boolean pc_menu_konami_event(boolean button, short index, short value);
+void pc_menu_konami_keys(void);
+#endif
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 /* the in-game server browser (port/linux/game/browser_screen.c; the
 console's, port/xbox/game/xbox_browser_screen.c): a screen of code over the
@@ -741,6 +748,7 @@ over the Xbox's and Gearbox's menus, and its dialogs over any */
 (port/linux/game/invite_prompt.c) */
 boolean invite_prompt_active(void);
 void invite_prompt_update(boolean menu_open);
+void direct_join_update(void);
 void invite_prompt_process(void);
 void invite_prompt_pointer(struct halo_ui_pointer const *pointer);
 /* moderation's screen: the same */
@@ -756,6 +764,12 @@ void guide_render(void);
 /* the pause menu's DELTA with what waits in it ("DELTA 2"), for
 its text's string list; NULL to leave it */
 wchar_t const *guide_pause_label(long string_list_tag);
+#endif
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+/* port: the Forge menu (port/linux/game/forge_menu.c): the Multiplayer
+menu's FORGE lobby, and a Forge game's menu, in the Guide's way */
+#include "../../port/linux/game/forge_menu.h"
+boolean forge_enabled(void);
 #endif
 /* (ONLINE GAMES, below: its list moves focus item by item) */
 boolean ui_widget_online_games_list(struct widget_instance *widget);
@@ -829,8 +843,8 @@ enum
 	_icon_use_equipment,
 	_icon_rotate_weapons,
 	_icon_rotate_grenades,
-	_icon_crouch,
 	_icon_zoom,
+	_icon_crouch,
 	_icon_accept,
 	_icon_back,
 	_icon_move,
@@ -1410,6 +1424,12 @@ static void perform_filesystem_initialization(
 	void);
 static void ui_widget_delete_children_recursive(
 	struct widget_instance *widget);
+#ifndef HALO_XBOX_CONSOLE
+static void ui_mouse_forget_widget(
+	struct widget_instance *widget);
+static void ui_mouse_forget_all(
+	void);
+#endif
 static struct widget_instance *ui_widget_launch_widget(
 	struct widget_instance *widget,
 	long new_widget_tag_index);
@@ -1609,7 +1629,8 @@ static wchar_t const *const kills_to_win_extra_descriptions[] =
 controls_screen.c) offers Bumper Jumper in the profile's own Button
 Layout, after the Xbox's five (player_ui.c sets it; the profile keeps it
 as _button_preset_bumper_jumper, the sixth). The controller picture has
-no frame for it, so it is hidden while the item is chosen */
+no frame for it, so the plain gamepad of the profile settings' list is
+drawn in its place while the item is chosen (warthog-xbox #108) */
 static wchar_t const *const button_config_extra_strings[] =
 {
 	L"BUMPER JUMPER",
@@ -1621,9 +1642,19 @@ static wchar_t const *const button_config_extra_descriptions[] =
 };
 #endif
 
+/* port: what the list's picture shows for a spinner's extra items */
+enum
+{
+	_spinner_extra_unpictured,
+	/* a frame of the picture's own */
+	_spinner_extra_pictured,
+	/* the plain gamepad (ui_widget_plain_gamepad) */
+	_spinner_extra_plain_gamepad,
+};
+
 /* port: the spinners' string lists with extra items, by tag name: their
 strings, their descriptions, how much wider the spinner draws (to the
-left), and whether the list's picture has a frame for them */
+left), and what the list's picture shows for them */
 static struct
 {
 	char const *tag_name;
@@ -1631,19 +1662,19 @@ static struct
 	wchar_t const *const *descriptions;
 	short count;
 	short wider;
-	boolean pictured;
+	short picture;
 } const spinner_extras[] =
 {
 	{
 		"ui\\shell\\main_menu\\settings_select\\multiplayer_setup\\playlist_edit\\slayer_edit\\var_kills_to_win",
 		kills_to_win_extra_strings, kills_to_win_extra_descriptions, NUMBEROF(kills_to_win_extra_strings),
-		SPINNER_EXTRA_WIDTH, TRUE,
+		SPINNER_EXTRA_WIDTH, _spinner_extra_pictured,
 	},
 #ifdef HALO_CONSOLE_NO_CONTROLS
 	{
 		"ui\\shell\\main_menu\\settings_select\\player_setup\\player_profile_edit\\controller_edit\\var_button_config",
 		button_config_extra_strings, button_config_extra_descriptions, NUMBEROF(button_config_extra_strings),
-		0, FALSE,
+		0, _spinner_extra_plain_gamepad,
 	},
 #endif
 };
@@ -1803,8 +1834,8 @@ static char button_mappings[_icon_custom_1 - _icon_action] =
 	4,		/* use-equipment -> melee */
 	3,		/* rotate-weapons -> switch weapons */
 	1,		/* rotate-grenades -> switch grenades */
+	11,		/* zoom -> zoom (port: zoom before crouch, as retail's tags and table) */
 	10,		/* crouch -> crouch */
-	11,		/* zoom -> zoom */
 	_icon_a_button,		/* accept */
 	_icon_b_button,		/* back */
 	_icon_left_stick,	/* move */
@@ -1928,6 +1959,27 @@ void draw_bitmap_in_rect(
 		points[3].x = (real)rectangle_x0;
 		points[3].y = (real)(rectangle_y0 + rectangle_height);
 
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
+		/* port: a Halo PC map's menus (Custom Edition's, HaloMD's,
+		OpenSauce's) on a screen wider than 640: a bitmap that covers the
+		whole 640x480 is stretched to the screen's edges, as Chimera's
+		widescreen fix draws it for Custom Edition's players (a menu's
+		background, tint or fade), and the rest stays in the centered 640
+		columns. The menus are drawn shifted right by half the extra width
+		(halo_screen_ui_offset), so the bitmap reaches out that far each way */
+		{
+			long extra = halo_screen_width() - 640;
+
+			if (extra > 0 && CACHE_FILE_TAGS_ARE_CE() &&
+				rect->x0 <= 1 && rect->x1 >= 639 && rect->y0 <= 1 && rect->y1 >= 479 &&
+				(!clip_rect || (clip_rect->x0 <= 1 && clip_rect->x1 >= 639)))
+			{
+				points[0].x = points[3].x = (real)(rectangle_x0 - extra / 2);
+				points[1].x = points[2].x = (real)(rectangle_x0 + rectangle_width + (extra - extra / 2));
+				clip_rect = NULL;
+			}
+		}
+#endif
 		if (clip_rect)
 		{
 			if (clip_rect->x0 > rect->x0)
@@ -2240,9 +2292,7 @@ void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget)
 
 /* (MCC maps offered in every game of a build that has them, offline and
 hosted: a network game on one is hosted at the newest MCC-capable OpenCE
-number over the usual wire, network_game_server_mcc_version. MCC's own record
-and messages, HALO_MCC_NETWORK in mcc_identity.c and network_distributed.c,
-are no build's) */
+number over the usual wire, network_game_server_mcc_version) */
 static boolean ui_widget_port_mcc_offered(void)
 {
 	return TRUE;
@@ -2265,6 +2315,10 @@ boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
 	return TRUE;
 }
 
+/* port: whether the Chupathingy menus are up (port/linux/game/menu_tags.c) */
+boolean pc_menus_chupathingy(
+	void);
+
 /* the MCC catalog's campaign maps, after the campaign's ten levels in the
 Xbox's level select (ui_widget_event_handler_functions.c), at most this
 many: their level names, by row from 0 */
@@ -2282,6 +2336,39 @@ char const *ui_widget_port_mcc_campaign_level(short row)
 	short index = ui_widget_port_mcc_offered() ? mcc_maps_type_index(row, TRUE) : NONE;
 
 	return index != NONE ? mcc_maps_level_name(index) : NULL;
+}
+
+/* the rows after the campaign's ten levels in the level select: the MCC
+catalog's campaign maps, then, in the Chupathingy menus, the other campaign
+maps found (the maps folder's own, the map packs', Custom Edition's: the
+menus' map list, ui_map_list.c), at most this many */
+#define UI_WIDGET_PORT_CUSTOM_CAMPAIGN_ROWS 128
+
+static short ui_widget_port_custom_campaign_count(void)
+{
+#ifdef HALO_MAP_LIST
+	if (pc_menus_chupathingy())
+		return (short)MIN(ui_map_list_custom_campaign_count(), UI_WIDGET_PORT_CUSTOM_CAMPAIGN_ROWS);
+#endif
+	return 0;
+}
+
+short ui_widget_port_campaign_maps_count(void)
+{
+	return (short)(ui_widget_port_mcc_campaign_count() + ui_widget_port_custom_campaign_count());
+}
+
+char const *ui_widget_port_campaign_maps_level(short row)
+{
+	short mcc_count = ui_widget_port_mcc_campaign_count();
+
+	if (row < mcc_count)
+		return ui_widget_port_mcc_campaign_level(row);
+#ifdef HALO_MAP_LIST
+	if (row - mcc_count < ui_widget_port_custom_campaign_count())
+		return ui_map_list_custom_campaign_name(row - mcc_count);
+#endif
+	return NULL;
 }
 
 /* (the level and its co-op settings together, or nothing until the host
@@ -2489,6 +2576,9 @@ static boolean ui_widget_screens_of_code_active(
 #ifdef HALO_GUIDE
 	active = active || guide_active();
 #endif
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+	active = active || forge_menu_active();
+#endif
 
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	active = active || controls_screen_active();
@@ -2648,6 +2738,9 @@ void ui_widgets_dispose(
 	void)
 {
 	ui_widgets_close_all();
+#ifndef HALO_XBOX_CONSOLE
+	ui_mouse_forget_all();
+#endif
 	if (widget_memory_pool->base_address)
 		pool_free(widget_memory_pool->base_address);
 	widget_memory_pool->base_address = NULL;
@@ -2811,6 +2904,10 @@ void ui_widget_delete(
 			ui_widget_delete(widget->parameters.list.extended_description);
 		break;
 	}
+#ifndef HALO_XBOX_CONSOLE
+	/* port: the pointer's targets must not keep it (#1498) */
+	ui_mouse_forget_widget(widget);
+#endif
 	dispose_pointer(widget_memory_pool, widget);
 	for (widget_index = 0;
 		widget_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS;
@@ -3829,21 +3926,36 @@ enum
 	ONLINE_GAMES_SYSTEM_LINK = 2,
 	ONLINE_GAMES_POSITION = 3,
 	ONLINE_GAMES_MENU_ITEMS = 4,
+#ifdef HALO_GAME_BROWSER
+	/* ONLINE CO-OP, a copy under ONLINE GAMES with the Chupathingy menus,
+	which host network co-op (as it is when the tags load: online_games.coop):
+	the host flow, on the campaign (menu_functions.c's pc_menus_coop_online) */
+	COOP_ITEM_POSITION = ONLINE_GAMES_POSITION + 1,
+	ONLINE_GAMES_COOP_MOST = 1,
+#else
+	ONLINE_GAMES_COOP_MOST = 0,
+#endif
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	/* MAP BROWSER, a second copy of System Link's, under ONLINE GAMES
 	(port/xbox/game/xbox_maps_screen.c) */
-	MAP_BROWSER_POSITION = ONLINE_GAMES_POSITION + 1,
 	ONLINE_GAMES_MAP_BROWSER_ADDED = 1,
 #else
 	ONLINE_GAMES_MAP_BROWSER_ADDED = 0,
 #endif
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+	/* FORGE (port/linux/game/forge_menu.c), another copy, before DELTA,
+	with game.forge and the Chupathingy menus (as they are when the tags
+	load: online_games.forge) */
+	ONLINE_GAMES_FORGE_MOST = 1,
+#else
+	ONLINE_GAMES_FORGE_MOST = 0,
+#endif
 #ifdef HALO_GUIDE
 	/* DELTA (port/linux/game/guide.c), another copy, last, with
 	delta.menu_item (as it is when the tags load: online_games.added) */
-	DELTA_ITEM_POSITION = ONLINE_GAMES_POSITION + 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
-	ONLINE_GAMES_ITEMS_MOST = 2 + ONLINE_GAMES_MAP_BROWSER_ADDED,
+	ONLINE_GAMES_ITEMS_MOST = 2 + ONLINE_GAMES_MAP_BROWSER_ADDED + ONLINE_GAMES_COOP_MOST + ONLINE_GAMES_FORGE_MOST,
 #else
-	ONLINE_GAMES_ITEMS_MOST = 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
+	ONLINE_GAMES_ITEMS_MOST = 1 + ONLINE_GAMES_MAP_BROWSER_ADDED + ONLINE_GAMES_COOP_MOST,
 #endif
 	/* the items' spacing (their vertical offset, -33) */
 	ONLINE_GAMES_ROW = 33,
@@ -3863,11 +3975,22 @@ static struct
 	/* the DELTA row is in the list */
 	boolean delta;
 #endif
-	/* the items added (ONLINE GAMES, MAP BROWSER, DELTA) */
+	/* the items added (ONLINE GAMES, ONLINE CO-OP, MAP BROWSER, FORGE, DELTA) */
 	short added;
+	/* the ONLINE CO-OP row is in the list (the Chupathingy menus') */
+	boolean coop;
+	boolean coop_described;
+	/* the FORGE row is in the list (game.forge) */
+	boolean forge;
+	boolean forge_described;
 } online_games = { NONE, NONE, NULL, FALSE };
 
 #define ONLINE_GAMES_ITEMS_ADDED online_games.added
+/* (the places after ONLINE GAMES: ONLINE CO-OP's, if it is there, first) */
+#define MAP_BROWSER_POSITION (ONLINE_GAMES_POSITION + 1 + online_games.coop)
+#define FORGE_ITEM_POSITION (ONLINE_GAMES_POSITION + 1 + online_games.coop + ONLINE_GAMES_MAP_BROWSER_ADDED)
+#define DELTA_ITEM_POSITION (ONLINE_GAMES_POSITION + 1 + online_games.coop + ONLINE_GAMES_MAP_BROWSER_ADDED + \
+	online_games.forge)
 
 #ifdef HALO_GAME_BROWSER
 static void ui_widget_setup_entry_tags_loaded(void);
@@ -3910,6 +4033,26 @@ void ui_widget_online_games_tags_loaded(
 #else
 	online_games.added = ONLINE_GAMES_ITEMS_MOST;
 #endif
+#ifdef HALO_GAME_BROWSER
+	{
+		extern boolean pc_menus_chupathingy(void);
+
+		online_games.coop = pc_menus_chupathingy();
+		if (!online_games.coop)
+			online_games.added--;
+	}
+#endif
+	online_games.forge = FALSE;
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+	/* (new UI is the Chupathingy menus': the Xbox's stay as shipped) */
+	{
+		extern boolean pc_menus_chupathingy(void);
+
+		online_games.forge = forge_enabled() && pc_menus_chupathingy();
+	}
+	if (!online_games.forge)
+		online_games.added--;
+#endif
 	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_MOST) * sizeof(*children));
 	online_games.children = children;
 	if (!children)
@@ -3917,8 +4060,16 @@ void ui_widget_online_games_tags_loaded(
 	old_children = (struct ui_widget_child_reference *)xbox_pointer(list->child_widgets.address);
 	csmemcpy(children, old_children, ONLINE_GAMES_POSITION * sizeof(*children));
 	children[ONLINE_GAMES_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#ifdef HALO_GAME_BROWSER
+	if (online_games.coop)
+		children[COOP_ITEM_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#endif
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	children[MAP_BROWSER_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#endif
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+	if (online_games.forge)
+		children[FORGE_ITEM_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
 #endif
 #ifdef HALO_GUIDE
 	if (online_games.delta)
@@ -3982,8 +4133,8 @@ launcher.menu_entry is false (pc_menu_setup_offered). */
 
 enum
 {
-	/* the Xbox's rows: CHANGE NAME, CONTROLLER SETTINGS, ADVANCED
-	CONTROLS, CHANGE COLOR, SAVE CHANGES */
+	/* the Xbox's rows: CHANGE NAME, CONTROLLER SETUP, ADVANCED SETUP,
+	CHANGE COLOR, SAVE CHANGES */
 	SETUP_ENTRY_ROWS = 5,
 	SETUP_ENTRY_COPIED = 3,
 	SETUP_ENTRY_SAVE = 4,
@@ -4107,7 +4258,10 @@ static boolean ui_widget_setup_entry_item(
 	return ui_widget_setup_entry_kind(widget) != NONE;
 }
 
-/* the row's words and its description's */
+/* the row's words and its description's. The setup screen's row is SETUP
+here: the Xbox's own third row is already ADVANCED SETUP (its controls), so
+the Chupathingy menus' name for it would show twice
+(tools/test_menu_unique_rows.py) */
 static wchar_t const *ui_widget_setup_entry_label(
 	short kind)
 {
@@ -4165,6 +4319,28 @@ boolean ui_widget_online_games_item(
 		ui_widget_list_position(widget) == ONLINE_GAMES_POSITION;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* the Multiplayer menu's ONLINE CO-OP (a copy of System Link's item) */
+boolean ui_widget_coop_item(
+	struct widget_instance *widget)
+{
+	return online_games.list_tag != NONE && online_games.coop && widget && widget->parent &&
+		widget->parent->definition_tag_index == online_games.list_tag &&
+		ui_widget_list_position(widget) == COOP_ITEM_POSITION;
+}
+#endif
+
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+/* the Multiplayer menu's FORGE (a copy of System Link's item) */
+static boolean ui_widget_forge_item(
+	struct widget_instance *widget)
+{
+	return online_games.list_tag != NONE && online_games.forge && widget && widget->parent &&
+		widget->parent->definition_tag_index == online_games.list_tag &&
+		ui_widget_list_position(widget) == FORGE_ITEM_POSITION;
+}
+#endif
+
 #ifdef HALO_GUIDE
 /* the Multiplayer menu's DELTA (a copy of System Link's item) */
 boolean ui_widget_delta_item(
@@ -4215,8 +4391,26 @@ boolean ui_online_games_start_server(void);
 Link's Y makes one: on maps that play multiplayer with the others, the
 server started, then the new game's map chosen, whose B goes back to the
 Multiplayer menu (which ends the game, ui_widget_event_handler_functions.c) */
+static boolean ui_widget_online_games_create_game_at(short position);
+
 boolean ui_widget_online_games_create_game(
 	void)
+{
+	return ui_widget_online_games_create_game_at(ONLINE_GAMES_POSITION);
+}
+
+#ifdef HALO_GAME_BROWSER
+/* ONLINE CO-OP's: the same, with the Multiplayer menu under it on ONLINE
+CO-OP, which Select Map's B goes back to */
+boolean ui_widget_online_games_create_coop_game(
+	void)
+{
+	return ui_widget_online_games_create_game_at(online_games.coop ? COOP_ITEM_POSITION : ONLINE_GAMES_POSITION);
+}
+#endif
+
+static boolean ui_widget_online_games_create_game_at(
+	short position)
 {
 	long map_select = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_MAP_SELECT);
 	long screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN);
@@ -4232,7 +4426,7 @@ boolean ui_widget_online_games_create_game(
 	if (!ui_online_games_start_server())
 		return FALSE;
 	return ui_widget_load_by_name_or_tag(NULL, map_select, NULL, NONE, screen, online_games.list_tag,
-		ONLINE_GAMES_POSITION) != NULL;
+		position) != NULL;
 }
 #endif
 
@@ -4250,8 +4444,24 @@ short ui_widget_online_games_description(
 #ifdef HALO_GUIDE
 	online_games.delta_described = FALSE;
 #endif
+	online_games.coop_described = FALSE;
+	online_games.forge_described = FALSE;
 	if (online_games.list_tag == NONE || list_widget->definition_tag_index != online_games.list_tag)
 		return index;
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+	if (online_games.forge && index == FORGE_ITEM_POSITION)
+	{
+		online_games.forge_described = TRUE;
+		return ONLINE_GAMES_SYSTEM_LINK;
+	}
+#endif
+#ifdef HALO_GAME_BROWSER
+	if (online_games.coop && index == COOP_ITEM_POSITION)
+	{
+		online_games.coop_described = TRUE;
+		return ONLINE_GAMES_SYSTEM_LINK;
+	}
+#endif
 	if (index == ONLINE_GAMES_POSITION)
 	{
 		online_games.described = TRUE;
@@ -4311,6 +4521,34 @@ static void event_handler_dispatch(
 		browser_screen_open();
 		return;
 	}
+#ifdef HALO_GAME_BROWSER
+	/* ONLINE CO-OP (System Link's item copied): Create Game's host flow, on
+	the campaign's first level, none of System Link's other buttons */
+	if (ui_widget_coop_item(widget))
+	{
+		if (handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start)
+		{
+			extern boolean pc_menus_coop_online(void);
+
+			if (pc_menus_coop_online())
+				ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+		}
+		return;
+	}
+#endif
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+	/* FORGE (System Link's item copied): the Forge lobby over the menu, and
+	none of System Link's other buttons */
+	if (ui_widget_forge_item(widget))
+	{
+		if (handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start)
+		{
+			ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+			forge_menu_open_lobby();
+		}
+		return;
+	}
+#endif
 #ifdef HALO_GUIDE
 	/* DELTA (System Link's item copied): DELTA over the menu, on PARTY */
 	if (ui_widget_delta_item(widget) &&
@@ -5400,6 +5638,23 @@ void draw_string_and_hack_in_icons(
 	return;
 }
 
+/* The menu music is looked up by name every frame until it starts; a ui map
+   without that tag (SPV3's ui.yelo starts its own music from its scenario
+   script) logged the miss every frame. Say it once per map. */
+static void ui_main_menu_music_missing(
+	void)
+{
+	static long logged_scenario_index = NONE;
+
+	if (logged_scenario_index != global_scenario_index)
+	{
+		logged_scenario_index = global_scenario_index;
+		error(_error_silent, "title music tag not found");
+	}
+
+	return;
+}
+
 void ui_start_main_menu_music(
 	void)
 {
@@ -5415,7 +5670,7 @@ void ui_start_main_menu_music(
 		}
 		else
 		{
-			error(_error_silent, "title music tag not found");
+			ui_main_menu_music_missing();
 		}
 	}
 
@@ -5436,7 +5691,7 @@ void ui_stop_main_menu_music(
 		}
 		else
 		{
-			error(_error_silent, "title music tag not found");
+			ui_main_menu_music_missing();
 		}
 		widget_globals.main_menu_music_active = FALSE;
 	}
@@ -6535,6 +6790,34 @@ static boolean ui_widget_port_text_wrap(
 }
 
 
+/* a text box's text, in its own block of the widget pool, made as big as
+the string needs. port: when the pool can't give it a bigger block, the text
+box keeps the block and the text it had. The Xbox's code dropped the block
+(never given back) and kept the "<out of memory>" string in its place, which
+the next frame handed back to the pool as if it were a block of its own: a
+halt in stack_memory_pool.c in builds that check (#1832) */
+static void widget_instance_text_box_text_set(
+	struct widget_instance *widget,
+	wchar_t const *string,
+	unsigned long length)
+{
+	wchar_t *text = pool_resize_pointer(
+		widget_memory_pool,
+		widget->parameters.text_box.text,
+		2 * length + 2,
+		"c:\\halo\\SOURCE\\interface\\ui_widget.c",
+		4421);
+
+	if (text)
+	{
+		widget->parameters.text_box.text = text;
+		csmemcpy(text, string, 2 * length);
+		text[length] = 0;
+	}
+
+	return;
+}
+
 static void widget_instance_render_text_box(
 	struct widget_instance *widget,
 	struct ui_widget_definition *definition,
@@ -6585,6 +6868,18 @@ static void widget_instance_render_text_box(
 		/* (ONLINE GAMES' item and description share System Link's tags) */
 		if (ui_widget_online_games_item(widget))
 			string = L"ONLINE GAMES";
+#ifdef HALO_GAME_BROWSER
+		else if (ui_widget_coop_item(widget))
+			string = L"ONLINE CO-OP";
+		else if (online_games.coop_described && widget->definition_tag_index == online_games.description_text_tag)
+			string = L"Host the campaign for friends\r\nto join from their own\r\nmachines.";
+#endif
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+		else if (ui_widget_forge_item(widget))
+			string = L"FORGE";
+		else if (online_games.forge_described && widget->definition_tag_index == online_games.description_text_tag)
+			string = L"Build a layout of a \r\nmultiplayer map, or play \r\none you saved.";
+#endif
 #ifdef HALO_GUIDE
 		else if (ui_widget_delta_item(widget))
 			string = L"DELTA";
@@ -6637,21 +6932,7 @@ static void widget_instance_render_text_box(
 				string = (wchar_t *)spinner_extras[extra].descriptions[item];
 		}
 		length = ustrlen(string);
-		widget->parameters.text_box.text = pool_resize_pointer(
-			widget_memory_pool,
-			widget->parameters.text_box.text,
-			2 * length + 2,
-			"c:\\halo\\SOURCE\\interface\\ui_widget.c",
-			4421);
-		if (widget->parameters.text_box.text)
-		{
-			csmemcpy(widget->parameters.text_box.text, string, 2 * length);
-			widget->parameters.text_box.text[length] = 0;
-		}
-		else
-		{
-			widget->parameters.text_box.text = L"<out of memory>";
-		}
+		widget_instance_text_box_text_set(widget, string, length);
 	}
 	text = &widget->parameters.text_box.text;
 	if (!*text || !**text)
@@ -7063,7 +7344,9 @@ static void widget_instance_render_spinner_list(
 				rasterizer_draw_unicode_string(&bounds, &clip, NULL, 0, item_text);
 			}
 		}
-		if (definition->text_label_string_list.index != NONE)
+		/* port: none to give back when the pool had no room for it (the
+		Xbox's code gave back the NULL: an "invalid pointer" halt, #1832) */
+		if (definition->text_label_string_list.index != NONE && item_text)
 			dispose_pointer(widget_memory_pool, item_text);
 	}
 
@@ -7280,6 +7563,8 @@ static void ui_debug_draw_targets(
 				0x8000ffff, 0xc0ff00ff };
 			short kind = ui_mouse_targets[index].kind;
 
+			if (kind == NONE)
+				continue;
 			ui_debug_draw_outline(&ui_mouse_targets[index].bounds, colors[PIN(kind, 0, 7)]);
 		}
 	}
@@ -8013,11 +8298,65 @@ static struct ui_mouse_target *ui_mouse_target_at(
 	{
 		rectangle2d const *bounds = &ui_mouse_targets[index].bounds;
 
+		if (ui_mouse_targets[index].kind == NONE)
+			continue;
 		if (x >= bounds->x0 && x < bounds->x1 && y >= bounds->y0 && y < bounds->y1)
 			return &ui_mouse_targets[index];
 	}
 
 	return NULL;
+}
+
+/* forgets a widget as ui_widget_delete deletes it. The targets are noted
+while the menus draw and read on the next frame, and between the two a
+screen can go: its own handlers, or the network sending the game back to
+the main menu when the host goes down (#1498), whose next frame gave the
+focus to a deleted widget. Its targets stay, with no kind and no area, so
+that nothing hits them, and a click on a screen that has gone is not taken
+for the A of a screen with nothing to pick; a button whose label goes keeps
+its area. A screen's deletion also drops the pointer's waiting hover and
+click, which were meant for it. */
+static void ui_mouse_forget_widget(
+	struct widget_instance *widget)
+{
+	long index;
+
+	for (index = 0; index < ui_mouse_target_count; index++)
+	{
+		struct ui_mouse_target *target = &ui_mouse_targets[index];
+
+		if (target->widget == widget)
+		{
+			target->widget = NULL;
+			target->label = NULL;
+			target->kind = NONE;
+			csmemset(&target->bounds, 0, sizeof(target->bounds));
+		}
+		else if (target->label == widget)
+		{
+			target->label = NULL;
+		}
+	}
+	if (!widget->parent)
+	{
+		ui_mouse_hover_pending = FALSE;
+		ui_mouse_click_pending = FALSE;
+	}
+
+	return;
+}
+
+/* forgets every target and the waiting hover and click: the widgets'
+memory goes (ui_widgets_dispose) */
+static void ui_mouse_forget_all(
+	void)
+{
+	ui_mouse_target_count = 0;
+	ui_mouse_targets_settled = FALSE;
+	ui_mouse_hover_pending = FALSE;
+	ui_mouse_click_pending = FALSE;
+
+	return;
 }
 
 static boolean ui_mouse_widget_has_focus(
@@ -8284,6 +8623,11 @@ static boolean ui_mouse_menus_active(
 	if (guide_active())
 		return TRUE;
 #endif
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+	/* (and the Forge menu, over a game too) */
+	if (forge_menu_active())
+		return TRUE;
+#endif
 	return virtual_keyboard_active() || ui_mouse_menu() != NULL || game_engine_showing_postgame();
 }
 
@@ -8369,8 +8713,9 @@ static void ui_debug_log_targets(
 	{
 		struct ui_mouse_target const *target = &ui_mouse_targets[index];
 
-		platform_log("touch targets:   %s %s [%d,%d,%d,%d]", kinds[PIN(target->kind, 0, 7)],
-			tag_get_name(target->widget->definition_tag_index),
+		platform_log("touch targets:   %s %s [%d,%d,%d,%d]",
+			target->kind == NONE ? "deleted" : kinds[PIN(target->kind, 0, 7)],
+			target->widget ? tag_get_name(target->widget->definition_tag_index) : "-",
 			target->bounds.x0, target->bounds.y0, target->bounds.x1, target->bounds.y1);
 	}
 
@@ -8493,6 +8838,11 @@ static void ui_widgets_process_mouse(
 #ifdef HALO_GUIDE
 	if (pointer_active && guide_active())
 		guide_pointer(&pointer);
+	else
+#endif
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+	if (pointer_active && forge_menu_active())
+		forge_menu_pointer(&pointer);
 	else
 #endif
 	if (pointer_active && !keyboard_active && invite_prompt_active())
@@ -8827,6 +9177,26 @@ static void widget_instance_game_data_recursive(
 }
 
 #endif
+/* port: the plain gamepad: the profile settings' list's picture of its
+controller row (ui.map's profile_options, frame 1, 512x256), drawn by a
+picture whose frame is UI_WIDGET_PLAIN_GAMEPAD_FRAME, moved by this much in
+it to sit where Controller Setup's pictures (512x512) have their gamepad;
+NULL without that bitmap, and nothing is drawn */
+#define PLAIN_GAMEPAD_TAG "ui\\shell\\main_menu\\settings_select\\player_setup\\player_profile_edit\\profile_options"
+#define PLAIN_GAMEPAD_FRAME 1
+#define PLAIN_GAMEPAD_X 110
+#define PLAIN_GAMEPAD_Y 24
+
+static struct bitmap_data *ui_widget_plain_gamepad(
+	void)
+{
+	long bitmap_group_index = tag_loaded('bitm', PLAIN_GAMEPAD_TAG);
+
+	if (bitmap_group_index == NONE)
+		return NULL;
+	return bitmap_group_get_bitmap_from_sequence(bitmap_group_index, 0, PLAIN_GAMEPAD_FRAME);
+}
+
 static void widget_instance_render_recursive(
 	struct widget_instance *widget,
 	rectangle2d *clip_rect,
@@ -8844,6 +9214,8 @@ static void widget_instance_render_recursive(
 	/* port: an MCC map's picture (ui_map_list_mcc_picture), and the frame drawn */
 	short mcc_picture = NONE;
 	short picture_frame = widget->animation.current_frame_index;
+	/* port: the plain gamepad drawn instead (UI_WIDGET_PLAIN_GAMEPAD_FRAME) */
+	boolean plain_gamepad = picture_frame == UI_WIDGET_PLAIN_GAMEPAD_FRAME;
 
 	if (!use_nifty_plasma_fx &&
 		TEST_FLAG(definition->flags, _widget_always_render_with_nifty_fx_bit))
@@ -8868,6 +9240,12 @@ static void widget_instance_render_recursive(
 #ifndef HALO_XBOX_CONSOLE
 	ui_mouse_note_target(widget, definition, offset);
 #endif
+	if (plain_gamepad)
+	{
+		bitmap = ui_widget_plain_gamepad();
+	}
+	else
+	{
 #ifdef HALO_MAP_LIST
 	/* port: an MCC map's own picture (mcc_menu_preview_draw, below), with
 	the unknown level's in its place when it has none; a picture of the
@@ -8881,6 +9259,7 @@ static void widget_instance_render_recursive(
 		definition->background_bitmap.index,
 		0,
 		picture_frame);
+	}
 	if (bitmap)
 	{
 		real alpha = alpha_modifier;
@@ -8945,6 +9324,18 @@ static void widget_instance_render_recursive(
 				clip->x0 -= (short)extra;
 			if (clip->x1 >= 640)
 				clip->x1 = (short)(clip->x1 + extra);
+		}
+		if (plain_gamepad)
+		{
+			/* port: moved so its gamepad sits where Controller Setup's
+			pictures have theirs, one texel to a unit as they are drawn, and
+			cut off at the picture's own box: by its bounds, which are its
+			texels too (a clip moves the corners, not the texels, and would
+			squeeze it) */
+			bounds.x0 = (short)(bounds.x0 + PLAIN_GAMEPAD_X);
+			bounds.y0 = (short)(bounds.y0 + PLAIN_GAMEPAD_Y);
+			bounds.x1 = (short)MIN(bounds.x1, bounds.x0 + bitmap->width);
+			bounds.y1 = (short)MIN(bounds.y1, bounds.y0 + bitmap->height);
 		}
 		if (TEST_FLAG(definition->flags, _widget_flash_background_bitmap_bit))
 		{
@@ -9330,6 +9721,10 @@ void render_ui_widgets(
 #endif
 		moderation_screen_render();
 		invite_prompt_render();
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+		/* (the Forge menu, under the Guide) */
+		forge_menu_render();
+#endif
 #ifdef HALO_GUIDE
 		/* (over all of them) */
 		guide_render();
@@ -9413,7 +9808,21 @@ boolean ui_widget_spinner_item_pictured(
 	struct ui_widget_definition *definition = ui_widget_definition_get(spinner->definition_tag_index);
 	short extra = spinner_string_list_extra(definition->text_label_string_list.index);
 
-	return item_index < ui_widget_spinner_own_item_count(spinner) || extra == NONE || spinner_extras[extra].pictured;
+	return item_index < ui_widget_spinner_own_item_count(spinner) || extra == NONE ||
+		spinner_extras[extra].picture == _spinner_extra_pictured;
+}
+
+/* whether a spinner's item is shown by the plain gamepad (an extra item
+whose list's picture has no frame for it) */
+boolean ui_widget_spinner_item_plain_gamepad(
+	struct widget_instance *spinner,
+	short item_index)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(spinner->definition_tag_index);
+	short extra = spinner_string_list_extra(definition->text_label_string_list.index);
+
+	return item_index >= ui_widget_spinner_own_item_count(spinner) && extra != NONE &&
+		spinner_extras[extra].picture == _spinner_extra_plain_gamepad;
 }
 
 /* a string of a string list, or of its extra strings past the tag's own */
@@ -10304,9 +10713,14 @@ static boolean ui_check_for_pause_game(
 						network_game_client_get_machine_index(client);
 					char const *widget_name;
 
-					/* port: a campaign map has only the campaign's pause screen */
+					/* port: a campaign map has only the campaign's pause screens:
+					one player's, or two players' with a split screen of this
+					machine's (the one player's would be cut to the first
+					player's half) */
 					if (network_coop_active())
-						widget_name = "ui\\shell\\solo_game\\pause_game\\pause_game";
+						widget_name = local_player_count >= 2 ?
+							"ui\\shell\\solo_game\\pause_game\\pause_game_split_screen" :
+							"ui\\shell\\solo_game\\pause_game\\pause_game";
 					else switch (local_player_count)
 					{
 					case 1:
@@ -10518,6 +10932,9 @@ void process_ui_widgets(
 	boolean pause_pressed;
 	boolean modal_widget_active[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 	long widget_index;
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+	boolean konami_on_main_menu;
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\interface\\ui_widget.c",
@@ -10573,6 +10990,17 @@ void process_ui_widgets(
 		return;
 	}
 #endif
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_FORGE)
+	/* port: the Forge menu, over the menus or a Forge game, the same */
+	forge_menu_update();
+	if (forge_menu_active())
+	{
+		forge_menu_process();
+		event_manager_flush();
+
+		return;
+	}
+#endif
 	if (virtual_keyboard_active())
 	{
 		virtual_keyboard_process();
@@ -10588,6 +11016,9 @@ void process_ui_widgets(
 #endif
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 #ifdef HALO_GAME_BROWSER
+	/* port: a join by address (Direct IP, connect: port/linux/game/
+	direct_join.c) looked for, its game joined once heard */
+	direct_join_update();
 	/* port: an invite on the clipboard, asked about over the menus */
 	invite_prompt_update(widget_globals.active_widgets[0] != NULL);
 	if (invite_prompt_active())
@@ -10694,6 +11125,13 @@ void process_ui_widgets(
 
 		return;
 	}
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+	/* port: the Konami code on the Chupathingy main menu, the keyboard's B
+	and A letters (menu_functions.c: the logo's duct tape) */
+	konami_on_main_menu = main_menu_screen_is_active() && pc_menus_chupathingy();
+	if (konami_on_main_menu)
+		pc_menu_konami_keys();
+#endif
 	pause_pressed = ui_check_for_pause_game();
 	any_modal_widget_active = FALSE;
 	for (widget_index = 0;
@@ -10743,6 +11181,18 @@ void process_ui_widgets(
 			{
 				do
 				{
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+					/* port: the code's presses, seen first; its B and A
+					kept from the menu (B would ask to quit, A open a row) */
+					if (konami_on_main_menu &&
+						pc_menu_konami_event(
+							event.type == _event_type_button,
+							event.data.button.index,
+							event.data.button.value))
+					{
+						continue;
+					}
+#endif
 					if (!pause_pressed)
 					{
 						widget_instance_process_one_event_recursive(

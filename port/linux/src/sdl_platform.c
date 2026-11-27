@@ -22,10 +22,12 @@ and the debug keyboard that the game's console reads.
 #include "ce_installer.h"
 #include "touch_input.h"
 #include "delta.h"
+#include "networks_game.h"
 #include "map_repo.h"
 #include "crash_report.h"
 #include "launcher.h"
 #include "vrr.h"
+#include "map_pack_folders.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -412,6 +414,21 @@ static void data_check_maps(void)
 			maps.ui_version == 609 ? "Halo PC (Custom Edition)" : "Halo PC", where);
 		break;
 	default:
+		/* (Halo MCC's maps copied in, its ui.map version 13: said so, and
+		where they go) */
+		if (maps.ui_version == 13)
+		{
+			snprintf(message, sizeof(message),
+				"The maps folder holds Halo MCC maps, not the Xbox maps.%s\n\n%s\n\n"
+				"To copy the Xbox maps from your disc image, move this maps folder aside and start Chupathingy.",
+#if HALO_MCC
+				" They go in maps_mcc.",
+#else
+				"",
+#endif
+				where);
+			break;
+		}
 		/* (a maps folder without ui.map and no Halo PC maps in it, as "make
 		the folders" leaves it: the choices offered again; the launcher's Maps
 		has them) */
@@ -767,6 +784,10 @@ BOOL platform_sdl_initialize(void)
 #endif
 	/* (the legacy table: a newer one fetched meanwhile) */
 	delta_legacy_start();
+#ifdef HALO_DELTA_PEER_IDENTITY
+	/* (the networks whose players' names are checked: networks_game.h) */
+	networks_start();
+#endif
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_SERVER)
 	/* (Chupathingy maps' index, for its blacklist before the first join:
 	map_repo.h) */
@@ -1111,13 +1132,16 @@ static BOOL data_make_folders(const char *destination)
 		snprintf(path, sizeof(path), "%s/%s", destination, folders[index]);
 		posix_make_directory(path);
 	}
+	/* (and the map packs' folders, each with its README.txt) */
+	map_pack_folders_make(destination);
 	platform_log("made the maps folders in %s", destination);
 	snprintf(message, sizeof(message),
 		"The folders are in %s:\n\n"
 		"maps: the Xbox maps, with ui.map. Required.\n"
 		"maps_ce: Custom Edition maps, with bitmaps.map, sounds.map and loc.map.\n"
 		"maps_pc: the maps from your Halo PC disc.\n"
-		"maps_md: HaloMD maps.\n\n"
+		"maps_md: HaloMD maps.\n"
+		"maps_cex, maps_spv3, maps_mcc: Halo CE+ Xbox, SPV3 and Halo MCC maps. Each has a README.txt.\n\n"
 		"Put the files in, then choose Check again.",
 		destination);
 	for (;;)
@@ -1645,6 +1669,19 @@ static int platform_resolution_add(long *widths, long *heights, int count, int m
 	return count;
 }
 
+int platform_display_native_size(long *width, long *height)
+{
+	SDL_DisplayID display;
+
+	*width = *height = 0;
+	if (!platform_sdl_initialize())
+		return 0;
+	display = platform_window ? SDL_GetDisplayForWindow(platform_window) : 0;
+	if (!display)
+		display = SDL_GetPrimaryDisplay();
+	return platform_display_size(display, width, height) ? 1 : 0;
+}
+
 int platform_display_resolutions(long *widths, long *heights, int maximum)
 {
 	SDL_DisplayID display;
@@ -1735,6 +1772,12 @@ int platform_window_sizes(long *widths, long *heights, int maximum)
 }
 
 #else
+int platform_display_native_size(long *width, long *height)
+{
+	*width = *height = 0;
+	return 0;
+}
+
 int platform_display_resolutions(long *widths, long *heights, int maximum)
 {
 	(void)widths;
@@ -1908,14 +1951,40 @@ static void platform_vulkan_offer(void)
 #endif
 #ifdef HALO_BGFX
 
+/* the API bgfx draws with for display.renderer (d3d8_bgfx.inl, bg_initialize) */
+static const char *platform_bgfx_name(void)
+{
+#if defined(__APPLE__)
+	return "Metal";
+#elif defined(_WIN32)
+	return strcmp(config_string("display.renderer"), "d3d11") == 0 ? "Direct3D 11" : "Vulkan";
+#else
+	return "Vulkan";
+#endif
+}
+
 BOOL platform_bgfx_chosen(void)
 {
 	const char *renderer = config_string("display.renderer");
+	static BOOL said;
 
 #ifdef _WIN32
 	if (strcmp(renderer, "d3d11") == 0)
 		return TRUE;
 #endif
+	/* (a value this build doesn't have, such as "vulkan", which only
+	Android reads: OpenGL draws, and the log says so once) */
+	if (!said && strcmp(renderer, "bgfx") && strcmp(renderer, "gl"))
+	{
+		said = TRUE;
+#ifdef _WIN32
+		platform_log("display.renderer \"%s\" isn't one this build has (\"gl\", \"bgfx\" or \"d3d11\"): "
+			"drawing with OpenGL", renderer);
+#else
+		platform_log("display.renderer \"%s\" isn't one this build has (\"gl\" or \"bgfx\"): drawing with OpenGL",
+			renderer);
+#endif
+	}
 	return strcmp(renderer, "bgfx") == 0;
 }
 #endif
@@ -2030,6 +2099,36 @@ int platform_vsync_on(void)
 	return config_boolean("display.vsync") || platform_vrr();
 }
 
+/* (sdl_platform.h) */
+int platform_present_mode(void)
+{
+	if (!platform_vsync_on())
+		return PLATFORM_PRESENT_IMMEDIATE;
+	/* (not with VRR, which shows each frame as it is ready anyway) */
+	if (strcmp(config_string("tuning.present_mode"), "adaptive") || platform_vrr())
+		return PLATFORM_PRESENT_VBLANK;
+#if defined(__APPLE__) && !defined(HALO_IOS)
+	{
+		/* (neither OpenGL nor Metal on the Mac shows a late frame at once:
+		each waits there, on either renderer, which the log says once) */
+		static BOOL said;
+
+		if (!said)
+			platform_log("tuning: present=adaptive is not on macOS: each frame waits for the display");
+		said = TRUE;
+	}
+	return PLATFORM_PRESENT_VBLANK;
+#else
+	return PLATFORM_PRESENT_ADAPTIVE;
+#endif
+}
+
+/* (sdl_platform.h) */
+float platform_display_refresh_rate(void)
+{
+	return platform_refresh_rate();
+}
+
 #if !defined(__APPLE__) || defined(HALO_IOS)
 #ifdef SWAP_INTERVAL_IN_STEP
 /* whether gamescope runs the game: GAMESCOPE_WAYLAND_DISPLAY, which it sets
@@ -2059,6 +2158,16 @@ driver (XWayland, gamescope's own): SDL's Wayland one takes any interval
 above 1 as 1, so there a fraction keeps the clock's limit. Everywhere else
 vsync off is as it was, the clock's limit, for the least latency. Based on
 work by goatbutt and the OpenH1 team. */
+/* tuning.present_mode = "adaptive" (config.toml's [tuning]): with V-Sync, a
+frame that missed the display shown at once, with a tear, rather than a
+whole refresh later (a swap interval of -1, the drivers' late swap tearing).
+Not with VRR, which shows each frame as it is ready anyway: the decision is
+platform_present_mode's, the same for every renderer. */
+static int platform_present_adaptive(void)
+{
+	return platform_present_mode() == PLATFORM_PRESENT_ADAPTIVE;
+}
+
 static int platform_swap_interval(int vsync, long maximum)
 {
 #ifdef SWAP_INTERVAL_IN_STEP
@@ -2070,7 +2179,7 @@ static int platform_swap_interval(int vsync, long maximum)
 #endif
 
 	if (vsync)
-		return 1;
+		return platform_present_adaptive() ? -1 : 1;
 #ifdef SWAP_INTERVAL_IN_STEP
 #ifdef HALO_BGFX
 	if (xgpu_bgfx)
@@ -2113,6 +2222,18 @@ static void platform_swap_interval_apply(BOOL force, int vsync, long maximum)
 	if (!platform_gl_context || (!force && wanted == platform_interval_wanted))
 		return;
 	platform_interval_wanted = wanted;
+	if (interval < 0)
+	{
+		if (SDL_GL_SetSwapInterval(interval))
+		{
+			platform_log("tuning: present=adaptive, a late frame shown at once");
+			platform_interval = interval;
+			return;
+		}
+		platform_log("tuning: present=adaptive refused by the driver (%s): each frame waits for the display",
+			SDL_GetError());
+		interval = 1;
+	}
 	if (!SDL_GL_SetSwapInterval(interval))
 	{
 		platform_log("frame rate: a swap interval of %d refused (%s): the clock paces the frames", interval,
@@ -2485,7 +2606,10 @@ with an OpenGL context, for the OpenGL renderer, so that a computer whose
 Vulkan (or Metal) is missing or broken still shows the game */
 BOOL platform_video_reopen_for_gl(void)
 {
-	platform_log("renderer: bgfx did not start, so OpenGL");
+	/* (the one asked for and the one drawing, plainly: the reason is the
+	line before, bg_start's) */
+	platform_log("renderer: asked for %s (bgfx, display.renderer = \"%s\"), which did not start: drawing with OpenGL "
+		"for this start; the setting stays as it is", platform_bgfx_name(), config_string("display.renderer"));
 	platform_bgfx_refused = TRUE;
 	xgpu_bgfx = FALSE;
 	if (platform_window)
@@ -2642,6 +2766,17 @@ static Uint64 frame_interval_ns(void)
 #endif
 	}
 	vrr_applied = vrr;
+#if defined(__APPLE__) && !defined(HALO_IOS)
+	/* (macOS's OpenGL: the context's swap interval does not hold a window's
+	frames to the display, 120 frames a second at 60 Hz on an M4 with V-Sync
+	on, half of them never shown; with V-Sync the clock holds them to the
+	refresh rate, as the Metal renderer's waits do) */
+	if (vsync && !vrr && platform_gl_context)
+	{
+		rate = platform_refresh_rate();
+		return rate > 0.0f ? (Uint64)(1e9f / rate) : 0;
+	}
+#endif
 	if (vrr)
 	{
 		/* (VRR's ceiling, or display.max_fps under it; vsync alone where
@@ -2698,6 +2833,9 @@ static void frame_delay_ns(Uint64 nanoseconds)
 }
 #endif
 
+/* port/linux/game/stats_log.c's: display.stats_log's shown= */
+void stats_log_frame_shown(void);
+
 void platform_video_swap(void)
 {
 	static Uint64 next_frame;
@@ -2733,6 +2871,7 @@ void platform_video_swap(void)
 #endif
 		}
 		SDL_GL_SwapWindow(platform_window);
+		stats_log_frame_shown();
 	}
 	/* (a frame the graphics driver held for seconds: the game froze, and
 	online, a host stops hearing a machine after a few; the log says where) */
@@ -2986,6 +3125,22 @@ static void queue_keystroke(const SDL_KeyboardEvent *event)
 	keystroke_count++;
 }
 
+void platform_test_keystroke(int scancode, int modifiers)
+{
+	SDL_KeyboardEvent event;
+
+	memset(&event, 0, sizeof(event));
+	event.scancode = (SDL_Scancode)scancode;
+	event.key = SDL_GetKeyFromScancode((SDL_Scancode)scancode, (SDL_Keymod)modifiers, false);
+	event.mod = (SDL_Keymod)modifiers;
+	pthread_mutex_lock(&input_lock);
+	event.down = true;
+	queue_keystroke(&event);
+	event.down = false;
+	queue_keystroke(&event);
+	pthread_mutex_unlock(&input_lock);
+}
+
 BOOL platform_next_keystroke(struct platform_keystroke *keystroke)
 {
 	BOOL result = FALSE;
@@ -3032,6 +3187,25 @@ int platform_clipboard_get(char *text, int size)
 void platform_clipboard_set(const char *text)
 {
 	SDL_SetClipboardText(text);
+}
+
+/* the battery, for the Guide's card: 1 running on it, 2 charging, 0 none
+(a desktop, or plugged in and full, or not known); its percent in percent
+(-1 not known). debug.battery stands in for one in screenshots ("40",
+"40c" charging) */
+int platform_power_state(int *percent)
+{
+	const char *fake = config_string("debug.battery");
+	SDL_PowerState state;
+
+	*percent = -1;
+	if (fake && fake[0])
+	{
+		*percent = atoi(fake);
+		return strchr(fake, 'c') ? 2 : 1;
+	}
+	state = SDL_GetPowerInfo(NULL, percent);
+	return state == SDL_POWERSTATE_ON_BATTERY ? 1 : state == SDL_POWERSTATE_CHARGING ? 2 : 0;
 }
 
 /* network.join_from_clipboard: "never" (the default), "ask" or "always"
@@ -3172,7 +3346,9 @@ void platform_show_message(const char *title, const char *message)
 	pthread_mutex_unlock(&platform_message_lock);
 }
 
-#ifdef HALO_GAME_BROWSER
+/* a page to open in the web browser, from any thread: the main thread opens
+it (platform_url_requests). Every build has it: the Guide's and the
+Workshop list's links, not the game browser's alone */
 static pthread_mutex_t platform_url_lock = PTHREAD_MUTEX_INITIALIZER;
 static char platform_url[700];
 
@@ -3183,18 +3359,24 @@ void platform_open_url(const char *url)
 	pthread_mutex_unlock(&platform_url_lock);
 }
 
-/* (the main thread's: a page to open, a restored key to ask about) */
-static void platform_game_list_requests(void)
+/* (the main thread's: the page asked for opened) */
+static void platform_url_requests(void)
 {
 	char url[sizeof(platform_url)];
-	char new_id[64], old_id[64], message[512];
 
 	pthread_mutex_lock(&platform_url_lock);
 	snprintf(url, sizeof(url), "%s", platform_url);
 	platform_url[0] = 0;
 	pthread_mutex_unlock(&platform_url_lock);
 	if (url[0] && !SDL_OpenURL(url))
-		platform_log("Game list: could not open the web browser: %s", SDL_GetError());
+		platform_log("could not open the web browser: %s", SDL_GetError());
+}
+
+#ifdef HALO_GAME_BROWSER
+/* (the main thread's: a restored key to ask about) */
+static void platform_game_list_requests(void)
+{
+	char new_id[64], old_id[64], message[512];
 
 	if (browser_take_key_link(new_id, old_id, sizeof(new_id)))
 	{
@@ -3401,6 +3583,13 @@ void platform_scoreboard_scroll(int open, long *notches, long *pages)
 void console_performance_update(void);
 #endif
 
+/* whether this is the thread that has the window and its events (the
+halt screen draws only there: halt_screen.c) */
+int platform_on_event_thread(void)
+{
+	return platform_window && SDL_GetCurrentThreadID() == platform_event_thread;
+}
+
 void platform_pump_events(void)
 {
 	/* debug.exit_after (seconds) ends the game that long after the window
@@ -3457,6 +3646,7 @@ void platform_pump_events(void)
 #endif
 	platform_show_pending_message();
 	platform_opengl_offer();
+	platform_url_requests();
 #ifdef HALO_GAME_BROWSER
 	platform_game_list_requests();
 #endif
@@ -3726,6 +3916,13 @@ void platform_pump_events(void)
 		case SDL_EVENT_GAMEPAD_AXIS_MOTION:
 			gamepad_trigger_moved(event.gaxis.which, event.gaxis.axis, event.gaxis.value);
 			break;
+#ifdef HALO_PORT_GYRO_SDL
+		/* (gyro aim: only the pads whose sensors it turned on send these) */
+		case SDL_EVENT_GAMEPAD_SENSOR_UPDATE:
+			platform_gamepad_sensor(event.gsensor.which, event.gsensor.sensor, event.gsensor.data,
+				event.gsensor.sensor_timestamp ? event.gsensor.sensor_timestamp : event.gsensor.timestamp);
+			break;
+#endif
 		case SDL_EVENT_GAMEPAD_ADDED:
 #if defined(HALO_ANDROID) && !defined(HALO_IOS)
 			/* (the guest reaches SDL only through host_imports.list, which

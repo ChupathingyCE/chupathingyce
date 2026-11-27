@@ -1192,13 +1192,21 @@ boolean valid_real_vector2d(
 	return valid_real(vector->i) && valid_real(vector->j);
 }
 
-static void machine_add_player(
+static boolean machine_add_player(
 	long machine_index,
 	long player_index)
 {
 	long *machine_player_list;
 	long machine_player_index;
 
+	/* port: a machine the table has (a network player's comes from the
+	host's game record) */
+	if (DATUM_INDEX_TO_ABSOLUTE_INDEX(machine_index) < 0 ||
+		DATUM_INDEX_TO_ABSOLUTE_INDEX(machine_index) >= MAXIMUM_NETWORK_MACHINE_COUNT)
+	{
+		error(_error_silent, "failed to create a player: no machine #%ld", machine_index);
+		return FALSE;
+	}
 	machine_player_list =
 		machine_to_player_table[DATUM_INDEX_TO_ABSOLUTE_INDEX(machine_index)];
 	for (machine_player_index = 0;
@@ -1214,15 +1222,15 @@ static void machine_add_player(
 
 	if (machine_player_index == MAXIMUM_LOCAL_PLAYERS)
 	{
-		display_assert(
-			"failed to create a player",
-			"c:\\halo\\SOURCE\\game\\players.c",
-			240,
-			TRUE);
-		system_exit(-1);
+		/* port: a machine with no room for another player is refused one
+		(player_new makes none), rather than the process ended (240: "failed
+		to create a player"). A network client makes the players the host's
+		messages name, and those need not keep to four a machine */
+		error(_error_silent, "failed to create a player: machine #%ld has no room for another", machine_index);
+		return FALSE;
 	}
 
-	return;
+	return TRUE;
 }
 
 /* port: a player who left the game in progress is no longer its machine's
@@ -1301,7 +1309,14 @@ long player_new(
 			csmemcpy(&player->network_player_data, network_player, sizeof(struct network_player));
 	}
 
-	machine_add_player(machine_index, player_index);
+	/* port: no player where its machine has no room (machine_add_player):
+	the callers take NONE as a player that could not be added */
+	if (!machine_add_player(machine_index, player_index))
+	{
+		if (player_index != NONE)
+			player_delete(player_index);
+		return NONE;
+	}
 
 	return player_index;
 }
@@ -1462,6 +1477,22 @@ static void player_spawn(
 		/* port: a network co-op respawn starts behind its teammate
 		(players_coop_spawn_location) */
 		starting_location = players_coop_spawn_location(&spawn_location);
+#ifndef HALO_CONSOLE_NO_FORGE
+		/* port: a Forge game's or a layout's player spawn points
+		(port/linux/game/forge_spawns.inc): one of them, else the map's own,
+		or (each that fits blocked) none this tick */
+		if (!starting_location)
+		{
+			extern short forge_spawn_location(long player_index, struct player_starting_location *location);
+			short forge_spawn = forge_spawn_location(player_index, &spawn_location);
+
+			/* (1 found, 2 wait) */
+			if (forge_spawn == 1)
+				starting_location = &spawn_location;
+			else if (forge_spawn == 2)
+				starting_location_index = NONE;
+		}
+#endif
 		if (!starting_location && starting_location_index != NONE)
 			starting_location = player_get_starting_location(starting_location_index);
 		if (starting_location)
@@ -1473,7 +1504,14 @@ static void player_spawn(
 				struct game_globals_player_information);
 			if (player_information->player_unit.index != NONE)
 			{
+#ifndef HALO_CONSOLE_NO_FORGE
+				/* port: a campaign mission's globals have no multiplayer
+				information (a Forge game on one, port/linux/game/forge_ai.inc):
+				its players are the campaign's unit */
+				if (game_engine_running() && game_globals->multiplayer_information.count > 0)
+#else
 				if (game_engine_running())
+#endif
 				{
 					multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 						&game_globals->multiplayer_information,
@@ -4502,7 +4540,8 @@ void player_add_equipment(
 	if (unit_index != NONE && starting_profile_index != NONE)
 	{
 		unit = unit_try_and_get(unit_index);
-		if (unit->unit.player_index != NONE)
+		/* port: a unit deleted since the script had it is none (#1861) */
+		if (unit && unit->unit.player_index != NONE)
 		{
 			scenario = global_scenario_get();
 			starting_profile = TAG_BLOCK_GET_ELEMENT(

@@ -476,6 +476,10 @@ void *texture_cache_steal_memory(
 		"c:\\halo\\SOURCE\\cache\\xbox_texture_cache.c",
 		0x140,
 		!xbox_texture_cache_globals.stolen_memory);
+	/* port: said in a release build too, where the assert isn't checked: a
+	second taker breaks the cache (bink_playback_stop_for_texture_cache) */
+	if (xbox_texture_cache_globals.stolen_memory)
+		error(_error_silent, "### ERROR texture cache: its memory taken again while taken (%ld bytes)", size);
 	lruv_resize(
 		xbox_texture_cache_globals.cache,
 		remaining_page_count);
@@ -1269,6 +1273,8 @@ void *_texture_cache_bitmap_get_hardware_format(
 			{
 				if (texture->loaded)
 				{
+					/* (port: the cache thread's data, after its flag) */
+					CACHE_FILE_READ_SEEN();
 					if (!texture->used)
 					{
 #ifdef HALO_XBOX_CONSOLE
@@ -1287,6 +1293,15 @@ void *_texture_cache_bitmap_get_hardware_format(
 
 							if (cache_file_tags_are_ce())
 								platform_ce_bitmap_loaded(bitmap);
+						}
+#endif
+#ifdef HALO_DEVELOPER_FLAMES
+						/* port: a developer flame's copy of the map's flame sprite,
+						its pixels made blue as they load (developer_flames.c) */
+						{
+							extern void developer_flames_bitmap_loaded(struct bitmap_data *bitmap);
+
+							developer_flames_bitmap_loaded(bitmap);
 						}
 #endif
 						texture->used = TRUE;

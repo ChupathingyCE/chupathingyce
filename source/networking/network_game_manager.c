@@ -94,6 +94,7 @@ symbols in this file:
 #include "units/units.h"
 #include "text/unicode.h"
 #include "late_join.h" /* port: port/linux/game/late_join.c */
+#include "coop_progress.h" /* port: port/linux/game/coop_progress.c */
 #include "mcc_main.h" /* port: mcc_main_network_load_failed */
 #include "mcc_cache.h" /* port: mcc_level_name */
 #include "cache/cache_files.h" /* port: cache_files_map_loadable */
@@ -454,6 +455,17 @@ boolean network_game_has_free_player_slot(
 	say (halo_console_features.h: the original Xbox hosts 16) */
 	if (game->player_count >= HALO_CONSOLE_HOST_PLAYERS)
 		return FALSE;
+#endif
+#ifdef HALO_SERVER
+	/* port: a dedicated server with Custom Edition players takes 16 players,
+	the most a Custom Edition client's game holds (server/src/server_ce.c);
+	without them, its own limit */
+	{
+		boolean server_ce_players_present(void);
+
+		if (game->player_count >= 16 && server_ce_players_present())
+			return FALSE;
+	}
 #endif
 #ifdef HALO_GAME_BROWSER
 	/* port: no more players than a Delta machine of the hosted game says it
@@ -896,6 +908,11 @@ boolean network_game_create_game_objects(
 		game_dispose_from_old_map();
 		game_unload();
 	}
+
+	/* port: a client's network co-op level begun, recorded in its profiles
+	if it is won (coop_progress.c) */
+	if (!game->variant.game_engine_index && game_connection() == _game_connection_network_client)
+		coop_progress_client_level_started(game->map.name, game->difficulty);
 
 	if (game->variant.game_engine_index)
 	{

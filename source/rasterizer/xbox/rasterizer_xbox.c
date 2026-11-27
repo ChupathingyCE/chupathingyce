@@ -2936,8 +2936,19 @@ width; only its x and y, the depth as before */
 		{
 			for (row = 0; row < 4; row++)
 			{
-				vertex_constants[0][row] *= scale;
-				vertex_constants[1][row] *= scale;
+				const real *n = global_window_parameters.frustum.world_to_view.n[row];
+
+				for (column = 0; column < 2; column++)
+				{
+					/* (about where the view's axis is drawn: the middle, or
+					off it with display.crosshair_position or a tiled
+					screenshot's frustum) */
+					real center = n[2] * global_window_parameters.frustum.projection_matrix[2][column];
+
+					vertex_constants[column][row] *= scale;
+					if (center != 0.0f)
+						vertex_constants[column][row] += center * (1.0f - scale);
+				}
 			}
 		}
 	}
@@ -3156,6 +3167,42 @@ boolean _rasterizer_initialize(
 			global_frame_rate_throttle = TRUE;
 			break;
 		}
+#ifdef HALO_CONSOLE_FRAME_RATE
+		/* port: a frame a tick on a 50 Hz display is 2, 2 and 1 blanks
+		(main_update_time); an interval of two would hold the one-blank
+		frame a blank longer, 25 frames a second with every fifth tick
+		skipped. The game's own pacing keeps it to a frame a tick */
+		if (halo_console_refresh_rate() != 60 &&
+			d3d_present_parameters.FullScreen_PresentationInterval == D3DPRESENT_INTERVAL_TWO)
+		{
+			d3d_present_parameters.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+		}
+#endif
+#ifdef HALO_XBOX_CONSOLE
+		/* port: tuning.present_mode = "adaptive" (config.toml's [tuning]): a
+		frame that misses its vertical blank is shown at once, with a tear,
+		rather than a whole refresh later (the console's *_OR_IMMEDIATE
+		intervals). "vblank", the default, keeps the game's own */
+		{
+			extern const char *config_string(const char *name);
+			extern void platform_log(const char *format, ...);
+
+			if (!strcmp(config_string("tuning.present_mode"), "adaptive"))
+			{
+				unsigned long interval = d3d_present_parameters.FullScreen_PresentationInterval;
+
+				if (interval == D3DPRESENT_INTERVAL_DEFAULT || interval == D3DPRESENT_INTERVAL_ONE)
+					interval = D3DPRESENT_INTERVAL_ONE_OR_IMMEDIATE;
+				else if (interval == D3DPRESENT_INTERVAL_TWO)
+					interval = D3DPRESENT_INTERVAL_TWO_OR_IMMEDIATE;
+				if (interval != d3d_present_parameters.FullScreen_PresentationInterval)
+				{
+					d3d_present_parameters.FullScreen_PresentationInterval = interval;
+					platform_log("tuning: present=adaptive, a late frame shown at once");
+				}
+			}
+		}
+#endif
 		result = IDirect3D8_CreateDevice(
 			d3d,
 			D3DADAPTER_DEFAULT,

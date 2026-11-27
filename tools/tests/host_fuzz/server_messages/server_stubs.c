@@ -121,6 +121,10 @@ long delta_peer_game_machine_legacy_version(void);
 long delta_peer_game_machine_legacy_version(void) { return 0; }
 long delta_peer_game_machine_pending(void);
 long delta_peer_game_machine_pending(void) { return 0; }
+long delta_peer_game_machine_platform(void);
+long delta_peer_game_machine_platform(void) { return 0; }
+long delta_peer_game_machine_under_floor(void);
+long delta_peer_game_machine_under_floor(void) { return 0; }
 long delta_peer_game_stop(void);
 long delta_peer_game_stop(void) { return 0; }
 long delta_peer_hosting_delta(void);
@@ -188,6 +192,9 @@ long invite_prompt_ask_cancel(void);
 long invite_prompt_ask_cancel(void) { return 0; }
 long late_join_player_added(void);
 long late_join_player_added(void) { return 0; }
+/* (network co-op's campaign progress: port/linux/game/coop_progress.c) */
+long coop_progress_client_level_started(void);
+long coop_progress_client_level_started(void) { return 0; }
 long main_get_difficulty(void);
 long main_get_difficulty(void) { return 0; }
 long main_load_ui_scenario(void);
@@ -256,6 +263,8 @@ long network_damage_host_tables_allocate(void);
 long network_damage_host_tables_allocate(void) { return 0; }
 long network_damage_host_tables_free(void);
 long network_damage_host_tables_free(void) { return 0; }
+long network_game_port_hosting_local(void);
+long network_game_port_hosting_local(void) { return 0; }
 long network_distributed_address_full(void);
 long network_distributed_address_full(void) { return 0; }
 long network_distributed_address_limit(void);
@@ -298,6 +307,8 @@ long object_iterator_new(void);
 long object_iterator_new(void) { return 0; }
 long object_iterator_next(void);
 long object_iterator_next(void) { return 0; }
+long p2p_hosting_has_password(void);
+long p2p_hosting_has_password(void) { return 0; }
 long p2p_set_game_listing(void);
 long p2p_set_game_listing(void) { return 0; }
 long p2p_set_game_player_counts(void);
@@ -342,6 +353,8 @@ long write_endpoint(void);
 long write_endpoint(void) { return 0; }
 long delta_legacy_mcc_version(void);
 long delta_legacy_mcc_version(void) { return 0; }
+long delta_platform_floor(void);
+long delta_platform_floor(void) { return 0; }
 long network_distributed_mcc_share_message(void);
 long network_distributed_mcc_admission_holding(void);
 long network_distributed_mcc_admission_holding(void) { return 0; }
@@ -362,3 +375,9 @@ long network_game_abort(void);
 long network_game_abort(void) { return 0; }
 long main_goto_main_menu(void);
 long main_goto_main_menu(void) { return 0; }
+/* (the host's late joiners' table: network_game_server_create takes it) */
+#include <stdlib.h>
+void *system_malloc(long size);
+void *system_malloc(long size) { return malloc((size_t)size); }
+void system_free(void *pointer);
+void system_free(void *pointer) { free(pointer); }

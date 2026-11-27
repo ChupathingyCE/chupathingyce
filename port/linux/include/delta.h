@@ -44,6 +44,29 @@ bytes. */
 #define DELTA_ADVERTISED_TAG_FIRST 'D'
 #define DELTA_ADVERTISED_TAG_SECOND 'L'
 #define DELTA_ADVERTISED_TAG_VERSION 1
+/* The tag's layout 2 (docs/delta/peer.md, "The tag"): a host of another
+project's game code that answers HELLO. Its four bytes after the layout are
+the project's number (DELTA_PROJECTS, 2 on: 0 and 1 make no tag), that
+project's own version (2, little-endian) and a reserved byte; the check is
+layout 1's. Such a host has no wire: a client says HELLO and marks its join,
+and joins it by its network number alone (delta_compat_read_project). This
+build never writes layout 2. Builds before it read layout 1 alone, so to them
+it is no tag. */
+#define DELTA_ADVERTISED_TAG_VERSION_PROJECT 2
+/* ... and a version word from here on is a Content Evolved modded game,
+whose 26 bytes are all its own (docs/delta/registry.md, "Network versions"):
+no project tag is read from it */
+#define DELTA_ADVERTISED_MODDED_VERSION 0xFF00
+
+/* The projects a layout 2 tag names (docs/delta/registry.md, "Projects";
+tools/test_delta_registry.py checks them): X(symbol, number, key, name).
+1 is ours, which writes layout 1 alone. New numbers come from the
+registry. */
+#define DELTA_PROJECT_OURS 1
+#define DELTA_PROJECTS(X) \
+	X(_delta_project_chupathingy, 1, "chupathingy", "Chupathingy") \
+	X(_delta_project_content_evolved, 2, "content_evolved", "Content Evolved") \
+	X(_delta_project_gulchce, 3, "gulchce", "GulchCE")
 
 /* The old layout, which hosts before the tag wrote (0.7.5a to 0.8.0h, wires
 to chupa-38a) and which readers still take when there is no tag, so that a
@@ -579,9 +602,9 @@ machine hosts is under way (delta_legacy_hold): then at its end, so that one
 game is played by one number. */
 #define DELTA_HOSTING_MAXIMUM 8
 /* the newest number a desktop build (or a dedicated server: HALO_GAME_BROWSER)
-hosts with no table row for its wire: the last release's row's (chupa-41a's
-announce, 41), so that a new wire plays as the release before it did until a
-signed table says otherwise; a console's build without the list keeps
+hosts with no table row for its wire: chupa-41a's announce, 41 (0.8.1d to
+0.9.0's number), so that a new wire plays at it until a signed table's row
+for it says otherwise; a console's build without the list keeps
 HALO_PORT_NETWORK_VERSION */
 #define DELTA_BUILT_IN_HOSTING 41
 /* the newest version the table in use proves for hosting (its announce, or
@@ -638,6 +661,32 @@ tools/delta_table.py refuses a row that requires a name not listed here. */
 	X(map_votes, 0) /* the host runs OpenCE's map votes (messages 94 and 95): in no build yet */
 /* the most names a row's "requires" may give */
 #define DELTA_REQUIRES_MAXIMUM 16
+
+/* ---------- platform floors: the oldest build of each platform our hosts play
+
+The table's "platform_floors" (docs/delta/versioning.md, "Platform floors"):
+by a platform's key, the oldest network version a Delta machine of that
+platform may say in its HELLO and still play with a host of ours:
+{"dreamcast": {"network": 42}}. Each platform's floor is its own, so a slow
+port's moves no other platform's, nor our consoles'. A table without the
+section, or without a platform's row, leaves that platform as before: no
+floor at run time, every number from 11 on played (our consoles keep the
+build-time floor, DELTA_WIRE_CONSOLE_FLOOR, as ever). A host drops a Delta
+machine of a platform with a floor whose HELLO says an older number, with a
+notice (network_game_server_delta_refusals); a client under its own
+platform's floor joins no Delta host and says why. A machine without Delta,
+or one that names the unknown platform (0), is never judged by a floor.
+Builds before 0.9.2 skip the section as an unknown key. */
+/* the most rows a table's "platform_floors" may have (a table with more is
+dropped whole) */
+#define DELTA_PLATFORM_FLOORS_MAXIMUM 64
+/* the platform's floor in the table in use: the oldest network version its
+Delta machines play our hosts at, 0 for none */
+int delta_platform_floor(int platform);
+/* the rule host and client apply: whether a Delta machine of the platform
+whose HELLO says legacy_version is under its platform's floor (1), or plays
+(0: no floor, or at or past it) */
+int delta_platform_floor_refuses(int platform, int legacy_version);
 
 /* whether a local, unsigned table (network.legacy_table) is in use */
 int delta_legacy_override(void);

@@ -30,11 +30,11 @@ whether to update:
 - No: nothing, until the next start.
 
 The game is chupathingy (chupathingy.exe) from 0.9.0, and was halo
-(halo.exe) before. A release's zip carries both: the game, which the list
-names as its "main", and a small halo that starts it (rename_stub.h), for
-shortcuts and for the updaters from before the list, which start halo again.
-At its start the renamed game removes an old halo beside it that is a game,
-never the stub (updater_remove_old_program).
+(halo.exe) before. 0.9.0 and 0.9.1's zips also carried a small halo that
+started it (rename_stub.h); 0.9.2's have none. At its start the game removes
+that stub if it is still beside it, and nothing else of that name: a halo
+or halo.exe without the stub's mark (an old game, or Halo PC's own) stays
+(updater_remove_old_program).
 - Do not ask again: after the player confirms it, update.auto = false is
   written to config.toml.
 
@@ -160,15 +160,33 @@ test build's or a nightly's: its pre-release's page, updater_page) */
 
 /* ChupathingyCE's releases, or a console port's own (HALO_PORT_UPDATE_API on
 its compile line, its own key in its halo_port_update_keys.h: update_key.h),
-laid out as GitHub's addresses are */
+laid out as GitHub's addresses are; a port on GitHub names its downloads'
+address too (HALO_PORT_UPDATE_DOWNLOADS), since GitHub's API and downloads
+are on different hosts */
 #ifdef HALO_PORT_UPDATE_API
 #define UPDATE_REPOSITORY HALO_PORT_UPDATE_REPOSITORY
 #define UPDATE_API HALO_PORT_UPDATE_API
+#ifdef HALO_PORT_UPDATE_DOWNLOADS
+#define UPDATE_DOWNLOADS HALO_PORT_UPDATE_DOWNLOADS
+#else
 #define UPDATE_DOWNLOADS HALO_PORT_UPDATE_API "/releases/download"
+#endif
+#else
+/* the game's releases, or another GitHub repository's releases of the same
+builds, signed with the same keys (HALO_UPDATE_REPOSITORY, from
+tools/version.py: Chupathingy32's 32-bit Windows and Linux builds) */
+#ifdef HALO_UPDATE_REPOSITORY
+#define UPDATE_REPOSITORY HALO_UPDATE_REPOSITORY
 #else
 #define UPDATE_REPOSITORY "ChupathingyCE/chupathingyce"
+#endif
 #define UPDATE_API "https://api.github.com/repos/" UPDATE_REPOSITORY
 #define UPDATE_DOWNLOADS "https://github.com/" UPDATE_REPOSITORY "/releases/download"
+#endif
+/* the game's own releases, where the 64-bit Windows build is, for a 32-bit
+build that updates from another repository (UPDATER_OFFER_64BIT) */
+#if !defined(HALO_PORT_UPDATE_API) && defined(HALO_UPDATE_REPOSITORY)
+#define UPDATE_GAME_REPOSITORY "ChupathingyCE/chupathingyce"
 #endif
 #if defined(HALO_PORT_UPDATE_PLATFORM)
 /* (a console port's own download: on the game's releases, signed with the
@@ -283,6 +301,11 @@ static struct
 /* the platform whose download is installed: this build's (UPDATE_PLATFORM),
 or the 64-bit Windows build's once the player takes it (UPDATER_OFFER_64BIT) */
 static const char *updater_platform = UPDATE_PLATFORM;
+#ifdef UPDATE_GAME_REPOSITORY
+/* whether the download comes from the game's own releases rather than
+UPDATE_REPOSITORY's: the 64-bit Windows build, once the player takes it */
+static int updater_from_game_releases;
+#endif
 /* whether to ask about the 64-bit build when the check is answered */
 static int updater_offer_64bit;
 
@@ -344,6 +367,14 @@ static void updater_url(char *url, size_t size, int api, const char *path)
 	{
 		snprintf(url, size, "%s/%s/%s", server, api ? "repos/" UPDATE_REPOSITORY : UPDATE_REPOSITORY "/releases/download",
 			path);
+		return;
+	}
+#endif
+#ifdef UPDATE_GAME_REPOSITORY
+	if (updater_from_game_releases)
+	{
+		snprintf(url, size, "%s/%s", api ? "https://api.github.com/repos/" UPDATE_GAME_REPOSITORY
+			: "https://github.com/" UPDATE_GAME_REPOSITORY "/releases/download", path);
 		return;
 	}
 #endif
@@ -1765,23 +1796,32 @@ void updater_install_restart(void)
 	updater_install_finish(1);
 }
 
-/* the game's program from before the rename, beside the renamed one: halo
-beside chupathingy, halo.exe beside chupathingy.exe (rename_stub.h), removed,
-unless it is the small stub that starts this one, which stays for the
-shortcuts and scripts that start halo */
+/* the game's old name beside it: halo beside chupathingy, halo.exe beside
+chupathingy.exe (rename_stub.h). Removed only if it is the game's own: the
+small stub 0.9.0 and 0.9.1 had for the old name, or the game from before
+the rename (which an updater from 0.7.5d or older leaves there, and starts
+again). Anything else of that name, Halo PC's own halo.exe for one, stays,
+and the log says so. Once a run; a removal that fails (the file in use, as
+a running stub is on Windows, or a read-only folder) is said once and tried
+again at a later start */
 static void updater_remove_old_program(void)
 {
+	static int done;
 	const char *running = strrchr(updater_executable, PATH_SEPARATOR[0]);
-	const char *old_name = rename_stub_old_name(running ? running + 1 : updater_executable);
-	unsigned char data[RENAME_STUB_MAXIMUM_SIZE > 65536 ? 65536 : RENAME_STUB_MAXIMUM_SIZE];
+	const char *running_name = running ? running + 1 : updater_executable;
+	const char *old_name = rename_stub_old_name(running_name);
+	static unsigned char data[65536];
+	struct rename_stub_scan scan;
 	char path[1300];
 	SDL_PathInfo info;
 	SDL_IOStream *file;
-	size_t size = 0;
 	Sint64 file_size;
+	size_t got;
+	int kind;
 
-	if (!old_name)
+	if (done || !old_name)
 		return;
+	done = 1;
 	updater_path(path, sizeof(path), old_name);
 	if (!SDL_GetPathInfo(path, &info) || info.type != SDL_PATHTYPE_FILE)
 		return;
@@ -1789,32 +1829,34 @@ static void updater_remove_old_program(void)
 	if (!file)
 		return;
 	file_size = SDL_GetIOSize(file);
-	if (file_size >= 0 && (Uint64)file_size <= RENAME_STUB_MAXIMUM_SIZE)
+	memset(&scan, 0, sizeof(scan));
+	/* (read whole, in pieces: a stub's mark is near its start or, a Windows
+	one's, in its data; the game's anywhere in its program. A file far
+	bigger than the game was is no game of ours) */
+	if (file_size > 0 && (Uint64)file_size <= RENAME_STUB_MAXIMUM_SCAN)
 	{
-		/* (a stub has its mark near its start, or, a Windows one, in its
-		data: read it whole, in pieces, and look at each with the last
-		mark's length of the one before it) */
-		size_t keep = sizeof(RENAME_STUB_MARK) - 2, got;
-
-		while ((got = SDL_ReadIO(file, data + size, sizeof(data) - size)) > 0)
-		{
-			size += got;
-			if (rename_stub_is_stub(data, size, (unsigned long long)file_size))
-			{
-				SDL_CloseIO(file);
-				return;
-			}
-			if (size > keep)
-			{
-				memmove(data, data + size - keep, keep);
-				size = keep;
-			}
-		}
+		while ((got = SDL_ReadIO(file, data, sizeof(data))) > 0)
+			rename_stub_scan_add(&scan, data, got);
 	}
 	SDL_CloseIO(file);
-	platform_log("update: removing %s, the game from before its rename to %s", old_name,
-		running ? running + 1 : updater_executable);
+	kind = file_size > 0 && (Uint64)file_size <= RENAME_STUB_MAXIMUM_SCAN ?
+		rename_stub_kind(&scan, (unsigned long long)file_size) : _rename_stub_other;
+	if (kind == _rename_stub_other)
+	{
+		platform_log("update: leaving %s beside %s: it is not this game's", old_name, running_name);
+		return;
+	}
 	update_delete_file(path);
+	if (SDL_GetPathInfo(path, &info))
+	{
+		platform_log("update: could not remove %s (in use, or the folder is read-only): trying again at a later start",
+			old_name);
+		return;
+	}
+	if (kind == _rename_stub_stub)
+		platform_log("update: removed %s, the stub 0.9.0 and 0.9.1 had for the old name", old_name);
+	else
+		platform_log("update: removed %s, the game from before its rename to %s", old_name, running_name);
 }
 
 /* the separate license files the downloads carried before 0.9.1, which
@@ -2421,7 +2463,13 @@ void updater_poll(SDL_Window *window)
 			/* (returns only if it failed: asked again at the next start) */
 			platform_log("update: switching to the 64-bit build");
 			updater_platform = "windows64";
+#ifdef UPDATE_GAME_REPOSITORY
+			updater_from_game_releases = 1;
+#endif
 			updater_update();
+#ifdef UPDATE_GAME_REPOSITORY
+			updater_from_game_releases = 0;
+#endif
 			updater_platform = UPDATE_PLATFORM;
 			if (fullscreen)
 				SDL_SetWindowFullscreen(window, true);
