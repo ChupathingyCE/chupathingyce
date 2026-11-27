@@ -15,6 +15,7 @@ play it); the files are looked for only on the builds that play such maps
 #ifdef HALO_MAP_LIST
 #include "halo_map_packs.h"
 #include "spv3_mode.h"
+#include "opensauce_maps.h"
 #endif
 #include "../src/map_archive.h"
 #include "../src/map_file_hash.h"
@@ -755,6 +756,13 @@ static boolean place_file(
 	{
 		return TRUE;
 	}
+	/* (with an OpenSauce mod's menus, its maps first: maps_<pack>\<file>.yelo,
+	opensauce_maps.c) */
+	if (family == _map_family_custom_edition && opensauce_maps_pack_map_path(file, path, size) &&
+		place_cache_file(path, size, family_cache_version(family)))
+	{
+		return TRUE;
+	}
 #endif
 	for (index = 0; index < count; index++)
 	{
@@ -765,6 +773,15 @@ static boolean place_file(
 		if (place_cache_file(path, size, family_cache_version(family)))
 			return TRUE;
 	}
+#ifdef HALO_MAP_LIST
+	/* (then any OpenSauce map's: maps_os\<file>.yelo, after Custom Edition's
+	own places, so none of theirs changes: opensauce_maps.c) */
+	if (family == _map_family_custom_edition && opensauce_maps_folder_map_path(file, path, size) &&
+		place_cache_file(path, size, family_cache_version(family)))
+	{
+		return TRUE;
+	}
+#endif
 	return FALSE;
 }
 
@@ -1053,6 +1070,9 @@ boolean map_family_resource(
 		}
 		spv3_mode_log("%s.map is not in %s: Custom Edition's places are read instead", name, SPV3_MODE_FOLDER);
 	}
+	/* (with an OpenSauce mod's menus, its own: opensauce_maps.c) */
+	if (opensauce_maps_pack_resource(name, path, size))
+		return TRUE;
 #endif
 	for (index = 0; index < NUMBEROF(resource_places); index++)
 	{
@@ -1353,6 +1373,52 @@ static void list_files(
 		while (FindNextFileA(find, &data));
 		CloseHandle(find);
 	}
+#if defined(HALO_MAP_LIST) && defined(OPENSAUCE_MAPS)
+	/* (and the campaigns in maps_os, OpenSauce's, <file>.yelo or .map: in the
+	campaign's lists only, for now; opensauce_maps.c) */
+	if (family == _map_family_custom_edition && version == family_cache_version(family) &&
+		type == CACHE_TYPE_CAMPAIGN)
+	{
+		static char const *const patterns[] = { "d:\\" OPENSAUCE_MAPS_FOLDER "\\*.yelo",
+			"d:\\" OPENSAUCE_MAPS_FOLDER "\\*.map" };
+
+		for (index = 0; index < (long)NUMBEROF(patterns); index++)
+		{
+			WIN32_FIND_DATAA data;
+			HANDLE find = FindFirstFileA(patterns[index], &data);
+			size_t ending = index ? 4 : 5;
+
+			if (find == INVALID_HANDLE_VALUE)
+				continue;
+			do
+			{
+				char file[MAP_FAMILY_FILE_LENGTH], path[384];
+				size_t length = strlen(data.cFileName);
+				long other;
+
+				if (length <= ending || length - ending >= MAP_FAMILY_FILE_LENGTH ||
+					_stricmp(data.cFileName + length - ending, index ? ".map" : ".yelo"))
+				{
+					continue;
+				}
+				snprintf(file, sizeof(file), "%.*s", (int)(length - ending), data.cFileName);
+				for (other = 0; other < listed_count && _stricmp(listed[other], file); other++)
+					;
+				if (other < listed_count || listed_count >= MAXIMUM_LISTED_FILES ||
+					!opensauce_maps_folder_map_path(file, path, sizeof(path)) ||
+					_stricmp(path + strlen(path) - ending, data.cFileName + length - ending) ||
+					!cache_file_is(path, version, type))
+				{
+					continue;
+				}
+				snprintf(listed[listed_count++], MAP_FAMILY_FILE_LENGTH, "%s", file);
+				found(file, context);
+			}
+			while (FindNextFileA(find, &data));
+			CloseHandle(find);
+		}
+	}
+#endif
 }
 
 void map_family_list(

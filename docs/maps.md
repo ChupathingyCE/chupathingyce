@@ -372,3 +372,22 @@ item's whole folder. The details are on
 
 SPV3's maps go in `maps_spv3`, beside `maps`. It's early, and it has its
 own page: [docs/spv3.md](spv3.md).
+
+## OpenSauce maps
+
+Maps built with OpenSauce (`.yelo` files, and `.map` files built with its
+tools) go in `maps_os`, beside `maps`. They play with the bitmaps.map,
+sounds.map and loc.map in `maps_ce`. It's early, on the 64-bit desktop
+builds only:
+
+- campaigns show in Load Level with the Custom Edition maps, and play
+  alone or over system link; they aren't listed online yet;
+- a map named like one in `maps_ce` is played from `maps_ce`;
+- a map that asks for OpenSauce's protection, mod data files or game state
+  upgrades is refused, and the log says why;
+- a mod with its own menus (its `ui.yelo`) goes in its own folder,
+  `maps_<name>`, with its maps and resource maps, and shows as a mode in
+  Play, like a map pack. Its menus' scripts may do no more than any map's.
+
+SPV3 goes in `maps_spv3` (above). Bring your own copies, and report what
+breaks with your debug.txt.

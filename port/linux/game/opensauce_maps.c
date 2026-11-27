@@ -19,18 +19,31 @@ Any other flag of the header (mod data files, protection, game state
 upgrades, compression) is refused, and said: those maps need what the game
 doesn't have.
 
+Where they are: maps_os, beside maps_ce, holds any OpenSauce maps,
+<name>.yelo (or <name>.map) played as <name>@ce, found after Custom
+Edition's own places so that no map there changes (map_families.c); its
+maps read Custom Edition's resource maps, and a ui there is never anyone's
+menus. An OpenSauce mod with its own menus (maps_<pack>\ui.yelo, and no
+ui.map) is played as its own mode, as any map pack is (map_packs.c,
+launcher.c): its ui and levels from its folder first, and its own resource
+maps. Its scripts may do no more than any map's (hs.c: no map_name); SPV3,
+the one mod with more, is SPV3 mode's.
+
 OpenSauce's formats and limits are read from its source (GPL-3.0) as facts
 (cache_files_structures_yelo.hpp, blam_memory_upgrades.hpp); no code of it
 is here.
 */
 
 #include "cseries.h"
+#include "cseries/cseries_windows.h"
 #include "errors.h"
+#include "halo_map_packs.h"
 #include "opensauce.h"
 #include "opensauce_maps.h"
 #include "opensauce_survey.h"
 #include "spv3_mode.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* ---------- globals */
@@ -155,6 +168,139 @@ unsigned long opensauce_maps_header_tag_cache_size(
 		return (unsigned long)OPENSAUCE_TAG_CACHE_SIZE;
 	}
 	return custom_edition_size;
+}
+
+/* ---------- where its maps are */
+
+static boolean opensauce_maps_file_exists(
+	char const *path)
+{
+	HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	if (file == INVALID_HANDLE_VALUE)
+		return FALSE;
+	CloseHandle(file);
+	return TRUE;
+}
+
+/* a map's file name: no folder, family or pack in it */
+static boolean opensauce_maps_file_valid(
+	char const *file)
+{
+	return file && file[0] && strlen(file) < 64 && !strpbrk(file, "\\/:@");
+}
+
+/* d:\<folder>\<file>.yelo, else .map, into path */
+static boolean opensauce_maps_file_path(
+	char const *folder,
+	char const *file,
+	char *path,
+	long size)
+{
+	static char const *const endings[] = { ".yelo", ".map" };
+	long index;
+
+	if (size <= 0)
+		return FALSE;
+	for (index = 0; index < (long)NUMBEROF(endings); index++)
+	{
+		int length = snprintf(path, (size_t)size, "d:\\%s\\%s%s", folder, file, endings[index]);
+
+		if (length > 0 && length < (int)size && opensauce_maps_file_exists(path))
+			return TRUE;
+	}
+	path[0] = 0;
+	return FALSE;
+}
+
+boolean opensauce_maps_folder_map_path(
+	char const *file,
+	char *path,
+	long size)
+{
+	if (!opensauce_maps_file_valid(file) || !_stricmp(file, "ui"))
+		return FALSE;
+	return opensauce_maps_file_path(OPENSAUCE_MAPS_FOLDER, file, path, size);
+}
+
+boolean opensauce_maps_pack_present(
+	char const *pack)
+{
+#ifdef OPENSAUCE_MAPS_MEMORY_UPGRADES
+	char path[256];
+
+	/* (SPV3's folder is SPV3 mode's; maps_os is no mod's) */
+	if (!pack || !opensauce_maps_file_valid(pack) || !_stricmp(pack, SPV3_MODE_PACK_ID) || !_stricmp(pack, "os"))
+		return FALSE;
+	snprintf(path, sizeof(path), "d:\\maps_%s\\ui.map", pack);
+	if (opensauce_maps_file_exists(path))
+		return FALSE;
+	snprintf(path, sizeof(path), "d:\\maps_%s\\ui.yelo", pack);
+	return opensauce_maps_file_exists(path);
+#else
+	(void)pack;
+	return FALSE;
+#endif
+}
+
+char const *opensauce_maps_pack(
+	void)
+{
+	static int asked;
+	static char pack[32];
+
+	/* (map_pack_menus is read once too: it takes effect after a restart) */
+	if (!asked)
+	{
+		char const *menus = map_pack_menus();
+
+		asked = 1;
+		pack[0] = 0;
+		if (menus && strlen(menus) < sizeof(pack) && opensauce_maps_pack_present(menus))
+		{
+			snprintf(pack, sizeof(pack), "%s", menus);
+			error(_error_silent, "OpenSauce maps: maps_%s is an OpenSauce mod's: its menus and maps are played "
+				"from there", pack);
+		}
+	}
+	return pack[0] ? pack : NULL;
+}
+
+boolean opensauce_maps_pack_is_ui(
+	char const *map_name)
+{
+	return map_name && !_stricmp(map_name, "ui") && opensauce_maps_pack();
+}
+
+boolean opensauce_maps_pack_map_path(
+	char const *file,
+	char *path,
+	long size)
+{
+	char const *pack = opensauce_maps_pack();
+	char folder[48];
+
+	if (!pack || !opensauce_maps_file_valid(file))
+		return FALSE;
+	snprintf(folder, sizeof(folder), "maps_%s", pack);
+	return opensauce_maps_file_path(folder, file, path, size);
+}
+
+boolean opensauce_maps_pack_resource(
+	char const *name,
+	char *path,
+	long size)
+{
+	char const *pack = opensauce_maps_pack();
+	int length;
+
+	if (!pack || !opensauce_maps_file_valid(name) || size <= 0)
+		return FALSE;
+	length = snprintf(path, (size_t)size, "d:\\maps_%s\\%s.map", pack, name);
+	if (length > 0 && length < (int)size && opensauce_maps_file_exists(path))
+		return TRUE;
+	path[0] = 0;
+	return FALSE;
 }
 
 #endif

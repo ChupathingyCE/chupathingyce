@@ -3,9 +3,11 @@ OPENSAUCE_MAPS.H
 
 How the game reads an OpenSauce map (port/linux/game/opensauce_maps.c), any
 map with OpenSauce's header, SPV3's among them: which of its header's asks
-it can meet, OpenSauce's larger tag window, and the tag cache's size for the
-map being checked or loaded. SPV3 mode (spv3_mode.c) adds only SPV3's own
-things on top.
+it can meet, OpenSauce's larger tag window, the tag cache's size for the map
+being checked or loaded, and where its maps are: maps_os, for any OpenSauce
+map, and an OpenSauce mod's own folder with its menus (maps_<pack>\ui.yelo,
+played as its own mode). SPV3 mode (spv3_mode.c) adds only SPV3's own things
+on top.
 
 Only the 64-bit desktop builds map the larger window (port/linux/src/
 xbox_heap.c), as only they offer SPV3 mode: elsewhere a map asking for
@@ -26,6 +28,10 @@ desktop's (spv3_mode_active, launcher.c and xbox_heap.c's list) */
 /* nonzero once the larger tag window OpenSauce's memory upgrades need is
 mapped: by the heap at its first allocation (port/linux/src/xbox_heap.c) */
 extern int opensauce_tag_window;
+
+/* the folder of OpenSauce maps beside maps_ce: <name>.yelo (or .map) is
+<name>@ce, found after Custom Edition's own places */
+#define OPENSAUCE_MAPS_FOLDER "maps_os"
 
 #if defined(HALO_CUSTOM_EDITION) && !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
 
@@ -59,8 +65,64 @@ unsigned long opensauce_maps_tag_cache_size(unsigned long custom_edition_size);
 map is opened */
 unsigned long opensauce_maps_header_tag_cache_size(void const *cache_header, unsigned long custom_edition_size);
 
+/* the path of maps_os\<file>.yelo (or .map) into path: FALSE if it is not
+there. Never the menus (ui): a ui in maps_os is no one's menus */
+boolean opensauce_maps_folder_map_path(char const *file, char *path, long size);
+
+/* whether a pack's folder is an OpenSauce mod's, played as its own mode:
+maps_<pack>\ui.yelo and no ui.map, on a build that reads memory upgrades.
+SPV3's is SPV3 mode's (spv3_mode.c), not this */
+boolean opensauce_maps_pack_present(char const *pack);
+
+/* the OpenSauce mod whose menus are played (game.pack_menus), NULL if none */
+char const *opensauce_maps_pack(void);
+
+/* whether a map named so is the OpenSauce mod's menus (ui), played from its
+folder as a Custom Edition map */
+boolean opensauce_maps_pack_is_ui(char const *map_name);
+
+/* the path of maps_<pack>\<file>.yelo (or .map) of the OpenSauce mod
+played, its ui among them: FALSE if none is played or it is not there */
+boolean opensauce_maps_pack_map_path(char const *file, char *path, long size);
+
+/* the path of the OpenSauce mod's own resource map (bitmaps, sounds, loc)
+into path: FALSE if none is played or it has none of that name */
+boolean opensauce_maps_pack_resource(char const *name, char *path, long size);
+
 #else
 
+static __inline boolean opensauce_maps_folder_map_path(char const *file, char *path, long size)
+{
+	(void)file;
+	(void)path;
+	(void)size;
+	return FALSE;
+}
+static __inline boolean opensauce_maps_pack_present(char const *pack)
+{
+	(void)pack;
+	return FALSE;
+}
+static __inline char const *opensauce_maps_pack(void) { return NULL; }
+static __inline boolean opensauce_maps_pack_is_ui(char const *map_name)
+{
+	(void)map_name;
+	return FALSE;
+}
+static __inline boolean opensauce_maps_pack_map_path(char const *file, char *path, long size)
+{
+	(void)file;
+	(void)path;
+	(void)size;
+	return FALSE;
+}
+static __inline boolean opensauce_maps_pack_resource(char const *name, char *path, long size)
+{
+	(void)name;
+	(void)path;
+	(void)size;
+	return FALSE;
+}
 static __inline boolean opensauce_maps_window_mapped(void) { return FALSE; }
 static __inline boolean opensauce_maps_accepts_header(char const *map_name, unsigned short flags)
 {

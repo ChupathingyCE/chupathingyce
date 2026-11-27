@@ -957,6 +957,16 @@ static struct family *family_add(int kind, const char *folder, const char *name,
 
 /* every family's folder read again: the four of the families, then each
 pack's folder (maps_<pack>) */
+/* whether a folder is an OpenSauce mod's: its menus a ui.yelo, and no
+ui.map (port/linux/game/opensauce_maps.c) */
+static int opensauce_mod_folder(const char *path)
+{
+	char on_disk[256];
+
+	return posix_find_entry_case_insensitive(path, "ui.yelo", on_disk, sizeof(on_disk)) &&
+		!posix_find_entry_case_insensitive(path, "ui.map", on_disk, sizeof(on_disk));
+}
+
 static void scan(void)
 {
 	void *directory;
@@ -985,13 +995,16 @@ static void scan(void)
 			valid = isalnum((unsigned char)id[character]) || id[character] == '+';
 		if (!valid || !SDL_strcasecmp(id, "ce") || !SDL_strcasecmp(id, "pc") || !SDL_strcasecmp(id, "md"))
 			continue;
-		/* (not Xbox map packs: Halo MCC's maps (maps_mcc) and SPV3's
-		(maps_spv3, a mode in Play once it is there), whose files these
-		checks don't count; Make the folders makes both) */
-		if (!SDL_strcasecmp(id, "mcc") || !SDL_strcasecmp(id, "spv3"))
+		/* (not Xbox map packs: Halo MCC's maps (maps_mcc), SPV3's (maps_spv3,
+		a mode in Play once it is there) and OpenSauce's (maps_os), whose
+		files these checks don't count; Make the folders makes them) */
+		if (!SDL_strcasecmp(id, "mcc") || !SDL_strcasecmp(id, "spv3") || !SDL_strcasecmp(id, "os"))
 			continue;
 		snprintf(path, sizeof(path), "%s/%s", launcher.root, name);
 		if (!is_directory(path))
+			continue;
+		/* (nor an OpenSauce mod's, its menus a ui.yelo: a mode in Play) */
+		if (opensauce_mod_folder(path))
 			continue;
 		pack = known_pack(id);
 		if (pack)
@@ -1191,6 +1204,27 @@ static void modes_find(void)
 			/* (only the 64-bit desktop builds map the larger tag window its
 			maps need: port/linux/src/xbox_heap.c) */
 			platform_log("launcher: %s is here, but SPV3 needs a 64-bit desktop build", name);
+#endif
+			continue;
+		}
+		/* (maps_os holds OpenSauce maps, no one's menus: no mode) */
+		if (!SDL_strcasecmp(suffix, "os"))
+			continue;
+		/* (an OpenSauce mod with its own menus, its ui.yelo: a mode as any
+		map pack is, read as SPV3's is, port/linux/game/opensauce_maps.c) */
+		if (opensauce_mod_folder(path))
+		{
+#if defined(HALO_64BIT) && defined(HALO_CUSTOM_EDITION) && !defined(HALO_WINDOW_TRANSLATED)
+			char tag[8];
+
+			snprintf(id, sizeof(id), "%s", suffix);
+			for (character = 0; id[character]; character++)
+				id[character] = (char)tolower((unsigned char)id[character]);
+			snprintf(tag, sizeof(tag), "%.4s", suffix);
+			upper(tag);
+			mode_add(id, suffix, tag, name, 1);
+#else
+			platform_log("launcher: %s is here, but OpenSauce mods need a 64-bit desktop build", name);
 #endif
 			continue;
 		}
