@@ -118,6 +118,11 @@ static struct
 	real gravity_before;
 	/* (camouflage past 1 said once a map) */
 	boolean camouflage_logged;
+	/* Halo PC's music and effects gains, as the map's scripts set them
+	(opensauce_map_set_sound_gain): 1 until they do */
+	real music_gain;
+	real effects_gain;
+	boolean sound_gains_set;
 	/* the loaded map's tags, project_yellow and project_yellow_globals,
 	for the scripted widgets (opensauce_map_scripted_widget): NULL until
 	its tags are checked, and again once it unloads */
@@ -437,9 +442,44 @@ boolean opensauce_map_four_grenades(
 	return globals && globals->grenades.count > 2;
 }
 
+void opensauce_map_set_sound_gain(
+	boolean music,
+	float gain)
+{
+	real *field;
+
+	if (!opensauce_globals.active)
+		return;
+	/* (Halo PC's range: 0 to 1, and anything else of it NaN taken as 1) */
+	if (!(gain >= 0.0f))
+		gain = gain < 0.0f ? 0.0f : 1.0f;
+	if (gain > 1.0f)
+		gain = 1.0f;
+	field = music ? &opensauce_globals.music_gain : &opensauce_globals.effects_gain;
+	if (!opensauce_globals.sound_gains_set)
+	{
+		opensauce_globals.music_gain = 1.0f;
+		opensauce_globals.effects_gain = 1.0f;
+		opensauce_globals.sound_gains_set = TRUE;
+	}
+	if (*field != gain)
+		opensauce_log("%s gain %.2f by its scripts (%s)", music ? "music" : "effects", (double)gain,
+			music ? "sound_set_music_gain" : "sound_set_effects_gain");
+	*field = gain;
+}
+
+float opensauce_map_sound_gain(
+	boolean music)
+{
+	if (!opensauce_globals.active || !opensauce_globals.sound_gains_set)
+		return 1.0f;
+	return music ? opensauce_globals.music_gain : opensauce_globals.effects_gain;
+}
+
 void opensauce_map_unloaded(
 	void)
 {
+	opensauce_globals.sound_gains_set = FALSE;
 	opensauce_gravity_restore();
 	opensauce_globals.tag_instances = NULL;
 	opensauce_globals.tag_count = 0;
