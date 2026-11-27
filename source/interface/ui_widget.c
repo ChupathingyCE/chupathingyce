@@ -5096,6 +5096,10 @@ static boolean ui_widget_load_children_recursive(
 
 			for (child = widget->child; child; child = child->next, index++)
 			{
+				/* port: (never an OpenSauce menu's placeholder, which takes
+				events like the item it copies) */
+				if (child == widget->child && widget_instance_port_has_opensauce_placeholder(widget))
+					continue;
 				if (((widget->type == _ui_widget_type_spinner_list ||
 					widget->type == _ui_widget_type_column_list) &&
 					(!skip_labels || !widget_instance_port_is_label(child))) ||
