@@ -190,6 +190,7 @@ symbols in this file:
 #include "sky_definitions.h"
 #include "render/render_cameras.h"
 #include "render/render_debug.h"
+#include "rasterizer/rasterizer.h" /* port: rasterizer_lights_reset_for_new_structure_bsp */
 #include "scenario/wind.h"
 #include "sound/sound_definitions.h"
 #include "sound/sound_manager.h"
@@ -1200,6 +1201,8 @@ boolean scenario_switch_structure_bsp(
 				struct collision_bsp);
 			scenario_globals->structure_bsp_index = structure_bsp_index;
 			global_structure_bsp_index = structure_bsp_index;
+			/* port: the new bsp's lens flares are seen anew (rasterizer_lights.c) */
+			rasterizer_lights_reset_for_new_structure_bsp();
 #ifdef HALO_CONSOLE_COLLISION_CACHES
 			scenario_structure_bsp_generation++;
 #endif
