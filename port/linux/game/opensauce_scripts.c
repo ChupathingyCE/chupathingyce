@@ -33,9 +33,11 @@ back). Read as facts; the code is this game's:
   - ai_transform_actor, ai_transform_actors, ai_transform_actors_by_type
     and ai_actor_is_transforming start and ask after the map's actor
     variant transforms (opensauce_transforms.c), on the host;
+  - structure_bsp_set_lightmap_set and structure_bsp_set_sky_set choose a
+    BSP's lightmap or sky set by name (opensauce_bsp_sets.c);
   - what needs a part of OpenSauce the game does not have yet answers as
-    that part would with nothing to show, and says so once: BSP sky and lightmap
-    sets, runtime vectors, bink movies, OpenSauce's third and fourth
+    that part would with nothing to show, and says so once: faux zones'
+    skies, runtime vectors, bink movies, OpenSauce's third and fourth
     grenade counts.
 The globals are Halo PC's network globals (vehicle_incremental_rate and the
 rest, which SPV3's scripts use as their own variables) and OpenSauce's motion
@@ -63,6 +65,7 @@ blur ones, of the types Halo PC's and OpenSauce's scripts give them
 #include "opensauce.h"
 #include "opensauce_postprocess.h"
 #include "opensauce_transforms.h"
+#include "opensauce_bsp_sets.h"
 #include "stubbs_functions.h"
 #include "network_coop.h"
 #include "networking/network_game_globals.h"
@@ -158,12 +161,13 @@ static struct opensauce_script_function opensauce_script_functions[] =
 	OPENSAUCE_SCRIPT_FUNCTION("pp_bloom_set_maximum_color", _hs_type_void, 4,
 		{ _hs_type_real, _hs_type_real, _hs_type_real, _hs_type_real }),
 	OPENSAUCE_SCRIPT_FUNCTION("pp_bloom_set_exposure", _hs_type_void, 2, { _hs_type_real, _hs_type_real }),
-	/* (parts the game does not have yet) */
-	OPENSAUCE_SCRIPT_FUNCTION("display_scripted_ui_widget", _hs_type_boolean, 1, { _hs_type_string }),
+	/* (BSP lightmap and sky sets: opensauce_bsp_sets.c) */
 	OPENSAUCE_SCRIPT_FUNCTION("structure_bsp_set_sky_set", _hs_type_boolean, 2,
 		{ _hs_type_short_integer, _hs_type_string }),
 	OPENSAUCE_SCRIPT_FUNCTION("structure_bsp_set_lightmap_set", _hs_type_boolean, 2,
 		{ _hs_type_short_integer, _hs_type_string }),
+	/* (parts the game does not have yet) */
+	OPENSAUCE_SCRIPT_FUNCTION("display_scripted_ui_widget", _hs_type_boolean, 1, { _hs_type_string }),
 	OPENSAUCE_SCRIPT_FUNCTION("scenario_faux_zone_switch_sky", _hs_type_boolean, 1, { _hs_type_string }),
 	OPENSAUCE_SCRIPT_FUNCTION("runtime_vector_set", _hs_type_boolean, 5,
 		{ _hs_type_short_integer, _hs_type_string, _hs_type_real, _hs_type_real, _hs_type_real }),
@@ -660,6 +664,13 @@ static boolean opensauce_script_data(
 		else
 			error(_error_silent, "OpenSauce scripts: scripted widget '%s' isn't in the map's lists", widget_name);
 	}
+#endif
+#ifdef OPENSAUCE_BSP_SETS
+	/* (what the map draws: each machine's that runs the map's scripts) */
+	else if (!strcmp(name, "structure_bsp_set_lightmap_set"))
+		*value = opensauce_bsp_sets_set_lightmap_set((short)arguments[0], opensauce_string_argument(arguments[1]));
+	else if (!strcmp(name, "structure_bsp_set_sky_set"))
+		*value = opensauce_bsp_sets_set_sky_set((short)arguments[0], opensauce_string_argument(arguments[1]));
 #endif
 #ifdef OPENSAUCE_TRANSFORMS
 	/* (host-authoritative: a client has no transforms of its own,
