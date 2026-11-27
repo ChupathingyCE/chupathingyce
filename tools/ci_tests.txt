@@ -20,6 +20,7 @@ tools/test_bgfx_vulkan_start.py
 tools/test_bgfx_window_pacing.py
 tools/test_bink_decode.py
 tools/test_build_workflow.py
+tools/test_c_units.py
 tools/test_campaign_levels.py
 tools/test_capture.py
 tools/test_ce_bitmap_reduce.py
@@ -41,7 +42,6 @@ tools/test_console_log_view.py
 tools/test_console_meter_stages.py
 tools/test_console_packager.py
 tools/test_console_reports.py
-tools/test_console_shell.py
 tools/test_console_structure_culling.py
 tools/test_content_golden.py
 tools/test_content_map_probe.py
@@ -54,7 +54,6 @@ tools/test_debug_camera.py
 tools/test_delta.py
 tools/test_delta_compat.py
 tools/test_delta_docs.py
-tools/test_delta_input_rules.py
 tools/test_delta_layouts.py
 tools/test_delta_menu_art.py
 tools/test_delta_peer.py
@@ -63,8 +62,6 @@ tools/test_delta_registry.py
 tools/test_determinism.py
 tools/test_developer_flames.py
 tools/test_direct_address.py
-tools/test_discord_activity.py
-tools/test_discord_register.py
 tools/test_doorbell.py
 tools/test_duct_tape_logo.py
 tools/test_event_log.py
@@ -99,7 +96,6 @@ tools/test_kcp_peer.py
 tools/test_late_join_wait.py
 tools/test_launcher_start.py
 tools/test_line_of_sight.py
-tools/test_link_register.py
 tools/test_linux_port.py
 tools/test_listen_address.py
 tools/test_lobby_budget.py
@@ -169,24 +165,18 @@ tools/test_no_game_browser_calls.py
 tools/test_online_games_list.py
 tools/test_opence_welcome.py
 tools/test_opensauce_scripts.py
-tools/test_p2p_copies.py
-tools/test_p2p_host_port.py
-tools/test_p2p_join_password.py
 tools/test_p2p_public_address.py
 tools/test_p2p_signal_sockets.py
 tools/test_p2p_spoofed_source.py
 tools/test_pack_movies.py
 tools/test_packaged_install.py
-tools/test_party_teams.py
 tools/test_pause_leave.py
 tools/test_picture_check.py
 tools/test_renderer_gate.py
-tools/test_ping.py
 tools/test_platform_names.py
 tools/test_player_key.py
 tools/test_player_profile_list.py
 tools/test_playlist_maps.py
-tools/test_port_folders.py
 tools/test_present_back_buffer.py
 tools/test_preview_cache.py
 tools/test_prompt_schemes.py
@@ -211,7 +201,6 @@ tools/test_server_tls.py
 tools/test_settings_generated.py
 tools/test_settings_layout.py
 tools/test_settings_pages.py
-tools/test_social.py
 tools/test_sound_cache_platforms.py
 tools/test_spv3_installer.py
 tools/test_spv3_survey.py
@@ -225,10 +214,8 @@ tools/test_text_fields.py
 tools/test_texture_cache_platforms.py
 tools/test_third_party_notices.py
 tools/test_title_tool.py
-tools/test_touch_menu.py
 tools/test_tricks.py
 tools/test_tuning_table.py
-tools/test_ui_point.py
 tools/test_update_channels.py
 tools/test_update_manifest.py
 tools/test_updater_follow_ups.py

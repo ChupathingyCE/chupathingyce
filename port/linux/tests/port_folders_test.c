@@ -2,7 +2,7 @@
 PORT_FOLDERS_TEST.C
 
 Tests of the game's own folders beside the maps and the saves
-(port/linux/src/port_folders.c). Built and run by tools/test_port_folders.py;
+(port/linux/src/port_folders.c). Built and run by tools/test_c_units.py;
 exits nonzero on a failure. It writes nothing.
 */
 

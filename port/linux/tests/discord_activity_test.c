@@ -2,7 +2,7 @@
 DISCORD_ACTIVITY_TEST.C
 
 Tests of the activity Discord shows (port/linux/src/discord_activity.c).
-Built and run by tools/test_discord_activity.py; exits nonzero on a failure.
+Built and run by tools/test_c_units.py; exits nonzero on a failure.
 With an argument, prints the commands it builds instead.
 */
 

@@ -4,7 +4,7 @@ DISCORD_REGISTER_TEST.C
 Tests of the launch command registered for Discord (port/linux/src/
 discord_register.c): the desktop entry written into a scratch folder (as
 ~/.local/share/applications), and the Windows registry's keys through a
-fake registry. Built and run by tools/test_discord_register.py with a
+fake registry. Built and run by tools/test_c_units.py with a
 scratch folder as its argument; exits nonzero on a failure.
 */
 

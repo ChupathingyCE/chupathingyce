@@ -3,7 +3,7 @@ DELTA_INPUT_RULES.H
 
 How DELTA's ways in read the keyboard and the controller, kept apart from
 SDL so their tests build anywhere (port/linux/tests/delta_input_rules_test.c,
-tools/test_delta_input_rules.py):
+tools/test_c_units.py):
 
 - controls.delta names one key or a few, separated by commas, as the game's
   other controls do ("F3, Backslash"). On a Mac, F3 is Mission Control and the

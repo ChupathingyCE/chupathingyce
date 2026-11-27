@@ -4,7 +4,7 @@ PING_TEST.C
 Tests of Online Games' pings before joining (p2p_probe.c) and its
 estimates (browser_ping.c): the formats against hostile input, the host's
 limits (a probe is never more than a few same-sized answers), the prober's
-measuring, the anchors and the Ping column's order. tools/test_ping.py
+measuring, the anchors and the Ping column's order. tools/test_c_units.py
 builds and runs them.
 */
 
