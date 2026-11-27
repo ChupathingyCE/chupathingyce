@@ -87,10 +87,10 @@ view that is inside all three limits matches. The report shows OpenGL, the
 other renderer and a picture of the difference (OpenGL faded, the changed
 pixels red) for each view.
 
-`--repeat-first` runs OpenGL twice. Where OpenGL differs from itself (a
-campaign level whose AI or weather doesn't stop with the game), a view is
-`UNSTEADY` and isn't counted, unless the renderers differ by clearly more
-than OpenGL does from itself (past twice its own difference, part by part).
+`--repeat-first` runs each renderer twice. Where either differs from itself
+(a campaign level whose AI or weather doesn't stop with the game, a
+flickering light), or a view never held still, a view that differs is
+`UNSTEADY`: it is shown with its numbers and isn't counted.
 
 When the renderer's log says it has no pass for a setting ("anti-aliasing:
 fxaa is not in the bgfx renderer yet, so msaa2x") or skips a kind of draw
@@ -122,7 +122,8 @@ times, the median kept. bgfx passes on a map when:
 
 Nothing else should be running on the machine while it measures. The gate
 notes the load average before and after each map, and a map measured with
-the load over half the CPUs fails as "busy", to be measured again.
+a load of 1.0 or more, before or after, fails as "busy", to be measured
+again.
 
 ## The verdict
 
