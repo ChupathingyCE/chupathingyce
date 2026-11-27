@@ -970,3 +970,4 @@ void workshop_browser_size_text(long long size, char *text, int size_of_text)
 		snprintf(text, (size_t)size_of_text, "%lld KB", (size + 1023) / 1024);
 }
 #endif /* HALO_MCC */
+
