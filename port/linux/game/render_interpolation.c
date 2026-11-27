@@ -56,6 +56,7 @@ frame a tick) nothing is behind.
 #include "effects/particles.h"
 #include "render/render_cameras.h"
 #include "units/units.h"
+#include "units/unit_definitions.h"
 #include "lua_scripting.h" /* (a pose a mod's Lua script set) */
 #include "ragdolls.h" /* (a dead body's ragdoll's pose: ragdolls.c) */
 
@@ -213,6 +214,25 @@ struct interpolated_camera
 	boolean cut_to_previous;
 	boolean cut_to_latest;
 	real speed;
+	/* the snapshot before the previous one as a third-person view uses it
+	(render_interpolation_blended_camera): its part of a tick, its focus and
+	perspective, and whether the three were taken a tick apart each */
+	real before_fraction;
+	real_point3d before_focus;
+	short before_perspective;
+	boolean before_usable;
+	boolean previous_consecutive;
+	/* how the player's facing turned (radians, yaw and pitch) between the
+	latest two snapshots and since the latest, but for the frame after each
+	snapshot, where a seat's limits and leveling catch up with the tick:
+	in the other frames only the player turns it (a first-person view from
+	a seat: render_interpolation_seat_view); the facing as the last frame
+	left it, that frame, and the frame the latest snapshot was taken */
+	real_euler_angles2d turned_by_player;
+	real_euler_angles2d turning_by_player;
+	real_euler_angles2d facing;
+	long facing_frame;
+	long snapshot_frame;
 };
 
 struct interpolated_first_person
@@ -1154,6 +1174,9 @@ void render_interpolation_correct_object(long object_index, real_vector3d const 
 			camera->latest.position.x -= offset->i;
 			camera->latest.position.y -= offset->j;
 			camera->latest.position.z -= offset->k;
+			camera->before.position.x -= offset->i;
+			camera->before.position.y -= offset->j;
+			camera->before.position.z -= offset->k;
 			correction_add(&camera->correction, &camera->correction_pending, offset);
 		}
 	}
@@ -1514,6 +1537,93 @@ static void render_interpolation_timed_blend(
 	observer_blend(from, to, t, &camera->blended);
 }
 
+/* A first-person view from a vehicle's seat (a Scorpion's riders, a
+passenger's or a gunner's seat without a third-person camera) is posed from
+the vehicle as each tick leaves it: where the seat's camera is, which way is
+up, how far the seat lets the view turn (its yaw and pitch limits, held
+against the vehicle) and how it levels the view as the vehicle tilts. Only
+the player's own turning moves it between the ticks. Blended by the
+snapshots' times like a view turned every frame, the part the vehicle moved
+ran ahead one tick and fell back the next, so the view judders whenever the
+frames don't divide a tick evenly (144 or 165 a second, uncapped; 60, 120
+and 240 land on the same parts of every tick). It is blended as the vehicle
+is drawn, by the fraction, but for a turn the player made between the two
+snapshots, which is blended by their times, turn by turn (yaw and pitch):
+the facing's change in the frames between the ticks. (The seat's limits and
+leveling move the facing in the frame after a tick, as the tick left the
+vehicle; a turn held against a limit moves nothing.) A seat whose camera is
+a marker on the vehicle (a turret's sight) aims with the vehicle's own aim,
+once a tick: by the fraction all through. */
+/* of a change, the part a turn the same way round accounts for */
+static real turn_part(
+	real change,
+	real turn)
+{
+	if (change > 0.0f && turn > 0.0f)
+		return change < turn ? change : turn;
+	if (change < 0.0f && turn < 0.0f)
+		return change > turn ? change : turn;
+	return 0.0f;
+}
+
+static void render_interpolation_seat_view(
+	struct interpolated_camera const *camera,
+	long unit_index,
+	real t,
+	real timed,
+	struct observer_result *blended)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	struct object_datum *parent = object_get(unit->object.parent_object_index);
+	boolean marker_camera = FALSE;
+	real_euler_angles2d from, to, angles;
+	real yaw_by_player = 0.0f;
+	real pitch_by_player = 0.0f;
+	real along, length;
+
+	if (TEST_FLAG(_object_mask_unit, parent->object.type) && unit->unit.parent_seat_index != NONE)
+	{
+		struct unit_definition *definition = unit_definition_get(parent->definition_index);
+
+		if (unit->unit.parent_seat_index < definition->unit.seats.count)
+		{
+			struct unit_seat const *seat = TAG_BLOCK_GET_ELEMENT(&definition->unit.seats,
+				unit->unit.parent_seat_index, struct unit_seat);
+
+			marker_camera = TEST_FLAG(seat->flags, _unit_seat_first_person_camera_bit);
+		}
+	}
+	if (!marker_camera)
+	{
+		yaw_by_player = camera->turned_by_player.yaw;
+		pitch_by_player = camera->turned_by_player.pitch;
+	}
+	euler_angles2d_from_vector3d(&from, &camera->previous.forward);
+	euler_angles2d_from_vector3d(&to, &camera->latest.forward);
+	angles.yaw = from.yaw + yaw_by_player * timed +
+		(signed_angular_difference(from.yaw, to.yaw) - yaw_by_player) * t;
+	angles.pitch = from.pitch + pitch_by_player * timed +
+		(to.pitch - from.pitch - pitch_by_player) * t;
+	vector3d_from_euler_angles2d(&blended->forward, &angles);
+	/* (up as the vehicle tilts, square to the view) */
+	vector_nlerp(&camera->previous.up, &camera->latest.up, t, &blended->up);
+	along = blended->up.i * blended->forward.i + blended->up.j * blended->forward.j + blended->up.k * blended->forward.k;
+	blended->up.i -= blended->forward.i * along;
+	blended->up.j -= blended->forward.j * along;
+	blended->up.k -= blended->forward.k * along;
+	length = vector_length(&blended->up);
+	if (length > 1e-6f)
+	{
+		blended->up.i /= length;
+		blended->up.j /= length;
+		blended->up.k /= length;
+	}
+	else
+	{
+		blended->up = camera->latest.up;
+	}
+}
+
 #endif
 
 static struct observer_result const *render_interpolation_blended_camera(
@@ -1549,6 +1659,36 @@ static struct observer_result const *render_interpolation_blended_camera(
 	}
 #endif
 	camera = &interpolated_cameras[local_player_index];
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* (how the facing turned since the last frame, once a frame: a
+	first-person view from a seat, render_interpolation_seat_view) */
+	if (camera->facing_frame != interpolation_frame)
+	{
+		real_euler_angles2d const *facing = player_control_get_facing_angles(local_player_index);
+
+		if (camera->valid)
+		{
+			real yaw = signed_angular_difference(camera->facing.yaw, facing->yaw);
+			real pitch = facing->pitch - camera->facing.pitch;
+
+			/* (in the first frame after a snapshot's, no more of it than the
+			player's own turn that frame, the same way round) */
+			if (camera->facing_frame == camera->snapshot_frame)
+			{
+				real_vector2d throttle;
+				real_euler_angles2d turn;
+
+				player_control_get_debug_camera_input(local_player_index, &throttle, &turn);
+				yaw = turn_part(yaw, turn.yaw);
+				pitch = turn_part(pitch, turn.pitch);
+			}
+			camera->turning_by_player.yaw += yaw;
+			camera->turning_by_player.pitch += pitch;
+		}
+		camera->facing = *facing;
+		camera->facing_frame = interpolation_frame;
+	}
+#endif
 	/* A scripted camera that moves with an object (a cinematic's camera
 	point relative to a lifepod or dropship, or a unit's eyes in one) is
 	placed by the object as it stands after the last tick. Blended from its
@@ -1621,6 +1761,21 @@ static struct observer_result const *render_interpolation_blended_camera(
 				(real)(camera->latest_time - camera->previous_time);
 		}
 #endif
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+		{
+			boolean consecutive = camera->valid && interpolation_tick - camera->tick == 1;
+
+			camera->before_fraction = camera->previous_fraction;
+			camera->before_focus = camera->previous_focus;
+			camera->before_perspective = camera->previous_perspective;
+			camera->before_usable = camera->has_before && camera->previous_consecutive && consecutive;
+			camera->previous_consecutive = consecutive;
+		}
+		camera->turned_by_player = camera->turning_by_player;
+		camera->turning_by_player.yaw = 0.0f;
+		camera->turning_by_player.pitch = 0.0f;
+		camera->snapshot_frame = interpolation_frame;
+#endif
 		camera->previous_fraction = camera->latest_fraction;
 		camera->latest_fraction = t;
 		camera->previous_focus = camera->latest_focus;
@@ -1687,31 +1842,66 @@ static struct observer_result const *render_interpolation_blended_camera(
 	a tick before the frame, as the objects are. Where the camera is
 	centered (the unit it follows) moves once a tick, unless it glides
 	there, and is blended by the fraction, as the objects. A third-person or
-	vehicle view's position stays between its two snapshots (its facing may
-	run a little before the earlier one): both were kept off the walls by the
-	camera's collision, and a point past them could be inside one. Snapshots
-	taken in different perspectives (first person to a scripted view) are
-	not centered on the same thing, so the focus isn't blended between them. */
+	vehicle view's position stays between two snapshots, each kept off the
+	walls by the camera's collision (a point past them could be inside one).
+	Where its facing runs before the earlier of the latest two (the first
+	frame after a tick came earlier in its tick than the last snapshot was
+	taken), it is placed between that one and the one before it. (Held at
+	the earlier snapshot, it stood still for that frame and caught up on the
+	next, so the vehicle it follows jumped on the screen every few ticks at
+	144 a second.) Snapshots taken in different perspectives (first person
+	to a scripted view) are not centered on the same thing, so the focus
+	isn't blended between them. A first-person view from a vehicle's seat:
+	render_interpolation_seat_view. */
 	{
 		director_perspective perspective = director_get_perspective(local_player_index);
 		real timed = camera_timed_fraction(t, camera->previous_fraction, camera->latest_fraction);
 		real placed = timed;
+		struct observer_result const *placed_from = &camera->previous;
+		struct observer_result const *placed_to = &camera->latest;
+		real_point3d const *focus_from = &camera->previous_focus;
+		real_point3d const *focus_to = &camera->latest_focus;
+		boolean focus_same = camera->previous_perspective == camera->latest_perspective;
 
 		observer_blend(&camera->previous, &camera->latest, timed, &camera->blended);
 		if (perspective != _director_perspective_scripted)
 		{
 			real_point3d focus_at_fraction, focus_at_time;
+			long unit_index = player_control_get_unit_index(local_player_index);
 
 			camera->blended.field_of_view = lerp(camera->previous.field_of_view, camera->latest.field_of_view, t);
 			if (perspective == _director_perspective_third_person)
 			{
-				placed = PIN(timed, 0.0f, 1.0f);
-				point_lerp(&camera->previous.position, &camera->latest.position, placed, &camera->blended.position);
+				real latest_apart = 1.0f + camera->latest_fraction - camera->previous_fraction;
+				real previous_apart = 1.0f + camera->previous_fraction - camera->before_fraction;
+
+				if (timed < 0.0f && camera->before_usable &&
+					camera->before_perspective == camera->previous_perspective &&
+					camera_snapshot_times_usable(camera->before_fraction, camera->previous_fraction, previous_apart, 0.05f))
+				{
+					placed = PIN(1.0f + timed * latest_apart / previous_apart, 0.0f, 1.0f);
+					placed_from = &camera->before;
+					placed_to = &camera->previous;
+					focus_from = &camera->before_focus;
+					focus_to = &camera->previous_focus;
+					focus_same = focus_same && camera->before_perspective == camera->previous_perspective;
+				}
+				else
+				{
+					placed = PIN(timed, 0.0f, 1.0f);
+				}
+				point_lerp(&placed_from->position, &placed_to->position, placed, &camera->blended.position);
 			}
-			if (!camera->focus_glides && camera->previous_perspective == camera->latest_perspective)
+			else if (perspective == _director_perspective_first_person &&
+				unit_index != NONE && object_get(unit_index)->object.parent_object_index != NONE &&
+				camera->previous_perspective == camera->latest_perspective)
+			{
+				render_interpolation_seat_view(camera, unit_index, t, timed, &camera->blended);
+			}
+			if (!camera->focus_glides && focus_same)
 			{
 				point_lerp(&camera->previous_focus, &camera->latest_focus, t, &focus_at_fraction);
-				point_lerp(&camera->previous_focus, &camera->latest_focus, placed, &focus_at_time);
+				point_lerp(focus_from, focus_to, placed, &focus_at_time);
 				camera->blended.position.x += focus_at_fraction.x - focus_at_time.x;
 				camera->blended.position.y += focus_at_fraction.y - focus_at_time.y;
 				camera->blended.position.z += focus_at_fraction.z - focus_at_time.z;
