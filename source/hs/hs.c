@@ -3673,8 +3673,9 @@ boolean hs_scenario_postprocess(
 
 #define MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO 19001
 /* port: OpenSauce's maps' (1.5 times as many: blam_memory_upgrades.hpp), read
-in SPV3 mode only (port/linux/game/spv3_mode.c); the tables kept per node
-below are sized for them */
+for a map read with OpenSauce's memory upgrades, and in SPV3 mode
+(port/linux/game/opensauce_maps.c); the tables kept per node below are sized
+for them */
 #define OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO 28501
 #if defined(HALO_64BIT) && !defined(HALO_WINDOW_TRANSLATED)
 #define HS_SYNTAX_NODES_CAPACITY OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO
@@ -3683,6 +3684,8 @@ below are sized for them */
 #define HS_SYNTAX_NODES_CAPACITY MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO
 #endif
 #include "spv3_mode.h"
+#include "opensauce_maps.h"
+#include "opensauce_survey.h"
 /* port: the console's stand-in array (hs_allocate) */
 #define HS_SYNTAX_STAND_IN_NODES 2048
 /* port: the size of the "hs globals" array (hs_runtime_initialize), which
@@ -13393,9 +13396,11 @@ static char const *hs_scenario_syntax_data_problem(
 		if (mcc_valid >= 0)
 			return mcc_valid ? NULL : "its MCC script syntax data is damaged";
 	}
-	/* port: in SPV3 mode, OpenSauce's larger array too (spv3_mode.c) */
+	/* port: for a map read with OpenSauce's memory upgrades, and in SPV3
+	mode, OpenSauce's larger array too (opensauce_maps.c) */
 	long const maximum_nodes =
-		HS_SYNTAX_NODES_CAPACITY == OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO && spv3_mode_active() &&
+		HS_SYNTAX_NODES_CAPACITY == OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO &&
+		(spv3_mode_active() || opensauce_maps_memory_upgrades()) &&
 		scenario->hs_syntax_data.size ==
 			(long)(sizeof(struct data_array)+OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO*sizeof(struct hs_syntax_node)) ?
 		OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO : MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO;
@@ -13442,7 +13447,8 @@ static char const *hs_scenario_syntax_data_problem(
 				return "its header isn't a script node array's";
 			}
 			if (maximum_nodes != MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)
-				spv3_mode_log("scripts: OpenSauce's script node array (%ld nodes) read in place", maximum_nodes);
+				opensauce_survey_log("scripts: OpenSauce's script node array (%ld nodes) read in place",
+					maximum_nodes);
 			return hs_scenario_string_constants_valid(scenario) ? NULL : "its strings aren't inside the map's tag data";
 		}
 	}

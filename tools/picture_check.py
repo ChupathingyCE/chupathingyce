@@ -22,7 +22,10 @@ The reference is one of:
 - --reference-build: another build (a release you trust), run the same way;
 - --reference-env: the same build again with these settings, such as
   HALO_STRUCTURE_CULLING=false where the build has that switch;
-- --reference DIR: captures kept from an earlier run (<map>_<pose>.png).
+- --reference DIR: captures kept from an earlier run (<map>_<pose>.png);
+- --reference-renderer gl with --renderer bgfx: the same build drawing with
+  OpenGL, so bgfx is checked against it (bgfx runs on lavapipe, Mesa's
+  software Vulkan, under Xvfb: fine for looks).
 
 Without a reference it only captures, so a run makes the reference for the
 next. Maps come only from a data root of links, made by the script that
@@ -474,8 +477,14 @@ def release_build(tag, scratch):
     return build / "chupathingy"
 
 
-def settings(pairs):
+def settings(pairs, renderer=None):
     environment = {}
+    if renderer:
+        # (display.renderer; bgfx on Mesa's software Vulkan, lavapipe, under
+        # Xvfb, which the Vulkan blocklist would otherwise send to OpenGL)
+        environment["HALO_RENDERER"] = renderer
+        if renderer != "gl":
+            environment["HALO_VULKAN_BLOCKLIST"] = "false"
     for pair in pairs or []:
         name, _, value = pair.partition("=")
         environment[name] = value
@@ -596,6 +605,11 @@ def main():
     parser.add_argument("--reference-env", action="append", metavar="NAME=VALUE",
                         help="settings for the reference run (the same build, unless --reference-build)")
     parser.add_argument("--env", action="append", metavar="NAME=VALUE", help="settings for the checked build's run")
+    parser.add_argument("--renderer", choices=("gl", "bgfx"), help="the renderer the checked build draws with "
+                        "(display.renderer; default the build's own, OpenGL)")
+    parser.add_argument("--reference-renderer", choices=("gl", "bgfx"), help="the renderer the reference draws "
+                        "with; alone, the reference is the checked build drawing with it (bgfx against OpenGL: "
+                        "--renderer bgfx --reference-renderer gl)")
     parser.add_argument("--poses", default=str(POSES), help="the pose list (default tools/picture_check_poses.txt)")
     parser.add_argument("--map", action="append", dest="maps", help="only this map's poses (repeatable)")
     parser.add_argument("--maps-ce", help="a folder of Custom Edition maps to link in as maps_ce")
@@ -634,16 +648,20 @@ def main():
             reference_label = arguments.reference_release
         print(f"checked build: {arguments.build}")
         shots, failures, notes = capture(Path(arguments.build).resolve(), poses, out, arguments.display,
-                                         arguments.settle, settings(arguments.env), arguments.maps_ce, scratch)
+                                         arguments.settle, settings(arguments.env, arguments.renderer),
+                                         arguments.maps_ce, scratch)
         reference_failures = {}
-        if arguments.reference_release or arguments.reference_build or arguments.reference_env:
+        if (arguments.reference_release or arguments.reference_build or arguments.reference_env or
+                arguments.reference_renderer):
             if not arguments.reference_release:
                 reference_build = Path(arguments.reference_build or arguments.build).resolve()
                 reference_label = f"{reference_build} {' '.join(arguments.reference_env or [])}".strip()
+                if arguments.reference_renderer:
+                    reference_label += f" ({arguments.reference_renderer})"
             print(f"reference build: {reference_label}")
             references, reference_failures, reference_notes = capture(
                 reference_build, poses, out / "reference", arguments.display, arguments.settle,
-                settings(arguments.reference_env), arguments.maps_ce, scratch)
+                settings(arguments.reference_env, arguments.reference_renderer), arguments.maps_ce, scratch)
             for key, note in reference_notes.items():
                 notes[key] = "; ".join(filter(None, (notes.get(key), f"reference: {note}")))
         elif arguments.reference:
