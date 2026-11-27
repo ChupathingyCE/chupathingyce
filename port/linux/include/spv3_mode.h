@@ -64,27 +64,9 @@ be read: in SPV3 mode, with the window mapped, memory upgrades alone (each
 other flag logged and refused) */
 boolean spv3_mode_accepts_opensauce(char const *map_name, unsigned short flags);
 
-/* the survey of a map just read, before it is checked (ce_map_checks.c):
-its header, OpenSauce's header, its tags' groups, its BSPs against the
-window and its scripts' functions and globals the game lacks; once per map,
-in SPV3 mode. tags is the tag data as read, at the tag cache's base */
-void spv3_mode_survey(char const *map_name, void const *cache_header, void const *tags, unsigned long tag_data_size,
-	unsigned long file_size);
-
-/* a script's function or global the game lacks, named as the scripts were
-compiled (hs_compile.c), counted for the map's summary */
-void spv3_mode_note_missing_function(char const *name);
-void spv3_mode_note_missing_global(char const *name);
-/* the map's scripts compiled: the counts logged and cleared */
-void spv3_mode_scripts_summary(long dropped_scripts, long scripts, long dropped_globals, long globals);
-
-/* a resource (a bitmap's pixels or a sound's samples) a tag asked a resource
-map for that it does not have */
-void spv3_mode_note_resource_miss(char const *kind, char const *tag_name);
-
 /* a change SPV3 mode made to what a map asks for (a camera point narrowed,
 camera_scripting.c; a grenade type passed over, units.c): counted and its
-first ones logged */
+first ones logged, in SPV3 mode, by OpenSauce's map log (opensauce_survey.h) */
 void spv3_mode_note_correction(char const *what);
 
 #endif
