@@ -219,10 +219,13 @@ def main() -> int:
 def game_features(platform: str) -> list:
     """the parts only some games have (tools/third_party_notices.py): the
     SDL3 library (every build but FreeBSD's, whose SDL3 is the system's
-    package), the bgfx renderer of the 64-bit desktop builds when built, its
-    Vulkan back end on Linux and Windows, and its SPIRV-Cross on macOS and
-    64-bit Windows"""
+    package), the movies' FFmpeg when the build made it (all but one
+    configured --without-ffmpeg: tools/ffmpeg_build.py), the bgfx renderer of
+    the 64-bit desktop builds when built, its Vulkan back end on Linux and
+    Windows, and its SPIRV-Cross on macOS and 64-bit Windows"""
     features = [] if platform == "freebsd64" else ["sdl3"]
+    if ffmpeg_built(platform):
+        features.append("ffmpeg")
     if (ROOT / "build" / platform / "bgfx").is_dir():
         features.append("bgfx")
         if platform in ("linux64", "windows64"):
@@ -230,6 +233,16 @@ def game_features(platform: str) -> list:
         if platform in ("macos", "windows64"):
             features.append("spirv-cross")
     return features
+
+
+def ffmpeg_built(platform: str) -> bool:
+    """whether this build linked the movies' FFmpeg: its libraries are in its
+    build folder (build/<platform>/ffmpeg, or ffmpeg-<arch> for each of the
+    macOS application's architectures)"""
+    folder = ROOT / "build" / platform
+    return any(path.is_file() for pattern in ("ffmpeg/build/libavcodec/libavcodec.a",
+                                              "third_party/ffmpeg-*/build/libavcodec/libavcodec.a")
+               for path in folder.glob(pattern))
 
 
 def write_licenses(dist: Path, package: str, features: list) -> None:

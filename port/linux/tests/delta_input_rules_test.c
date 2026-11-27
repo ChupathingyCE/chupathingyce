@@ -3,7 +3,7 @@ DELTA_INPUT_RULES_TEST.C
 
 Tests of DELTA's keys and Back held in the menus
 (port/linux/src/delta_input_rules.c). Built and run by
-tools/test_delta_input_rules.py; exits nonzero on a failure.
+tools/test_c_units.py; exits nonzero on a failure.
 */
 
 #include "../src/delta_input_rules.h"
