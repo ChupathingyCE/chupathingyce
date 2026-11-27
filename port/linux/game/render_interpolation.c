@@ -224,7 +224,7 @@ struct interpolated_camera
 	boolean previous_consecutive;
 	/* how the player's facing turned (radians, yaw and pitch) between the
 	latest two snapshots and since the latest, but for the frame after each
-	snapshot, where a seat's limits and levelling catch up with the tick:
+	snapshot, where a seat's limits and leveling catch up with the tick:
 	in the other frames only the player turns it (a first-person view from
 	a seat: render_interpolation_seat_view); the facing as the last frame
 	left it, that frame, and the frame the latest snapshot was taken */
@@ -1550,7 +1550,7 @@ and 240 land on the same parts of every tick). It is blended as the vehicle
 is drawn, by the fraction, but for a turn the player made between the two
 snapshots, which is blended by their times, turn by turn (yaw and pitch):
 the facing's change in the frames between the ticks. (The seat's limits and
-levelling move the facing in the frame after a tick, as the tick left the
+leveling move the facing in the frame after a tick, as the tick left the
 vehicle; a turn held against a limit moves nothing.) A seat whose camera is
 a marker on the vehicle (a turret's sight) aims with the vehicle's own aim,
 once a tick: by the fraction all through. */
