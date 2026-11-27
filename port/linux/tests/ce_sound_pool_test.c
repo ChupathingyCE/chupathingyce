@@ -48,8 +48,10 @@ static int overlaps(struct ce_sound_pool_entry const *entries, long count)
 
 int main(void)
 {
-	struct ce_sound_pool_entry entries[8];
+	struct ce_sound_pool_entry entries[8] = { { 0 } };
+	struct ce_sound_pool_entry reading[3] = { { 0 } };
 	long index, evicted = 0, base;
+	unsigned long at = 0;
 
 	/* the file filled: four sounds of 128 MB, read at times 40, 10, 30, 20 */
 	for (index = 0; index < 4; index++)
@@ -105,6 +107,49 @@ int main(void)
 	entries[7].length = BUDGET + 1;
 	entries[7].resident = 0;
 	CHECK(ce_sound_pool_place(entries, 8, 7, BUDGET, NULL, NULL, NULL) == -1);
+
+	/* a read in flight keeps its sound in, however long ago it was issued
+	and with nothing playing; once it is told finished, the sound may go */
+	for (index = 0; index < 2; index++)
+	{
+		reading[index].base = (unsigned long)index * 256 * MEGABYTE;
+		reading[index].length = 256 * MEGABYTE;
+		reading[index].resident = 1;
+	}
+	reading[0].last_used = 1;
+	reading[1].last_used = 2;
+	ce_sound_pool_read_issued(&reading[0]);
+	reading[2].length = 200 * MEGABYTE;
+	evicted = 0;
+	base = ce_sound_pool_place(reading, 3, 2, BUDGET, NULL, NULL, &evicted);
+	CHECK(base == (long)(256 * MEGABYTE));
+	CHECK(reading[0].resident && !reading[1].resident && evicted == 1);
+	ce_sound_pool_read_issued(&reading[2]);
+	reading[1].resident = 0;
+	reading[1].length = 300 * MEGABYTE;
+	CHECK(ce_sound_pool_place(reading, 3, 1, BUDGET, NULL, NULL, NULL) == -1);
+	ce_sound_pool_read_finished(&reading[0]);
+	CHECK(!ce_sound_pool_reading(&reading[0]));
+	CHECK(ce_sound_pool_place(reading, 3, 1, BUDGET, NULL, NULL, NULL) == -1);
+	ce_sound_pool_read_finished(&reading[2]);
+	CHECK(ce_sound_pool_place(reading, 3, 1, BUDGET, NULL, NULL, NULL) == 0);
+	/* (finished more often than issued: never below none) */
+	ce_sound_pool_read_finished(&reading[2]);
+	CHECK(reading[2].in_flight == 0);
+
+	/* reads: within a sound's samples, from its start */
+	CHECK(ce_sound_pool_read_within(1000, 500, 1000, 500, &at) && at == 0);
+	CHECK(ce_sound_pool_read_within(1000, 500, 1200, 300, &at) && at == 200);
+	/* past its end, before its start, negative */
+	CHECK(!ce_sound_pool_read_within(1000, 500, 1200, 301, &at));
+	CHECK(!ce_sound_pool_read_within(1000, 500, 999, 10, &at));
+	CHECK(!ce_sound_pool_read_within(1000, 500, -1, 10, &at));
+	CHECK(!ce_sound_pool_read_within(1000, 500, 1000, -1, &at));
+	/* a sound held back at load, its tags' offset past the file's end (a
+	file of 512 MB): refused, not read */
+	CHECK(!ce_sound_pool_read_within(0, BUDGET, (long)(BUDGET + 4096), 4096, NULL));
+	CHECK(!ce_sound_pool_read_within(0, BUDGET, (long)(BUDGET - 100), 4096, NULL));
+	CHECK(ce_sound_pool_read_within(0, BUDGET, (long)(BUDGET - 4096), 4096, NULL));
 
 	if (failures)
 		printf("%d failed\n", failures);

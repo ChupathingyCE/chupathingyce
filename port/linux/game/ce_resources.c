@@ -193,6 +193,10 @@ static long ce_sound_entry_tag_count;
 not be put in) */
 static boolean ce_sound_full_told, ce_sound_evicted_told, ce_sound_no_room_told;
 static long ce_sound_reloads, ce_sound_evictions;
+/* the decoded sounds' file's bytes, and which map's they are (a read is
+told finished for its own map's sounds alone) */
+static unsigned long ce_decoded_sounds_size;
+static long ce_sound_generation;
 /* (ce_read at the place given, not the file's position) */
 static boolean ce_read_positioned;
 #endif
@@ -3225,9 +3229,6 @@ static void ce_sound_job_free(
 /* the most offset a decoded sound's tags read it at: past the file's budget
 for one that did not fit at the map's load (its tags' offsets are signed) */
 #define CE_DECODED_SOUNDS_PLACED_MOST 0x7fff0000UL
-/* how long a sound read is kept in the file at least: the cache's thread may
-not have read it yet */
-#define CE_SOUND_READ_KEPT_MILLISECONDS 3000UL
 
 boolean sound_definition_playing(long definition_index);
 
@@ -3290,21 +3291,19 @@ static long ce_sound_entry_add(
 	ce_sound_pool[entry].length = length;
 	ce_sound_pool[entry].last_used = 0;
 	ce_sound_pool[entry].resident = resident;
+	ce_sound_pool[entry].in_flight = 0;
+	ce_sound_pool[entry].failed = FALSE;
 	ce_sound_bases[entry] = placed;
 	return entry;
 }
 
-/* whether a decoded sound may not be moved out of the file now: playing,
-or read a moment ago */
+/* whether a decoded sound may not be moved out of the file now: playing
+(one with a read of it in flight never is: ce_sound_pool_place) */
 static int ce_sound_entry_busy(
 	long entry,
 	void *context)
 {
-	struct ce_sound_pool_entry const *pool = &ce_sound_pool[entry];
-
 	(void)context;
-	if (pool->last_used && system_milliseconds() - pool->last_used < CE_SOUND_READ_KEPT_MILLISECONDS)
-		return TRUE;
 	return sound_definition_playing((long)ce_sound_jobs[entry].instance->tag_index);
 }
 
@@ -3350,9 +3349,11 @@ static boolean ce_sound_entry_load(
 		free(decoded);
 	if (result != _ce_sound_decoded || writer.position - (unsigned long)base != ce_sound_pool[entry].length)
 	{
+		/* (not tried again until the next map: said once) */
 		ce_sound_pool[entry].resident = FALSE;
-		error(_error_silent, "Custom Edition maps: %s: its samples could not be decoded again; it does not play",
-			ce_loaded_tag_name(job->instance));
+		ce_sound_pool[entry].failed = TRUE;
+		error(_error_silent, "Custom Edition maps: %s: its samples could not be decoded again; it does not play "
+			"on this map", ce_loaded_tag_name(job->instance));
 		return FALSE;
 	}
 	ce_sound_reloads++;
@@ -3369,41 +3370,69 @@ static boolean ce_sound_entry_load(
 /* where a decoded sound's samples are read from (cache_files_windows.c): the
 offset its tags give made its place in the decoded sounds' file, the sound
 decoded into it first if it is not there (desktop). FALSE if it cannot be
-read */
+read: outside its sound's samples, or past the end of the file. *read is
+given for the read's end to be told (ce_resources_sound_read_finished), or
+NONE: until then the sound stays in the file */
 boolean ce_resources_sound_read(
 	long tag_index,
 	long *offset,
-	long size)
+	long size,
+	long *read)
 {
+	*read = NONE;
 #ifndef HALO_CONSOLE
-	long index = tag_index & 0xffff, entry;
-	unsigned long at, start, length;
-
-	if (tag_index == NONE || index >= ce_indexed_tag_count || index >= ce_sound_entry_tag_count || !ce_indexed_tags ||
-		ce_indexed_tags[index] != CE_DECODED_SOUND || !ce_sound_entry_by_tag)
 	{
-		return TRUE;
+		long index = tag_index & 0xffff, entry;
+		unsigned long at;
+
+		if (tag_index == NONE || index >= ce_indexed_tag_count || !ce_indexed_tags ||
+			ce_indexed_tags[index] != CE_DECODED_SOUND)
+		{
+			return TRUE;
+		}
+		entry = ce_sound_entry_by_tag && index < ce_sound_entry_tag_count ? ce_sound_entry_by_tag[index] : NONE;
+		/* (one kept with no entry: its samples where its tags say, all in
+		the file) */
+		if (entry == NONE)
+			return ce_sound_pool_read_within(0, ce_decoded_sounds_size, *offset, size, NULL);
+		if (ce_sound_pool[entry].failed ||
+			!ce_sound_pool_read_within(ce_sound_bases[entry], ce_sound_pool[entry].length, *offset, size, &at))
+		{
+			return FALSE;
+		}
+		if (!ce_sound_pool[entry].resident && !ce_sound_entry_load(entry))
+			return FALSE;
+		ce_sound_pool[entry].last_used = system_milliseconds();
+		*offset = (long)(ce_sound_pool[entry].base + at);
+		ce_sound_pool_read_issued(&ce_sound_pool[entry]);
+		*read = (ce_sound_generation << 16) | entry;
 	}
-	entry = ce_sound_entry_by_tag[index];
-	if (entry == NONE)
-		return TRUE;
-	at = (unsigned long)*offset;
-	start = ce_sound_bases[entry];
-	length = ce_sound_pool[entry].length;
-	if (*offset < 0 || size < 0 || at < start || at - start > length || (unsigned long)size > length - (at - start))
-		return FALSE;
-	if (!ce_sound_pool[entry].resident && !ce_sound_entry_load(entry))
-		return FALSE;
-	ce_sound_pool[entry].last_used = system_milliseconds();
-	if (!ce_sound_pool[entry].last_used)
-		ce_sound_pool[entry].last_used = 1;
-	*offset = (long)(ce_sound_pool[entry].base + (at - start));
 #else
 	(void)tag_index;
 	(void)offset;
 	(void)size;
 #endif
 	return TRUE;
+}
+
+/* a read ce_resources_sound_read gave finished (on the cache's thread),
+done or failed: its sound may be moved out of the file again. A read of an
+earlier map's is let be */
+void ce_resources_sound_read_finished(
+	long read)
+{
+#ifndef HALO_CONSOLE
+	long entry = read & 0xffff;
+
+	if (read == NONE || (read >> 16) != __atomic_load_n(&ce_sound_generation, __ATOMIC_SEQ_CST) ||
+		entry >= ce_sound_entry_count || !ce_sound_pool)
+	{
+		return;
+	}
+	ce_sound_pool_read_finished(&ce_sound_pool[entry]);
+#else
+	(void)read;
+#endif
 }
 
 /* Halo PC's Ogg Vorbis sounds made the engine's 16-bit PCM ones (which it
@@ -3461,6 +3490,8 @@ static void ce_sounds_decode(
 		DeleteFileA(ce_decoded_sounds_path);
 	}
 #ifndef HALO_CONSOLE
+	__atomic_store_n(&ce_sound_generation, (ce_sound_generation + 1) & 0x7fff, __ATOMIC_SEQ_CST);
+	ce_decoded_sounds_size = 0;
 	ce_sound_entries_free();
 	ce_sound_full_told = ce_sound_evicted_told = ce_sound_no_room_told = FALSE;
 	ce_sound_reloads = ce_sound_evictions = 0;
@@ -3680,6 +3711,26 @@ static void ce_sounds_decode(
 #endif
 			continue;
 		}
+#ifndef HALO_CONSOLE
+		/* (kept, before its tags are changed: one that cannot be, with no
+		memory for it, is left as it was, as one that does not fit on a
+		console is; its tags would read past the file's end) */
+		if (ce_sound_entry_by_tag)
+		{
+			long entry = ce_sound_entry_add(&job, placed, length, resident, written);
+
+			if (entry == NONE)
+			{
+				error(_error_silent, "Custom Edition maps: %s: no memory to keep its decoded samples; it does not "
+					"play", ce_loaded_tag_name(instance));
+				ce_sound_job_free(&job);
+				continue;
+			}
+			ce_sound_entry_by_tag[index] = entry;
+		}
+		else
+			ce_sound_job_free(&job);
+#endif
 		for (decoded_index = 0; decoded_index < decoded_count; decoded_index++)
 		{
 			struct ce_decoded_permutation const *done = &decoded[decoded_index];
@@ -3704,19 +3755,11 @@ static void ce_sounds_decode(
 		ce_sound_job_free(&job);
 		written += length;
 #else
-		{
-			long entry = ce_sound_entry_by_tag ? ce_sound_entry_add(&job, placed, length, resident, written) : NONE;
-
-			if (entry == NONE)
-				ce_sound_job_free(&job);
-			else
-				ce_sound_entry_by_tag[index] = entry;
-			if (!resident)
-				deferred++;
-			placed += length;
-			if (resident)
-				written += length;
-		}
+		if (!resident)
+			deferred++;
+		placed += length;
+		if (resident)
+			written += length;
 #endif
 		ce_indexed_tags[index] = CE_DECODED_SOUND;
 		if (!ogg)
@@ -3749,6 +3792,9 @@ static void ce_sounds_decode(
 	if (looped)
 		free(looped);
 	ce_decoded_sounds_file = file;
+#ifndef HALO_CONSOLE
+	ce_decoded_sounds_size = written;
+#endif
 	if (flags_cleared)
 		error(_error_silent, "Custom Edition maps: %ld sounds had the loader's split flag set: cleared", flags_cleared);
 	error(_error_silent, "Custom Edition maps: %ld long Ogg Vorbis permutations decoded a piece at a time, %ld "
