@@ -33,3 +33,4 @@ A nightly, test build or release is published only from a tier D run of that exa
 - The Linux jobs' Ubuntu packages (clang 22 from apt.llvm.org, the cross compilers, the test tools) are cached the same way, per runner image. With `main`'s cache a job installs them without downloading anything. Without it, apt downloads first, each try with a time limit, and a try that fails starts the next from another Ubuntu mirror. apt.llvm.org's key is checked against the one pinned in the workflow.
 - When GitHub gives a job no runner (macOS's Apple silicon runners run short at busy hours, and such a job is canceled after 15 to 20 minutes in the queue), `.github/workflows/rerun-unacquired.yml` runs that Build's failed jobs again, once.
 - Artifacts are kept for three days. A pull request's builds can be downloaded from its run to test.
+
