@@ -17,6 +17,7 @@ size and CRC-32 (facts about the release, read from the player's copy of
 it). Only those files are written, and only where the game reads them:
 
   maps\*.yelo, bitmaps.map, sounds.map, loc.map  ->  maps_spv3\
+  attract.bik, credits.bik, credits_xbox.bik     ->  maps_spv3\bink\
   chimera\lua\global\init.lua                    ->  lua\spv3\scripts\global\init.lua
   lua\CMT, lua\halo_classes, lua\class, JSON.lua ->  lua\spv3\modules\
 
@@ -234,6 +235,9 @@ static const struct spv3_file spv3_files[] =
 	{ "62f0dfe5-addf-4e44-84f5-ca3092af3469", "lua/spv3/modules/halo_classes/tags/unit_hud_interface.lua", 86736UL, 0x0b0ecbd0UL },
 	{ "1dee7e5d-30d0-40d3-9464-218b675b258e", "lua/spv3/modules/halo_classes/tags/weapon.lua", 27845UL, 0xe6b629e4UL },
 	{ "09f093df-762c-4c90-85d8-e100efd9dbc7", "lua/spv3/scripts/global/init.lua", 3282UL, 0xb97ad33eUL },
+	{ "9f2a5611-a559-47e3-bb9c-b64e38cd79f9", "maps_spv3/bink/attract.bik", 7383548UL, 0xb2b14d3dUL },
+	{ "d8096b06-7088-4cd6-b0c3-e55d2dadb692", "maps_spv3/bink/credits.bik", 110617348UL, 0x67f2c12fUL },
+	{ "710456fb-f49c-4945-b03f-7936e40964b8", "maps_spv3/bink/credits_xbox.bik", 200614260UL, 0xf102124eUL },
 	{ "180dc0b9-2089-442e-a12c-8595099adaa9", "maps_spv3/bitmaps.map", 2061280753UL, 0x07236f48UL },
 	{ "ccd0cc64-9d05-422c-b887-0d38689fe2ad", "maps_spv3/loc.map", 923240UL, 0x88201ed7UL },
 	{ "424e27ae-8a3a-4b9c-91f9-14811964f2d0", "maps_spv3/sounds.map", 628546085UL, 0x17cd2b7fUL },
