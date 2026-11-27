@@ -511,41 +511,6 @@
    "keep": []
   },
   {
-   "name": "hud_ammo_outlines__0",
-   "tag": "ui\\hud\\bitmaps\\combined\\hud_ammo_outlines",
-   "bitmap": 0,
-   "width": 512,
-   "height": 128,
-   "format": "a8y8",
-   "scale": 1,
-   "crc": 38705016,
-   "cells": [
-    {
-     "mcc": [
-      0,
-      0,
-      512,
-      128
-     ],
-     "art": "hud__bitmaps__combined__hud_ammo_outlines__0.png",
-     "source_scale": 1,
-     "source": [
-      0,
-      0
-     ],
-     "clip": [
-      0,
-      0,
-      512,
-      128
-     ],
-     "kind": "grey",
-     "score": 0.896
-    }
-   ],
-   "keep": []
-  },
-  {
    "name": "hud_ammo_outlines__1",
    "tag": "ui\\hud\\bitmaps\\combined\\hud_ammo_outlines",
    "bitmap": 1,
@@ -576,76 +541,6 @@
      ],
      "kind": "grey",
      "score": 0.994
-    }
-   ],
-   "keep": []
-  },
-  {
-   "name": "hud_ammo_outlines__2",
-   "tag": "ui\\hud\\bitmaps\\combined\\hud_ammo_outlines",
-   "bitmap": 2,
-   "width": 512,
-   "height": 128,
-   "format": "a8y8",
-   "scale": 1,
-   "crc": 2257894208,
-   "cells": [
-    {
-     "mcc": [
-      0,
-      0,
-      512,
-      128
-     ],
-     "art": "hud__bitmaps__combined__hud_ammo_outlines__2.png",
-     "source_scale": 1,
-     "source": [
-      -2,
-      0
-     ],
-     "clip": [
-      0,
-      0,
-      512,
-      128
-     ],
-     "kind": "grey",
-     "score": 0.895
-    }
-   ],
-   "keep": []
-  },
-  {
-   "name": "hud_ammo_outlines__3",
-   "tag": "ui\\hud\\bitmaps\\combined\\hud_ammo_outlines",
-   "bitmap": 3,
-   "width": 512,
-   "height": 128,
-   "format": "a8y8",
-   "scale": 1,
-   "crc": 3547032146,
-   "cells": [
-    {
-     "mcc": [
-      0,
-      0,
-      512,
-      128
-     ],
-     "art": "hud__bitmaps__combined__hud_ammo_outlines__3.png",
-     "source_scale": 1,
-     "source": [
-      0,
-      0
-     ],
-     "clip": [
-      0,
-      0,
-      512,
-      128
-     ],
-     "kind": "grey",
-     "score": 0.905
     }
    ],
    "keep": []
