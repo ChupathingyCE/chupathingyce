@@ -19,6 +19,7 @@ does what it is told and prints the answer:
 	              (HALO_UPDATE_TEST_PRERELEASE_KEY)
 	compare A B   "newer", "older", "same" or "not versions"
 	release-newer RELEASE MADE CURRENT   "newer" or "not newer" (update_release_newer)
+	feed-newer FEED RELEASE MADE CURRENT   "feed" or "release" (update_feed_newer)
 	release V     "release" or "not a release" (update_version_release)
 	zip FILE ASSET VERSION SIGNATURE
 	              "signed" or "not signed: WHY" (a zip's .sig, as before the list)
@@ -115,6 +116,11 @@ int main(int argc, char **argv)
 	if (argc == 5 && !strcmp(argv[1], "release-newer"))
 	{
 		printf("%s\n", update_release_newer(argv[2], argv[3], argv[4]) ? "newer" : "not newer");
+		return 0;
+	}
+	if (argc == 6 && !strcmp(argv[1], "feed-newer"))
+	{
+		printf("%s\n", update_feed_newer(argv[2], argv[3], argv[4], argv[5]) ? "feed" : "release");
 		return 0;
 	}
 	if (argc == 3 && !strcmp(argv[1], "release"))

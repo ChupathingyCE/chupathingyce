@@ -238,6 +238,40 @@ def test_android_release_newer(java_classes, release, made, current, answer):
     assert java(java_classes, "release-newer", release, made, current) == answer
 
 
+# the feed's build against the latest release, on the Nightly or Testing
+# channel (update_feed_newer): (feed, release, made, current, answer)
+FEED_NEWER = [
+    # a nightly built after v0.9.2's commit: its feed's newer nightly, not 0.9.2
+    ("0.9.2-nightly.202611281330", "0.9.2", V092_MADE, "0.9.2-nightly.202611271330", "feed"),
+    # a hotfix made after the feed's nightly: the hotfix
+    ("0.9.2-nightly.202611271330", "0.9.2a", "2026-11-28T18:00:00Z", "0.9.2-nightly.202611271330", "release"),
+    # a feed's newer version: the feed, as before
+    ("0.9.3-nightly.202612010400", "0.9.2a", "2026-11-28T18:00:00Z", "0.9.2", "feed"),
+]
+# a release's build on the Nightly channel decides by the order alone, as
+# before update_feed_newer: the hotfix, never an older-numbered nightly
+RELEASE_BUILD_FEEDS = [
+    ("0.9.2-nightly.202611281330", "0.9.2a", "2026-11-27T09:00:00Z", "0.9.2"),
+    ("0.9.2-nightly.202611281330", "0.9.2a", "2026-11-28T18:00:00Z", "0.9.2"),
+    ("0.9.2-nightly.202611281330", "0.9.2", V092_MADE, "0.9.2"),
+    ("0.9.3-nightly.202612010400", "0.9.2a", "2026-11-28T18:00:00Z", "0.9.2"),
+    ("0.9.2a-testing.202611290400", "0.9.2a", "2026-11-28T18:00:00Z", "0.9.2a"),
+]
+
+
+@pytest.mark.parametrize("feed, release, made, current, answer", FEED_NEWER)
+def test_feed_newer(checker, java_classes, feed, release, made, current, answer):
+    assert check(checker, "feed-newer", feed, release, made, current) == answer
+    assert java(java_classes, "feed-newer", feed, release, made, current) == answer
+
+
+@pytest.mark.parametrize("feed, release, made, current", RELEASE_BUILD_FEEDS)
+def test_release_build_on_nightly_decides_as_before(checker, java_classes, feed, release, made, current):
+    before = "feed" if check(checker, "compare", feed, release) == "newer" else "release"
+    assert check(checker, "feed-newer", feed, release, made, current) == before
+    assert java(java_classes, "feed-newer", feed, release, made, current) == before
+
+
 # ---------- the feeds' lists
 
 

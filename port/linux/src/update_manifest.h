@@ -123,6 +123,13 @@ serial. A nightly of 0.9.2 built after v0.9.2's commit is not offered 0.9.2,
 nor a hotfix made before it. Without a made time, by the order alone */
 int update_release_newer(const char *release, const char *made, const char *current);
 
+/* whether a channel's feed's build (feed) goes before the latest release
+(release, made as above), on a build of version current: when it is newer
+or either is not a version; and on a test build or a nightly (never a
+release's build, which decides by the order alone), also when the release
+is not newer than the feed's build by update_release_newer */
+int update_feed_newer(const char *feed, const char *release, const char *made, const char *current);
+
 /* whether version can be a release's: not a test build's or a nightly's (no
 -testing or -nightly in it at all, of the shape above or not). The release
 path (the latest release, its list, its zip's .sig) takes only these */

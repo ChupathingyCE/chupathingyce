@@ -285,6 +285,17 @@ final class UpdateManifest {
         return Long.parseLong(serial) > Long.parseLong(build.group(6));
     }
 
+    /**
+     * whether a channel's feed's build (feed) goes before the latest release (release, made as above), on a
+     * build of version current (update_feed_newer, but as this updater always has, never a feed that is not
+     * a version): when it is newer; and on a test build or a nightly (never a release's build, which decides
+     * by the order alone), also when the release is not newer than the feed's build by releaseNewer
+     */
+    static boolean feedNewer(String feed, String release, String made, String current) {
+        return newer(feed, release)
+            || (compare(feed, release) != null && !release(current) && !releaseNewer(release, made, feed));
+    }
+
     /** a test build's or a nightly's label (testing, nightly), else null */
     static String label(String version) {
         java.util.regex.Matcher matcher = version(version);

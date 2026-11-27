@@ -122,10 +122,10 @@ final class Updater {
                     String version = UpdateManifest.about(feed.list, feed.channel);
 
                     // (the latest release, of the feed's version or newer, but made before the feed's
-                    // build was: the feed's build has it)
-                    if (latest == null || newer(version, latest)
-                        || (best == null && !UpdateManifest.releaseNewer(latest, release[1], version)
-                            && UpdateManifest.compare(version, latest) != null)) {
+                    // build was: the feed's build has it; only on a test build or a nightly)
+                    if (latest == null || (best == null
+                        ? UpdateManifest.feedNewer(version, latest, release[1], BuildConfig.HALO_VERSION)
+                        : newer(version, latest))) {
                         latest = version;
                         best = feed;
                     }

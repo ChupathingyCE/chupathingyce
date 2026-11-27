@@ -801,6 +801,15 @@ int update_release_newer(const char *release, const char *made, const char *curr
 	return serial > build.serial;
 }
 
+int update_feed_newer(const char *feed, const char *release, const char *made, const char *current)
+{
+	int comparable, order = update_version_compare(feed, release, &comparable);
+
+	if (!comparable || order > 0)
+		return 1;
+	return order < 0 && !update_version_release(current) && !update_release_newer(release, made, feed);
+}
+
 int update_version_release(const char *text)
 {
 	char label[16];

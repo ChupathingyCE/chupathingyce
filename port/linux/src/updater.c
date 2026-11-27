@@ -910,9 +910,13 @@ static int SDLCALL updater_check_thread(void *context)
 		the feed's build goes before it) */
 		order = found ? update_version_compare(candidate, latest, &comparable) : 1;
 		/* (the latest release, of the feed's version or newer, but made
-		before the feed's build was: the feed's build has it) */
-		if (found && comparable && order < 0 && best == _channel_release && !update_release_newer(latest, made, candidate))
+		before the feed's build was: the feed's build has it; only on a test
+		build or a nightly, a release's build deciding as before) */
+		if (found && comparable && order < 0 && best == _channel_release &&
+			update_feed_newer(candidate, latest, made, HALO_VERSION))
+		{
 			order = 1;
+		}
 		if (!found || !comparable || order > 0)
 		{
 			snprintf(latest, sizeof(latest), "%s", candidate);
