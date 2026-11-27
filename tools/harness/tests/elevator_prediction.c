@@ -26,8 +26,6 @@ static boolean mcc_script_effects_host_movement(void) { return mcc_movement; }
 #define _object_mask_biped 1
 #define _object_mask_machine 2
 #define _biped_airborne_bit 0
-#define TEST_FLAG(flags, bit) (((flags) >> (bit)) & 1)
-#define NONE (-1)
 
 /* the objects: a player's unit (a biped) and an elevator (a device) */
 struct fake_object
@@ -84,7 +82,6 @@ struct distributed_unit_state
 #define HOST_BLEND_DISTANCE 0.5f
 
 #include "config.inc"
-#include "network_rules.c"
 
 static struct
 {
@@ -122,7 +119,14 @@ static boolean apply(long unit_index, real_point3d const *position)
 	objects[unit_index].object.position = *position;
 	return TRUE;
 }
-#define distributed_apply_state(unit_index, state, position, tolerance, blend, speed, fall) apply(unit_index, position)
+#define distributed_apply_state(monitor, unit_index, state, position, tolerance, blend, speed, fall) apply(unit_index, position)
+
+/* a refusal, counted for the server's moderators (host_evidence.h) */
+static int refusals;
+#define _host_evidence_movement 0
+#define _net_monitor_host 0
+#define distributed_player_machine(player_index) (player_index)
+#define host_evidence_note(machine, kind) ((void)(machine), (void)(kind), refusals++)
 
 #include "under_test.inc"
 
@@ -167,7 +171,8 @@ static void ride(long elevator_index, real rise, long round_trip)
 		distributed_predictions[0].state.position.y = 0.0f;
 		distributed_predictions[0].state.position.z = floor - rise * (real)round_trip;
 		distributed_take_prediction(0, UNIT, &bound);
-		CHECK(objects[UNIT].object.position.x == client_x, "tick %ld: across at %f, not the client's %f", tick,
+		/* (within a float's rounding: the 32-bit build may hold client_x wider) */
+		CHECK(objects[UNIT].object.position.x - client_x < 0.0001f && client_x - objects[UNIT].object.position.x < 0.0001f, "tick %ld: across at %f, not the client's %f", tick,
 			objects[UNIT].object.position.x, client_x);
 		CHECK(objects[UNIT].object.position.z >= floor - 0.001f,
 			"tick %ld: %f under the elevator's floor at %f, to fall through it", tick,

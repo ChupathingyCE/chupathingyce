@@ -731,13 +731,9 @@ jobs:
               else
                 echo "::notice::tools/test_update_install.py: not in this commit"
               fi
-              # (the asset-free tests of the engine's own functions, tools/harness;
-              # the two left out were written against code of ours that has
-              # changed since, and wait to be brought up to date)
+              # (the asset-free tests of the engine's own functions, tools/harness)
               if [ -f tools/harness/__init__.py ]; then
-                python3 -m pytest -q -n auto tools/harness \
-                  --ignore=tools/harness/tests/test_elevator_prediction.py \
-                  --ignore=tools/harness/tests/test_server_teardown.py
+                python3 -m pytest -q -n auto tools/harness
               fi
               for test in $(present .ci-lists/tools/ci_test_scripts.txt); do
                 echo "== $test"
