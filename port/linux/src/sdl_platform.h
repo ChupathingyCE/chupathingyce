@@ -97,6 +97,7 @@ enum
 	PLATFORM_IMPORT_XBOX_DISC,
 	PLATFORM_IMPORT_HALO_PC_DISC,
 	PLATFORM_IMPORT_CE_INSTALLER,
+	PLATFORM_IMPORT_SPV3,
 };
 int platform_import_kind(const char *path);
 BOOL platform_import_start(int kind, const char *image, const char *destination, char *error, int error_size);
