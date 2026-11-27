@@ -1498,23 +1498,6 @@ static boolean hs_parse_tag_reference(
 		}
 	}
 
-	/* port: a typed expression (the console, execute_script) naming a tag
-	the map's scripts don't reference is refused with a message, rather
-	than run with none as the tag and halt in the function (#1972); the
-	scenario's own scripts are compiled as before */
-	if (!hs_compile_globals.compiling_scenario &&
-		(reference_index >= scenario->hs_references.count || expression->data == NONE))
-	{
-		sprintf(
-			hs_compile_globals.error_buffer,
-			"this is not a %s tag this map's scripts use.",
-			hs_type_names[expression->type]);
-		hs_compile_globals.error = hs_compile_globals.error_buffer;
-		hs_compile_globals.error_offset = expression->source_offset;
-
-		return FALSE;
-	}
-
 	return TRUE;
 }
 
