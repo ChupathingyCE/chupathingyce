@@ -111,6 +111,9 @@ def main() -> int:
                         help="a server: build it in Alpine Linux's Docker container (musl, static)")
     parser.add_argument("--without-ragdolls", action="store_true",
                         help="without ragdolls and their Jolt Physics (configure.py --without-ragdolls)")
+    parser.add_argument("--window-rebase", action="store_true",
+                        help="windows: the Xbox memory window wherever it fits (configure.py --window-rebase), "
+                        "as Chupathingy32's Windows build has it")
     args = parser.parse_args()
     server = args.platform.startswith("server-")
     if args.alpine:
@@ -132,6 +135,10 @@ def main() -> int:
         configure += ["--compiler-launcher", launcher]
     if args.without_ragdolls:
         configure.append("--without-ragdolls")
+    if args.window_rebase:
+        if args.platform != "windows":
+            parser.error("--window-rebase builds the 32-bit Windows build only")
+        configure.append("--window-rebase")
     # a release is VERSION's, and nothing else is one
     if release_build() and version() != base_version():
         print(f"error: a release build of {version()}, but VERSION is {base_version()}", file=sys.stderr)

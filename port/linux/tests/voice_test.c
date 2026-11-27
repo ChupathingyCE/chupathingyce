@@ -8,6 +8,10 @@ frames rebuilt from the next one's FEC, and what encoding and decoding cost
 on this machine (printed, for docs/delta/peer.md's figures).
 */
 
+/* (clock_gettime and CLOCK_MONOTONIC: POSIX, which glibc hides from
+-std=c99 without asking) */
+#define _POSIX_C_SOURCE 200809L
+
 #include "../src/voice_jitter.h"
 #include "../src/delta_wire.h"
 

@@ -3089,7 +3089,7 @@ boolean network_damage_wire_entries(
 }
 #endif
 
-#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+#ifdef HALO_NETWORK_WIRE_SAMPLES
 /* (network_distributed.h) this module's sample entries */
 static void distributed_damage_sample(
 	struct distributed_damage *damage)

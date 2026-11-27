@@ -6694,7 +6694,7 @@ void *distributed_wire_copy(
 }
 #endif
 
-#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+#ifdef HALO_NETWORK_WIRE_SAMPLES
 /* ---------- the wire's samples (network_distributed.h)
 
 Every kind of message the byte order turns, filled field by field with
@@ -7276,4 +7276,17 @@ long network_wire_self_test(
 	return failed;
 }
 #endif
+#endif
+
+#if defined(HALO_BIG_ENDIAN) && !defined(HALO_NETWORK_WIRE_SAMPLES)
+/* the self-test without its samples, which are a developer tool on a
+big-endian build (--console-debug-tools): none compared, none failed */
+long network_wire_self_test(
+	char *report,
+	long report_size)
+{
+	if (report_size > 0)
+		snprintf(report, (size_t)report_size, "not checked (debug tools only)");
+	return 0;
+}
 #endif
