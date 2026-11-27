@@ -949,6 +949,13 @@ void map_pack_menus_map_name(
 		if (*cursor == '\\' || *cursor == '/')
 			file = cursor + 1;
 	}
+	/* (SPV3's menus name its levels as they are, spv3a10: maps_spv3's
+	spv3a10.yelo, which is spv3a10@ce here, spv3_mode.c) */
+	if (spv3_mode_active() && _stricmp(file, "ui") && spv3_mode_map_path(file, path, sizeof(path)))
+	{
+		snprintf(name, (size_t)size, "%s@ce", file);
+		return;
+	}
 	if (!map_pack_present(pack, file))
 		return;
 	/* (a level the game's maps have is theirs: the pack's menus name the

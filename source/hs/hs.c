@@ -14021,6 +14021,13 @@ static void hs_scenario_functions_check(
 		hs_scenario_pack_menus = map_pack_menus_known() && !csstrcmp(cache_file_loaded_map_name(), "ui");
 		if (hs_scenario_pack_menus)
 			error(_error_silent, "ui is a known map pack's menus: its scripts may call map_name");
+		/* (SPV3's menus, maps_spv3\ui.yelo, start each level with map_name
+		once a difficulty is chosen: spv3_mode.c) */
+		else if (spv3_mode_is_ui(cache_file_loaded_map_name()))
+		{
+			hs_scenario_pack_menus = TRUE;
+			spv3_mode_log("ui: its scripts may call map_name, which starts its levels");
+		}
 	}
 #endif
 	csmemset(hs_syntax_nodes_marked, 0, sizeof(hs_syntax_nodes_marked));
