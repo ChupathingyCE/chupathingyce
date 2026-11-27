@@ -669,6 +669,9 @@ struct widget_instance;
 #include "networking/network_game_globals.h"
 #include "networking/network_server_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#ifdef HALO_CUSTOM_EDITION
+#include "opensauce.h" /* port: port/linux/game/opensauce_map.c */
+#endif
 #include "rasterizer/rasterizer.h"
 #include "saved games/player_profile.h"
 #include "saved games/playlist_profile.h"
@@ -1966,13 +1969,21 @@ void draw_bitmap_in_rect(
 		widescreen fix draws it for Custom Edition's players (a menu's
 		background, tint or fade), and the rest stays in the centered 640
 		columns. The menus are drawn shifted right by half the extra width
-		(halo_screen_ui_offset), so the bitmap reaches out that far each way */
+		(halo_screen_ui_offset), so the bitmap reaches out that far each way.
+		On an OpenSauce map, as OpenSauce's own widescreen scaling decides
+		it: only a bitmap 640 wide or 480 tall is the screen's; any other
+		stays in the centered columns, cut to its clip (SPV3's loadout
+		heading, a 1640x1480 box cut to the screen) */
 		{
 			long extra = halo_screen_width() - 640;
 
 			if (extra > 0 && CACHE_FILE_TAGS_ARE_CE() &&
 				rect->x0 <= 1 && rect->x1 >= 639 && rect->y0 <= 1 && rect->y1 >= 479 &&
-				(!clip_rect || (clip_rect->x0 <= 1 && clip_rect->x1 >= 639)))
+				(!clip_rect || (clip_rect->x0 <= 1 && clip_rect->x1 >= 639))
+#ifdef HALO_CUSTOM_EDITION
+				&& (!opensauce_map_active() || rectangle_width == 640 || rectangle_height == 480)
+#endif
+				)
 			{
 				points[0].x = points[3].x = (real)(rectangle_x0 - extra / 2);
 				points[1].x = points[2].x = (real)(rectangle_x0 + rectangle_width + (extra - extra / 2));
