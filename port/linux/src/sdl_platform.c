@@ -2928,6 +2928,10 @@ void platform_exit_window_closed(void)
 	quit_watchdog_stand_down();
 #endif
 	platform_log("window closed");
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+		xgpu_bgfx_closing();
+#endif
 	if (platform_gl_context)
 	{
 		SDL_GL_MakeCurrent(platform_window, NULL);

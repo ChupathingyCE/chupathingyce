@@ -410,6 +410,9 @@ BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int h
 /* the setup screen starts the game again for a setting: a Vulkan start's
 note goes (d3d8_bgfx.inl) */
 void xgpu_bgfx_start_note_clear(void);
+/* the player closes the game: a Vulkan start's note goes once the game has
+drawn enough frames (d3d8_bgfx.inl) */
+void xgpu_bgfx_closing(void);
 /* the overlay's quads (ui_overlay.c) over the window's picture at Present
 (plasma_shift: the plasma's second map's place, then its threads' color;
 cellwall: the cellwall's motion, side and front tints, ui_overlay_cellwall;
