@@ -2051,11 +2051,16 @@ void opensauce_survey_note_resource_miss(char const *kind, char const *tag_name)
 	(void)tag_name;
 }
 
-/* (tag_validate.c asks whether tag data is Stubbs the Zombie's own:
-stubbs_mode.c, not in the harness) */
+/* (tag_validate.c asks whether tag data is Stubbs the Zombie's own, and
+whether Stubbs mode is on for its layout: stubbs_mode.c, not in the
+harness) */
 boolean stubbs_mode_owns_data(void const *address, long size)
 {
 	(void)address;
 	(void)size;
+	return FALSE;
+}
+boolean stubbs_mode_active(void)
+{
 	return FALSE;
 }

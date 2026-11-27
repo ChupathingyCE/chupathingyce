@@ -732,8 +732,11 @@ static char const *const tag_schema_opensauce_placements[][2] =
 
 /* OpenSauce's maps' maxima where they are not Halo PC's: the scenario's
 scripts' syntax is for 28501 nodes (scenario_check_scripts checks it as such
-in this layout), and its object placements are as many as there are; any
-other field keeps the one the checks take (maximum) */
+in this layout), its object placements are as many as there are, and its
+grenade types are four (the globals' grenades, a unit's and an equipment's
+grenade type: OpenSauce's grenade type upgrade, game_globals_definitions
+and units_grenade_count_upgrade); any other field keeps the one the checks
+take (maximum) */
 static long tag_schema_opensauce_field_maximum(
 	struct tag_schema_field const *field,
 	long maximum)
@@ -742,6 +745,11 @@ static long tag_schema_opensauce_field_maximum(
 		return maximum;
 	if (field->type == _tag_schema_data && !strcmp(field->name, "hs_syntax_data"))
 		return OPENSAUCE_HS_SYNTAX_DATA_SIZE;
+	if (maximum == 2 && ((field->type == _tag_schema_enum && !strcmp(field->name, "grenade_type")) ||
+		(field->type == _tag_schema_block && !strcmp(field->name, "grenades"))))
+	{
+		return OPENSAUCE_NUMBER_OF_GRENADE_TYPES;
+	}
 	if (field->type == _tag_schema_block && field->definition)
 	{
 		struct tag_schema_definition const *element = field->definition;
