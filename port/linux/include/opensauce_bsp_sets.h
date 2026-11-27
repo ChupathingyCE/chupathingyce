@@ -32,6 +32,11 @@ place for it */
 void opensauce_bsp_sets_structure_bsp_loaded(
 	short structure_bsp_index);
 
+/* a game state loaded (a checkpoint's revert, a saved game): the current
+BSP's sets put back as they were saved */
+void opensauce_bsp_sets_game_state_loaded(
+	void);
+
 /* the sky a scenario sky index draws (scenario.c): the current BSP's sky
 set's, where it has one, else definition_index */
 long opensauce_bsp_sets_sky(
@@ -50,6 +55,7 @@ boolean opensauce_bsp_sets_set_sky_set(
 #else
 
 #define opensauce_bsp_sets_structure_bsp_loaded(structure_bsp_index) ((void)(structure_bsp_index))
+static __inline void opensauce_bsp_sets_game_state_loaded(void) { }
 #define opensauce_bsp_sets_sky(sky_index, definition_index) ((void)(sky_index), (definition_index))
 
 #endif

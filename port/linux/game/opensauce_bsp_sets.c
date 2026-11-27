@@ -23,10 +23,17 @@ is this game's:
     so every renderer draws them;
   - a choice made for a BSP not loaded is kept and put in place when it
     loads, as OpenSauce does;
+  - the choices are game state, as OpenSauce keeps them (its own game-state
+    memory): a checkpoint's revert or a saved game's load puts back the sets
+    chosen when it was saved. A map starts with set 0 chosen for every BSP
+    (OpenSauce's state starts zeroed), and a BSP with no set 0 keeps its
+    own;
   - OpenSauce's directional lightmaps (its own lighting shader) are not
     drawn here: only the standard lightmap.
-The choices are kept here, not in the game state: a checkpoint's revert keeps
-the sets chosen last.
+The choices ride in the game state's unused tail (game_state_port_cpu_region,
+past every allocation, as the MCC checkpoint data does), claimed only while an
+OpenSauce map with sets is loaded and given back as it was when it unloads,
+so no other map's game state changes by a byte.
 
 The block is not in the scenario's schema (it is padding to Halo PC), so it
 is read here with every address checked to lie in the map's tags
@@ -45,6 +52,7 @@ reaches any of it.
 #include "opensauce.h"
 #include "bitmaps/bitmap_group.h"
 #include "objects/objects.h"
+#include "saved games/game_state.h"
 #include "scenario/scenario.h"
 #include "structures/structure_bsp_definitions.h"
 
@@ -83,7 +91,20 @@ enum
 	MAXIMUM_SET_SKIES = 8,
 	MAXIMUM_SKIES = 32,
 	MAXIMUM_BSPS = 32,
+
+	/* the choices' place in the game state: a mark, then a lightmap set and
+	a sky set for each BSP (0 to start, as OpenSauce's) */
+	GAME_STATE_MARK = 0x6F736273, /* 'osbs' */
+	GAME_STATE_BYTES = 80,
 };
+
+struct bsp_sets_game_state
+{
+	unsigned long mark;
+	signed char lightmap_sets[MAXIMUM_BSPS];
+	signed char sky_sets[MAXIMUM_BSPS];
+};
+typedef char bsp_sets_game_state_size[sizeof(struct bsp_sets_game_state) <= GAME_STATE_BYTES ? 1 : -1];
 
 /* ---------- structures */
 
@@ -94,9 +115,6 @@ struct bsp_modifier
 	long lightmap_set_count;
 	byte const *sky_sets;
 	long sky_set_count;
-	/* the sets chosen, NONE for the BSP's own */
-	short lightmap_set;
-	short sky_set;
 };
 
 /* ---------- globals */
@@ -114,6 +132,11 @@ static struct
 	/* the current BSP's own lightmap bitmap, while a set's stands in */
 	long stock_lightmap;
 	boolean lightmap_replaced;
+	/* the choices, in the game state's tail, and what was there before */
+	struct bsp_sets_game_state *state;
+	byte state_original[GAME_STATE_BYTES];
+	/* (no room in the tail: kept here instead, not reverted) */
+	struct bsp_sets_game_state state_fallback;
 } bsp_sets;
 
 /* ---------- private code */
@@ -208,6 +231,43 @@ static short bsp_sets_find(
 	return NONE;
 }
 
+/* the choices' place in the game state claimed, set 0 chosen for each BSP */
+static void bsp_sets_state_claim(
+	void)
+{
+	unsigned long used = 0, capacity = 0, offset;
+	byte *image = game_state_port_cpu_region(&used, &capacity);
+
+	offset = (used + 15) & ~15UL;
+	if (image && offset + GAME_STATE_BYTES <= capacity)
+	{
+		bsp_sets.state = (struct bsp_sets_game_state *)(image + offset);
+		memcpy(bsp_sets.state_original, bsp_sets.state, GAME_STATE_BYTES);
+	}
+	else
+	{
+		bsp_sets_log("no room in the game state: the sets chosen aren't reverted with a checkpoint");
+		bsp_sets.state = &bsp_sets.state_fallback;
+	}
+	memset(bsp_sets.state, 0, sizeof(*bsp_sets.state));
+	bsp_sets.state->mark = GAME_STATE_MARK;
+}
+
+/* a set's index chosen for a BSP, NONE for none (or one the BSP hasn't) */
+static short bsp_sets_chosen(
+	struct bsp_modifier const *modifier,
+	boolean sky)
+{
+	long index, count;
+
+	if (!modifier || !bsp_sets.state)
+		return NONE;
+	index = sky ? bsp_sets.state->sky_sets[modifier->structure_bsp_index] :
+		bsp_sets.state->lightmap_sets[modifier->structure_bsp_index];
+	count = sky ? modifier->sky_set_count : modifier->lightmap_set_count;
+	return index >= 0 && index < count ? (short)index : NONE;
+}
+
 /* objects' cached lighting let go, so their lighting is taken again from the
 lightmap now in place */
 static void bsp_sets_objects_relight(
@@ -233,9 +293,9 @@ static void bsp_sets_apply_lightmap(
 	if (!bsp_sets.lightmap_replaced)
 		bsp_sets.stock_lightmap = structure_bsp->lightmap_group.index;
 	wanted = bsp_sets.stock_lightmap;
-	if (modifier && modifier->lightmap_set != NONE && modifier->lightmap_sets)
+	if (bsp_sets_chosen(modifier, FALSE) != NONE && modifier->lightmap_sets)
 	{
-		byte const *set = modifier->lightmap_sets + modifier->lightmap_set * LIGHTMAP_SET_SIZE;
+		byte const *set = modifier->lightmap_sets + bsp_sets_chosen(modifier, FALSE) * LIGHTMAP_SET_SIZE;
 		unsigned long bitmap_index = content_u32(set + LIGHTMAP_SET_STANDARD_OFFSET + 0x0C);
 		struct bitmap_group const *replacement = bsp_sets_tag_get(bitmap_index, 'bitm', sizeof(struct bitmap_group));
 		struct bitmap_group const *own = bsp_sets.stock_lightmap != NONE ?
@@ -264,9 +324,9 @@ static void bsp_sets_apply_skies(
 
 	for (index = 0; index < MAXIMUM_SKIES; index++)
 		bsp_sets.sky_overrides[index] = NONE;
-	if (modifier && modifier->sky_set != NONE && modifier->sky_sets)
+	if (bsp_sets_chosen(modifier, TRUE) != NONE && modifier->sky_sets)
 	{
-		byte const *set = modifier->sky_sets + modifier->sky_set * SKY_SET_SIZE;
+		byte const *set = modifier->sky_sets + bsp_sets_chosen(modifier, TRUE) * SKY_SET_SIZE;
 		long count;
 		byte const *skies = bsp_sets_block(set, SKY_SET_SKIES_OFFSET, SKY_SET_SKY_SIZE, MAXIMUM_SET_SKIES, &count);
 		long sky;
@@ -316,12 +376,13 @@ void opensauce_bsp_sets_tags_loaded(
 			&entry->lightmap_set_count);
 		entry->sky_sets = bsp_sets_block(modifier, MODIFIER_SKY_SETS_OFFSET, SKY_SET_SIZE, MAXIMUM_SETS,
 			&entry->sky_set_count);
-		entry->lightmap_set = NONE;
-		entry->sky_set = NONE;
 		bsp_sets.modifier_count++;
 	}
 	if (bsp_sets.modifier_count)
+	{
+		bsp_sets_state_claim();
 		bsp_sets_log("%d bsps have lightmap or sky sets", (int)bsp_sets.modifier_count);
+	}
 }
 
 void opensauce_bsp_sets_map_unloaded(
@@ -329,6 +390,9 @@ void opensauce_bsp_sets_map_unloaded(
 {
 	short index;
 
+	/* (the game state's tail given back as it was) */
+	if (bsp_sets.state && bsp_sets.state != &bsp_sets.state_fallback)
+		memcpy(bsp_sets.state, bsp_sets.state_original, GAME_STATE_BYTES);
 	memset(&bsp_sets, 0, sizeof(bsp_sets));
 	bsp_sets.structure_bsp_index = NONE;
 	bsp_sets.stock_lightmap = NONE;
@@ -350,8 +414,28 @@ void opensauce_bsp_sets_structure_bsp_loaded(
 	if (modifier)
 	{
 		bsp_sets_log("bsp %d loaded: lightmap set %d of %ld, sky set %d of %ld (-1: its own)", (int)structure_bsp_index,
-			(int)modifier->lightmap_set, modifier->lightmap_set_count, (int)modifier->sky_set, modifier->sky_set_count);
+			(int)bsp_sets_chosen(modifier, FALSE), modifier->lightmap_set_count, (int)bsp_sets_chosen(modifier, TRUE),
+			modifier->sky_set_count);
 	}
+	bsp_sets_apply_lightmap(modifier);
+	bsp_sets_apply_skies(modifier);
+}
+
+void opensauce_bsp_sets_game_state_loaded(
+	void)
+{
+	struct bsp_modifier const *modifier;
+
+	if (!bsp_sets.modifier_count || !bsp_sets.state)
+		return;
+	/* (an image saved without them: set 0 for each, as a map starts) */
+	if (bsp_sets.state->mark != GAME_STATE_MARK)
+	{
+		memset(bsp_sets.state, 0, sizeof(*bsp_sets.state));
+		bsp_sets.state->mark = GAME_STATE_MARK;
+	}
+	modifier = bsp_sets_modifier(global_structure_bsp_index_get());
+	bsp_sets_log("a game state loaded: bsp %d's sets put back", (int)global_structure_bsp_index_get());
 	bsp_sets_apply_lightmap(modifier);
 	bsp_sets_apply_skies(modifier);
 }
@@ -376,9 +460,9 @@ boolean opensauce_bsp_sets_set_lightmap_set(
 	short set = modifier ? bsp_sets_find(modifier->lightmap_sets, modifier->lightmap_set_count, LIGHTMAP_SET_SIZE,
 		name) : NONE;
 
-	if (set == NONE)
+	if (set == NONE || !bsp_sets.state)
 		return FALSE;
-	modifier->lightmap_set = set;
+	bsp_sets.state->lightmap_sets[structure_bsp_index] = (signed char)set;
 	bsp_sets_log("bsp %d: lightmap set '%.32s'", (int)structure_bsp_index, name);
 	if (structure_bsp_index == global_structure_bsp_index_get())
 		bsp_sets_apply_lightmap(modifier);
@@ -392,9 +476,9 @@ boolean opensauce_bsp_sets_set_sky_set(
 	struct bsp_modifier *modifier = bsp_sets_modifier(structure_bsp_index);
 	short set = modifier ? bsp_sets_find(modifier->sky_sets, modifier->sky_set_count, SKY_SET_SIZE, name) : NONE;
 
-	if (set == NONE)
+	if (set == NONE || !bsp_sets.state)
 		return FALSE;
-	modifier->sky_set = set;
+	bsp_sets.state->sky_sets[structure_bsp_index] = (signed char)set;
 	bsp_sets_log("bsp %d: sky set '%.32s'", (int)structure_bsp_index, name);
 	if (structure_bsp_index == global_structure_bsp_index_get())
 		bsp_sets_apply_skies(modifier);
