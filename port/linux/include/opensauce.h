@@ -15,6 +15,7 @@ is used for a map without an OpenSauce header.
 #ifndef HALO_CUSTOM_EDITION
 /* (no OpenSauce maps without Custom Edition's: as it is) */
 #define opensauce_map_drawn_camouflage(amount) (amount)
+#define opensauce_map_sound_gain(music) ((void)(music), 1.0f)
 #endif
 
 /* ---------- constants */
@@ -119,6 +120,18 @@ the extra grenade types' layer (mcc_grenades.c) */
 #ifdef HALO_CUSTOM_EDITION
 boolean opensauce_map_four_grenades(
 	void);
+#endif
+
+#ifdef HALO_CUSTOM_EDITION
+/* Halo PC's sound_set_music_gain and sound_set_effects_gain, which an
+OpenSauce map's scripts call: the music's or the other sounds' gain, 0 to 1,
+for this map (sound_manager.c takes it with the player's own volume). 1 on
+any other map, and again at each map */
+void opensauce_map_set_sound_gain(
+	boolean music,
+	float gain);
+float opensauce_map_sound_gain(
+	boolean music);
 #endif
 
 /* the map unloaded: whatever it changed put back */

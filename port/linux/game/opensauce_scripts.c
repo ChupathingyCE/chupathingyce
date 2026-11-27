@@ -174,7 +174,8 @@ static struct opensauce_script_function opensauce_script_functions[] =
 	OPENSAUCE_SCRIPT_FUNCTION("scenario_faux_zone_switch_sky", _hs_type_boolean, 1, { _hs_type_string }),
 	OPENSAUCE_SCRIPT_FUNCTION("runtime_vector_set", _hs_type_boolean, 5,
 		{ _hs_type_short_integer, _hs_type_string, _hs_type_real, _hs_type_real, _hs_type_real }),
-	/* (Halo PC's, which the Xbox's scripts never had) */
+	/* (Halo PC's, which the Xbox's scripts never had: opensauce_map.c's sound
+	gains) */
 	OPENSAUCE_SCRIPT_FUNCTION("sound_set_music_gain", _hs_type_void, 1, { _hs_type_real }),
 	OPENSAUCE_SCRIPT_FUNCTION("sound_set_effects_gain", _hs_type_void, 1, { _hs_type_real }),
 	/* (the actor variant transforms': opensauce_transforms.c) */
@@ -745,6 +746,10 @@ static boolean opensauce_script_data(
 	else if (!strcmp(name, "ai_actor_is_transforming"))
 		*value = opensauce_transforms_actor_is_transforming(arguments[0]);
 #endif
+	/* (Halo PC's: the music's and the other sounds' gain for this map, each
+	machine's own: opensauce_map.c) */
+	else if (!strcmp(name, "sound_set_music_gain") || !strcmp(name, "sound_set_effects_gain"))
+		opensauce_map_set_sound_gain(name[10] == 'm', opensauce_real_argument(arguments[0]));
 	else if (!strcmp(name, "physics_set_gravity"))
 	{
 		real scale = opensauce_real_argument(arguments[0]);
