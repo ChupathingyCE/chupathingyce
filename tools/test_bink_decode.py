@@ -12,8 +12,9 @@ BinkCopyToBuffer, BinkNextFrame, BinkClose), with a stand-in for the
 platform layer, its DirectSound and SDL's clock; a file that isn't Bink and a
 missing one are skipped. It runs against the FFmpeg of whichever build is in
 build/ (the 32-bit Linux one in CI, with the game's ABI flags), and is skipped
-with none.
+with none, except where HALO_FFMPEG_REQUIRED=1 (CI), where it fails.
 """
+import os
 import platform
 import re
 import shutil
@@ -189,6 +190,10 @@ def test_bink_clip_decodes(tmp_path):
         pytest.skip("no C compiler")
     folder, flags = built_ffmpeg()
     if not folder or not (folder / "build/libavcodec/libavcodec.a").is_file():
+        # (CI's tests run on a build that ships FFmpeg: a missing one there is
+        # a broken build, not a reason to skip; .github/workflows/build.yml)
+        if os.environ.get("HALO_FFMPEG_REQUIRED") == "1":
+            pytest.fail("HALO_FFMPEG_REQUIRED: no build's FFmpeg in build/")
         pytest.skip("no build's FFmpeg in build/ (ninja macos, linux or linux64 first)")
 
     (tmp_path / "SDL3").mkdir()

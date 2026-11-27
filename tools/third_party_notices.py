@@ -55,7 +55,7 @@ def components(package: str, features: Iterable[str]) -> List[Dict]:
 def inputs() -> List[Path]:
     """every file the notices are made from (for the builds' rules)"""
     data = manifest()
-    files = {MANIFEST, Path(__file__).resolve()}
+    files = {MANIFEST, Path(__file__).resolve(), ROOT / "tools/ffmpeg_build.py"}
     files.update(ROOT / text["file"] for text in data["shared_texts"].values())
     for entry in data["components"]:
         files.update(ROOT / name for name in entry.get("files", []))
@@ -80,6 +80,25 @@ def source_line() -> str:
     if release_build():
         return f"{REPOSITORY}/tree/v{version()}"
     return f"{REPOSITORY}/tree/{commit()}"
+
+
+def ffmpeg_source() -> str:
+    """where the exact FFmpeg source these libraries were built from is (LGPL
+    2.1, section 6): the release tarball tools/ffmpeg_build.py pins, which the
+    command repository's Release workflow attaches to every release"""
+    from tools.ffmpeg_build import FFMPEG_SHA256, FFMPEG_VERSION
+    name = f"ffmpeg-{FFMPEG_VERSION}.tar.xz"
+    where = (f"is attached to this release, {REPOSITORY}/releases/tag/v{version()}" if release_build()
+             else f"is attached to every release ({REPOSITORY}/releases), and is FFmpeg's own at "
+                  f"https://ffmpeg.org/releases/{name}")
+    return f"The exact FFmpeg source they were built from, {name} (SHA-256 {FFMPEG_SHA256}), {where}."
+
+
+def fill(text: str) -> str:
+    """an entry's text with the places it names filled in"""
+    if "{ffmpeg_source}" in text:
+        text = text.replace("{ffmpeg_source}", ffmpeg_source())
+    return text.replace("{game_source}", source_line())
 
 
 def header(package: str) -> str:
@@ -122,8 +141,8 @@ def render(package: str, features: Iterable[str]) -> str:
     for index, entry in enumerate(entries, 1):
         out += [RULE, f"{index}. {entry['name']}", RULE, ""]
         out += wrap(f"Used for: {entry['use']}")
-        out += wrap(f"Source: {entry['source']}")
-        out += wrap(f"License: {entry['license']}")
+        out += wrap(f"Source: {fill(entry['source'])}")
+        out += wrap(f"License: {fill(entry['license'])}")
         out.append("")
         for line in entry["copyright"]:
             out += wrap(line)

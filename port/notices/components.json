@@ -347,7 +347,7 @@
       "copyright": [
         "Copyright (c) 2000-2024 the FFmpeg developers"
       ],
-      "license": "LGPL-2.1-or-later (built without FFmpeg's GPL and nonfree parts). The libraries are linked into the game; the game's whole source, the scripts that build them among it, is at the address above, so they can be rebuilt and linked again.",
+      "license": "LGPL-2.1-or-later (built without FFmpeg's GPL and nonfree parts). The libraries are linked into the game statically. {ffmpeg_source} The game's own source, with the scripts that build these libraries, is at {game_source}, so they can be rebuilt and linked again.",
       "files": [
         "port/notices/FFmpeg-LICENSE.txt"
       ],
