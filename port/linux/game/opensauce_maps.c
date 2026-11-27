@@ -170,6 +170,14 @@ unsigned long opensauce_maps_header_tag_cache_size(
 	return custom_edition_size;
 }
 
+boolean opensauce_maps_header_local_only(
+	void const *cache_header)
+{
+	unsigned char const *yelo = (unsigned char const *)cache_header + OPENSAUCE_HEADER_OFFSET;
+
+	return cache_header && !memcmp(yelo, "oley", 4) && (yelo[6] || yelo[7]);
+}
+
 /* ---------- where its maps are */
 
 static boolean opensauce_maps_file_exists(

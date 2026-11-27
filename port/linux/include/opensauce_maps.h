@@ -89,8 +89,20 @@ boolean opensauce_maps_pack_map_path(char const *file, char *path, long size);
 into path: FALSE if none is played or it has none of that name */
 boolean opensauce_maps_pack_resource(char const *name, char *path, long size);
 
+/* whether a cache's header (its first 0x78 bytes at least) is a map for
+local play only, for now: OpenSauce's header asking for any of its flags
+(memory upgrades, first of all), which only this game reads. Never in the
+lists games are hosted from (map_families.c); Load Level lists its
+campaigns */
+boolean opensauce_maps_header_local_only(void const *cache_header);
+
 #else
 
+static __inline boolean opensauce_maps_header_local_only(void const *cache_header)
+{
+	(void)cache_header;
+	return FALSE;
+}
 static __inline boolean opensauce_maps_folder_map_path(char const *file, char *path, long size)
 {
 	(void)file;

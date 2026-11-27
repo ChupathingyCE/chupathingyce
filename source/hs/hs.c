@@ -14028,7 +14028,10 @@ static void hs_scenario_functions_check(
 	{
 		boolean map_pack_menus_known(void);
 
-		hs_scenario_pack_menus = map_pack_menus_known() && !csstrcmp(cache_file_loaded_map_name(), "ui");
+		/* (never an OpenSauce mod's ui.yelo, whatever ui.map of a known pack
+		sits in another of its folders: opensauce_maps.c) */
+		hs_scenario_pack_menus = map_pack_menus_known() && !opensauce_maps_pack() &&
+			!csstrcmp(cache_file_loaded_map_name(), "ui");
 		if (hs_scenario_pack_menus)
 			error(_error_silent, "ui is a known map pack's menus: its scripts may call map_name");
 		/* (SPV3's menus start each level with map_name once a difficulty is

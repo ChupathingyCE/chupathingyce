@@ -145,6 +145,19 @@ int main(int argc, char **argv)
 			printf("ui %d\n", opensauce_maps_pack_is_ui("ui") ? 1 : 0);
 		else if (!strcmp(step, "upgrades"))
 			printf("upgrades %d\n", opensauce_maps_memory_upgrades() ? 1 : 0);
+		else if (!strncmp(step, "local", 5))
+		{
+			static unsigned char header[0x800];
+
+			memset(header, 0, sizeof(header));
+			if (strcmp(value, "none"))
+			{
+				memcpy(header + OPENSAUCE_HEADER_OFFSET, "oley", 4);
+				header[OPENSAUCE_HEADER_OFFSET + 6] = (unsigned char)flags;
+				header[OPENSAUCE_HEADER_OFFSET + 7] = (unsigned char)(flags >> 8);
+			}
+			printf("local %d\n", opensauce_maps_header_local_only(header) ? 1 : 0);
+		}
 		else if (!strncmp(step, "header", 6))
 		{
 			static unsigned char header[0x800];
@@ -296,6 +309,25 @@ def test_mod_folder(maps):
 def test_not_a_mod(maps, pack, files):
     out = maps("ui", "pack ui", "resource bitmaps", files=files, pack=pack)
     assert out.splitlines() == ["ui 0", "pack ui: -", "resource bitmaps: -"]
+
+
+def test_local_only(maps):
+    # (a map with OpenSauce's header asking for nothing is a Custom Edition
+    # map, listed as before; one asking for anything is local play only)
+    out = maps("local none", "local 0", f"local {UPGRADES}", f"local {PROTECTED}", "local 0x100")
+    assert out.split() == ["local", "0", "local", "0", "local", "1", "local", "1", "local", "1"]
+
+
+def test_known_pack_ui_beside_a_mod_ui(maps):
+    # (maps_cex with a ui.yelo and no ui.map, the known pack's ui.map in its
+    # alias folder: the menus played are the ui.yelo, an OpenSauce mod's,
+    # which hs.c never lets call map_name, fingerprint or not)
+    files = ["d:\\maps_cex\\ui.yelo", "d:\\maps_ceplus\\ui.map"]
+    assert maps("ui", "pack ui", files=files, pack="cex").splitlines()[1:] == ["ui 1",
+                                                                              "pack ui: d:\\maps_cex\\ui.yelo"]
+    hs = (ROOT / "source/hs/hs.c").read_text()
+    grant = hs[hs.index("hs_scenario_pack_menus = map_pack_menus_known()"):]
+    assert "!opensauce_maps_pack()" in grant[:grant.index(";")]
 
 
 def test_32_bit_build_plays_no_mod(maps_32):

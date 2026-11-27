@@ -62,8 +62,8 @@ starts above that and the room for the port's conversions above it, and the
 part of the window past Custom Edition's own is mapped here; an OpenSauce
 map asking for its memory upgrades is read with it
 (port/linux/game/opensauce_maps.c). On the builds that read those maps, an
-OpenSauce maps folder does the same: maps_os, or an OpenSauce mod's own
-(maps_<pack> with its ui.yelo). Without one, nothing moves */
+OpenSauce maps folder does the same: maps_os with a map in it, or an
+OpenSauce mod's own (maps_<pack> with its ui.yelo). Without one, nothing moves */
 #include "posix.h"
 #include "opensauce_maps.h"
 #include <stdio.h>
@@ -103,8 +103,26 @@ static int heap_opensauce_folder(const char *root, char *on_disk, size_t size)
 	if (posix_find_entry_case_insensitive(root, "maps_spv3", on_disk, size))
 		return 1;
 #ifdef OPENSAUCE_MAPS_MEMORY_UPGRADES
+	/* (maps_os with a map in it: the folder Make the folders makes, empty,
+	maps nothing) */
 	if (posix_find_entry_case_insensitive(root, OPENSAUCE_MAPS_FOLDER, on_disk, size))
-		return 1;
+	{
+		char path[1100];
+
+		snprintf(path, sizeof(path), "%s/%s", root, on_disk);
+		directory = posix_directory_open(path);
+		while (!found && directory && posix_directory_next(directory, name, sizeof(name)))
+		{
+			size_t length = strlen(name);
+
+			found = (length > 5 && heap_name_starts(name + length - 5, ".yelo", -1)) ||
+				(length > 4 && heap_name_starts(name + length - 4, ".map", -1));
+		}
+		if (directory)
+			posix_directory_close(directory);
+		if (found)
+			return 1;
+	}
 	directory = posix_directory_open(root);
 	while (!found && directory && posix_directory_next(directory, name, sizeof(name)))
 	{

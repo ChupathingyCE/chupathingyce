@@ -633,6 +633,26 @@ static boolean cache_file_is(
 	return result;
 }
 
+#if defined(HALO_MAP_LIST) && defined(OPENSAUCE_MAPS)
+/* whether a cache is for local play only (opensauce_maps_header_local_only:
+an OpenSauce map whose header asks for something) */
+static boolean cache_file_local_only(
+	char const *path)
+{
+	unsigned char header[0x78];
+	unsigned long bytes_read = 0;
+	HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	boolean result = FALSE;
+
+	if (file == INVALID_HANDLE_VALUE)
+		return FALSE;
+	if (ReadFile(file, header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header))
+		result = opensauce_maps_header_local_only(header);
+	CloseHandle(file);
+	return result;
+}
+#endif
+
 /* whether a file is an MCC map's (map_family_header_is_mcc) */
 static boolean mcc_cache_file(
 	char const *path)
@@ -1367,6 +1387,13 @@ static void list_files(
 			snprintf(path, sizeof(path), "%s%s", folder, data.cFileName);
 			if (!cache_file_is(path, version, type))
 				continue;
+#if defined(HALO_MAP_LIST) && defined(OPENSAUCE_MAPS)
+			/* (a map that needs OpenSauce's memory upgrades, which only
+			this game reads: never in the lists games are hosted from, for
+			now; Load Level lists the campaigns) */
+			if (type != CACHE_TYPE_CAMPAIGN && cache_file_local_only(path))
+				continue;
+#endif
 			snprintf(listed[listed_count++], MAP_FAMILY_FILE_LENGTH, "%s", file);
 			found(file, context);
 		}

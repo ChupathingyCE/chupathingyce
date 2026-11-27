@@ -54,6 +54,11 @@ boolean opensauce_maps_pack_resource(char const *name, char *path, long size)
 	(void)size;
 	return FALSE;
 }
+boolean opensauce_maps_header_local_only(void const *cache_header)
+{
+	(void)cache_header;
+	return FALSE;
+}
 /* (the packs' folders: maps_<pack>, as a pack named for its folder has it) */
 boolean map_pack_file_path(char const *pack, char const *file, char *path, long size)
 {
