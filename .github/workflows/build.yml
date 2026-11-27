@@ -624,6 +624,14 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
 
+      # (JDK 17 for the Android touch layout's checks, tools/test_touch_layout.py,
+      # one of the script tests: not left to the runner image)
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        if: matrix.part == 'other'
+        with:
+          distribution: temurin
+          java-version: "17"
+
       # (the test lists, from this workflow's commit)
       - uses: actions/checkout@v4
         with:
@@ -721,13 +729,12 @@ jobs:
                 echo "::notice::tools/test_update_install.py: not in this commit"
               fi
               # (the asset-free tests of the engine's own functions, tools/harness;
-              # the three left out were written against code of ours that has
+              # the two left out were written against code of ours that has
               # changed since, and wait to be brought up to date)
               if [ -f tools/harness/__init__.py ]; then
                 python3 -m pytest -q -n auto tools/harness \
                   --ignore=tools/harness/tests/test_elevator_prediction.py \
-                  --ignore=tools/harness/tests/test_server_teardown.py \
-                  --ignore=tools/harness/tests/test_stale_player_damage.py
+                  --ignore=tools/harness/tests/test_server_teardown.py
               fi
               for test in $(present .ci-lists/tools/ci_test_scripts.txt); do
                 echo "== $test"
