@@ -38,6 +38,7 @@ it is here.
 #include "opensauce_scripts.h"
 #include "opensauce_postprocess.h"
 #include "opensauce_transforms.h"
+#include "opensauce_bsp_sets.h"
 #include "game/game_globals.h"
 #include "scenario/scenario.h"
 
@@ -299,6 +300,10 @@ void opensauce_map_tags_loaded(
 	/* (its actor variant transforms: opensauce_transforms.c) */
 	opensauce_transforms_tags_loaded(tag_instances, tag_count);
 #endif
+#ifdef OPENSAUCE_BSP_SETS
+	/* (its BSPs' lightmap and sky sets: opensauce_bsp_sets.c) */
+	opensauce_bsp_sets_tags_loaded(tag_instances, tag_count, scenario_tag_index);
+#endif
 	/* (the scenario's first reference, its unused structure bsp's, is
 	OpenSauce's project_yellow: not in the scenario's schema, so checked
 	here) */
@@ -491,6 +496,9 @@ void opensauce_map_unloaded(
 		opensauce_postprocess_map_unloaded();
 #ifdef OPENSAUCE_TRANSFORMS
 		opensauce_transforms_map_unloaded();
+#endif
+#ifdef OPENSAUCE_BSP_SETS
+		opensauce_bsp_sets_map_unloaded();
 #endif
 	}
 	opensauce_globals.active = FALSE;
