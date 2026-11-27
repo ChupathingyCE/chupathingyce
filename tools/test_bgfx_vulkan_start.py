@@ -21,8 +21,11 @@ for what is still unknown:
   them, and that start draws with OpenGL and asks whether to stay there; the
   setting changes only on a yes. The setup screen's own restart (a setting
   that needs one, such as the renderer) takes the note away, and the next
-  start tries Vulkan again (#1665). Nothing else does: a black window left
-  with Escape, Quit or its close button still goes to OpenGL next (#1046).
+  start tries Vulkan again (#1665). A start the player closes after the
+  game drew that many frames of its own, before a map did (a load that
+  never finished, a minimized window), takes it away too (#1970). Nothing
+  else does: a black window left with Escape, Quit or its close button
+  before then, a crash or a hang still goes to OpenGL next (#1046).
 """
 from pathlib import Path
 
@@ -151,6 +154,37 @@ def test_black_window_left_still_falls_back():
 	assert "closing_on_purpose" not in function_body(launcher, "static void events(")
 	assert "closing_on_purpose" not in function_body(launcher, "static void input(")
 	assert "closing_on_purpose" not in function_body(launcher, "static void script_step(")
+
+
+
+def test_closed_after_the_games_frames_is_not_a_failed_start():
+	"""#1970: a start the player closes while its first map's load hangs, or
+	with the window minimized, drew the game's frames on Vulkan: the note
+	goes. Fewer frames than a start needs, the setup screen's (never
+	counted), a crash or a hang (the close never read) still leave it"""
+	source = read(SOURCE)
+	out = function_body(source, "static void bg_frame_out(")
+	# (every frame of the game's counts, the first map's or not: counted before the map's check)
+	counted = out.index("bg_frames_out++;")
+	assert counted < out.index("!bg_map_seen")
+	assert "if (bg_vulkan && bg_frames_out <= BG_START_FRAMES)" in out
+	closing = function_body(source, "void xgpu_bgfx_closing(")
+	assert "if (!bg_vulkan || !bg_start_note_wanted() || bg_frames_out < BG_START_FRAMES)" in closing
+	assert "bg_start_note_path(path, sizeof(path));" in closing and "remove(path)" in closing
+	# (the setup screen's frames never count toward it)
+	assert "bg_frame_out();" not in function_body(source, "BOOL xgpu_bgfx_launcher_frame(")
+	assert source.count("bg_frame_out();") == 1
+	assert "void xgpu_bgfx_closing(void);" in read(ROOT / "port" / "linux" / "src" / "xgpu.h")
+	# (only the player's own close: never a crash, abort or halt path)
+	platform = read(ROOT / "port" / "linux" / "src" / "sdl_platform.c")
+	closed = function_body(platform, "void platform_exit_window_closed(")
+	assert "if (xgpu_bgfx)\n\t\txgpu_bgfx_closing();" in closed
+	assert closed.index("quit_watchdog_stand_down();") < closed.index("xgpu_bgfx_closing();")
+	assert platform.count("xgpu_bgfx_closing") == 1
+	for path in (ROOT / "port" / "linux").rglob("*.c"):
+		if path.name != "sdl_platform.c":
+			assert "xgpu_bgfx_closing" not in read(path), path
+	assert "xgpu_bgfx_closing" not in read(ROOT / "source" / "main" / "main.c")
 
 
 def test_fallback_says_what_was_asked_for_and_what_draws():

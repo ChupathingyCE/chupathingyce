@@ -5730,11 +5730,15 @@ static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char 
 bgfx's Vulkan is started with a note in the save root
 (bgfx-vulkan.starting) that the game's first frames out after its first map
 loads remove (bg_frame_out): the main menu's, or the map's a command line
-starts on. The setup screen's frames never count, so a start that closes
-loading that first map still leaves it. A note still there at the next start
-says the last one closed, crashed or hung before them: a driver that refused a pipeline, a GPU fault, a swap chain
-that never presented (game issue #1046, AMD's drivers and RADV). The setup
-screen's own restart takes it away (xgpu_bgfx_start_note_clear). That start
+starts on. The setup screen's frames never count. A start the player closes
+before that map has drawn them (the window closed, Quit) removes it too once
+the game itself has drawn as many frames, a loading screen's, the intro's, a
+minimized window's (xgpu_bgfx_closing, game issue #1970): Vulkan was
+working, and a load that never finished is not its fault. A note still there
+at the next start says the last one crashed or hung, or closed before the
+game drew that many: a driver that refused a pipeline, a GPU fault, a swap
+chain that never presented (game issue #1046, AMD's drivers and RADV). The
+setup screen's own restart takes it away (xgpu_bgfx_start_note_clear). That start
 draws with OpenGL, and the player is asked whether to stay on OpenGL for
 good (platform_offer_opengl): display.renderer changes only on a yes, and a
 no asks again the next time Vulkan does not get going.
@@ -5802,12 +5806,18 @@ void xgpu_bgfx_start_note_clear(void)
 		platform_log("bgfx: the setup screen closed this Vulkan start itself, so the next start tries Vulkan again");
 }
 
+/* the game's frames bgfx has taken this start, the first map's or not
+(bg_frame_out): for a start closed before that map drew its frames */
+static unsigned long bg_frames_out;
+
 /* a frame of the game's went out to the window: the note goes at the
 BG_START_FRAMES'th after the first map loaded */
 static void bg_frame_out(void)
 {
 	static unsigned long frames;
 
+	if (bg_vulkan && bg_frames_out <= BG_START_FRAMES)
+		bg_frames_out++;
 	if (!bg_vulkan || !bg_map_seen || frames > BG_START_FRAMES)
 		return;
 	if (++frames == BG_START_FRAMES)
@@ -5817,6 +5827,24 @@ static void bg_frame_out(void)
 		bg_start_note_path(path, sizeof(path));
 		remove(path);
 	}
+}
+
+/* the player closes the game (platform_exit_window_closed: the window's
+close button, Quit, a quit signal read): a start that has drawn
+BG_START_FRAMES of the game's frames, before its first map has, was not one
+that didn't get going, and its note goes (game issue #1970). A crash, a
+renderer that hung (the events are read on the thread that presents, so
+one stuck in a frame never reads the close) or a start closed sooner, the
+setup screen's included, still leaves it */
+void xgpu_bgfx_closing(void)
+{
+	char path[1024];
+
+	if (!bg_vulkan || !bg_start_note_wanted() || bg_frames_out < BG_START_FRAMES)
+		return;
+	bg_start_note_path(path, sizeof(path));
+	if (remove(path) == 0)
+		platform_log("bgfx: closed after Vulkan drew %d frames, so the next start tries Vulkan again", BG_START_FRAMES);
 }
 
 /* the setup launcher's frame (launcher.c), before the game draws: bgfx
