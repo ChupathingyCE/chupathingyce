@@ -97,9 +97,12 @@ enum
 	PLATFORM_IMPORT_XBOX_DISC,
 	PLATFORM_IMPORT_HALO_PC_DISC,
 	PLATFORM_IMPORT_CE_INSTALLER,
+	PLATFORM_IMPORT_SPV3,
 };
 int platform_import_kind(const char *path);
 BOOL platform_import_start(int kind, const char *image, const char *destination, char *error, int error_size);
+/* the import under way stopped (SPV3's install; the others run to their end) */
+void platform_import_cancel(void);
 BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, unsigned long long *total,
 	BOOL *succeeded, char *error, int error_size);
 

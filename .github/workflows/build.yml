@@ -674,6 +674,9 @@ jobs:
       - name: Test
         env:
           HALO_SANITIZERS_REQUIRED: "1"
+          # (the linux job's build ships FFmpeg: the Bink decode test fails
+          # without it instead of skipping, tools/test_bink_decode.py)
+          HALO_FFMPEG_REQUIRED: "1"
           PART: ${{ matrix.part }}
           HALO_UPDATE_TEST_SDL: build/linux
           UPDATE_INSTALL_REQUIRED: "1"
