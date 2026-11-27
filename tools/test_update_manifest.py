@@ -255,11 +255,20 @@ def java_classes(tmp_path_factory):
     return classes
 
 
+# (the JVM's own log, off: with several tests starting Java at once it can
+# print "[0.001s][warning][perf,memops] Cannot use file .../hsperfdata_..."
+# to the standard output, which the answers are compared from. No
+# hsperfdata file (-XX:-UsePerfData) and no unified log (-Xlog:disable),
+# and any such line still printed is left out)
+JVM_LOG_LINE = re.compile(r"^\[[0-9.]+s\]\[(?:warning|error|info)\]")
+
+
 def java(classes, *arguments):
-    result = subprocess.run(["java", "-cp", str(classes), "com.halo.decomp.UpdateManifestTest", *map(str, arguments)],
+    result = subprocess.run(["java", "-XX:-UsePerfData", "-Xlog:disable", "-cp", str(classes),
+                             "com.halo.decomp.UpdateManifestTest", *map(str, arguments)],
                             capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
-    return result.stdout.strip()
+    return "\n".join(line for line in result.stdout.splitlines() if not JVM_LOG_LINE.match(line)).strip()
 
 
 def test_android_reader(java_classes):

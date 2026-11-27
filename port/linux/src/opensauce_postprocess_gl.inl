@@ -26,8 +26,9 @@ D3DX do for an effect:
 - its standard values (ORTHOWORLDVIEWPROJECTION, SCENESIZE, PIXELSIZE,
   HUDSCALE, NEARCLIPDISTANCE, FARCLIPDISTANCE).
 OpenSauce is Kornner Studios' (GPL-3.0-or-later); its sources are read as
-facts. Only desktop OpenGL draws it: OpenGL ES, the consoles' layers and
-bgfx say they don't (halo_opensauce_pp_available), and the game logs that.
+facts. Desktop OpenGL draws it, and so does bgfx, from the same effects
+(opensauce_postprocess_bgfx.inl); OpenGL ES and the consoles' layers say
+they don't (halo_opensauce_pp_available), and the game logs that.
 */
 
 #include "opensauce_postprocess.h"
@@ -1068,13 +1069,18 @@ static int ppgl_quad(const short tessellation[2], const float x_bounds[2], const
 	return count;
 }
 
+#ifdef HALO_BGFX
+/* (bgfx's: each public function below hands its call there while bgfx draws) */
+#include "opensauce_postprocess_bgfx.inl"
+#endif
+
 /* ---------- public code */
 
 int halo_opensauce_pp_available(void)
 {
 #ifdef HALO_BGFX
 	if (bg_active())
-		return 0;
+		return bgpp_available();
 #endif
 #ifdef HALO_VULKAN
 	if (vk_active())
@@ -1184,6 +1190,9 @@ void halo_opensauce_pp_unload(void)
 {
 	int index;
 
+#ifdef HALO_BGFX
+	bgpp_unload();
+#endif
 	for (index = 0; index < PPGL_MAXIMUM_EFFECTS; index++)
 	{
 		if (ppgl.effects[index].used)
@@ -1208,6 +1217,13 @@ void halo_opensauce_pp_parameter_texture(long effect_index, const char *name, co
 
 	if (!effect)
 		return;
+#ifdef HALO_BGFX
+	if (bg_active())
+	{
+		bgpp_parameter_texture(effect_index, name, texture);
+		return;
+	}
+#endif
 	if (texture)
 	{
 		memset(&description, 0, sizeof(description));
@@ -1223,6 +1239,10 @@ int halo_opensauce_pp_stage_begin(const struct opensauce_pp_frame *frame, int st
 	GLuint source;
 
 	(void)stage;
+#ifdef HALO_BGFX
+	if (bg_active())
+		return halo_opensauce_pp_available() && bgpp_stage_begin(frame);
+#endif
 	if (!halo_opensauce_pp_available() || !ppgl_prepare())
 		return FALSE;
 	ppgl_log_once(5, "a stage begun (the map has post-processing)");
@@ -1276,6 +1296,13 @@ void halo_opensauce_pp_effect_begin(void)
 
 void halo_opensauce_pp_effect_end(int drew, float fade)
 {
+#ifdef HALO_BGFX
+	if (bg_active())
+	{
+		bgpp_effect_end(drew, fade);
+		return;
+	}
+#endif
 	if (!ppgl.stage_active || !drew)
 		return;
 	if (fade < 1.0f)
@@ -1308,6 +1335,10 @@ int halo_opensauce_pp_shader_draw(long effect_index, const struct opensauce_pp_p
 	int register_index;
 	int pass_index, index_count;
 
+#ifdef HALO_BGFX
+	if (bg_active())
+		return bgpp_shader_draw(effect_index, passes, pass_count, tessellation, x_bounds, y_bounds);
+#endif
 	if (!effect || !ppgl.stage_active)
 		return FALSE;
 	technique = &effect->effect.techniques[effect->technique];
@@ -1430,6 +1461,10 @@ int halo_opensauce_pp_bloom(float size, float exposure, float mix_amount, const 
 {
 	float small_size[4], full_size[4], amounts[4], minimum_color[4], maximum_color[4];
 
+#ifdef HALO_BGFX
+	if (bg_active())
+		return bgpp_bloom(size, exposure, mix_amount, minimum, maximum);
+#endif
 	if (!ppgl.stage_active)
 		return FALSE;
 	memset(small_size, 0, sizeof(small_size));
@@ -1480,6 +1515,13 @@ void halo_opensauce_pp_stage_end(void)
 {
 	struct render_target_entry *target = ppgl.back_buffer;
 
+#ifdef HALO_BGFX
+	if (bg_active())
+	{
+		bgpp_stage_end();
+		return;
+	}
+#endif
 	if (!ppgl.stage_active)
 		return;
 	ppgl.stage_active = FALSE;

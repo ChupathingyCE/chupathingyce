@@ -663,9 +663,11 @@ def test_loader_fetches_site_then_github(keys, checker, tmp_path):
     newer = document(serial=6)
     serve(tmp_path, SITE, newer)
     serve(tmp_path, SITE + ".sig", signed(keys, newer).hex().encode() + b"\n")
-    output = run_checker(checker, tmp_path, "start", "wait", 6, "state", url="https://list.example/")
+    # ("cached": the loader writes the cache after it takes the table, so
+    # "wait" alone can return, and the checker exit, before the file is written)
+    output = run_checker(checker, tmp_path, "start", "wait", 6, "cached", "state", url="https://list.example/")
     assert "legacy table 5 from the cache" in output and "legacy table 6 from Delta List" in output
-    assert "wait 1" in output and GITHUB not in output
+    assert "wait 1" in output and "cached 1" in output and GITHUB not in output
     assert delta_table.signed_table(newer, signed(keys, newer)) == (tmp_path / "delta_legacy.signed").read_bytes()
     # (the site's signature broken: GitHub's table, newer still)
     github = document(serial=7)

@@ -1,5 +1,5 @@
 """The map packs' folders the setup screen's "Make the folders" makes (#1881,
-port/linux/src/map_pack_folders.c): maps_cex, maps_spv3 and maps_mcc, each
+port/linux/src/map_pack_folders.c): maps_cex, maps_spv3, maps_mcc and maps_os, each
 with a README.txt, in a scratch folder (port/linux/tests/
 map_pack_folders_test.c, built with the build machine's C compiler and the
 file helpers of port/linux/src/posix_files.c, so anywhere but Windows).
@@ -76,7 +76,7 @@ def test_readmes():
     """Each README.txt is one to three short sentences and a link to its section
     of docs/maps.md; no maps_stubbs (an early test, unlisted)."""
     found = readmes()
-    assert sorted(found) == ["maps_cex", "maps_mcc", "maps_spv3"]
+    assert sorted(found) == ["maps_cex", "maps_mcc", "maps_os", "maps_spv3"]
     sections = anchors()
     for folder, text in found.items():
         lines = text.strip().split("\n")
@@ -99,5 +99,5 @@ def test_both_ways_make_them():
     body = platform[platform.index("static BOOL data_make_folders(const char *destination)"):]
     body = body[:body.index("\n}\n")]
     assert "map_pack_folders_make(destination);" in body
-    for folder in ("maps_cex", "maps_spv3", "maps_mcc"):
+    for folder in ("maps_cex", "maps_spv3", "maps_mcc", "maps_os"):
         assert folder in body
