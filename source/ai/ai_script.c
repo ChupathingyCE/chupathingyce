@@ -2775,6 +2775,18 @@ void ai_scripting_allegiance_remove(
 			team2_index);
 	}
 
+#ifdef HALO_STUBBS_LIMITS
+	/* port: a team past Halo's ten (Stubbs mode's) has no place in the
+	allegiance tables: none, so the allegiance does nothing */
+	if (team1_index >= NUMBER_OF_SOLO_CAMPAIGN_TEAMS)
+	{
+		team1_index = NONE;
+	}
+	if (team2_index >= NUMBER_OF_SOLO_CAMPAIGN_TEAMS)
+	{
+		team2_index = NONE;
+	}
+#endif
 	if (team1_index != NONE && team2_index != NONE)
 		game_allegiance_remove(team1_index, team2_index);
 
@@ -3338,6 +3350,18 @@ void ai_scripting_allegiance(
 			team_index1);
 	}
 
+#ifdef HALO_STUBBS_LIMITS
+	/* port: a team past Halo's ten (Stubbs mode's) has no place in the
+	allegiance tables: none, so the allegiance does nothing */
+	if (team_index0 >= NUMBER_OF_SOLO_CAMPAIGN_TEAMS)
+	{
+		team_index0 = NONE;
+	}
+	if (team_index1 >= NUMBER_OF_SOLO_CAMPAIGN_TEAMS)
+	{
+		team_index1 = NONE;
+	}
+#endif
 	if (team_index0 != NONE && team_index1 != NONE)
 	{
 		short special_team_index = NONE;

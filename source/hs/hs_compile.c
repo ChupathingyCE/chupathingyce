@@ -1551,7 +1551,7 @@ static boolean hs_parse_enum(
 		/* (Stubbs's last two teams are past Halo's ten: where the build has
 		room for them, HALO_STUBBS_LIMITS, they are their own indices, which a
 		unit or an encounter takes, and an allegiance made or broken with one
-		does nothing, game_allegiance.c; else they read as none, and an
+		does nothing, ai_script.c; else they read as none, and an
 		allegiance or ai_set_team with one does nothing; the rest of its
 		script runs) */
 #ifdef HALO_STUBBS_LIMITS
