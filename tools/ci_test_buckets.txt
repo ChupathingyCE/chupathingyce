@@ -65,6 +65,7 @@ area      tools/harness/tests/test_screen_effect_bitmap_scale.py
 area      tools/harness/tests/test_screen_effect_passes.py
 local     tools/harness/tests/test_server_teardown.py
 area      tools/harness/tests/test_sound_bsp_switch.py
+area      tools/harness/tests/test_sound_channel_stop.py
 area      tools/harness/tests/test_sound_lifecycle.py
 area      tools/harness/tests/test_sound_orphan.py
 area      tools/harness/tests/test_sound_transition.py
