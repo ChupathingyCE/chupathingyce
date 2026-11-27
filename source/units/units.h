@@ -792,6 +792,13 @@ void unit_port_play_user_animation(
 	short animation_index,
 	boolean interpolate,
 	short frame_index);
+/* port: an OpenSauce map's actor variant transforms
+(port/linux/game/opensauce_transforms.c): the unit readies its desired
+weapon at once, and goes back to standing idle */
+void unit_port_ready_desired_weapon(
+	long unit_index);
+void unit_port_animation_set_idle(
+	long unit_index);
 void unit_stop_custom_animation(
 	long unit_index);
 boolean unit_melee_attack_begin(

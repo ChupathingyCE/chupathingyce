@@ -585,3 +585,6 @@ long mcc_identity_host_admission(void);
 long mcc_identity_host_admission(void) { return 0; }
 long network_game_server_map_share_machine(void);
 long network_game_server_map_share_machine(void) { return 0; }
+/* (network_damage.c asks whether Stubbs mode is on: stubbs_mode.c) */
+unsigned char stubbs_mode_active(void);
+unsigned char stubbs_mode_active(void) { return 0; }

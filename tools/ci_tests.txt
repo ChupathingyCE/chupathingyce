@@ -15,6 +15,7 @@ tools/test_bgfx_formats.py
 tools/test_bgfx_overlay_textures.py
 tools/test_bgfx_pipeline_log.py
 tools/test_bgfx_present.py
+tools/test_bgfx_shader_check.py
 tools/test_bgfx_vulkan_start.py
 tools/test_bgfx_window_pacing.py
 tools/test_build_workflow.py
@@ -178,6 +179,7 @@ tools/test_packaged_install.py
 tools/test_party_teams.py
 tools/test_pause_leave.py
 tools/test_picture_check.py
+tools/test_renderer_gate.py
 tools/test_ping.py
 tools/test_platform_names.py
 tools/test_player_key.py

@@ -1,16 +1,17 @@
 # How CI works
 
-The Build workflow (`.github/workflows/build.yml`) checks every change. Pull requests get a quick check, and every platform is built before anything ships.
+The Build workflow (`.github/workflows/build.yml`) checks every change in tiers. The `plan` job picks the tier, and `ci-ok` is green when every job that tier needs passed.
 
-## Pull requests
+| Tier | When | Jobs |
+|---|---|---|
+| A | every push to a pull request | `linux`, `linux-tests` (4 runners), `linux-big-endian`, `server` (x64), plus each platform whose own files changed |
+| B | the merge queue, on `main` with the pull request merged | A plus `linux64`, `windows`, `windows64`, `macos`, `android64`, `freebsd64` |
+| C | every push to `main` or a release branch, `batch/*` pull requests, build plumbing changes | every job: also the x86 and arm64 servers, `server-windows`, `server-container` |
+| D | runs started by hand or by the release workflows (nightly, test builds, releases) | every job, plus debug builds and symbols |
 
-A pull request gets the **fast check**:
+`main` requires `ci-ok`. A pull request that passes tier A goes into the merge queue (`gh pr merge --auto --merge`). The queue runs tier B on the merge result, and merges only if `ci-ok` passes again. A pull request that changes only documentation still runs tier A, because the tests read `docs/`.
 
-- `linux`: the 32-bit Linux build.
-- `linux-tests`: the tests against that build, split over four runners. The console gate tests are in `tools/ci_tests.txt`, so they run on every pull request.
-- `linux-big-endian`: Delta's wire and the map byte-order checks on a big-endian machine (QEMU).
-
-It also builds each platform whose own files the pull request changes, using the same areas as the PR labels (`.github/labeler.yml`):
+In tier A, the platform jobs for changed files use the same areas as the PR labels (`.github/labeler.yml`):
 
 | Changed files | Extra jobs |
 |---|---|
@@ -18,34 +19,17 @@ It also builds each platform whose own files the pull request changes, using the
 | `port/android/`, `tools/android*` | `android64` |
 | `port/macos/`, `port/ios/`, `tools/macos_build.py` | `macos` |
 | `port/unix/`, `tools/unix64_build.py` | `freebsd64` |
-| `server/`, `tools/server_build.py` | `server` (x64 only) |
 | `tools/linux64_build.py`, `tools/linux_sysroot.py`, `tools/bgfx-patches/`, the bgfx renderer files | `linux64` |
 
-Changes to documentation alone (`*.md`, `docs/`) don't build.
+Build plumbing means `configure.py`, `VERSION`, or `tools/ci_build.py`, `version.py`, `download.py`, `ffmpeg_build.py`, `bgfx_build.py` or `third_party_notices.py`. To build every platform on a branch before then, start Build by hand on it (`gh workflow run build.yml --ref <branch>`). The old `ci: full` label does nothing now.
 
-## The full matrix
-
-Every platform (Linux 32/64, FreeBSD, Windows 32/64, macOS, Android, the dedicated servers and their container) builds when:
-
-- the pull request has the **`ci: full`** label. Adding the label runs the pull request's latest Build again (`.github/workflows/full-build-label.yml`), and later pushes keep building in full while the label is there.
-- the pull request comes from a `batch/*` branch (several pull requests landed together).
-- the pull request changes the build's plumbing: `configure.py`, `VERSION`, or `tools/ci_build.py`, `version.py`, `download.py`, `ffmpeg_build.py`, `bgfx_build.py` or `third_party_notices.py`.
-- anything is pushed to `main` or a release branch.
-- a run is started by hand or by the release workflows (nightlies, test builds and releases). Only these runs make debug builds and upload symbols.
-
-If you change the workflow itself or a platform's build, add `ci: full` to check every platform before merging.
-
-## ci-ok
-
-`ci-ok` sums each run up in one check: it's green when every job that had to run passed. A platform job the fast check skips counts as passed. On a full run, every job must pass.
-
-`ci-ok` isn't required to merge. Work in progress may land with a red job, which gets fixed right after in its own pull request. The strict gate is shipping: a nightly, test build or release is published only from a run of that exact commit where every platform built and passed.
+A nightly, test build or release is published only from a tier D run of that exact commit where every platform built and passed.
 
 ## Runs and caches
 
-- A newer push to a pull request, `main` or a release branch cancels that branch's run still going. Runs started by hand are never canceled.
+- A newer push to a pull request or a release branch cancels that branch's run still going. `main` is a queue of one: the run in progress always finishes, and only the newest push waits behind it. Runs started by hand are never canceled.
 - Tags don't build: releases and nightlies are built before they're tagged.
-- Compile caches (ccache) and downloads are saved only by `main`'s runs, so every pull request starts from `main`'s newest. After each push to `main`, the `cache-prune` job deletes `main`'s older cache generations (never the newest) and anything pull requests left behind, which keeps the repository under GitHub's 10 GB cache limit.
+- Compile caches (ccache) and downloads are saved only by `main`'s runs (tier C). Pull requests and the merge queue only restore them, so every run starts from `main`'s newest. After each push to `main`, the `cache-prune` job deletes `main`'s older cache generations (never the newest) and anything pull requests left behind, which keeps the repository under GitHub's 10 GB cache limit.
 - The Linux jobs' Ubuntu packages (clang 22 from apt.llvm.org, the cross compilers, the test tools) are cached the same way, per runner image. With `main`'s cache a job installs them without downloading anything. Without it, apt downloads first, each try with a time limit, and a try that fails starts the next from another Ubuntu mirror. apt.llvm.org's key is checked against the one pinned in the workflow.
 - When GitHub gives a job no runner (macOS's Apple silicon runners run short at busy hours, and such a job is canceled after 15 to 20 minutes in the queue), `.github/workflows/rerun-unacquired.yml` runs that Build's failed jobs again, once.
 - Artifacts are kept for three days. A pull request's builds can be downloaded from its run to test.
