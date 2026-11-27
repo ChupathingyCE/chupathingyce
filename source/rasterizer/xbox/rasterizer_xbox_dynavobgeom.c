@@ -217,7 +217,10 @@ struct rasterizer_meter_parameters
 	pixel32 flash_color;
 	boolean flash_color_is_negative;
 	boolean tint_mode_2;
-	byte pad12[2];
+	/* port: a Custom Edition meter's minimum alpha, as a byte (hud_draw.c,
+	hud_meter_custom_edition), or zero */
+	byte port_minimum_alpha;
+	byte pad13;
 	pixel32 tint_color;
 	real gradient;
 };
@@ -240,6 +243,12 @@ static void submit_screen_vertex(
 PC's channels (halo_port_features.h, HALO_CONSOLE_CE_BITMAPS) */
 boolean platform_ce_meter_in_pc_channels(
 	struct bitmap_data const *bitmap);
+#elif defined(HALO_CUSTOM_EDITION)
+/* every other build leaves a Custom Edition meter's bitmap in Halo PC's
+channels (ce_hud.c) */
+extern boolean ce_hud_bitmap_is_meter(
+	void const *bitmap);
+#define platform_ce_meter_in_pc_channels(bitmap) ce_hud_bitmap_is_meter(bitmap)
 #endif
 
 /* ---------- globals */
@@ -501,40 +510,57 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 		pixel_shader.final_combiner_inputs_abcd = 0x0C180000;
 		pixel_shader.final_combiner_inputs_efg = 0x00001C00;
 
-#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
-		/* port: a Custom Edition map's meter whose bitmap the console left in
-		Halo PC's channels (platform_ce_meter_in_pc_channels: a compressed
-		one, as Custom Edition's own shield and health meters are, which
-		can't have its channels swapped as it loads): the fill order is in
-		its alpha and its shape in its color, so the meter reads them from
-		there. The fill order is compared where the color was (stage 0) and
-		makes the edge (stage 2); the shape, where alpha was, darkens the
-		color (the final combiner) and, as the alpha kill no longer can,
-		leaves the screen as it was outside the meter (a fifth stage: the
-		alpha that scales what's behind goes to 1 where there's no shape) */
+#ifdef HALO_CUSTOM_EDITION
+		/* port: a Custom Edition map's meter whose bitmap is in Halo PC's
+		channels (platform_ce_meter_in_pc_channels: every Halo PC order
+		meter's on the desktop's builds, whose bitmaps are drawn as they
+		are, so a static element drawing the same bitmap keeps its colors;
+		on a console that swaps a 32-bit one's channels as it loads, a
+		compressed one's, as Custom Edition's own shield and health meters
+		are): the fill order is in its alpha and its shape in its color, so
+		the meter reads them from there. The fill order is compared where
+		the color was (stage 0) and makes the edge (stage 2); the shape,
+		where alpha was, darkens the color (the final combiner) and, as the
+		alpha kill no longer can, leaves the screen as it was outside the
+		meter: the alpha that scales what's behind goes from 1 where there's
+		no shape to the meter's where the shape reaches its minimum alpha
+		(hud_draw.c, hud_meter_custom_edition: as Chimera's meter shader
+		fades it; a fifth stage scales the shape by 1 over that, from a
+		quarter's 4 at most, and a sixth fades) */
 		if (platform_ce_meter_in_pc_channels(parameters->map[0]))
 		{
+			real minimum_alpha = meter->port_minimum_alpha ?
+				(real)meter->port_minimum_alpha / (real)UNSIGNED_CHAR_MAX : 1.0f;
+
 			IDirect3DDevice8_SetTextureStageState(
 				global_d3d_device,
 				0,
 				D3DTSS_ALPHAKILL,
 				D3DTALPHAKILL_DISABLE);
 
-			pixel_shader.combiner_count = 0x00011105;
+			pixel_shader.combiner_count = 0x00011106;
 			pixel_shader.alpha_inputs[0] = 0x12181218;
 			pixel_shader.rgb_inputs[0] = 0x1120F820;
 			pixel_shader.alpha_inputs[2] = 0x1820B220;
 
-			pixel_shader.alpha_inputs[4] = 0x081C2820;
-			pixel_shader.alpha_outputs[4] = 0x00000C00;
+			/* r1.a = 4 * t0.b * c0.a (1 / minimum alpha), up to 1 */
+			pixel_shader.constant_0[4] =
+				real_alpha_to_pixel32(PIN(0.25f / MAX(minimum_alpha, 0.25f), 0.0f, 1.0f));
+			pixel_shader.alpha_inputs[4] = 0x08110000;
+			pixel_shader.alpha_outputs[4] = 0x000200D0;
 			pixel_shader.rgb_inputs[4] = 0x00000000;
 			pixel_shader.rgb_outputs[4] = 0x00000000;
+			/* r0.a = (1 - r1.a) * 1 + r1.a * r0.a */
+			pixel_shader.alpha_inputs[5] = 0x3D201D1C;
+			pixel_shader.alpha_outputs[5] = 0x00000C00;
+			pixel_shader.rgb_inputs[5] = 0x00000000;
+			pixel_shader.rgb_outputs[5] = 0x00000000;
 
 			pixel_shader.final_combiner_inputs_abcd = 0x0C080000;
 		}
 #endif
 #ifndef HALO_CONSOLE_NO_SMOOTH_METER_EDGES
-#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+#ifdef HALO_CUSTOM_EDITION
 		else
 #endif
 		/* port: a filtered meter (hud_point_sampled, hud_draw.c: the HUD

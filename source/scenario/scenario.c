@@ -197,6 +197,7 @@ symbols in this file:
 #include "structures/structure_bsp_definitions.h"
 #include "units/units.h"
 #include "structure_culling.h" /* port: port/linux/game/structure_culling.c */
+#include "opensauce_bsp_sets.h" /* port: port/linux/game/opensauce_bsp_sets.c */
 
 /* ---------- constants */
 
@@ -543,6 +544,9 @@ long scenario_get_sky_definition_index(
 			struct tag_reference);
 
 		definition_index = sky_reference->index;
+		/* port: an OpenSauce map's sky set's sky for this index
+		(port/linux/game/opensauce_bsp_sets.c); any other map, the scenario's */
+		definition_index = opensauce_bsp_sets_sky(sky_index, definition_index);
 	}
 #ifndef HALO_CONSOLE_NO_FORGE
 	/* port: a Forge layout's sky in place of the map's
@@ -1209,6 +1213,9 @@ boolean scenario_switch_structure_bsp(
 			/* port: cache buckets while the newly current bsp's tags are loaded */
 			structure_culling_load_settings();
 			structure_culling_structure_bsp_loaded();
+			/* port: an OpenSauce map's lightmap and sky sets chosen for this
+			bsp (port/linux/game/opensauce_bsp_sets.c); any other map, none */
+			opensauce_bsp_sets_structure_bsp_loaded(structure_bsp_index);
 
 			if (had_old_structure_bsp)
 			{

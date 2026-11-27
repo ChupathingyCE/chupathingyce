@@ -241,6 +241,7 @@ symbols in this file:
 #include "render/render_debug.h"
 #include "scenario/scenario.h"
 #include "tag_files/tag_files.h"
+#include "opensauce.h" /* port: port/linux/game/opensauce_map.c */
 
 #include <math.h>
 #include <stdio.h>
@@ -1211,6 +1212,10 @@ static real sound_manager_master_gain(
 	{
 		gain *= mcc_campaign_mix_gain(class_index == _sound_class_music);
 	}
+	/* port: an OpenSauce map's scripts' music or effects gain (Halo PC's
+	sound_set_music_gain and sound_set_effects_gain: port/linux/game/
+	opensauce_map.c); any other map, 1 */
+	gain *= opensauce_map_sound_gain(class_index == _sound_class_music);
 
 	if (class_index != _sound_class_scripted_dialog_to_player &&
 		class_index != _sound_class_scripted_dialog_to_other &&
