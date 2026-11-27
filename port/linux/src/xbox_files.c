@@ -24,6 +24,7 @@ game's log, d:\debug.txt (and debug.old.txt), is in logs/.
 #include "port_folders.h"
 #include "save_folder.h"
 #include "steam_workshop.h"
+#include "ark_files.h"
 #include "mcc_local_package.h"
 
 #include <ctype.h>
@@ -536,6 +537,26 @@ static int translate_workshop(const char *cursor, char *resolved, unsigned long 
 	return 1;
 }
 
+#ifdef HALO_ARK
+/* maps_ark\... where the data root has no such folder with the mode's maps: their folder in MCC's install in
+the player's Steam library (ark_files.h), read in place. The rest of the path after the folder in rest */
+static void translate_ark(const char *cursor, char *resolved, unsigned long size, const char **rest)
+{
+	static const char folder[] = ARK_FILES_FOLDER;
+	char found[1024];
+	unsigned long length = sizeof(folder) - 1;
+
+	while (*cursor == '\\' || *cursor == '/')
+		cursor++;
+	if (strncasecmp(cursor, folder, length) || (cursor[length] && cursor[length] != '\\' && cursor[length] != '/'))
+		return;
+	if (ark_files_local() || !ark_files_folder(found, sizeof(found)) || strlen(found) >= size)
+		return;
+	snprintf(resolved, size, "%s", found);
+	*rest = cursor + length;
+}
+#endif
+
 /* the save root's folder of the drives (platform_save_drive_folder) */
 static char save_drive_folder[32];
 
@@ -602,6 +623,11 @@ void platform_translate_path(const char *xbox_path, char *host_path, unsigned lo
 		/* port: an MCC Workshop item's maps, in place (steam_workshop.c) */
 		if (drive == 'd')
 			translate_workshop(cursor, resolved, sizeof(resolved), &cursor);
+#ifdef HALO_ARK
+		/* port: Project Ark's files in MCC's install, in place (ark_files.c) */
+		if (drive == 'd')
+			translate_ark(cursor, resolved, sizeof(resolved), &cursor);
+#endif
 	}
 	else
 	{

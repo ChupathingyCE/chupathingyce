@@ -113,6 +113,9 @@ int steam_workshop_resource_path(const char *request, const char *data_root, cha
 /* whether a map has needed MCC's own shared files (halo1/maps) and they
 weren't found this run: the Workshop tab then offers them */
 int steam_workshop_shared_missing(void);
+/* the which-th Steam library's MCC install folder (0 first): 1 and its host path, read in place and never
+written (Project Ark's finder, ark_files.c); 0 past the last */
+int steam_workshop_mcc_install(int which, char *path, unsigned long size);
 /* a map of an item (map "": the whole item) that can't be listed: reason is a word or two for the item's
 Workshop page ("Map missing"), detail the log's own words, file names and all. Logged once a scan and kept
 (the scan's own, and mcc_maps.c's for a map file it can't use) */
