@@ -1967,9 +1967,12 @@ jobs:
     # workflow_dispatch, as its job allows (continue-on-error). A release's
     # run is also checked job by job before anything ships
     # (ChupathingyCE/command, tools/public_build.py).
+    # (always(), not !cancelled(): a canceled run must report ci-ok as
+    # failed, since a required check that is skipped counts as passed and
+    # would let the merge queue merge; a canceled job fails the jq below)
     needs: [gate, plan, info, linux, linux-tests, linux-big-endian, linux64, freebsd64, server, server-container,
             server-windows, android64, windows, windows64, macos]
-    if: ${{ !cancelled() }}
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

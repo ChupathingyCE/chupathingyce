@@ -342,6 +342,9 @@ def test_ci_ok():
     assert not ci_ok(needs("success", freebsd64="failure"), TIER_C, "push")
     assert not ci_ok(needs("success"), TIER_C, "workflow_dispatch")
     assert not ci_ok(needs("skipped", gate="failure", plan="skipped"), "{}", "pull_request")
+    # (a canceled run: ci-ok still runs, and fails)
+    assert not ci_ok(needs("skipped", linux_tests="cancelled"), [], "merge_group")
+    assert "    if: always()" in jobs()["ci-ok"]
 
 
 def test_cache_prune_keeps_mains_newest(fake_gh):
