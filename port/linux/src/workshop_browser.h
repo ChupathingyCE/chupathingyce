@@ -61,7 +61,9 @@ enum
 	WORKSHOP_BROWSER_TITLE_SIZE = 160,
 	WORKSHOP_BROWSER_AUTHOR_SIZE = 48,
 	WORKSHOP_BROWSER_KIND_SIZE = 32,
-	WORKSHOP_BROWSER_DESCRIPTION_SIZE = 400,
+	/* (Steam takes at most 8000 characters: its words kept whole, markup
+	out; longer, cut ending "...") */
+	WORKSHOP_BROWSER_DESCRIPTION_SIZE = 8192,
 	/* the largest list document read */
 	WORKSHOP_BROWSER_MAXIMUM_DOCUMENT = 128 * 1024,
 	WORKSHOP_BROWSER_PREVIEW_WIDTH = 768,

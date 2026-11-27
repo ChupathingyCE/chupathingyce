@@ -107,8 +107,8 @@ int main(void)
 		CHECK(workshop_browser_read_details(details, (int)strlen(details), items, WORKSHOP_BROWSER_MAXIMUM_ITEMS) == 2);
 		CHECK(!strcmp(items[0].id, "2906110850") && !strcmp(items[0].title, "Aerial"));
 		CHECK(!strcmp(items[0].kind, "multiplayer") && items[0].tags == WORKSHOP_TAG_MULTIPLAYER && items[0].size == -1 && items[0].updated == 1700000000);
-		/* (a non-ASCII escape: the description passed over, the item kept) */
-		CHECK(!items[0].description[0]);
+		/* (a non-ASCII escape: its character; a picture's address dropped) */
+		CHECK(!strcmp(items[0].description, "A map\nabove \xC3\xA9 clouds"));
 		CHECK(!strcmp(items[1].id, "2886943774") && !strcmp(items[1].kind, "campaign") && items[1].size == 2265580503LL);
 		{
 			static const char plain[] = "{\"response\":{\"publishedfiledetails\":[{\"publishedfileid\":\"5\","
@@ -116,7 +116,62 @@ int main(void)
 				"\"tags\":[{\"tag\":\"Halo1\"}]}]}}";
 
 			CHECK(workshop_browser_read_details(plain, (int)strlen(plain), items, 4) == 1);
-			CHECK(!strcmp(items[0].description, "Hi there"));
+			CHECK(!strcmp(items[0].description, "Hi\nthere"));
+		}
+		{
+			/* a long description (Mercury Rising's is 4.5 KB) reaches the
+			page whole, its markup out and its lines kept; past the cap, cut
+			on a character's start, ending "..." */
+			static char text[64 * 1024];
+			static const char head[] = "{\"response\":{\"publishedfiledetails\":[{\"publishedfileid\":\"9\","
+				"\"result\":1,\"consumer_app_id\":976730,\"title\":\"Long\",\"description\":\"";
+			static const char tail[] = "\",\"tags\":[{\"tag\":\"Halo1\"}]}]}}";
+			static const char start[] = "Co-op\nThe mod supports co-op up to 4 players. Its page \n  \nBubble Shield\n"
+				"\nEmoji \xF0\x9F\x98\x80 and a lone \xEF\xBF\xBD. abc";
+			size_t length, index;
+
+			/* (600 bytes and more: the old 400-byte field cut "supports co") */
+			snprintf(text, sizeof(text), "%s[h2]Co-op[/h2]\\nThe mod supports co-op up to 4 players. "
+				"[URL=https://example.com/a]Its page[/url] [list]\\n  [*]Bubble Shield\\n[/list]\\n"
+				"[previewyoutube=abc;full][/previewyoutube]Emoji \\ud83d\\ude00 and a lone \\ud83d. ", head);
+			length = strlen(text);
+			for (index = 0; index < 600; index++)
+				text[length++] = (char)('a' + index % 26);
+			memcpy(text + length, tail, sizeof(tail));
+			CHECK(workshop_browser_read_details(text, (int)strlen(text), items, 4) == 1);
+			length = strlen(items[0].description);
+			CHECK(length > 700);
+			CHECK(!strncmp(items[0].description, start, sizeof(start) - 1));
+			CHECK(items[0].description[length - 1] == 'z' - (26 - 600 % 26));
+			CHECK(!strstr(items[0].description, "["));
+
+			/* over the cap: 3-byte characters, so the cut falls inside one */
+			length = strlen(head);
+			memcpy(text, head, length);
+			for (index = 0; length + 6 + sizeof(tail) < sizeof(text) && index < 12000; index += 3)
+			{
+				memcpy(text + length, "\xE2\x82\xAC", 3);
+				length += 3;
+			}
+			memcpy(text + length, tail, sizeof(tail));
+			CHECK(workshop_browser_read_details(text, (int)strlen(text), items, 4) == 1);
+			length = strlen(items[0].description);
+			CHECK(length < WORKSHOP_BROWSER_DESCRIPTION_SIZE && length > WORKSHOP_BROWSER_DESCRIPTION_SIZE - 8);
+			CHECK(!strcmp(items[0].description + length - 3, "..."));
+			CHECK((length - 3) % 3 == 0);
+			CHECK(!memcmp(items[0].description + length - 6, "\xE2\x82\xAC", 3));
+
+			/* a description longer than the reader's buffer (24 KB of a
+			16 KB one): still read, cut, the item kept */
+			length = strlen(head);
+			memcpy(text, head, length);
+			for (index = 0; index < 24000; index++)
+				text[length++] = index % 50 == 49 ? ' ' : 'x';
+			memcpy(text + length, tail, sizeof(tail));
+			CHECK(workshop_browser_read_details(text, (int)strlen(text), items, 4) == 1);
+			length = strlen(items[0].description);
+			CHECK(length > WORKSHOP_BROWSER_DESCRIPTION_SIZE - 8 && length < WORKSHOP_BROWSER_DESCRIPTION_SIZE);
+			CHECK(!strcmp(items[0].description + length - 3, "..."));
 		}
 		{
 			/* a campaign that brings multiplayer maps (Steam tags it both,

@@ -192,41 +192,263 @@ int workshop_browser_read_list(const char *text, int length, struct workshop_bro
 
 /* ---------- Steam's own details (ISteamRemoteStorage/GetPublishedFileDetails) */
 
-/* a description made plain: BBCode's [tags] out, line ends as spaces */
-static void plain_description(char *out, int size, const char *text)
+/* a name's tag of Steam's BBCode at text ("[b]", "[/url]", "[url=...]"):
+its length, or 0 when it is not one (a "[H1]" of a title's is, so is
+"[h1]": Steam's headings) */
+static int bbcode_tag(const char *text)
+{
+	static const char *const names[] = {"b", "i", "u", "s", "strike", "spoiler", "noparse", "hr", "h1", "h2", "h3",
+		"url", "img", "previewyoutube", "list", "olist", "*", "quote", "code", "table", "tr", "th", "td"};
+	const char *at = text + 1, *end;
+	int index;
+
+	if (*at == '/')
+		at++;
+	for (index = 0; index < (int)(sizeof(names) / sizeof(names[0])); index++)
+	{
+		size_t length = strlen(names[index]), letter;
+
+		for (letter = 0; letter < length; letter++)
+		{
+			char c = at[letter];
+
+			if ((c >= 'A' && c <= 'Z' ? c + 32 : c) != names[index][letter])
+				break;
+		}
+		if (letter < length || (at[length] != ']' && at[length] != '=' && at[length] != ' '))
+			continue;
+		end = strchr(at + length, ']');
+		return end && end - text < 512 ? (int)(end - text) + 1 : 0;
+	}
+	return 0;
+}
+
+/* a description made plain: Steam's BBCode tags out ([url=...]'s words
+kept; a picture's or a video's address dropped with its tags), its line
+breaks kept (the Guide's page shows its paragraphs). Longer than size: cut
+whole characters, ending "..."; so too when more (the text came cut) */
+static void plain_description(char *out, int size, const char *text, int more)
 {
 	int length = 0;
 
-	while (*text && length < size - 1)
+	if (size < 4)
 	{
-		if (*text == '[')
-		{
-			const char *close = strchr(text, ']');
+		if (size > 0)
+			out[0] = 0;
+		return;
+	}
+	while (*text)
+	{
+		int tag;
 
-			/* (an image's or a link's address goes with its tags) */
-			if (close && close - text < 16)
+		if (*text == '[' && (tag = bbcode_tag(text)) > 0)
+		{
+			char lower[16];
+			int index;
+
+			for (index = 0; index < 15 && text[1 + index] && text[1 + index] != ']' && text[1 + index] != '=' &&
+				text[1 + index] != ' '; index++)
+				lower[index] = (char)(text[1 + index] >= 'A' && text[1 + index] <= 'Z' ? text[1 + index] + 32 :
+					text[1 + index]);
+			lower[index] = 0;
+			/* (a list's item or a rule starts a line) */
+			if ((!strcmp(lower, "*") || !strcmp(lower, "hr")) && length > 0 && out[length - 1] != '\n' &&
+				length < size - 1)
+				out[length++] = '\n';
+			text += tag;
+			/* (nothing to read in a picture or a video: up to its closing tag) */
+			if (!strcmp(lower, "img") || !strcmp(lower, "previewyoutube"))
 			{
-				int image = !strncmp(text, "[img]", 5) || !strncmp(text, "[IMG]", 5);
+				const char *close;
 
-				text = close + 1;
-				if (image && (close = strstr(text, "[/")) != NULL)
-					text = strchr(close, ']') ? strchr(close, ']') + 1 : close;
-				continue;
+				for (close = text; *close; close++)
+				{
+					if (close[0] == '[' && close[1] == '/' && (tag = bbcode_tag(close)) > 0 &&
+						(int)strlen(lower) + 3 == tag)
+					{
+						text = close + tag;
+						break;
+					}
+				}
 			}
+			continue;
 		}
-		if (*text == '\r' || *text == '\n' || *text == '\t')
+		if (*text == '\r')
 		{
-			if (length > 0 && out[length - 1] != ' ')
-				out[length++] = ' ';
 			text++;
 			continue;
 		}
-		out[length++] = *text++;
+		if (length >= size - 1)
+		{
+			more = 1;
+			break;
+		}
+		out[length++] = *text == '\t' ? ' ' : *text;
+		text++;
 	}
-	/* (not inside a UTF-8 character) */
-	while (length > 0 && (((unsigned char)out[length - 1]) & 0xC0) == 0xC0)
-		length--;
+	if (more)
+	{
+		/* (room for the dots, then back to a character's start) */
+		int written = length;
+
+		if (length > size - 4)
+			length = size - 4;
+		while (length > 0 && length < written && (((unsigned char)out[length]) & 0xC0) == 0x80)
+			length--;
+		while (length > 0 && (out[length - 1] == ' ' || out[length - 1] == '\n'))
+			length--;
+		memcpy(out + length, "...", 3);
+		length += 3;
+	}
+	else
+	{
+		/* (a last character cut short: out) */
+		int start = length;
+
+		while (start > 0 && length - start < 4 && (((unsigned char)out[start - 1]) & 0xC0) == 0x80)
+			start--;
+		if (start > 0 && ((unsigned char)out[start - 1]) >= 0xC0)
+		{
+			unsigned char lead = (unsigned char)out[start - 1];
+			int need = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : 2;
+
+			if (length - (start - 1) < need)
+				length = start - 1;
+		}
+	}
 	out[length] = 0;
+}
+
+/* a code point as UTF-8 at out: its length (0: no room) */
+static int code_point_utf8(char *out, int room, unsigned long code)
+{
+	if (code < 0x80 && room >= 1)
+	{
+		out[0] = (char)code;
+		return 1;
+	}
+	if (code < 0x800 && room >= 2)
+	{
+		out[0] = (char)(0xC0 | (code >> 6));
+		out[1] = (char)(0x80 | (code & 0x3F));
+		return 2;
+	}
+	if (code >= 0x800 && code < 0x10000 && room >= 3)
+	{
+		out[0] = (char)(0xE0 | (code >> 12));
+		out[1] = (char)(0x80 | ((code >> 6) & 0x3F));
+		out[2] = (char)(0x80 | (code & 0x3F));
+		return 3;
+	}
+	if (code >= 0x10000 && room >= 4)
+	{
+		out[0] = (char)(0xF0 | (code >> 18));
+		out[1] = (char)(0x80 | ((code >> 12) & 0x3F));
+		out[2] = (char)(0x80 | ((code >> 6) & 0x3F));
+		out[3] = (char)(0x80 | (code & 0x3F));
+		return 4;
+	}
+	return 0;
+}
+
+/* four hex digits at at: their value, or -1 */
+static long hex_four(const char *at, const char *end)
+{
+	long value = 0;
+	int index;
+
+	if (end - at < 4)
+		return -1;
+	for (index = 0; index < 4; index++)
+	{
+		int digit = hex_digit(at[index]);
+
+		if (digit < 0)
+			return -1;
+		value = value * 16 + digit;
+	}
+	return value;
+}
+
+/* a long string (a description) read into text, as much as fits, whole
+characters (*more: it went on); any \u escape, a pair of them too, as its
+character (a lone half: U+FFFD). 0 only when it isn't a JSON string */
+static int long_string(struct json *json, char *text, int size, int *more)
+{
+	int length = 0;
+
+	*more = 0;
+	if (!take(json, '"'))
+		return 0;
+	while (json->at < json->end)
+	{
+		unsigned char c = (unsigned char)*json->at++;
+		char piece[4];
+		int count = 1;
+
+		if (c == '"')
+		{
+			text[length] = 0;
+			return 1;
+		}
+		if (c < 0x20)
+			return 0;
+		piece[0] = (char)c;
+		if (c == '\\')
+		{
+			if (json->at >= json->end)
+				return 0;
+			c = (unsigned char)*json->at++;
+			switch (c)
+			{
+			case '"': case '\\': case '/': piece[0] = (char)c; break;
+			case 'n': piece[0] = '\n'; break;
+			case 't': piece[0] = '\t'; break;
+			case 'r': piece[0] = '\r'; break;
+			case 'b': case 'f': piece[0] = ' '; break;
+			case 'u':
+			{
+				long code = hex_four(json->at, json->end), low;
+
+				if (code < 0)
+					return 0;
+				json->at += 4;
+				if (code >= 0xD800 && code < 0xDC00 && json->end - json->at >= 6 && json->at[0] == '\\' &&
+					json->at[1] == 'u' && (low = hex_four(json->at + 2, json->end)) >= 0xDC00 && low < 0xE000)
+				{
+					json->at += 6;
+					code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+				}
+				else if (code >= 0xD800 && code < 0xE000)
+					code = 0xFFFD;
+				/* (a control character: a space, as a tab is) */
+				if (code < 0x20 && code != '\n' && code != '\r')
+					code = ' ';
+				count = code_point_utf8(piece, 4, (unsigned long)code);
+				break;
+			}
+			default: return 0;
+			}
+		}
+		else if (c >= 0x80)
+		{
+			/* (a raw UTF-8 character: kept whole, or not at all) */
+			int need = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1, index;
+
+			for (index = 1; index < need && json->at < json->end && ((unsigned char)*json->at & 0xC0) == 0x80;
+				index++)
+				piece[index] = *json->at++;
+			count = index;
+		}
+		if (*more || length + count > size - 1)
+		{
+			*more = 1;
+			continue;
+		}
+		memcpy(text + length, piece, (size_t)count);
+		length += count;
+	}
+	return 0;
 }
 
 static int lenient_string(struct json *json, char *text, int size);
@@ -323,7 +545,10 @@ static int read_details_item(struct json *json, struct workshop_browser_item *it
 				!strcmp(key, "description") || !strcmp(key, "file_size") || !strcmp(key, "preview_url") ||
 				!strcmp(key, "creator")))
 			{
-				if (!lenient_string(json, text, (int)sizeof(text)))
+				int more = 0;
+
+				if (!strcmp(key, "description") ? !long_string(json, text, (int)sizeof(text), &more) :
+					!lenient_string(json, text, (int)sizeof(text)))
 					return 0;
 				if (!strcmp(key, "publishedfileid"))
 					copy_cut(item->id, sizeof(item->id), workshop_browser_id_valid(text) ? text : "");
@@ -332,7 +557,7 @@ static int read_details_item(struct json *json, struct workshop_browser_item *it
 				else if (!strcmp(key, "title"))
 					copy_cut(item->title, sizeof(item->title), text);
 				else if (!strcmp(key, "description"))
-					plain_description(item->description, sizeof(item->description), text);
+					plain_description(item->description, (int)sizeof(item->description), text, more);
 				else if (!strcmp(key, "preview_url"))
 				{
 					/* (Steam's own picture host, https, a plain address: nothing else is fetched) */

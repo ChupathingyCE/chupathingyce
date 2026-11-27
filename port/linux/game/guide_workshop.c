@@ -1918,16 +1918,24 @@ static char const *page_text(struct workshop_browser_item const *item)
 /* the description's box: its lines from the first scrolled to, a bar at its
 right when they don't all show (the words kept clear of it), its edge lit
 while it has the focus */
-#define DESCRIPTION_MAXIMUM_LINES 160
+#define DESCRIPTION_MAXIMUM_LINES 640
 #define DESCRIPTION_BAR 3.0f
 #define DESCRIPTION_BAR_ROOM 10.0f
 
 static void description_render(struct workshop_browser_item const *item, struct guide_rect box, short lines)
 {
 	static char wrapped[DESCRIPTION_MAXIMUM_LINES][GUIDE_LAYOUT_LINE_SIZE];
+	/* (wrapped again only when the words, the width or the font's measure
+	change: a whole description is thousands of measures) */
+	static unsigned long wrapped_hash;
+	static float wrapped_width = -1.0f, wrapped_probe = -1.0f;
+	static int wrapped_count;
 	struct guide_rect track, thumb;
 	int count, index;
 	float y = box.y, width = box.width - DESCRIPTION_BAR_ROOM;
+	char const *text;
+	unsigned long hash = 5381;
+	float probe = measure_font((void *)(intptr_t)UI_FONT_MENU, DESCRIPTION_SIZE, "Halo");
 
 	if (strcmp(workshop_view.description_id, item->id))
 	{
@@ -1935,8 +1943,18 @@ static void description_render(struct workshop_browser_item const *item, struct 
 		workshop_view.description_scroll = 0;
 		workshop_view.description_on = FALSE;
 	}
-	count = guide_layout_wrap(page_text(item), width, DESCRIPTION_SIZE, measure_font, (void *)(intptr_t)UI_FONT_MENU,
-		DESCRIPTION_MAXIMUM_LINES, wrapped, NULL);
+	text = page_text(item);
+	for (index = 0; text[index]; index++)
+		hash = hash * 33 + (unsigned char)text[index];
+	if (hash != wrapped_hash || width != wrapped_width || probe != wrapped_probe)
+	{
+		wrapped_count = guide_layout_wrap(text, width, DESCRIPTION_SIZE, measure_font, (void *)(intptr_t)UI_FONT_MENU,
+			DESCRIPTION_MAXIMUM_LINES, wrapped, NULL);
+		wrapped_hash = hash;
+		wrapped_width = width;
+		wrapped_probe = probe;
+	}
+	count = wrapped_count;
 	workshop_view.description_count = (short)count;
 	workshop_view.description_shown = lines;
 	workshop_view.description_scroll = (short)guide_layout_scroll_clamp(workshop_view.description_scroll, count, lines);
