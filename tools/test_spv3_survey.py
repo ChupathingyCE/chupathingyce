@@ -42,7 +42,11 @@ static char const *pack_menus;
 char const *map_pack_menus(void) { return pack_menus; }
 boolean opensauce_map_active(void) { return FALSE; }
 /* (OpenSauce's larger window, opensauce_maps.c: not mapped here) */
-unsigned long opensauce_maps_tag_cache_size(unsigned long custom_edition_size) { return custom_edition_size; }
+unsigned long opensauce_maps_header_tag_cache_size(void const *cache_header, unsigned long custom_edition_size)
+{
+	(void)cache_header;
+	return custom_edition_size;
+}
 void error(int priority, char const *format, ...)
 {
 	va_list arguments;

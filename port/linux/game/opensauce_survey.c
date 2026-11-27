@@ -306,7 +306,7 @@ void opensauce_survey_map(
 	else
 		opensauce_survey_log("%s: no OpenSauce header (a stock Custom Edition cache)", map_name);
 	opensauce_survey_log("%s: tag data %lu bytes of the game's tag cache's %lu (Custom Edition 0x01700000, OpenSauce "
-		"0x%08lX)", map_name, tag_data_size, opensauce_maps_tag_cache_size(0x01700000UL),
+		"0x%08lX)", map_name, tag_data_size, opensauce_maps_header_tag_cache_size(cache_header, 0x01700000UL),
 		(unsigned long)OPENSAUCE_TAG_CACHE_SIZE);
 
 	instances = survey_read32(tags, 0);
@@ -398,7 +398,7 @@ void opensauce_survey_map(
 	{
 		long bsp_count = (long)survey_read32(scenario, SURVEY_SCENARIO_BSPS_OFFSET);
 		unsigned long bsp_address = survey_read32(scenario, SURVEY_SCENARIO_BSPS_OFFSET + 4);
-		unsigned long window_top = SURVEY_TAG_BASE + opensauce_maps_tag_cache_size(0x01700000UL);
+		unsigned long window_top = SURVEY_TAG_BASE + opensauce_maps_header_tag_cache_size(cache_header, 0x01700000UL);
 		long bsp;
 
 		opensauce_survey_log("%s: %ld structure BSPs (Custom Edition's limit 16, OpenSauce's 32)", map_name, bsp_count);
