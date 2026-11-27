@@ -674,6 +674,9 @@ jobs:
       - name: Test
         env:
           HALO_SANITIZERS_REQUIRED: "1"
+          # (the linux job's build ships FFmpeg: the Bink decode test fails
+          # without it instead of skipping, tools/test_bink_decode.py)
+          HALO_FFMPEG_REQUIRED: "1"
           PART: ${{ matrix.part }}
           HALO_UPDATE_TEST_SDL: build/linux
           UPDATE_INSTALL_REQUIRED: "1"
@@ -728,13 +731,9 @@ jobs:
               else
                 echo "::notice::tools/test_update_install.py: not in this commit"
               fi
-              # (the asset-free tests of the engine's own functions, tools/harness;
-              # the two left out were written against code of ours that has
-              # changed since, and wait to be brought up to date)
+              # (the asset-free tests of the engine's own functions, tools/harness)
               if [ -f tools/harness/__init__.py ]; then
-                python3 -m pytest -q -n auto tools/harness \
-                  --ignore=tools/harness/tests/test_elevator_prediction.py \
-                  --ignore=tools/harness/tests/test_server_teardown.py
+                python3 -m pytest -q -n auto tools/harness
               fi
               for test in $(present .ci-lists/tools/ci_test_scripts.txt); do
                 echo "== $test"

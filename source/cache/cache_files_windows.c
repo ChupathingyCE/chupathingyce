@@ -466,6 +466,7 @@ through as theirs do (cache_files.c loads its tags into its own tag cache,
 platform.h) */
 #include "halo_map_families.h"
 #include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
+#include "opensauce_maps.h" /* port: port/linux/game/opensauce_maps.c */
 
 #define CE_MAP_FILE_INDEX NUMBER_OF_CACHED_MAP_FILES
 
@@ -499,8 +500,10 @@ static boolean ce_map_name_is(
 	const char *map_name)
 {
 	/* (a pack's Xbox map, <file>@<pack>, is the Xbox loader's: not one of these.
-	SPV3's menus are a Custom Edition map, maps_spv3\ui.yelo: spv3_mode.c) */
-	return !map_family_is_xbox_format(map_family_parse(map_name, NULL, 0)) || spv3_mode_is_ui(map_name);
+	SPV3's menus are a Custom Edition map, maps_spv3\ui.yelo: spv3_mode.c; so
+	are another OpenSauce mod's, maps_<pack>\ui.yelo: opensauce_maps.c) */
+	return !map_family_is_xbox_format(map_family_parse(map_name, NULL, 0)) || spv3_mode_is_ui(map_name) ||
+		opensauce_maps_pack_is_ui(map_name);
 }
 
 /* the map named <name>@ce, @md or @pc opened in its slot (once): FALSE if
@@ -528,8 +531,11 @@ static boolean ce_map_open(
 #endif
 	/* (the map open, unless a load found it changed since it was checked:
 	then it is opened and checked again, port/linux/game/ce_map_checks.c) */
-	if (ce_map_file.file && !_stricmp(ce_map_name, map_name) && !ce_map_check_stale())
+	if (ce_map_file.file && !_stricmp(ce_map_name, map_name) && !ce_map_check_stale() &&
+		opensauce_maps_header_online_allows(map_name, &ce_map_file.header))
+	{
 		return TRUE;
+	}
 	if (strlen(map_name) >= sizeof(ce_map_name) - 1)
 		return FALSE;
 	/* (its tag cache, which the platform layer maps at start-up: xbox_memory.c) */
@@ -543,8 +549,9 @@ static boolean ce_map_open(
 		}
 	}
 	family = map_family_parse(map_name, file_name, sizeof(file_name));
-	/* (SPV3's menus: its ui.yelo, read as a Custom Edition map) */
-	if (spv3_mode_is_ui(map_name))
+	/* (SPV3's menus, or another OpenSauce mod's: its ui.yelo, read as a
+	Custom Edition map) */
+	if (spv3_mode_is_ui(map_name) || opensauce_maps_pack_is_ui(map_name))
 	{
 		family = _map_family_custom_edition;
 		snprintf(file_name, sizeof(file_name), "ui");

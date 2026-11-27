@@ -53,6 +53,9 @@ void p2p_hosting_invite_announced(const char *invite);
 PASSWORD: p2p_set_hosting_password): its host then takes joins from the
 internet only through the locked invite (network_server_manager.c) */
 int p2p_hosting_has_password(void);
+/* whether a game this machine hosts may be joined from the internet
+(p2p_set_hosting_allowed): not one hosted for the LAN alone */
+int p2p_hosting_internet(void);
 #ifdef HALO_GAME_BROWSER
 unsigned long p2p_peer_public_address(unsigned long game_address);
 unsigned long p2p_public_address(void);

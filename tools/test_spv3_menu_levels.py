@@ -94,6 +94,8 @@ def run(tmp_path_factory):
     for name in ("cseries.h", "cseries/cseries_windows.h", "errors.h", "halo_map_packs.h", "harness.c"):
         rewrite(stubs / name, work / name)
     rewrite(ROOT / "port/linux/include/spv3_mode.h", work / "spv3_mode.h")
+    # (OpenSauce's map log, which SPV3 mode's corrections go to: empty here)
+    rewrite(ROOT / "port/linux/include/opensauce_survey.h", work / "opensauce_survey.h")
     rewrite(ROOT / "port/linux/game/spv3_mode.c", work / "spv3_mode.c")
     binary = work / "levels"
     command = [cc, "-std=gnu99", "-Wall", "-Werror", "-Wno-unused-variable", "-Wno-unused-function", "-Wno-format",

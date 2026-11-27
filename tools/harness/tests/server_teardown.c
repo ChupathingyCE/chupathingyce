@@ -33,6 +33,8 @@ static struct network_game_server *disposing;
 static char order[64];
 static int slept, messages, broadcasts, handled, closed, terminated, errors;
 static int new_servers, clients_closed, joins_cleared, variants_cleared;
+static int holds_released, damage_freed, late_joiners_freed;
+static boolean network_game_hosting_local, network_game_port_pc_menus_hosting;
 static short expected_message;
 static boolean message_fails, send_fails, machines_fail;
 
@@ -72,6 +74,21 @@ static void network_connection_delete(struct network_connection *connection)
 	CHECK(connection == disposing->connection && handled == 1 && !terminated, "socket cleanup order changed");
 	closed++; note('C');
 }
+static void delta_legacy_hold(boolean hold)
+{
+	CHECK(!hold && !handled && !closed, "the announced number's hold released late or taken");
+	holds_released++;
+}
+static void network_damage_host_tables_free(void)
+{
+	CHECK(closed == 1 && !terminated, "damage tables freed out of order");
+	damage_freed++; note('D');
+}
+static void network_game_server_late_joiners_free(void)
+{
+	CHECK(damage_freed == 1 && !terminated, "late joiners freed out of order");
+	late_joiners_freed++; note('j');
+}
 static void SleepEx(unsigned long milliseconds, boolean alertable)
 {
 	CHECK(closed == 1 && !terminated && !alertable, "legacy wait moved before connection cleanup");
@@ -100,6 +117,7 @@ static void player_ui_clear_multiplayer_variant(void) { variants_cleared++; note
 static boolean network_game_start_new_server(struct widget_instance *widget, struct event_record *event, boolean *deleted)
 {
 	CHECK(!bss_004566dc.client && !bss_004566dc.server, "new host started before old host/client disposed");
+	CHECK(network_game_port_pc_menus_hosting && !network_game_hosting_local, "the menus' host started without its flags");
 	new_servers++; note('N'); return TRUE;
 }
 
@@ -117,6 +135,7 @@ int main(int argc, char **argv)
 	bss_004566dc.server = &host; bss_004566dc.client = &client;
 	bss_004566dc.quickstart_local = bss_004566dc.client_started = TRUE;
 	network_game_server_memory_do_not_use_directly_in_use = TRUE;
+	network_game_hosting_local = TRUE;
 	strcpy(network_game_server_cooperative_next_map, "next-level");
 	expected_message = _message_server_graceful_game_exit_pregame;
 	boolean back = !strcmp(case_name, "back"), reopen = !strcmp(case_name, "reopen");
@@ -128,6 +147,7 @@ int main(int argc, char **argv)
 	CASE("no-server")
 	{
 		bss_004566dc.server = NULL;
+		network_game_hosting_local = FALSE;
 		CHECK(ui_widget_port_host(NULL, NULL, &deleted), "new host failed");
 		CHECK(!slept && !closed && !handled && !terminated && clients_closed == 1 && new_servers == 1,
 			"first host creation performed nonexistent server teardown");
@@ -138,17 +158,20 @@ int main(int argc, char **argv)
 	else network_game_server_dispose(&host);
 	CHECK(slept == EXPECTED_SLEEP && closed == 1 && handled == 1 && terminated == 1, "wrong sleep or incomplete teardown: %s", order);
 	CHECK(errors == (machines_fail ? 1 : 0), "error handling changed");
+	CHECK(holds_released == 1 && damage_freed == 1 && late_joiners_freed == 1,
+		"hold %d, damage tables %d, late joiners %d", holds_released, damage_freed, late_joiners_freed);
 	int expected_messages = strcmp(case_name, "ingame") ? 1 : 0;
 	CHECK(messages == expected_messages && broadcasts == (message_fails ? 0 : expected_messages), "graceful-exit notice lost");
 	char expected[64] = "";
 	if (back || reopen) strcat(expected, "L");
 	if (expected_messages) strcat(expected, message_fails ? "M" : "MB");
-	strcat(expected, EXPECTED_SLEEP ? "HCSTP" : "HCTP");
+	strcat(expected, EXPECTED_SLEEP ? "HCDjSTP" : "HCDjTP");
 	if (back) strcat(expected, "JV");
 	if (reopen) strcat(expected, "N");
 	CHECK(!strcmp(order, expected), "cleanup sequence changed: %s != %s", order, expected);
 	if (back || reopen)
 		CHECK(!bss_004566dc.server && !bss_004566dc.client && !bss_004566dc.quickstart_local && !bss_004566dc.client_started &&
+			!network_game_hosting_local && !network_game_port_pc_menus_hosting &&
 			clients_closed == 1 && new_servers == reopen && joins_cleared == back && variants_cleared == back,
 			"menu lifecycle state changed");
 	return 0;

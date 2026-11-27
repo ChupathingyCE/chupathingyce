@@ -29,11 +29,12 @@ enum
 	CE_DIGEST_SIZE = 32,
 };
 
-/* (and its size: Custom Edition's, or OpenSauce's in SPV3 mode with its
-window mapped, port/linux/game/spv3_mode.c) */
+/* (and its size: Custom Edition's, or OpenSauce's for a map read with its
+memory upgrades, port/linux/game/opensauce_maps.c) */
+#include "opensauce_maps.h"
 #include "spv3_mode.h"
 #define CE_IMAGE_TAG_CACHE_STOCK_SIZE 0x01700000UL
-#define CE_IMAGE_TAG_CACHE_SIZE (spv3_mode_tag_cache_size(CE_IMAGE_TAG_CACHE_STOCK_SIZE))
+#define CE_IMAGE_TAG_CACHE_SIZE (opensauce_maps_tag_cache_size(CE_IMAGE_TAG_CACHE_STOCK_SIZE))
 
 /* the room above the tag cache for the port's converted models and level
 (port/linux/src/platform.h): its size, 0 if it is not mapped, and always 0
