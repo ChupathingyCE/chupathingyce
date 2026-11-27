@@ -1016,7 +1016,7 @@ void opensauce_postprocess_tags_loaded(void *tag_instances, long tag_count)
 	{
 		pp_log("%d shaders, %d effects, %d effect instances%s; drawn %s", (int)pp.shader_count, (int)pp.effect_count,
 			(int)pp.instance_count, pp.has_bloom ? ", and bloom" : "",
-			config_boolean("display.opensauce_post_processing") ? "by the OpenGL renderer" :
+			config_boolean("display.opensauce_post_processing") ? "by the OpenGL or bgfx renderer" :
 			"never (display.opensauce_post_processing is off)");
 	}
 }
