@@ -1624,7 +1624,11 @@ static void ai_debug_render_actor(
 				"unused9"
 			};
 
-			render_debug_string_at_point(TRUE, ai_debug_drawstack(), actor->meta.team_index==NONE ? "none" : teams[actor->meta.team_index], global_real_argb_green);
+			/* port: a team past Halo's ten (Stubbs mode's: HALO_STUBBS_LIMITS)
+			has no name here */
+			render_debug_string_at_point(TRUE, ai_debug_drawstack(),
+				!VALID_INDEX(actor->meta.team_index, NUMBER_OF_SOLO_CAMPAIGN_TEAMS) ? "none" : teams[actor->meta.team_index],
+				global_real_argb_green);
 		}
 
 		/* Player ratings */

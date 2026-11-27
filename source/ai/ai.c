@@ -248,6 +248,15 @@ symbols in this file:
 #undef REAL_MATH_EXTERNAL_NORMALIZE3D
 #undef REAL_MATH_EXTERNAL_POINT_FROM_LINE3D
 
+/* port: a team's name, for the debug prints; a team past Halo's ten
+(Stubbs mode's: HALO_STUBBS_LIMITS) has none of its own */
+#ifdef HALO_STUBBS_LIMITS
+#define AI_TEAM_NAME(team_index) \
+	(VALID_INDEX((team_index), NUMBER_OF_SOLO_CAMPAIGN_TEAMS) ? global_game_team_names[(team_index)] : "past Halo's ten")
+#else
+#define AI_TEAM_NAME(team_index) global_game_team_names[(team_index)]
+#endif
+
 /* ---------- constants */
 
 enum
@@ -1053,8 +1062,8 @@ void ai_handle_allegiance_status_changed(
 		console_printf(
 			FALSE,
 			"allegiance between teams %s and %s %s%s",
-			global_game_team_names[team1_index],
-			global_game_team_names[team2_index],
+			AI_TEAM_NAME(team1_index),
+			AI_TEAM_NAME(team2_index),
 			currently_broken ? "broken" : "reformed",
 			permanently_broken ? " permanently" : "");
 	}
@@ -1124,8 +1133,8 @@ void ai_handle_allegiance_broken_notification(
 		console_printf(
 			FALSE,
 			"allegiance between teams %s and %s communicated as %s",
-			global_game_team_names[team1_index],
-			global_game_team_names[team2_index],
+			AI_TEAM_NAME(team1_index),
+			AI_TEAM_NAME(team2_index),
 			broken ? "broken" : "reformed");
 	}
 
