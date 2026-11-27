@@ -33,6 +33,10 @@ static const struct
 	{ "maps_mcc", { "mcc_maps", NULL },
 		"Put Halo MCC custom maps here, or a Steam Workshop item's whole folder.\n"
 		"More: " DOCS "#mcc-maps\n" },
+	{ "maps_os", { NULL, NULL },
+		"Put OpenSauce maps here: .yelo files, and .map files built with OpenSauce.\n"
+		"They use the bitmaps.map, sounds.map and loc.map in maps_ce. SPV3 goes in maps_spv3.\n"
+		"More: " DOCS "#opensauce-maps\n" },
 };
 
 const char *map_pack_folder_name(int index)

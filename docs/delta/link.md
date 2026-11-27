@@ -625,7 +625,7 @@ on the connections it keeps to our own brokers, the
   (`p2p_doorbell`, `p2p_doorbell_rings`), `browser.c` and `social.c` (the
   ring's poll), and the site's `doorbell.py`. Tests: `tools/test_doorbell.py`
   (signalling against a local mosquitto with the brokers' ACL, when
-  installed), `tools/test_social.py`, and puma's `test_doorbell.py`.
+  installed), `tools/test_c_units.py`, and puma's `test_doorbell.py`.
 
 ## Clans
 

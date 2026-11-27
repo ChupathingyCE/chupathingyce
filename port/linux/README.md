@@ -587,7 +587,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.window_size` | `""` | `HALO_WINDOW_SIZE` | The size of the window, as `"<width>x<height>"`, such as `"1920x1080"`, 640x480 or more. You can change the size of the window; the game's picture takes its shape. Empty: `display.window_scale` decides. Video Setup's Window Size sets it, from sizes of each shape (4:3, 16:10, 16:9 and 21:9) that fit the desktop; it shows with Windowed. |
 | `display.window_scale` | `2` | `HALO_WINDOW_SCALE` | Used when `display.window_size` is empty: the size of the window, as a multiple of 640x480. |
 | `display.vsync` | `true` | `HALO_NO_VSYNC=1` sets `false` | `true`: each frame waits for the display. |
-| `display.skip_intro` | `false` | `HALO_SKIP_INTRO` | `true`: skip the intro movie on startup and load straight into the main menu. |
+| `display.skip_intro` | `false` | `HALO_SKIP_INTRO` | `true`: skip the intro movie on startup and load straight into the main menu. In SPV3 mode it skips SPV3's own startup movie (`attract.bik`). |
 | `display.vrr` | `"off"` | `HALO_VRR` | For a variable refresh display: `"on"` shows the frames with vsync and holds them 3 a second under the refresh rate (`display.max_fps` where lower), `"auto"` only where gamescope or a Linux display's DRM output says VRR is active (`port/linux/src/vrr.c`), `"off"` as before. The choice and its reason are logged as they change. |
 | `display.max_fps` | `0` | `HALO_MAX_FPS` | With vsync off, the most frames each second. `0`: twice the display's refresh rate (on Android, 120). `-1`: no limit, which can hang some Intel graphics (Raptor Lake), resetting the desktop's graphics too, and heats a phone. Under gamescope (the Steam Deck's Game Mode) with OpenGL, a limit at the display's refresh rate is given to the window as vsync, so the frames stay in step with the display and don't judder. A whole fraction of it (30 at 60 Hz) works the same way with SDL's x11 driver. With the Wayland driver the clock keeps the limit, because SDL takes any interval above 1 as 1 there. The log says when this applies. Everywhere else, and with bgfx, the clock keeps the limit as before. |
 | `display.stats_log` | `false` | `HALO_STATS_LOG` | `true`: a line a second in the log with the frame rate (`fps=` the frames drawn, `shown=` the ones that went to the window), the mode, the map, the renderer and the size of the 3D view (`STATS fps=120.2 shown=120.2 mode=Slayer map=bloodgulch gpu="Adreno (TM) 735" res=1068x480`), for a bug report or to compare two builds. Nothing is drawn and nothing is sent. |
@@ -1111,6 +1111,11 @@ Each frame shows the world between the last two ticks
   aim a little behind (two thirds of the way in a tick). Their input comes
   a tick late now and then, so their unit stops for a tick and turns twice
   as far in the next. The beam on the walls showed each of those as a jump.
+- In a first-person vehicle seat, the part of the view that the vehicle
+  moves (the limits and the leveling of the seat) mixes with the vehicle.
+  Only your own turn mixes by the times of the frames. Thus the view is
+  smooth at all frame rates, also at rates that do not divide a tick
+  (144, 165, uncapped).
 
 Thus the frames are one tick (33 ms) after the calculation. The calculation
 does not change.
@@ -1823,7 +1828,7 @@ crafted file) is refused, and the level starts over.
 | Memory | The port reserves the Xbox memory at `0x80000000`. Thus the game gets the fixed addresses that it expects. |
 | Saved games | The Xbox `UDATA` layout, with SHA-1 signatures. |
 | Networking | Winsock on BSD sockets. System link on a local network and on the internet. |
-| Bink video | Decoded with FFmpeg behind the Bink calls the game makes (`port/linux/src/bink_ffmpeg.c`), from the disc's `bink/` folder (`d:\bink\*.bik`). The build makes its own static FFmpeg for its target (`tools/ffmpeg_build.py`; `configure.py --without-ffmpeg` leaves it out). A missing or unreadable movie is skipped, as on the Xbox. |
+| Bink video | Decoded with FFmpeg behind the Bink calls the game makes (`port/linux/src/bink_ffmpeg.c`), from the disc's `bink/` folder (`d:\bink\*.bik`). The build makes its own static FFmpeg for its target (`tools/ffmpeg_build.py`; `configure.py --without-ffmpeg` leaves it out), LGPL only, with its license in THIRD-PARTY-NOTICES.txt. A map pack's own movie plays before the game's (`map_pack_menus_movie_path`; the order is in [docs/maps.md](../../docs/maps.md#xbox-map-packs)). A missing or unreadable movie is skipped, as on the Xbox. |
 
 ## How the port operates
 
