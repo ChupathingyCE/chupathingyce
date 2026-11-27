@@ -2884,11 +2884,12 @@ static void bg_texture_channels(const struct xgpu_texture_description *descripti
 	}
 }
 
-/* a level as 32-bit texels, a DXT one decoded (bg_texture_unpacked's) */
+/* a level as 32-bit texels, a DXT one decoded (bg_texture_unpacked's); a BC7
+one by the OpenGL upload's decoder, which the DXT one refuses */
 static BOOL bg_texture_decode(const struct xgpu_texture_description *description, unsigned long level,
 	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination)
 {
-	if (description->compressed)
+	if (description->compressed && xgpu_texture_dxt(description))
 		return xgpu_texture_dxt_decode_level(description, level, source, destination);
 	return xgpu_texture_decode_level(description, level, source, palette, destination);
 }
@@ -2899,15 +2900,31 @@ bgfx keeps (and the pixels then set as any texture's). Sampling stops at the
 last level then, as the OpenGL path's GL_TEXTURE_MAX_LEVEL has it (the Xbox's
 DXT textures stop at 4x4; levels below that made up of the last one's blocks
 were mostly its transparent corner, and alpha-tested leaves vanished at a
-distance) */
+distance). A BC7 one's header has Direct3D 10's part after it (DXGI's
+BC7_UNORM, 98), which the four-character code DX10 says is there. The levels
+follow the header, zero, as many bytes as bimg reads for them (it asserts
+past the end of a header alone); the pixels are set after */
 static bgfx_texture_handle_t bg_texture_levels_create(const struct xgpu_texture_description *description, int dxt,
 	unsigned long levels)
 {
-	const bgfx_memory_t *memory = bgfx_alloc(128);
-	uint32_t *header = (uint32_t *)memory->data;
 	BOOL volume = description->depth > 1;
+	unsigned long header_size = dxt == 7 ? 148 : 128, data = 0, level;
+	const bgfx_memory_t *memory;
+	uint32_t *header;
 
-	memset(header, 0, 128);
+	for (level = 0; level < levels; level++)
+	{
+		unsigned long width = bg_level_dimension(description->width, level);
+		unsigned long height = bg_level_dimension(description->height, level);
+		unsigned long depth = volume ? bg_level_dimension(description->depth, level) : 1;
+
+		/* (a compressed level in 4x4 blocks of 8 bytes, BC1's, or 16) */
+		data += dxt ? ((width + 3) / 4) * ((height + 3) / 4) * depth * (dxt == 1 ? 8 : 16) : width * height * depth * 4;
+	}
+	data *= description->cube_map ? 6 : 1;
+	memory = bgfx_alloc((uint32_t)(header_size + data));
+	header = (uint32_t *)memory->data;
+	memset(memory->data, 0, header_size + data);
 	header[0] = 0x20534444; /* "DDS " */
 	header[1] = 124;
 	/* (caps, height, width, pixel format, level count, depth) */
@@ -2920,7 +2937,16 @@ static bgfx_texture_handle_t bg_texture_levels_create(const struct xgpu_texture_
 	if (dxt)
 	{
 		header[20] = 0x4; /* a four-character code */
-		header[21] = dxt == 1 ? 0x31545844 : dxt == 3 ? 0x33545844 : 0x35545844; /* "DXT1", "DXT3", "DXT5" */
+		/* "DXT1", "DXT3", "DXT5", or "DX10" and its part (BC7_UNORM, a 2D or
+		3D texture, a cube map's flag, one in the array) */
+		header[21] = dxt == 1 ? 0x31545844 : dxt == 3 ? 0x33545844 : dxt == 7 ? 0x30315844 : 0x35545844;
+		if (dxt == 7)
+		{
+			header[32] = 98;
+			header[33] = volume ? 4 : 3;
+			header[34] = description->cube_map ? 0x4 : 0;
+			header[35] = 1;
+		}
 	}
 	else
 	{
@@ -2952,8 +2978,8 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 	compression) is sent as BC7 where the backend samples it, and decoded
 	by the OpenGL upload's decoder where it doesn't. A Halo PC HUD meter or
 	multipurpose map is decoded too, so its texels are where a later move
-	of its channels can reach them; bgfx doesn't move them yet for any
-	format (OpenGL does it with the texture's swizzle) */
+	of its channels can reach them (bg_texture_channels, as OpenGL's
+	swizzle moves them) */
 	if (bc7)
 	{
 		uint16_t wanted = volume ? BGFX_CAPS_FORMAT_TEXTURE_3D : description->cube_map ? BGFX_CAPS_FORMAT_TEXTURE_CUBE :
