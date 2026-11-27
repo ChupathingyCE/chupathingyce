@@ -16,6 +16,7 @@ than a few KB kept.
 #include "halo_map_packs.h"
 #include "xbox_mod_maps.h"
 #include "spv3_mode.h"
+#include "opensauce_maps.h"
 #include "stubbs_mode.h"
 
 #include <stdio.h>
@@ -861,8 +862,10 @@ char const *map_pack_menus(
 		if (value && value[0] && strlen(value) < sizeof(name))
 		{
 			folder_pack(value, name, sizeof(name));
-			/* (SPV3's menus are its ui.yelo, a Custom Edition map: spv3_mode.c) */
-			if (pack_valid(name) && (map_pack_present(name, "ui") || spv3_mode_pack_present(name)))
+			/* (SPV3's menus are its ui.yelo, a Custom Edition map: spv3_mode.c;
+			and another OpenSauce mod's too: opensauce_maps.c) */
+			if (pack_valid(name) && (map_pack_present(name, "ui") || spv3_mode_pack_present(name) ||
+				opensauce_maps_pack_present(name)))
 				snprintf(pack, sizeof(pack), "%s", name);
 		}
 	}
@@ -879,6 +882,20 @@ boolean map_pack_menus_known(
 		return FALSE;
 	known = map_pack_library_find(map_pack_fingerprint(pack, "ui"));
 	return known && !_stricmp(known->pack, pack) && !_stricmp(known->file, "ui");
+}
+
+short opensauce_maps_menus_level_rule(
+	char const *map_name)
+{
+	if (!map_name || strcmp(map_name, "ui"))
+		return _opensauce_menus_may_not_change_level;
+	/* (the known pack's fingerprinted ui.map is the menus played only when
+	no OpenSauce mod's ui.yelo is: opensauce_maps.c) */
+	if (map_pack_menus_known() && !opensauce_maps_pack())
+		return _opensauce_menus_known_pack;
+	if (spv3_mode_own_ui_open(map_name))
+		return _opensauce_menus_spv3;
+	return _opensauce_menus_may_not_change_level;
 }
 
 boolean map_pack_menus_movie_path(

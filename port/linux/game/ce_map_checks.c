@@ -336,18 +336,21 @@ which the checks below would refuse with no reason a player could act on.
 (As OpenCE's build-145 refuses them, MrBruh's finding.) */
 static boolean ce_needs_opensauce(
 	HANDLE file,
-	char const *map_name)
+	char const *map_name,
+	unsigned short *opensauce_flags)
 {
 	byte header[8];
 	unsigned long signature;
 	unsigned short flags;
 
+	*opensauce_flags = 0;
 	if (!ce_file_read(file, CE_OPENSAUCE_HEADER_OFFSET, header, sizeof(header)))
 		return FALSE;
 	memcpy(&signature, header, sizeof(signature));
 	memcpy(&flags, header + CE_OPENSAUCE_HEADER_FLAGS_OFFSET, sizeof(flags));
 	if (signature != (unsigned long)CE_OPENSAUCE_HEADER_SIGNATURE || !flags)
 		return FALSE;
+	*opensauce_flags = flags;
 	/* (OpenSauce's memory upgrades are read with the larger tag window, and
 	nothing else of its header's asks: port/linux/game/opensauce_maps.c) */
 	return !opensauce_maps_accepts_header(map_name, flags);
@@ -1280,6 +1283,8 @@ boolean ce_map_check(
 	unsigned long started = system_milliseconds();
 	boolean valid;
 	char const *family = ce_map_family_name();
+	unsigned short opensauce_flags = 0;
+	struct opensauce_maps_session session;
 
 	ce_refusal[0] = 0;
 	ce_explanation[0] = 0;
@@ -1298,10 +1303,18 @@ boolean ce_map_check(
 		valid = ce_refuse("its size could not be read, or is over 2 GB");
 	else if (file_length < CE_HEADER_SIZE || (unsigned long)file_length > file_size)
 		valid = ce_refuse("it is cut short: its header says %ld bytes, the file has %lu", file_length, file_size);
-	else if (ce_needs_opensauce(file, map_name))
+	else if (ce_needs_opensauce(file, map_name, &opensauce_flags))
 	{
 		ce_refusal_explain("It needs OpenSauce.");
 		valid = ce_refuse("it needs OpenSauce (its OpenSauce header asks for memory upgrades or mod data)");
+	}
+	else if (opensauce_flags && (opensauce_maps_session_now(&session),
+		!opensauce_maps_online_allows(map_name, opensauce_flags, &session)))
+	{
+		/* (an OpenSauce map only this game reads, in an online game: local
+		play for now, opensauce_maps.c) */
+		ce_refusal_explain("OpenSauce maps play offline for now.");
+		valid = ce_refuse("it is an OpenSauce map, and this is an online game: they play offline for now");
 	}
 	else
 		valid = ce_map_check_tags(file, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
