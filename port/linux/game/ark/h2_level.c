@@ -20938,10 +20938,9 @@ H2_ALIGN static unsigned long long microseconds_now(void)
 /* the weapons (h2_weapons.c: a part of this file) */
 #define H2_LEVEL_INTERNAL
 #include "h2_weapons.c"
-/* Halo 3's weapons (h3_weapons.c: a part of this file too, on h2_weapons.c's) */
-#include "h3_weapons.c"
-#include "h3_vehicles.c"
-#include "h3_characters.c"
+/* (port) the parts of this file left out of this tree, as the units that
+are in it call them (ark_left_out.inc) */
+#include "ark_left_out.inc"
 /* Halo 2's effects (h2_effects.c: a part of this file too) */
 #include "h2_effects.c"
 
@@ -30037,6 +30036,3 @@ load (h2_models_load.inc, feat/h2-models-at-load; HALO_H2_MODELS_AT_LOAD) */
 extern long halo_loaded_tag_count;
 #include "h2_models_load.inc"
 
-/* (port, h3/sandbox-on-maps) a Halo 3 level's weapons, grenades and vehicles made
-from its own map into its tags (h3_sandbox.h) */
-#include "h3_sandbox.c"
