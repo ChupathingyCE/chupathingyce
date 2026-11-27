@@ -72,6 +72,8 @@ with the check as they load.
 #include "tag_files/tag_groups.h"
 #include "ce_map_checks.h"
 #include "content_sha256.h"
+#include "opensauce.h"
+#include "opensauce_survey.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -350,27 +352,42 @@ static boolean ce_needs_opensauce(
 	return !spv3_mode_accepts_opensauce(map_name, flags);
 }
 
-/* SPV3 mode's survey of a map (port/linux/game/spv3_mode.c): its header and
-its tag data read again, for the log only */
-static void ce_spv3_survey(
+/* the survey of an OpenSauce map, and of any map in SPV3 mode
+(port/linux/game/opensauce_survey.c): its header and its tag data read
+again, for the log only */
+static void ce_opensauce_survey(
 	HANDLE file,
 	char const *map_name,
 	unsigned long file_size,
 	unsigned long tag_data_offset,
 	unsigned long tag_data_size)
 {
+#ifdef OPENSAUCE_SURVEY
 	byte header[CE_HEADER_SIZE];
 	byte *tags;
 
-	if (!spv3_mode_active() || !ce_range_within(tag_data_offset, tag_data_size, file_size) ||
-		tag_data_size > SPV3_OPENSAUCE_TAG_CACHE_SIZE || !ce_file_read(file, 0, header, sizeof(header)))
+	if (!ce_range_within(tag_data_offset, tag_data_size, file_size) || tag_data_size > OPENSAUCE_TAG_CACHE_SIZE ||
+		!ce_file_read(file, 0, header, sizeof(header)))
 	{
+		return;
+	}
+	if (!opensauce_survey_wanted(header))
+	{
+		/* (no survey: the last one's over) */
+		opensauce_survey_map(map_name, header, NULL, 0, file_size);
 		return;
 	}
 	tags = malloc(tag_data_size);
 	if (tags && ce_file_read(file, tag_data_offset, tags, tag_data_size))
-		spv3_mode_survey(map_name, header, tags, tag_data_size, file_size);
+		opensauce_survey_map(map_name, header, tags, tag_data_size, file_size);
 	free(tags);
+#else
+	(void)file;
+	(void)map_name;
+	(void)file_size;
+	(void)tag_data_offset;
+	(void)tag_data_size;
+#endif
 }
 
 /* the instance at a tag handle, if it is the handle of one */
@@ -1269,9 +1286,10 @@ boolean ce_map_check(
 	ce_checking = TRUE;
 	ce_checking_bsp_count = 0;
 	memset(&ce_checking_digests, 0, sizeof(ce_checking_digests));
-	/* (SPV3 mode's survey, logged before the checks: nothing in other modes) */
+	/* (an OpenSauce map's survey, logged before the checks: nothing for
+	other maps outside SPV3 mode) */
 	if (file_size != INVALID_FILE_SIZE && !file_size_high)
-		ce_spv3_survey(file, map_name, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
+		ce_opensauce_survey(file, map_name, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
 	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > CE_MAXIMUM_FILE_SIZE)
 		valid = ce_refuse("its size could not be read, or is over 2 GB");
 	else if (file_length < CE_HEADER_SIZE || (unsigned long)file_length > file_size)
@@ -1287,7 +1305,7 @@ boolean ce_map_check(
 	if (!valid)
 	{
 		error(_error_silent, "%s map %s refused: %s", family, map_name, ce_refusal);
-		spv3_mode_log("%s: REFUSED by the map checks: %s", map_name, ce_refusal);
+		opensauce_survey_checked(map_name, ce_refusal);
 		console_warning("%s map %s refused: %s", family, map_name, ce_refusal);
 		/* (the game shows it in place of the damaged disc error:
 		cache_files_windows.c) */
@@ -1310,6 +1328,7 @@ boolean ce_map_check(
 		ce_checked_digests = ce_checking_digests;
 		ce_checked_stale = FALSE;
 		error(_error_silent, "%s map %s: checked (%lu ms)", family, map_name, system_milliseconds() - started);
+		opensauce_survey_checked(map_name, NULL);
 	}
 	return valid;
 }

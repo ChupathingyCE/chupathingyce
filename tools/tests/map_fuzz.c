@@ -2019,8 +2019,17 @@ boolean spv3_mode_accepts_opensauce(char const *map_name, unsigned short flags)
 	(void)flags;
 	return FALSE;
 }
-void spv3_mode_survey(char const *map_name, void const *cache_header, void const *tags, unsigned long tag_data_size,
-	unsigned long file_size)
+void spv3_mode_log(char const *format, ...) { (void)format; }
+
+/* (an OpenSauce map's log, opensauce_survey.c, not in the harness: nothing
+logged) */
+boolean opensauce_survey_wanted(void const *cache_header)
+{
+	(void)cache_header;
+	return FALSE;
+}
+void opensauce_survey_map(char const *map_name, void const *cache_header, void const *tags,
+	unsigned long tag_data_size, unsigned long file_size)
 {
 	(void)map_name;
 	(void)cache_header;
@@ -2028,8 +2037,12 @@ void spv3_mode_survey(char const *map_name, void const *cache_header, void const
 	(void)tag_data_size;
 	(void)file_size;
 }
-void spv3_mode_log(char const *format, ...) { (void)format; }
-void spv3_mode_note_resource_miss(char const *kind, char const *tag_name)
+void opensauce_survey_checked(char const *map_name, char const *refusal)
+{
+	(void)map_name;
+	(void)refusal;
+}
+void opensauce_survey_note_resource_miss(char const *kind, char const *tag_name)
 {
 	(void)kind;
 	(void)tag_name;
