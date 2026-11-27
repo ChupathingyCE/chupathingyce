@@ -84,7 +84,7 @@ static void make_root(char *root, size_t size, const char *scratch, const char *
 	CHECK(posix_make_directory(root) == 0);
 }
 
-/* an empty folder: all three made, each with its README.txt; no other
+/* an empty folder: all four made, each with its README.txt; no other
 folder (maps_stubbs stays unlisted) */
 static void test_empty(const char *scratch)
 {
@@ -103,6 +103,7 @@ static void test_empty(const char *scratch)
 	CHECK(!strcmp(map_pack_folder_name(0), "maps_cex"));
 	CHECK(!strcmp(map_pack_folder_name(1), "maps_spv3"));
 	CHECK(!strcmp(map_pack_folder_name(2), "maps_mcc"));
+	CHECK(!strcmp(map_pack_folder_name(3), "maps_os"));
 	CHECK(map_pack_folder_name(MAP_PACK_FOLDER_COUNT) == NULL);
 	CHECK(map_pack_folder_readme(-1) == NULL);
 	snprintf(path, sizeof(path), "%s/maps_stubbs", root);
@@ -167,10 +168,11 @@ static void test_older_names(const char *scratch)
 	CHECK(posix_make_directory(path) == 0);
 	snprintf(path, sizeof(path), "%s/mcc_maps", root);
 	CHECK(posix_make_directory(path) == 0);
-	CHECK(map_pack_folders_make(root) == 1);
+	CHECK(map_pack_folders_make(root) == 2);
 	CHECK(entries_named(root, "maps_cex") == 0);
 	CHECK(entries_named(root, "maps_mcc") == 0);
 	CHECK(entries_named(root, "maps_spv3") == 1);
+	CHECK(entries_named(root, "maps_os") == 1);
 	snprintf(path, sizeof(path), "%s/maps_ceplus", root);
 	CHECK(entries_named(path, "README.txt") == 0);
 	snprintf(path, sizeof(path), "%s/mcc_maps", root);
@@ -179,7 +181,7 @@ static void test_older_names(const char *scratch)
 	make_root(root, sizeof(root), scratch, "older2");
 	snprintf(path, sizeof(path), "%s/maps_ce+", root);
 	CHECK(posix_make_directory(path) == 0);
-	CHECK(map_pack_folders_make(root) == 2);
+	CHECK(map_pack_folders_make(root) == 3);
 	CHECK(entries_named(root, "maps_cex") == 0);
 }
 

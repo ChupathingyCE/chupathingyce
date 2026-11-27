@@ -131,6 +131,18 @@ int posix_is_link(const char *path)
 	return lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
 }
 
+int posix_make_directory_at(int directory, const char *name)
+{
+	return mkdirat(directory, name, 0755);
+}
+
+int posix_is_link_at(int directory, const char *name)
+{
+	struct stat st;
+
+	return fstatat(directory, name, &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(st.st_mode);
+}
+
 int posix_rename_directory(const char *from, const char *to)
 {
 	struct stat st;

@@ -3,15 +3,15 @@ MAP_PACK_FOLDERS.H
 
 The map packs' folders that "Make the folders" makes beside maps, maps_ce,
 maps_pc and maps_md (map_pack_folders.c): maps_cex (Halo CE+ Xbox),
-maps_spv3 (SPV3) and maps_mcc (Halo MCC custom maps), each with a
-README.txt that says what goes there. The setup screen's step
+maps_spv3 (SPV3), maps_mcc (Halo MCC custom maps) and maps_os (OpenSauce
+maps), each with a README.txt that says what goes there. The setup screen's step
 (launcher.c) and the message boxes' (sdl_platform.c) both make them.
 */
 
 #ifndef MAP_PACK_FOLDERS_H
 #define MAP_PACK_FOLDERS_H
 
-#define MAP_PACK_FOLDER_COUNT 3
+#define MAP_PACK_FOLDER_COUNT 4
 #define MAP_PACK_FOLDERS_README "README.txt"
 
 /* the index-th folder's name and its README.txt's text (NULL past the
