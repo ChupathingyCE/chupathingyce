@@ -24,6 +24,7 @@ void macos_set_swap_interval(int interval)
 }
 
 #include <objc/message.h>
+#include <stdio.h>
 #include <objc/runtime.h>
 
 /* whether the window (an NSWindow) can't be seen at all: covered by others,
@@ -70,8 +71,9 @@ preserved), and lets the library go. Metal keeps what it compiled, so
 bgfx's own compile of the same source in its frame is quick. For bgfx's
 compiler threads (d3d8_bgfx.inl): a compile is tens of milliseconds the
 first time a build sees a shader, which a frame would otherwise wait for.
-0 if it did not compile */
-int macos_metal_library_prepare(void *device, const char *source)
+0 if it did not compile, and Metal's reason in why (size bytes, when not
+NULL) */
+int macos_metal_library_compile(void *device, const char *source, char *why, unsigned long size)
 {
 	typedef void *(*object_message)(void *, SEL);
 	typedef void *(*string_message)(void *, SEL, const char *);
@@ -95,10 +97,36 @@ int macos_metal_library_prepare(void *device, const char *source)
 		sel_registerName("newLibraryWithSource:options:error:"), string, options, &error) : NULL;
 	if (library)
 		((object_message)objc_msgSend)(library, sel_registerName("release"));
+	else if (why && size)
+	{
+		/* (the NSError's localizedDescription, which has the compiler's
+		messages) */
+		void *description = error ? ((object_message)objc_msgSend)(error, sel_registerName("localizedDescription")) :
+			NULL;
+		const char *text = description ? (const char *)((object_message)objc_msgSend)(description,
+			sel_registerName("UTF8String")) : NULL;
+
+		snprintf(why, size, "%s", text ? text : "Metal made no library");
+	}
 	if (options)
 		((object_message)objc_msgSend)(options, sel_registerName("release"));
 	if (string)
 		((object_message)objc_msgSend)(string, sel_registerName("release"));
 	objc_autoreleasePoolPop(pool);
 	return library != NULL;
+}
+
+int macos_metal_library_prepare(void *device, const char *source)
+{
+	return macos_metal_library_compile(device, source, NULL, 0);
+}
+
+/* (Metal.framework's) */
+void *MTLCreateSystemDefaultDevice(void);
+
+/* the system's default Metal device (an MTLDevice, retained), or NULL: for
+compiles with no bgfx running (d3d8_bgfx_check.inl) */
+void *macos_metal_default_device(void)
+{
+	return MTLCreateSystemDefaultDevice();
 }
