@@ -895,14 +895,21 @@ boolean map_pack_menus_movie_path(
 	long index;
 	size_t length;
 
-	if (!pack || !movie || size <= 0 || !map_pack_file_path(pack, "ui", folder, sizeof(folder)))
+	if (!pack || !movie || size <= 0)
 		return FALSE;
+	/* (the folder that has the pack's ui.map: maps_cex\, or an alias's; a
+	pack whose menus are a ui.yelo, SPV3's, has no ui.map: its own folder,
+	maps_spv3\) */
+	if (!map_pack_file_path(pack, "ui", folder, sizeof(folder)) &&
+		snprintf(folder, sizeof(folder), "d:\\maps_%s\\ui", pack) >= (int)sizeof(folder))
+	{
+		return FALSE;
+	}
 	for (cursor = movie; *cursor; cursor++)
 	{
 		if (*cursor == '\\' || *cursor == '/')
 			file = cursor + 1;
 	}
-	/* (the folder that has the pack's ui.map: maps_cex\, or an alias's) */
 	ui = strrchr(folder, '\\');
 	if (!ui || !file[0] || strlen(file) >= sizeof(stem))
 		return FALSE;

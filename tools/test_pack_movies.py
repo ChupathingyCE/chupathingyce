@@ -1,8 +1,9 @@
 """A map pack's own movies with its own menus (#990): with game.pack_menus
 (Halo CE+'s), the game's movies are looked for first in the bink folder
 beside the pack's ui.map, as asked for and then without their language
-(port/linux/game/map_packs.c, map_pack_menus_movie_path); without the pack's
-menus, or without its movie, the game's own plays (attract_mode.c).
+(port/linux/game/map_packs.c, map_pack_menus_movie_path), or for a pack
+whose menus are a ui.yelo (SPV3's) in its own folder's bink; without the
+pack's menus, or without its movie, the game's own plays (attract_mode.c).
 
 The real function is compiled on its own over a fake set of files. Needs
 only a C compiler.
@@ -40,6 +41,9 @@ static char const *files[8];
 static char const *map_pack_menus(void) { return pack; }
 static boolean map_pack_file_path(char const *id, char const *file, char *path, long size)
 {
+    /* (no ui.map: SPV3's menus are a ui.yelo) */
+    if (!ui_folder)
+        return FALSE;
     return snprintf(path, (size_t)size, "d:\\%s\\%s.map", ui_folder, file) < size && id && file;
 }
 static boolean file_exists(char const *path)
@@ -79,6 +83,15 @@ int main(void)
     files[2] = "d:\\maps_ceplus\\bink\\credits.bik";
     strcpy(path, "d:\\bink\\credits.bik");
     CHECK(map_pack_menus_movie_path(path, path, sizeof(path)) && !strcmp(path, "d:\\maps_ceplus\\bink\\credits.bik"));
+    /* a pack whose menus are a ui.yelo (SPV3's): its own folder's bink */
+    pack = "spv3";
+    ui_folder = NULL;
+    files[3] = "d:\\maps_spv3\\bink\\attract.bik";
+    strcpy(path, "d:\\bink\\attract.bik");
+    CHECK(map_pack_menus_movie_path(path, path, sizeof(path)) && !strcmp(path, "d:\\maps_spv3\\bink\\attract.bik"));
+    /* and the game's for a movie it lacks */
+    strcpy(path, "d:\\bink\\intro.bik");
+    CHECK(!map_pack_menus_movie_path(path, path, sizeof(path)) && !strcmp(path, "d:\\bink\\intro.bik"));
     /* without the pack's menus: the game's */
     pack = NULL;
     strcpy(path, "d:\\bink\\credits.bik");

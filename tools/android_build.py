@@ -829,7 +829,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     n.build(outputs=staged_brokers, rule="android_copy", inputs=Path("port/assets/network/brokers.txt"))
     # the game's license and the notices of everything else built in
     # (tools/third_party_notices.py), in the APK as in every download
-    staged_licenses = ninja_notices(n, "android", assets_dir, ["sdl3"])
+    staged_licenses = ninja_notices(n, "android", assets_dir, ["sdl3", *(["ffmpeg"] if getattr(sln, "with_ffmpeg", True) else [])])
     n.build(outputs="android", rule="phony", inputs=[libmain, staged_sdl, staged_image, staged_brokers, *staged_licenses])
 
     apk = PORT_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"

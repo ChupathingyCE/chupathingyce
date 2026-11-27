@@ -18,6 +18,7 @@ tools/test_bgfx_present.py
 tools/test_bgfx_shader_check.py
 tools/test_bgfx_vulkan_start.py
 tools/test_bgfx_window_pacing.py
+tools/test_bink_decode.py
 tools/test_build_workflow.py
 tools/test_campaign_levels.py
 tools/test_capture.py
