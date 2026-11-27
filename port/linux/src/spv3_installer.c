@@ -59,7 +59,6 @@ void platform_log(const char *format, ...);
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
 #include "../game/content_bytes.h"
 
@@ -822,7 +821,7 @@ static int target_folder_open(const char *destination, const char *target, struc
 		{
 			int next;
 
-			mkdirat(folder->descriptor, name, 0755);
+			posix_make_directory_at(folder->descriptor, name);
 			next = openat(folder->descriptor, name, O_RDONLY | O_DIRECTORY | O_CLOEXEC | (top ? 0 : O_NOFOLLOW));
 			if (next < 0)
 			{
@@ -892,10 +891,7 @@ static void target_folder_remove(const struct target_folder *folder, const char 
 static int target_folder_is_link(const struct target_folder *folder, const char *name)
 {
 #ifdef SPV3_FOLDER_DESCRIPTORS
-	struct stat information;
-
-	return fstatat(folder->descriptor, name, &information, AT_SYMLINK_NOFOLLOW) == 0 &&
-		S_ISLNK(information.st_mode);
+	return posix_is_link_at(folder->descriptor, name);
 #else
 	char path[PATH_SIZE * 2 + MAXIMUM_NAME];
 
