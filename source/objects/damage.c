@@ -146,6 +146,7 @@ symbols in this file:
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 #include "game/game_modes.h" /* port: SWAT's headshots (docs/modes.md) */
 #include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
+#include "opensauce_transforms.h" /* port: port/linux/game/opensauce_transforms.c */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1209,6 +1210,9 @@ static void object_damage_aftermath(
 			body_damage,
 			body_damage_multiplier,
 			body_part);
+		/* port: an OpenSauce map's actor may transform from the damage
+		(port/linux/game/opensauce_transforms.c); any other map, nothing */
+		opensauce_transforms_unit_damaged(object_index, damage);
 	}
 
 	return;
