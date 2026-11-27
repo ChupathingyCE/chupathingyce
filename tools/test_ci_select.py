@@ -104,6 +104,26 @@ def test_the_workflow_or_the_selector_runs_everything():
         assert chosen(name) == set(TESTS) - {"tools/test_maps.py"}, name
 
 
+def test_a_file_no_test_names_runs_everything():
+    files = dict(FILES, **{"source/c/lonely.c": ""})
+    picked = set(ci.select("pull_request", [{"filename": "source/c/lonely.c"}], repo=fake(files), buckets=BUCKETS,
+                           tests=TESTS))
+    assert picked == set(TESTS) - {"tools/test_maps.py"}
+
+
+def test_a_core_tests_paths_count_as_named():
+    files = dict(FILES, **{"tools/test_core.py": 'SOURCE = "source/c/core_only.c"\n', "source/c/core_only.c": ""})
+    picked = set(ci.select("pull_request", [{"filename": "source/c/core_only.c"}], repo=fake(files),
+                           buckets=BUCKETS, tests=TESTS))
+    assert picked == ALWAYS
+
+
+def test_build_plumbing_and_shared_headers_run_everything():
+    for name in ("configure.py", "tools/linux_build.py", "tools/linux_sysroot.cmake", "source/cseries/cseries.h",
+                 ".github/workflows/fuzz.yml"):
+        assert set(ci.select("pull_request", [{"filename": name}])) == set(ci.select("push")), name
+
+
 def test_parts_split_long_files_apart():
     selected = {"tools/test_map_fuzz.py": "", "tools/test_host_fuzz.py": "", "tools/test_steam_content.py": "",
                 "tools/test_port_config.py": ""}

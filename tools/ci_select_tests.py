@@ -20,7 +20,9 @@ paths after its name in the buckets file. A changed header counts as a
 change to every file that includes it, however deep (by #include; a name
 that resolves to no one file matches every file of that name, to be safe),
 and a changed tools module as one to every module that imports it. A test
-whose paths come out empty runs every time.
+whose paths come out empty runs every time, and a changed file that no
+test's paths name, directly or through the files that include or import
+it (documentation aside), runs every test.
 
 Only a pull request is filtered (tier A). The merge queue (B), pushes to
 main and release branches (C) and runs started by hand (D) run every test
@@ -57,9 +59,20 @@ HARNESS_TESTS = "tools/harness/tests"
 UPDATE_INSTALL = "tools/test_update_install.py"
 BUCKETS = ("core", "area", "security", "maps", "local")
 
-# (a change to one of these changes how every test runs: all of them run)
+# (a change to one of these changes how every test runs: all of them run.
+# The build's plumbing, the workflows, the shared headers every unit sees)
 EVERYTHING = (
-    ".github/workflows/build.yml",
+    ".github/workflows/*",
+    "configure.py",
+    "VERSION",
+    "tools/ninja_syntax.py",
+    "tools/*_build.py",
+    "tools/*_sysroot.py",
+    "tools/*_sysroot.cmake",
+    "tools/version.py",
+    "tools/download.py",
+    "tools/third_party_notices.py",
+    "source/cseries/*.h",
     "tools/ci_select_tests.py",
     BUCKETS_FILE,
     "tools/fuzz_support.py",
@@ -311,19 +324,22 @@ def select(event, entries=None, repo=None, buckets=None, tests=None, explain=Non
     affected = repo.affected(changed)
     added = set(added_to_lists(entries))
     chosen = {}
-    claimed = set()
+    # (the lists and the tests themselves, the maps and local ones among them)
+    claimed = {PYTEST_LIST, SCRIPT_LIST, *tests, *buckets}
     for test in runnable:
         bucket, extra = buckets.get(test, (None, []))
         if bucket is None:
             chosen[test] = "no bucket (tools/ci_test_buckets.txt)"
             continue
+        paths = test_paths(repo, test, extra)
         if bucket == "core":
             chosen[test] = "core"
+            for pattern in paths:
+                claimed |= repo.matches(pattern) or {pattern}
             continue
         if test in added:
             chosen[test] = "added to a list"
             continue
-        paths = test_paths(repo, test, extra)
         if len(paths) == 1:
             chosen[test] = "no paths found: every time"
             continue
@@ -335,9 +351,15 @@ def select(event, entries=None, repo=None, buckets=None, tests=None, explain=Non
                 hit = next((name for name in sorted(affected & files)), None)
         if hit:
             chosen[test] = f"{hit} changed"
-    for name in changed:
-        if name not in claimed and not name.endswith(".md") and not name.startswith("docs/"):
-            note(f"::notice::{name}: no test's paths name it (the core tests ran; the merge queue runs every test)")
+    # (a file no test names: no one can say which tests it reaches, so all of
+    # them run; documentation that no test reads reaches none)
+    # (named: itself, or a file that includes or imports it, however deep)
+    unclaimed = [name for name in changed
+                 if not name.endswith(".md") and not name.startswith("docs/") and not (repo.affected([name]) & claimed)]
+    if unclaimed:
+        note(f"::notice::no test's paths name {', '.join(unclaimed[:5])}"
+             f"{' and more' if len(unclaimed) > 5 else ''}: every test runs")
+        return {test: f"{unclaimed[0]}: no test names it" for test in runnable}
     return chosen
 
 
