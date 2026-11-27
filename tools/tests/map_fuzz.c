@@ -467,6 +467,14 @@ unsigned long system_milliseconds(void)
 	return 0;
 }
 
+/* (sound_manager.c's, for ce_resources.c's decoded sounds: none plays here) */
+boolean sound_definition_playing(long definition_index);
+boolean sound_definition_playing(long definition_index)
+{
+	(void)definition_index;
+	return FALSE;
+}
+
 void system_exit(long code)
 {
 	if (fuzz_verbose)

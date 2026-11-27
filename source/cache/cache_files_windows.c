@@ -476,6 +476,7 @@ static char ce_map_name[64];
 map, for its indexed tags' pixels and samples (port/linux/game/ce_resources.c) */
 static HANDLE ce_request_files[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
 HANDLE ce_resources_file_for_tag(long tag_index);
+boolean ce_resources_sound_read(long tag_index, long *offset, long size);
 boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset,
 	long tag_data_size);
 boolean ce_map_check_stale(void);
@@ -1363,6 +1364,18 @@ short cache_file_read(
 	{
 		size = (size | (CACHE_FILE_SECTOR_SIZE - 1)) + 1;
 	}
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a decoded sound's samples read at their place in the decoded
+	sounds' file, decoded into it first if they are not there
+	(ce_resources.c); one that cannot be is a failed read */
+	if (cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX &&
+		!ce_resources_sound_read(tag_index, &offset, size))
+	{
+		*completion_flag_reference = _cache_file_read_failed;
+
+		return NONE;
+	}
+#endif
 	*completion_flag_reference = FALSE;
 #ifdef HALO_CUSTOM_EDITION
 	ce_request_files[request_index] = cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX
