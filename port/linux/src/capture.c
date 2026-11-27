@@ -39,6 +39,8 @@ struct capture_job
 	long width, height, pitch;
 	int bgra, bottom_up;
 	char name[160];
+	/* no toast when saved (a named shot of the console's: a tool's) */
+	int quiet;
 };
 
 static struct
@@ -54,6 +56,7 @@ static struct
 	/* the map's name, and when the ask came, for the file's name */
 	char map[64];
 	char wanted_name[160];
+	int wanted_quiet;
 
 	/* the toast for the game to show */
 	char notice_title[64];
@@ -212,7 +215,8 @@ static void write_screenshot(struct capture_job *job)
 	if (written)
 	{
 		platform_log("screenshot: saved %s (%ldx%ld)", file_name, job->width, job->height);
-		capture_notice("Screenshot saved", file_name);
+		if (!job->quiet)
+			capture_notice("Screenshot saved", file_name);
 	}
 	else
 	{
@@ -250,6 +254,32 @@ void capture_request_screenshot(void)
 	capture_file_name(name, sizeof(name));
 	pthread_mutex_lock(&capture.lock);
 	snprintf(capture.wanted_name, sizeof(capture.wanted_name), "%s", name);
+	capture.wanted_quiet = 0;
+	capture.screenshot_wanted = 1;
+	pthread_mutex_unlock(&capture.lock);
+}
+
+void capture_request_screenshot_named(const char *name)
+{
+	char safe[160];
+	unsigned long length = 0;
+
+	for (; name && *name && length + 1 < sizeof(safe); name++)
+	{
+		char c = *name;
+
+		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_')
+			safe[length++] = c;
+	}
+	safe[length] = 0;
+	if (!length)
+	{
+		capture_request_screenshot();
+		return;
+	}
+	pthread_mutex_lock(&capture.lock);
+	snprintf(capture.wanted_name, sizeof(capture.wanted_name), "%s", safe);
+	capture.wanted_quiet = 1;
 	capture.screenshot_wanted = 1;
 	pthread_mutex_unlock(&capture.lock);
 }
@@ -305,6 +335,7 @@ static int queue_job(unsigned char *pixels, const unsigned char *lent, volatile 
 		job->bgra = bgra;
 		job->bottom_up = bottom_up;
 		snprintf(job->name, sizeof(job->name), "%s", capture.wanted_name);
+		job->quiet = capture.wanted_quiet;
 		pthread_cond_signal(&capture.wake);
 		queued = 1;
 	}

@@ -375,6 +375,11 @@ long cluster_get_first_noncollideable_object(long *reference_index, short cluste
 long cluster_get_next_noncollideable_object(long *reference_index);
 long cluster_get_first_collideable_object(long *reference_index, short cluster_index);
 long cluster_get_next_collideable_object(long *reference_index);
+#ifdef HALO_PORT_CLUSTER_OBJECT_LISTS
+/* port: the changes to the cluster's list of collideable objects so far
+(object_bounds_cache.c) */
+unsigned long cluster_port_collideable_object_changes(short cluster_index);
+#endif
 short object_get_next_cluster(struct object_cluster_iterator *iterator, long object_index);
 void *object_try_and_get_and_verify_type(long object_index, unsigned long valid_type_flags);
 void *object_get_and_verify_type(long object_index, unsigned long valid_type_flags);

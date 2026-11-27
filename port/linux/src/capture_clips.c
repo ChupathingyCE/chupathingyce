@@ -86,12 +86,15 @@ struct clip_save
 	char name[160];
 };
 
+/* (clips' locks, apart from it: their initializers are not zeros, and would
+put the whole of it in the data segment instead of bss) */
+static pthread_mutex_t clips_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t clips_wake = PTHREAD_COND_INITIALIZER;
+
 static struct
 {
 	/* 0 not looked at yet, 1 off, 2 on, 3 failed to start, 4 starting */
 	volatile int state;
-	pthread_mutex_t lock;
-	pthread_cond_t wake;
 
 	/* the renderer's side */
 	double next_time;
@@ -126,7 +129,7 @@ static struct
 	unsigned long bytes, most_bytes;
 	unsigned long seconds;
 	int fps;
-} clips = { 0, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER };
+} clips;
 
 static double now_seconds(void)
 {
@@ -718,7 +721,7 @@ static void *encoder_main(void *unused)
 	clips.start = now_seconds();
 	clips.next_time = clips.start;
 	__atomic_store_n(&clips.state, 2, __ATOMIC_RELEASE);
-	pthread_mutex_lock(&clips.lock);
+	pthread_mutex_lock(&clips_lock);
 	for (;;)
 	{
 		struct clip_frame frame;
@@ -737,7 +740,7 @@ static void *encoder_main(void *unused)
 				deadline.tv_sec++;
 				deadline.tv_nsec -= 1000000000L;
 			}
-			pthread_cond_timedwait(&clips.wake, &clips.lock, &deadline);
+			pthread_cond_timedwait(&clips_wake, &clips_lock, &deadline);
 		}
 		if (clips.frame_count)
 		{
@@ -752,7 +755,7 @@ static void *encoder_main(void *unused)
 			snprintf(name, sizeof(name), "%s", clips.save_name);
 			save = 1;
 		}
-		pthread_mutex_unlock(&clips.lock);
+		pthread_mutex_unlock(&clips_lock);
 		encode_sound();
 		if (have_frame)
 			encode_picture(&frame);
@@ -764,7 +767,7 @@ static void *encoder_main(void *unused)
 			logged = clips.most_bytes >> 23;
 			platform_log("clips: up to %lu MB kept", clips.most_bytes >> 20);
 		}
-		pthread_mutex_lock(&clips.lock);
+		pthread_mutex_lock(&clips_lock);
 	}
 	return NULL;
 }
@@ -813,9 +816,9 @@ int capture_clip_frame_due(long source_width, long source_height, long *width, l
 	/* (a frame late starts the count again from now) */
 	clips.next_time = now - clips.next_time > clips.frame_seconds ? now + clips.frame_seconds :
 		clips.next_time + clips.frame_seconds;
-	pthread_mutex_lock(&clips.lock);
+	pthread_mutex_lock(&clips_lock);
 	room = clips.frame_count < CLIP_FRAMES;
-	pthread_mutex_unlock(&clips.lock);
+	pthread_mutex_unlock(&clips_lock);
 	if (!room || source_width < 16 || source_height < 16)
 		return 0;
 	*width = source_width;
@@ -846,7 +849,7 @@ int capture_clip_frame_lend(const unsigned char *pixels, long width, long height
 	int taken = 0;
 
 	*released = 0;
-	pthread_mutex_lock(&clips.lock);
+	pthread_mutex_lock(&clips_lock);
 	if (clips.state == 2 && clips.frame_count < CLIP_FRAMES && pixels)
 	{
 		struct clip_frame *frame = &clips.frames[clips.frame_count++];
@@ -858,10 +861,10 @@ int capture_clip_frame_lend(const unsigned char *pixels, long width, long height
 		frame->bgra = bgra;
 		frame->time = time;
 		frame->released = released;
-		pthread_cond_signal(&clips.wake);
+		pthread_cond_signal(&clips_wake);
 		taken = 1;
 	}
-	pthread_mutex_unlock(&clips.lock);
+	pthread_mutex_unlock(&clips_lock);
 	if (!taken)
 		*released = 1;
 	return taken;
@@ -926,11 +929,11 @@ void capture_request_clip(void)
 	callers) */
 	platform_folder(_port_folder_clips);
 	capture_file_name(name, sizeof(name));
-	pthread_mutex_lock(&clips.lock);
+	pthread_mutex_lock(&clips_lock);
 	snprintf(clips.save_name, sizeof(clips.save_name), "%s", name);
 	clips.save_wanted = 1;
-	pthread_cond_signal(&clips.wake);
-	pthread_mutex_unlock(&clips.lock);
+	pthread_cond_signal(&clips_wake);
+	pthread_mutex_unlock(&clips_lock);
 }
 
 #else

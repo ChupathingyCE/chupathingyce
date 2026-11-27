@@ -1,10 +1,24 @@
 """The production model debug query must not affect ordinary rendering."""
 from pathlib import Path
+import os
+import shutil
 import subprocess
 
-from test_load_trace import build
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def build(work, source):
+    cc = next((name for name in (os.environ.get("CC"), "clang", "cc", "gcc")
+               if name and shutil.which(name)), None)
+    if cc is None:
+        pytest.skip("no C compiler")
+    path = work / "obscurer.c"
+    path.write_text(source)
+    exe = work / "obscurer"
+    subprocess.run([cc, "-std=gnu11", str(path), "-o", str(exe)], check=True)
+    return exe
 
 
 def test_model_obscurer_only_queries_for_debug_selection(tmp_path):
