@@ -960,7 +960,7 @@ static int hex_of_length(const char *text, size_t length)
 }
 
 /* the actions /v1/party takes (puma's PARTY_ACTIONS, "" the read aside):
-each one DELTA sends is one of these (tools/test_social.py checks guide.c) */
+each one DELTA sends is one of these (tools/test_c_units.py checks guide.c) */
 const char *const social_party_actions[] =
 {
 	"create", "invite", "accept", "decline", "join", "leave", "kick", "lead", "rule", "code", "go", NULL,
