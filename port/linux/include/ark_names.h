@@ -16,4 +16,12 @@ file spells it).
 /* its short tag in the Play list (four letters at most) */
 #define ARK_MODE_DISPLAY_TAG "ARK"
 
+/* whether the mode is offered at all: 0 until it plays (its levels come in
+the following steps), so a build never lists a mode with nothing in it.
+A local build may set it with -DARK_MODE_PLAYABLE=1 to try the setup
+screen's row */
+#ifndef ARK_MODE_PLAYABLE
+#define ARK_MODE_PLAYABLE 0
+#endif
+
 #endif

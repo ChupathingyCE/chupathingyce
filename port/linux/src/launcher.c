@@ -1180,6 +1180,11 @@ static void modes_find(void)
 			valid = isalnum((unsigned char)suffix[character]) || suffix[character] == '+';
 		if (!valid || !SDL_strcasecmp(suffix, "ce") || !SDL_strcasecmp(suffix, "pc") || !SDL_strcasecmp(suffix, "md"))
 			continue;
+#ifdef HALO_ARK
+		/* (maps_ark is Project Ark's, below, never a pack) */
+		if (!SDL_strcasecmp(suffix, "ark"))
+			continue;
+#endif
 		snprintf(path, sizeof(path), "%s/%s", launcher.root, name);
 		/* (SPV3, early: its menus are its ui.yelo, a Custom Edition map read
 		with OpenSauce's larger tag window, port/linux/game/spv3_mode.c; only
@@ -1226,10 +1231,11 @@ static void modes_find(void)
 		posix_directory_close(directory);
 #ifdef HALO_ARK
 	/* (Project Ark, early: port/linux/game/ark_mode.c. No ui.map: the menus
-	stay the game's own. Only with the player's own files here, in maps_ark,
-	never a download) */
-	mode_add(ARK_FILES_MODE_ID, ARK_MODE_DISPLAY_NAME, ARK_MODE_DISPLAY_TAG, ARK_FILES_FOLDER,
-		ark_files_folder(NULL, 1024));
+	stay the game's own. Listed only with the player's own files here, in
+	maps_ark or MCC's install, never a download, and only once the mode
+	plays: ark_names.h) */
+	if (ARK_MODE_PLAYABLE && ark_files_folder(NULL, 1024))
+		mode_add(ARK_FILES_MODE_ID, ARK_MODE_DISPLAY_NAME, ARK_MODE_DISPLAY_TAG, ARK_FILES_FOLDER, 1);
 #endif
 	for (index = 0; index < sizeof(xbox_mod_packs) / sizeof(*xbox_mod_packs); index++)
 	{
@@ -3080,12 +3086,6 @@ static void act(const struct row *row)
 		{
 			launcher.section = _section_maps;
 			enter_screen(_screen_maps);
-#ifdef HALO_ARK
-			if (!strcmp(launcher.modes[row->argument].id, ARK_FILES_MODE_ID))
-				set_status(COLOR_AMBER, "Copy your own files from MCC to %s, then check again.",
-					launcher.modes[row->argument].folder);
-			else
-#endif
 			set_status(COLOR_AMBER, "Put the %s maps in %s, with its ui.map, then check again.",
 				launcher.modes[row->argument].title, launcher.modes[row->argument].folder);
 			break;

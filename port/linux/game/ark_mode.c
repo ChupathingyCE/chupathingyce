@@ -47,7 +47,8 @@ boolean ark_mode_active(
 		char const *value = config_string("game.pack_menus");
 
 		/* (the id, or its folder's name) */
-		active = value && (!_stricmp(value, ARK_MODE_PACK_ID) || !_stricmp(value, ARK_MODE_FOLDER));
+		active = ARK_MODE_PLAYABLE && value &&
+			(!_stricmp(value, ARK_MODE_PACK_ID) || !_stricmp(value, ARK_MODE_FOLDER));
 		if (active && !ark_files_folder(NULL, 1024))
 		{
 			platform_log("ark: the mode is picked, but its files are not here (a " ARK_MODE_FOLDER

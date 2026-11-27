@@ -15,12 +15,16 @@ folder is found by what it holds, a game's folder or one folder below it.
 */
 
 #include "ark_files.h"
-#include "platform.h"
 #include "posix.h"
 #include "steam_workshop.h"
 
 #include <stdio.h>
 #include <string.h>
+
+/* (platform.h's, without the rest of it: tools/test_ark_mode.py builds this
+unit alone) */
+const char *platform_data_root(void);
+void platform_log(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
 #ifdef HALO_ARK
 
