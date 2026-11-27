@@ -2905,14 +2905,14 @@ path's texture swizzle reads them (xbox_textures.c's upload); bgfx has no
 swizzle of its own. A DXT one is decoded for it */
 static BOOL bg_texture_unpacked(const struct xgpu_texture_description *description)
 {
-	return description->pc_meter || description->pc_multipurpose;
+	return description->pc_multipurpose;
 }
 
 /* a level's 32-bit ARGB texels (0xAARRGGBB) with their channels where the
-shaders read them: a Halo PC HUD meter's fill order (alpha) as its color and
-its shape (red) as its alpha (D3DCOMMON_PORT_PC_METER); a Halo PC
-multipurpose map's blue, green, alpha and red as red, green, blue and alpha
-(D3DCOMMON_PORT_PC_MULTIPURPOSE) */
+shaders read them: a Halo PC multipurpose map's blue, green, alpha and red as
+red, green, blue and alpha (D3DCOMMON_PORT_PC_MULTIPURPOSE). A Halo PC HUD
+meter's are left where they are: the meter shader reads them there, and a
+static element drawing the same bitmap needs them as they are */
 static void bg_texture_channels(const struct xgpu_texture_description *description, unsigned int *texels,
 	unsigned long count)
 {
@@ -2923,9 +2923,7 @@ static void bg_texture_channels(const struct xgpu_texture_description *descripti
 		unsigned int texel = texels[index];
 		unsigned int alpha = texel >> 24, red = (texel >> 16) & 0xff, green = (texel >> 8) & 0xff, blue = texel & 0xff;
 
-		if (description->pc_meter)
-			texels[index] = (red << 24) | (alpha << 16) | (alpha << 8) | alpha;
-		else if (description->pc_multipurpose)
+		if (description->pc_multipurpose)
 			texels[index] = (red << 24) | (blue << 16) | (green << 8) | alpha;
 	}
 }
@@ -3022,16 +3020,17 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 
 	/* a BC7 one (a Custom Edition map's bitmap in MCC's high-quality
 	compression) is sent as BC7 where the backend samples it, and decoded
-	by the OpenGL upload's decoder where it doesn't. A Halo PC HUD meter or
-	multipurpose map is decoded too, so its texels are where a later move
-	of its channels can reach them (bg_texture_channels, as OpenGL's
-	swizzle moves them) */
+	by the OpenGL upload's decoder where it doesn't. A Halo PC multipurpose
+	map is decoded too, so its texels are where a later move of its
+	channels can reach them (bg_texture_channels, as OpenGL's swizzle moves
+	them). A Halo PC HUD meter's channels stay where they are: the meter
+	shader reads them there (rasterizer_xbox_dynavobgeom.c) */
 	if (bc7)
 	{
 		uint16_t wanted = volume ? BGFX_CAPS_FORMAT_TEXTURE_3D : description->cube_map ? BGFX_CAPS_FORMAT_TEXTURE_CUBE :
 			BGFX_CAPS_FORMAT_TEXTURE_2D;
 
-		if (!description->pc_meter && !description->pc_multipurpose &&
+		if (!description->pc_multipurpose &&
 			(bgfx_get_caps()->formats[BGFX_TEXTURE_FORMAT_BC7] & wanted))
 			dxt = 7;
 	}
