@@ -133,6 +133,11 @@ char const *global_material_type_strings[NUMBER_OF_MATERIAL_TYPES] =
 	"elite energy shield",
 	"ice",
 	"hunter shield",
+#ifdef HALO_STUBBS_LIMITS
+	/* port: Stubbs the Zombie's two more (Stubbs mode) */
+	"stubbs 33",
+	"stubbs 34",
+#endif
 };
 
 short const global_difficulty_friend_settings[NUMBER_OF_GAME_DIFFICULTY_VALUES] =

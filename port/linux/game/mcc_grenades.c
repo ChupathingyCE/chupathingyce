@@ -1,5 +1,9 @@
 /* MCC adds two grenade/ability slots without changing the native unit or
- * save-game layout. Every extra count belongs to a full salted object ID. */
+ * save-game layout. Every extra count belongs to a full salted object ID.
+ * An OpenSauce map whose globals list more than two grenade types (SPV3's
+ * cluster and anti-matter grenades) uses this layer too; its third and fourth
+ * counts live in the biped's own padding (bipeds.h), so a checkpoint's revert
+ * brings them back with the rest of the game state. */
 #ifndef HALO_MCC
 #include "../include/halo_port_features.h"
 #endif
@@ -23,6 +27,8 @@
 #include "objects/objects.h"
 #include "scenario/scenario.h"
 #include "units/units.h"
+#include "units/bipeds.h"
+#include "opensauce.h"
 #include "units/unit_definitions.h"
 #include <string.h>
 #include "content_bytes.h"
@@ -34,7 +40,29 @@ static long mcc_grenade_flash_time[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 boolean network_game_distributed_client(void);
 void network_damage_note_grenade(long unit,short type);
 
-boolean mcc_grenades_active(void) {return mcc_cache_tags_loaded();}
+/* (the biped's two bytes are padding the datum always had: its size is
+the object type's, biped_data_definition's 0x480) */
+typedef char verify_biped_datum_size[sizeof(struct biped_datum) == 0x480 ? 1 : -1];
+
+/* whether the extra types are an OpenSauce map's (opensauce_map.c) */
+static boolean mcc_grenades_opensauce(void)
+{
+#ifdef HALO_CUSTOM_EDITION
+    return !mcc_cache_tags_loaded() && opensauce_map_four_grenades();
+#else
+    return FALSE;
+#endif
+}
+
+boolean mcc_grenades_active(void) {return mcc_cache_tags_loaded() || mcc_grenades_opensauce();}
+
+/* an OpenSauce map's third or fourth count of a unit: a biped's (a vehicle
+ * carries none) */
+static char *mcc_grenades_opensauce_count(long unit,short type)
+{
+    struct biped_datum *biped=biped_try_and_get(unit);
+    return biped && type>=2 && type<4 ? &biped->biped.opensauce_grenade_counts[type-2] : NULL;
+}
 
 short mcc_grenades_type_count(void)
 {
@@ -73,6 +101,11 @@ void mcc_grenades_reset(void)
 void mcc_grenades_clear(long unit)
 {
     unsigned index=(unsigned long)unit&0xFFFF;
+    if (mcc_grenades_opensauce()) {
+        char *count;
+        if ((count=mcc_grenades_opensauce_count(unit,2))!=NULL) count[0]=count[1]=0;
+        return;
+    }
     if (index<MAXIMUM_OBJECTS_PER_MAP) {
         mcc_grenade_inventories[index].handle=unit;
         mcc_grenade_inventories[index].counts[0]=mcc_grenade_inventories[index].counts[1]=0;
@@ -85,6 +118,10 @@ short mcc_grenades_get(long unit,short type)
     struct mcc_grenade_inventory *inventory;
     if (!mcc_grenades_active() || type<0 || type>=mcc_grenades_type_count() || !(object=unit_try_and_get(unit))) return 0;
     if (type<2) return MAX(object->unit.grenade_counts[type],0);
+    if (mcc_grenades_opensauce()) {
+        char const *count=mcc_grenades_opensauce_count(unit,type);
+        return count ? MAX(*count,0) : 0;
+    }
     inventory=mcc_grenade_inventory(unit,0);
     return inventory ? inventory->counts[type-2] : 0;
 }
@@ -96,6 +133,10 @@ void mcc_grenades_set(long unit,short type,short count)
     if (!mcc_grenades_active() || type<0 || type>=mcc_grenades_type_count() || !(object=unit_try_and_get(unit))) return;
     count=(short)PIN(count,0,127);
     if (type<2) object->unit.grenade_counts[type]=(char)count;
+    else if (mcc_grenades_opensauce()) {
+        char *slot=mcc_grenades_opensauce_count(unit,type);
+        if (slot) *slot=(char)count;
+    }
     else if ((inventory=mcc_grenade_inventory(unit,1))!=NULL) inventory->counts[type-2]=(unsigned char)count;
 }
 

@@ -61,7 +61,12 @@ enum
 	WORKSHOP_BROWSER_TITLE_SIZE = 160,
 	WORKSHOP_BROWSER_AUTHOR_SIZE = 48,
 	WORKSHOP_BROWSER_KIND_SIZE = 32,
+	/* an item's description in its row: its start, for search */
 	WORKSHOP_BROWSER_DESCRIPTION_SIZE = 400,
+	/* the whole description, for its page (workshop_browser_description):
+	Steam takes at most 8000 characters, kept whole with the markup out;
+	longer, cut ending "..." */
+	WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE = 8192,
 	/* the largest list document read */
 	WORKSHOP_BROWSER_MAXIMUM_DOCUMENT = 128 * 1024,
 	WORKSHOP_BROWSER_PREVIEW_WIDTH = 768,
@@ -198,6 +203,11 @@ were written, with their title, kind (campaign, multiplayer or, tagged both,
 campaign+multiplayer), size when Steam
 gives one, update time, creator's id and a plain description; -1 if it is not one */
 int workshop_browser_read_details(const char *text, int length, struct workshop_browser_item *items, int maximum);
+/* the same, with each item's whole plain description in full[index] (up to
+WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE; NULL when it has none): the
+caller frees each; all NULL when it returns -1 */
+int workshop_browser_read_details_full(const char *text, int length, struct workshop_browser_item *items,
+	int maximum, char **full);
 /* the item ids on a page of Steam's public Workshop browse page, each once,
 in the page's order: its list's items (the page carries the list as data),
 or, on a page without it, the digits after each "filedetails/?id=": how many */
@@ -241,6 +251,10 @@ int workshop_browser_poll(void);
 int workshop_browser_status(void);
 int workshop_browser_count(void);
 const struct workshop_browser_item *workshop_browser_item(int index);
+/* an item's whole description (Steam's details, plain), copied into out
+(WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE holds any): 1, or 0 when it isn't
+known this run (the item's own, its start, is all there is) */
+int workshop_browser_description(const char *id, char *out, int size);
 /* SUBSCRIBE: through the Steam bridge when it is on and ready, else the
 item's Steam page opened (platform_open_url); 0 for a bad index. For the
 MCC row, steamcmd asked to install MCC's Halo CE files */

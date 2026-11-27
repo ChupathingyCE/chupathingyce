@@ -170,7 +170,17 @@ static boolean stubbs_actor_variant_convert(unsigned char *definition)
 static unsigned char *stubbs_tags_base;
 static unsigned long stubbs_tags_size;
 
-static unsigned char *stubbs_host(unsigned char *base, unsigned long size, unsigned long address,
+/* the tag header and the tag index (offsets into the tags, end past the
+last byte), which no tag's data may overlap: a map that has a tag there
+would have the conversion rewrite its index under it */
+enum
+{
+	STUBBS_TAG_HEADER_SIZE = 0x24,
+};
+static unsigned long stubbs_tags_index_start;
+static unsigned long stubbs_tags_index_end;
+
+static unsigned char *stubbs_tags_at(unsigned char *base, unsigned long size, unsigned long address,
 	unsigned long length)
 {
 	unsigned long offset = address - STUBBS_XBOX_TAG_CACHE_BASE;
@@ -178,6 +188,28 @@ static unsigned char *stubbs_host(unsigned char *base, unsigned long size, unsig
 	if (address < STUBBS_XBOX_TAG_CACHE_BASE || offset > size || length > size - offset)
 		return NULL;
 	return base + offset;
+}
+
+/* the tag index's count elements, at instances */
+static unsigned char *stubbs_index(unsigned char *base, unsigned long size, unsigned long instances,
+	unsigned long count)
+{
+	return stubbs_tags_at(base, size, instances, count * 0x20);
+}
+
+/* a tag's data: in the tags, and clear of their header and index */
+static unsigned char *stubbs_host(unsigned char *base, unsigned long size, unsigned long address,
+	unsigned long length)
+{
+	unsigned char *host = stubbs_tags_at(base, size, address, length);
+	unsigned long offset = address - STUBBS_XBOX_TAG_CACHE_BASE;
+
+	if (!host || offset < STUBBS_TAG_HEADER_SIZE ||
+		(offset < stubbs_tags_index_end && offset + length > stubbs_tags_index_start))
+	{
+		return NULL;
+	}
+	return host;
 }
 
 /* Stubbs's unit's melee: a block of his own at 0x330 (reclaimer reads it as
@@ -313,6 +345,10 @@ enum
 	TAG_DATA_SIZE_OFFSET = 0x00,
 	TAG_DATA_FILE_OFFSET_OFFSET = 0x08,
 	TAG_DATA_ADDRESS_OFFSET = 0x0C,
+	/* (the most frame data read for one map: a map file holds far less. A
+	sum past it is no map's, and its frame data is not read; the cap keeps
+	the sum from wrapping 32 bits, as sizes near 2 GB each would) */
+	MAXIMUM_STUBBS_ANIMATION_DATA = 0x10000000,
 };
 
 static void *stubbs_animation_data;
@@ -358,7 +394,7 @@ static unsigned char *stubbs_animation_data_owner(unsigned char *animation)
 
 		memcpy(&handle, animation + ANIMATION_SHARED_GRAPH_OFFSET, 4);
 		memcpy(&index, animation + ANIMATION_SHARED_INDEX_OFFSET, 2);
-		instance = stubbs_host(stubbs_tags_base, stubbs_tags_size, stubbs_tags_instances, stubbs_tags_count * 0x20);
+		instance = stubbs_index(stubbs_tags_base, stubbs_tags_size, stubbs_tags_instances, stubbs_tags_count);
 		if (!instance || index < 0 || (handle & 0xFFFF) >= stubbs_tags_count)
 			return NULL;
 		instance += (handle & 0xFFFF) * 0x20;
@@ -419,6 +455,22 @@ static unsigned long stubbs_animation_data_share(unsigned char *animation, unsig
 	return 1;
 }
 
+/* a sharing animation still with a size and no data, its size made 0 as
+stubbs_animation_data_share does: 1 if it was. (Tags that overlap each
+other can have a later rewrite land on an animation already shared) */
+static unsigned long stubbs_animation_data_unshared_clear(unsigned char *animation, unsigned char *into)
+{
+	long data_size, address, none = 0;
+
+	(void)into;
+	memcpy(&data_size, animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_SIZE_OFFSET, 4);
+	memcpy(&address, animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_ADDRESS_OFFSET, 4);
+	if (data_size <= 0 || address || !stubbs_animation_shares_data(animation))
+		return 0;
+	memcpy(animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_SIZE_OFFSET, &none, 4);
+	return 1;
+}
+
 static unsigned long stubbs_animation_data_read(unsigned char *animation, unsigned char *into)
 {
 	unsigned long data_size = stubbs_animation_data_size(animation);
@@ -461,7 +513,7 @@ static boolean stubbs_tag_is(unsigned char *base, unsigned long size, long handl
 
 	if (handle == NONE || (unsigned long)(handle & 0xFFFF) >= stubbs_tags_count)
 		return FALSE;
-	instance = stubbs_host(base, size, stubbs_tags_instances + (unsigned long)(handle & 0xFFFF) * 0x20, 0x20);
+	instance = stubbs_tags_at(base, size, stubbs_tags_instances + (unsigned long)(handle & 0xFFFF) * 0x20, 0x20);
 	if (!instance)
 		return FALSE;
 	memcpy(&instance_group, instance, 4);
@@ -802,7 +854,7 @@ static unsigned long stubbs_animations_each(unsigned char *base, unsigned long s
 
 	for (index = 0; index < count; index++)
 	{
-		unsigned char *instance = stubbs_host(base, size, instances, count * 0x20) + index * 0x20;
+		unsigned char *instance = stubbs_index(base, size, instances, count) + index * 0x20;
 		unsigned long group, address, animation_count, animations_address, animation_index;
 		unsigned char *graph, *animations;
 
@@ -821,7 +873,16 @@ static unsigned long stubbs_animations_each(unsigned char *base, unsigned long s
 		{
 			unsigned long used = visit(animations + animation_index * HALO_ANIMATION_SIZE, into ? into + total : NULL);
 
-			total += visit == stubbs_animation_data_measure ? (used + 15) & ~15UL : used;
+			if (visit == stubbs_animation_data_measure)
+			{
+				/* (saturates just past the most, never wraps) */
+				used = used > MAXIMUM_STUBBS_ANIMATION_DATA ? MAXIMUM_STUBBS_ANIMATION_DATA + 1UL : (used + 15) & ~15UL;
+				total = total > MAXIMUM_STUBBS_ANIMATION_DATA ? total : total + used;
+			}
+			else
+			{
+				total += used;
+			}
 		}
 	}
 	return total;
@@ -1016,6 +1077,9 @@ void stubbs_mode_convert_tags(
 	stubbs_tags_size = tag_data_size;
 	stubbs_tags_instances = instances;
 	stubbs_tags_count = count;
+	/* (nothing clear of an index past the tags: it is checked below) */
+	stubbs_tags_index_start = 0;
+	stubbs_tags_index_end = tag_data_size;
 	/* (this map's units noted afresh, not added to the last map's: their
 	pointers are into the tag cache this map replaced, so they go even when
 	this map's tags turn out not to be Stubbs's) */
@@ -1024,14 +1088,16 @@ void stubbs_mode_convert_tags(
 	stubbs_player_tags_new_map();
 	/* (no more tags than a tag index holds: a count past it would wrap the
 	32-bit size of the index checked below) */
-	if (count > 0xFFFF || !stubbs_host(base, tag_data_size, instances, count * 0x20))
+	if (count > 0xFFFF || !stubbs_index(base, tag_data_size, instances, count))
 	{
 		stubbs_mode_log("the tag header is not Stubbs's: nothing converted");
 		return;
 	}
+	stubbs_tags_index_start = instances - STUBBS_XBOX_TAG_CACHE_BASE;
+	stubbs_tags_index_end = stubbs_tags_index_start + count * 0x20;
 	for (index = 0; index < count; index++)
 	{
-		unsigned char *instance = stubbs_host(base, tag_data_size, instances, count * 0x20) + index * 0x20;
+		unsigned char *instance = stubbs_index(base, tag_data_size, instances, count) + index * 0x20;
 		unsigned long group, address;
 		unsigned long halo_part = 0;
 		unsigned char *definition;
@@ -1119,6 +1185,11 @@ void stubbs_mode_convert_tags(
 			system_free(stubbs_animation_data);
 			stubbs_animation_data = NULL;
 		}
+		if (needed > MAXIMUM_STUBBS_ANIMATION_DATA)
+		{
+			stubbs_mode_log("animation frame data: more than %lu bytes, not read", (unsigned long)MAXIMUM_STUBBS_ANIMATION_DATA);
+			needed = 0;
+		}
 		if (needed)
 			stubbs_animation_data = system_calloc(1, (long)needed + 16);
 		stubbs_animation_data_bytes = stubbs_animation_data ? needed : 0;
@@ -1130,6 +1201,10 @@ void stubbs_mode_convert_tags(
 		/* (last: nothing after it rewrites an animation) */
 		stubbs_mode_log("%lu animations read the frame data of another they share it with",
 			stubbs_animations_each(base, tag_data_size, instances, count, stubbs_animation_data_share, NULL));
+		/* (none left with a size and no data, which would refuse the map:
+		each pass only clears sizes, so it ends; a map's tags need none) */
+		while (stubbs_animations_each(base, tag_data_size, instances, count, stubbs_animation_data_unshared_clear, NULL))
+			;
 	}
 }
 

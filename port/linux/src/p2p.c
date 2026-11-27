@@ -2883,6 +2883,16 @@ int p2p_hosting_public_game(void)
 	return result;
 }
 
+int p2p_hosting_internet(void)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = !p2p.hosting_lan_only;
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
 int p2p_hosting_has_password(void)
 {
 	int result;

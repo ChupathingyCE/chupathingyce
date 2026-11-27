@@ -1,7 +1,12 @@
-# Longer runs of the host's fuzz targets (tools/test_host_fuzz.py) than the
-# few seconds each gets in the Build workflow's tests: every night, and by
-# hand. A target that fails leaves its input (crash-*, timeout-*) as an
-# artifact, to fix and then keep in its regressions folder.
+# The random half of the fuzz targets: every night, and by hand. A pull
+# request's tests only replay each target's saved regressions and seeds
+# (tools/fuzz_support.py), so a crash that fuzzing turns up fails here, on
+# main, and never someone else's change. The host's targets
+# (tools/test_host_fuzz.py) and the Steam content and Workshop readers
+# (tools/test_steam_content.py, tools/test_workshop_list.py) each fuzz for
+# the seconds given. A target that fails leaves its input (crash-*,
+# timeout-*) as an artifact, to fix and then keep in its regressions folder.
+# (Tier C's nightly half: docs/ci.md.)
 name: Fuzz
 
 on:
@@ -21,22 +26,32 @@ jobs:
   host:
     if: github.repository == 'ChupathingyCE/chupathingyce'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      HALO_FUZZ_SECONDS: ${{ inputs.seconds || '120' }}
+      HALO_SANITIZERS_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v4
 
       - name: Install clang
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends clang libclang-rt-dev
+          sudo apt-get install -y -q --no-install-recommends clang lld libclang-rt-dev python3-pytest
 
-      - name: Fuzz
-        env:
-          HALO_FUZZ_SECONDS: ${{ inputs.seconds || '120' }}
+      # (build.ninja, whose commands the targets that take game units compile
+      # them with: without it they were skipped)
+      - name: Configure
+        run: python3 configure.py --portable --release --pgo=off
+
+      - name: Fuzz the host's targets
         run: |
           mkdir -p fuzz-out
           cd fuzz-out
           python3 ../tools/test_host_fuzz.py --seconds "$HALO_FUZZ_SECONDS" --keep-failures .
+
+      - name: Fuzz the Steam content and Workshop readers
+        if: ${{ !cancelled() }}
+        run: python3 -m pytest -q -rs tools/test_steam_content.py tools/test_workshop_list.py -k fuzz --basetemp=fuzz-out/pytest
 
       - uses: actions/upload-artifact@v4
         if: failure()
