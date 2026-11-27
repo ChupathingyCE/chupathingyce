@@ -1800,7 +1800,7 @@ static boolean test_watch_squad_update(void)
 
 /* (watch, fight) every animation an actor starts that is not plain locomotion - a dive, an evade, a surprise, a throw, a
 gesture, a melee, a mode of its own (flee, panic, stunned, cower ...) - one row each to range-track.tsv:
-"anim TICK S UNIT CHANNEL NAME ACTION" (the special behaviours' tables, ~/halo-test-out/behav10-runs) */
+"anim TICK S UNIT CHANNEL NAME ACTION" (the special behaviours' tables, local test runs) */
 static struct { long actor; char base[64], action[64]; } range_anim_seen[64];
 
 static boolean range_anim_plain(char const *name)

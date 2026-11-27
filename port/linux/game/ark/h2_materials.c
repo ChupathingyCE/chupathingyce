@@ -123,7 +123,7 @@ static boolean template_listed(
 	return FALSE;
 }
 
-/* (pcmap.py and scalemap.py, ~/halo-test-out/h2materials/tools: each H2EK
+/* (pcmap.py and scalemap.py, local comparison scripts: each H2EK
 shader's parameters matched with the MCC map's constants, every shader of
 Zanzibar and shared.map the H2EK has) */
 /* (h2/render-accuracy, session 20: the rows with an own base scale (the
@@ -239,7 +239,7 @@ static struct material_template const material_templates[] =
 	{ "prt_simple_lm_emissive@old", 0, 1, 2, -1, 4, 0, 3, -1, C_PC(2), C_PC(3), C_PC(0), C_PC(0), -1, -1, _h2_lightmap_type_default, FALSE },
 	/* (round 3: every opaque template the MCC maps use, read off their
 	constants against the H2EK's parameters over all 40 maps -
-	~/halo-test-out/h2r03a/tools/pcmap_all.py, private. The self-illuminated
+	a local comparison script, private. The self-illuminated
 	ones' glow map stays h2_level.c's (its illum paths); these give them
 	their bump map, detail scale and specular) */
 	/* bump, base, detail; glow map 3 */

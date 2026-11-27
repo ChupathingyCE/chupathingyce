@@ -7,7 +7,7 @@ h2_weapons.c: it uses the level build's buffers, bitmaps and tag writing;
 built alone it is empty).
 
 What Halo 2's effects are (Assembly's Halo 2 plugins, checked against the
-owner's MCC shared.map; ~/halo-test-out/h2effects/tools for the reading):
+owner's MCC shared.map; a local reading tool):
 - an effect (effe): its locations (marker names, string ids at 0xC), its
   events (0x14, 0x38 each: skip fraction, delay and duration bounds), each
   event's parts (0x18: sounds, lights, decals, damage...) and particle

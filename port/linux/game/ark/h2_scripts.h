@@ -22,7 +22,7 @@ Two halves:
   constants.
 
 What runs, what is a stand-in and what is counted when a level plays:
-~/halo-test-out/h2audit/SCRIPT-STATUS.md (private); HALO_H2_SCRIPT_STATUS=
+a local status file (private); HALO_H2_SCRIPT_STATUS=
 path writes the counts there when the map is left.
 */
 

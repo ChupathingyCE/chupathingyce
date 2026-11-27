@@ -17,7 +17,7 @@ interpretation (angles in degrees as the XML prints them, string ids as
 text, tag references as group:path). A block row's value is
 "count=N elem=0xNN" and is followed by every element (not only the first),
 HALO_H2_TAG_DUMP_MAX elements at most (default 400; "truncated" row past
-it). The checker (~/halo-test-out/h2ekref/tools/verify.py) matches each row
+it). A local checker script matches each row
 with the XML field of the same name and block path. Compiled out of
 release builds, as h2_run.c is. */
 

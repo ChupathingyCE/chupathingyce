@@ -1,7 +1,7 @@
 /* h2_tag_dump.h: a test-only dump of the Halo 2 tag fields this port reads
 (the offsets its readers use, as a table) for every tag of the chosen groups
 in a map, one TSV file a tag, to compare against the H2EK's field names and
-values (~/halo-test-out/h2ekref/tools/verify.py). HALO_H2_TAG_DUMP=<dir>
+values (a local checker script). HALO_H2_TAG_DUMP=<dir>
 turns it on; compiled out of release builds. See h2_tag_dump.c. */
 #ifndef H2_TAG_DUMP_H
 #define H2_TAG_DUMP_H

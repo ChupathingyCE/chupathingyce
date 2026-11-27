@@ -253,7 +253,7 @@ struct _weapon_definition
 	real properties_unused;
 	real ai_minimum_target_range;
 	real ai_idle_look_time_modifier;
-	/* port: (Halo 3's gravity hammer, port/linux/game/h3_weapons.c) the
+	/* port: (a melee weapon's) the
 	explosion its strike makes where it lands - a jpt! tag index, its
 	area damage and acceleration done from the strike's point (units/units.c);
 	0 or NONE: none - in what was an unused word */

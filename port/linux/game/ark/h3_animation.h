@@ -13,8 +13,8 @@ and everything after the read is h2_animation.c's: the tables, the baking of
 overlays into base animations, the variants, this engine's compression and
 the tag written into the level.
 
-Layouts: read against the owner's zanzibar.map (~/halo-test-out/h3-anim/
-AUDIT.md: the table and what verified each offset); the field names are
+Layouts: read against the owner's zanzibar.map (a local audit: the table and what verified
+each offset); the field names are
 Assembly's Halo3MCC plugins' (a reference, no code).
 
 Switch: HALO_H3_ANIMATION=1 (off by default; PC for now: the maps are read

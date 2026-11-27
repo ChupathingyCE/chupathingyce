@@ -7,7 +7,7 @@ resources it keeps in itself or in the shared maps (shared.map,
 single_player_shared.map, mainmenu.map) beside it. Read only, every count,
 offset and address checked against what was read: the file is anyone's.
 
-Layouts: the halo2-decomp project (~/github/vitaprojects/halo2/halo2-decomp,
+Layouts: the halo2-decomp project (a local checkout,
 include/halo2/cache_layout.h, docs/CACHE-MAPS.md and docs/TAGS-OBJECTS.md:
 the header, the index, the tag entries, the structure descriptors and the
 resource selectors), and for the structure BSP's blocks the layouts checked

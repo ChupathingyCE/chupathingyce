@@ -25,7 +25,7 @@ What a weapon is made of, each from the player's own MCC shared.map:
 
 Layouts: Assembly's Halo 2 plugins (read only) checked against the owner's
 shared.map; the codecs from reading its animations (decoded, drawn and
-compared, ~/halo-test-out/h2port/wv) with the halo2-decompiled samplers
+compared in local runs) with the halo2-decompiled samplers
 (src/unknown_28c510.cpp, unknown_2c4d60.cpp) as a guide:
 - a jmad's skeleton nodes at 0xC (0x20 each: name, sibling, child, parent),
   its animations at 0x2C (0x60 each: name, type at 0x10, node count 0x13,

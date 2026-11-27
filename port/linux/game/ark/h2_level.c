@@ -6682,7 +6682,7 @@ H2_ALIGN static long black_bitmap(struct build *build)
 /* each self-illuminated opaque template's glow map (its postprocess
 bitmaps' index) and its colour (its pixel constant, -1 white), read off
 MCC's constants against the H2EK's parameters over all its maps
-(round 3, ~/halo-test-out/h2r03a/tools/pcmap_all.py): pure, a template
+(round 3, a local comparison script): pure, a template
 that is its glow alone (its base drawn black - lit, the glow map drew
 twice as bright as Halo 2's in a lit room); three, its map's three
 channels each a colour (three_channel_glow_bitmap) */
@@ -6853,7 +6853,7 @@ drawn alpha blended. Its multichannel map is four masks - red the
 transparent colour's (half grey the colour itself), green the detail's,
 blue the opacity, alpha the reflection's -, never a colour: drawn as a
 map and added (glass_damage: red and blue cracks) it was magenta.
-MCC's constants (~/halo-test-out/h2r03a pcmap): its maps environment
+MCC's constants (a local comparison script): its maps environment
 cube, multichannel, detail; its pixel constants environment_color,
 transparency (alpha), transparent_color; its vertex constants the maps'
 transforms (multichannel 0-1, detail 2-3), tint_color 4,

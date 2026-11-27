@@ -106,7 +106,7 @@ green with the hood's highlights alone); and their environment maps' gain
 term as disassembled (h2_lighting.h), scale 1. It was 2 from Oct, chosen by
 eye against the owner's MCC Zanzibar frames; measured against the real
 engine (the H2EK's halo2_tag_test, the same cameras, 26 views on 6 maps,
-~/halo-test-out/h2acc-render-runs) scale 1 is the closer on every one: the
+local render runs) scale 1 is the closer on every one: the
 mean pixel difference 11.6 -> 10.3 grey levels, the surfaces' fine contrast
 (a 9-pixel high pass) 1.2-1.4x the real engine's at 2, 0.9-1.1x at 1 (the
 doubled term darkened every bump's slopes: Burial Mounds' rock 0.87 of the
