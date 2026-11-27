@@ -1579,7 +1579,7 @@ static void validate_value(
 		long value = integer_get(address, field->size, is_unsigned);
 		long none = integer_none(field->size, is_unsigned);
 		/* (Halo PC's count, in its layout; or the layout's own where it has
-		one, field_maximum) */
+		one, field_maximum: OpenSauce's four grenade types) */
 		long maximum = field_maximum(field, field->target_offset &&
 			TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_pc_shader_types_bit) ?
 			field->target_offset : field->maximum);
