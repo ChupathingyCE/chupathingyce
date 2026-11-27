@@ -169,13 +169,21 @@ lobby has to count down */
 static boolean game_time_frozen_at_tick(
 	void)
 {
+#ifndef HALO_CONSOLE_NO_NETWORK_TEST
 	extern boolean determinism_check_replaying(void);
+#endif
 	short connection = game_connection();
+	boolean replaying = FALSE;
 
+	/* (as render.c's render_tuning: the consoles without the network
+	tests have no determinism check) */
+#ifndef HALO_CONSOLE_NO_NETWORK_TEST
+	replaying = determinism_check_replaying();
+#endif
 	return game_time_freeze_tick() > 0 &&
 		game_time_globals->server_time >= game_time_freeze_tick() &&
 		connection != _game_connection_network_client &&
-		(connection != _game_connection_network_server || determinism_check_replaying()) &&
+		(connection != _game_connection_network_server || replaying) &&
 		!main_menu_is_active();
 }
 

@@ -96,7 +96,7 @@ def main():
         exe = Path(temp) / ('checkpoint.exe' if os.name == 'nt' else 'checkpoint')
         c.write_text(unit)
         flags = ['--target=i686-pc-windows-msvc', '-fuse-ld=lld'] if os.name == 'nt' else []
-        subprocess.run([cc, *flags, '-std=c11', '-O2', str(c), '-o', str(exe)], check=True)
+        subprocess.run([cc, *flags, '-std=c11', '-O2', str(c), '-o', str(exe), '-lm'], check=True)
         subprocess.run([str(exe)], check=True)
 
 
