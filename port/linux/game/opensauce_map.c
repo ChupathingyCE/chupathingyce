@@ -39,6 +39,8 @@ it is here.
 #include "opensauce_postprocess.h"
 #include "opensauce_transforms.h"
 #include "opensauce_bsp_sets.h"
+#include "game/game_globals.h"
+#include "scenario/scenario.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -427,6 +429,17 @@ long opensauce_map_scripted_widget(
 	if (tag_index == NONE)
 		tag_index = opensauce_scripted_widget_in(opensauce_globals.gelo_root, GELO_SCRIPTED_WIDGETS_OFFSET, name);
 	return tag_index;
+}
+
+boolean opensauce_map_four_grenades(
+	void)
+{
+	struct game_globals *globals;
+
+	if (!opensauce_globals.active || !opensauce_globals.tag_instances)
+		return FALSE;
+	globals = scenario_get_game_globals();
+	return globals && globals->grenades.count > 2;
 }
 
 void opensauce_map_unloaded(
