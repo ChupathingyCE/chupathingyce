@@ -645,6 +645,7 @@ symbols in this file:
 
 #include "cseries.h"
 #include "opensauce.h" /* port: port/linux/game/opensauce_map.c */
+#include "opensauce_transforms.h" /* port: port/linux/game/opensauce_transforms.c */
 #include "units.h"
 #include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 
@@ -4418,6 +4419,22 @@ void unit_port_play_user_animation(
 	if (frame_index > 0 && frame_index < animation->frame_count)
 		unit->object.animation.state.frame_index = frame_index;
 	object_compute_node_matrices_recursive(unit_index);
+}
+
+/* port: an OpenSauce map's actor variant transforms
+(port/linux/game/opensauce_transforms.c), as OpenSauce's do: the new actor's
+unit readies its weapon at once (an energy sword not readied goes off), and
+a rider moved to the new unit stands idle */
+void unit_port_ready_desired_weapon(
+	long unit_index)
+{
+	unit_ready_desired_weapon(unit_index, TRUE);
+}
+
+void unit_port_animation_set_idle(
+	long unit_index)
+{
+	unit_animation_set_state(unit_index, _unit_state_idle);
 }
 
 boolean unit_melee_attack_begin(
@@ -10607,6 +10624,11 @@ short unit_update_animation(
 			case _unit_state_throw_grenade:
 				unit_throw_grenade_release(unit_index, FALSE);
 				break;
+			case _unit_state_user_animation:
+				/* port: an OpenSauce transform's key frame actions (only on
+				an OpenSauce map: port/linux/game/opensauce_transforms.c) */
+				opensauce_transforms_unit_animation_event(unit_index, FALSE);
+				break;
 			case _unit_state_melee_attack:
 			case _unit_state_melee_airborne:
 			case _unit_state_leap_melee:
@@ -10627,6 +10649,12 @@ short unit_update_animation(
 		{
 			switch (unit->unit.animation.state)
 			{
+			case _unit_state_user_animation:
+				/* port: an OpenSauce transform's stage ends with its
+				animation (port/linux/game/opensauce_transforms.c) */
+				opensauce_transforms_unit_animation_event(unit_index, TRUE);
+				break;
+
 			case _unit_state_leap_start:
 				result = TRUE;
 				desired_state = _unit_state_leap_airborne;

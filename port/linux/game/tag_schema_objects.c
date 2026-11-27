@@ -846,7 +846,7 @@ static struct tag_schema_field const projectile_fields[] =
 	TAG_SCHEMA_REFERENCE(struct _projectile_definition, attached_detonation_damage, TAG_SCHEMA_GROUPS('jpt!')),
 	TAG_SCHEMA_REFERENCE(struct _projectile_definition, impact_damage, TAG_SCHEMA_GROUPS('jpt!')),
 	TAG_SCHEMA_BLOCK(struct _projectile_definition, material_responses, projectile_material_response_schema,
-		NUMBER_OF_MATERIAL_TYPES),
+		NUMBER_OF_HALO_MATERIAL_TYPES),
 	TAG_SCHEMA_END
 };
 
