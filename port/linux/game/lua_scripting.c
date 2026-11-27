@@ -3,7 +3,7 @@ LUA_SCRIPTING.C
 
 Mods' Lua scripts written for Chimera's Lua API (lua_scripting.h), so that
 what modders wrote for Chimera carries over: SPV3's HUD, legs and skulls,
-and anyone's own. Off unless lua.scripts is on.
+and anyone's own. Off unless lua.scripts is on, but for SPV3 mode's own.
 
 Where scripts are, as Chimera lays out its lua folder, in the data folder
 (the one holding maps/):
@@ -12,7 +12,10 @@ Where scripts are, as Chimera lays out its lua folder, in the data folder
   lua\modules\                  what require and loadfile find
   lua\data\                     what io.open reads and writes
 and a map pack's own (game.pack_menus, as "spv3"), loaded while its menus
-are in use, the same folders under lua\<pack>\. Each script has a Lua state
+are in use, the same folders under lua\<pack>\. The ones above run only
+with lua.scripts on; SPV3 mode's own (lua\spv3\, which the setup screen's
+installer fills) run in that mode without it, sandboxed the same, since
+SPV3 is made to play with them. Each script has a Lua state
 of its own (Lua 5.4, port/third_party/lua) and Chimera's API
 (lua_chimera_api.c); its memory reads and writes go through Twiddlings
 (lua_twiddlings.c).
@@ -50,6 +53,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "lua_opensauce.h"
 #include "lua_scripting.h"
 #include "lua_twiddlings.h"
+#include "spv3_mode.h"
 #include "../../third_party/lua/lualib.h"
 
 #include <stdarg.h>
@@ -831,8 +835,14 @@ void lua_scripting_map_load(
 	char pack[sizeof(lua_globals.pack)];
 	char map[0x20 + 1];
 	int index;
+	boolean all = lua_enabled();
 
-	if (!lua_enabled())
+	/* (SPV3 mode's own scripts run in that mode without lua.scripts: the
+	pack's alone, not the player's global or map ones) */
+	lua_current_pack(pack, sizeof(pack));
+	if (!all && !(spv3_mode_active() && !strcmp(pack, "spv3")))
+		pack[0] = 0;
+	if (!all && !pack[0])
 	{
 		if (lua_script_count)
 		{
@@ -847,15 +857,19 @@ void lua_scripting_map_load(
 	if (!lua_globals.announced)
 	{
 		lua_globals.announced = TRUE;
-		lua_log("on: %s, Chimera's Lua API %.3f, scripts from the data folder's lua\\", LUA_RELEASE,
-			LUA_CHIMERA_API_VERSION);
+		lua_log("on: %s, Chimera's Lua API %.3f, scripts from the data folder's lua\\%s", LUA_RELEASE,
+			LUA_CHIMERA_API_VERSION, all ? "" : "spv3 (SPV3 mode's own; lua.scripts is off)");
 	}
-	if (!lua_globals.globals_loaded)
+	if (all && !lua_globals.globals_loaded)
 	{
 		lua_globals.globals_loaded = TRUE;
 		lua_load_global_scripts(LUA_ROOT, _lua_script_global);
 	}
-	lua_current_pack(pack, sizeof(pack));
+	else if (!all && lua_globals.globals_loaded)
+	{
+		lua_close_kind(_lua_script_global);
+		lua_globals.globals_loaded = FALSE;
+	}
 	if (strcmp(pack, lua_globals.pack))
 	{
 		lua_close_kind(_lua_script_pack);
@@ -884,7 +898,8 @@ void lua_scripting_map_load(
 	}
 	if (map[0] && !strpbrk(map, "\\/:."))
 	{
-		lua_load_map_script(LUA_ROOT, map);
+		if (all)
+			lua_load_map_script(LUA_ROOT, map);
 		if (lua_globals.pack[0])
 		{
 			char root[LUA_PATH_LENGTH];
