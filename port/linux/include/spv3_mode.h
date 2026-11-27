@@ -46,6 +46,19 @@ boolean spv3_mode_map_path(char const *file, char *path, long size);
 Custom Edition map, in SPV3 mode */
 boolean spv3_mode_is_ui(char const *map_name);
 
+/* a Custom Edition map opened from path (cache_files_windows.c): for the
+ui, whether it is SPV3's own maps_spv3\ui.yelo */
+void spv3_mode_note_map_opened(char const *map_name, char const *path);
+
+/* whether the ui open is SPV3's own file (not one the loader fell back to):
+only its scripts may change the level (hs.c) */
+boolean spv3_mode_own_ui_open(char const *map_name);
+
+/* a level SPV3's ui names with map_name (spv3a10) as this game names it
+(spv3a10@ce) into name: FALSE, the name said once in the log, unless it is
+a plain name of maps_spv3's .yelo levels */
+boolean spv3_mode_level_name(char const *file, char *name, long size);
+
 /* whether a Custom Edition cache whose OpenSauce header asks for flags may
 be read: in SPV3 mode, with the window mapped, memory upgrades alone (each
 other flag logged and refused) */

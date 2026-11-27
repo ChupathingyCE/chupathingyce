@@ -1,0 +1,70 @@
+# Views for tools/renderer_gate.py (docs/renderer-gate.md).
+#
+#   <map> <name> player                     the player's own view: HUD, weapon
+#   <map> <name> spawn <turn> [pitch]       the debug camera at the player's
+#                                           eyes, turned (degrees), no HUD
+#   <map> <name> camera x y z yaw pitch     the debug camera at a spot, no HUD
+#   map <map> tick=<n>                      the tick this map stops at
+#
+# A map is as init.txt's map_name: a Custom Edition map is name@ce (from
+# maps_ce, --maps-ce), an MCC Workshop level mcc_maps\<item>\<level>
+# (from maps_mcc, --maps-mcc). Every map's game stops at --tick (300, ten
+# seconds in) unless its map line says otherwise.
+#
+# A multiplayer map's solo game puts the player at a random spawn, so
+# player and spawn views are for campaign levels, whose start is fixed;
+# multiplayer maps use fixed cameras, or action:<map>: the map in the
+# recorded game of tools/test_determinism.py (its scripted bot playing,
+# recorded once and played back on each renderer), stopped at its tick,
+# for the HUD, the weapon, shots and effects.
+
+# Blood Gulch: daylight, terrain, lightmaps, detail maps, sky, distant fog
+bloodgulch red_canyon camera 96 -150 3 126 2
+bloodgulch red_cliffs_wide camera 92 -154 4 0 0
+bloodgulch mid_far_cliffs camera 68 -118 5 200 6
+bloodgulch blue_canyon camera 44 -86 3 -54 2
+bloodgulch blue_cliffs camera 55 -100 2.5 105 5
+
+# Blood Gulch with the scripted bot playing: HUD, weapon, shots, effects
+map action:bloodgulch tick=420
+action:bloodgulch player player
+
+# Damnation: indoor, dynamic and lightmapped light, glass, the waterfall
+damnation spawn camera -10.79 9.82 0.47 0 0
+damnation spawn_left camera -10.79 9.82 0.47 90 0
+damnation spawn_back camera -10.79 9.82 0.47 -180 0
+
+# Chill Out: indoor, glowing panels, teleporters, environment maps
+chillout spawn camera -1.83 4.08 1.62 0 0
+chillout spawn_back camera -1.83 4.08 1.62 -180 0
+
+# The Pillar of Autumn: a campaign set piece in its opening cinematic,
+# indoor, lit characters and screens
+map a10 tick=1500
+a10 player player
+a10 spawn_left spawn 90
+a10 spawn_back spawn 180
+
+# The Silent Cartographer: the beach after the landing, water, sky, Marines
+map b30 tick=3600
+b30 player player
+b30 spawn_left spawn 90
+b30 spawn_back spawn 180
+
+# 343 Guilty Spark: night, swamp fog, dark interiors
+map c10 tick=2700
+c10 player player
+c10 spawn_back spawn 180
+
+# Timberland (Custom Edition): trees, cliffs, fog, CE shaders
+timberland@ce center_north camera 0 0 10 0 -10
+timberland@ce center_east camera 0 0 10 90 -10
+
+# Blood Gulch (Custom Edition) with the bot playing: Halo PC's HUD meters
+map action:bloodgulch@ce tick=420
+action:bloodgulch@ce player player
+
+# Combat Revolved's Pillar of Autumn (MCC Workshop 2886943774): MCC content
+map mcc_maps\2886943774\a10 tick=1500
+mcc_maps\2886943774\a10 player player
+mcc_maps\2886943774\a10 spawn_back spawn 180

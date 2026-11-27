@@ -36,6 +36,22 @@ The reference can be:
 `--map bloodgulch` limits a run to one map. `--display` picks another Xvfb
 display if `:91` is taken.
 
+## bgfx
+
+`--renderer bgfx` runs the checked build with the bgfx renderer (on Linux,
+Vulkan: Mesa's lavapipe under Xvfb is fine for looks, and the Vulkan
+blocklist is turned off for it). `--reference-renderer gl` on its own makes
+the reference the same build drawing with OpenGL, so a bgfx change is
+checked against OpenGL at every spot:
+
+```
+python3 tools/picture_check.py --build build/linux64/chupathingy \
+    --renderer bgfx --reference-renderer gl --report --out /tmp/picture-check-bgfx
+```
+
+The renderer gate (`docs/renderer-gate.md`) does the same at frozen ticks,
+with the HUD and the weapon.
+
 ## Against the last release
 
 To check a build against a release, with a report to look through:

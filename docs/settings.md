@@ -309,7 +309,6 @@ OpenGL. See [Help](help.md#blank-screen-or-a-crash-at-start).
 
 What we know is different from OpenGL:
 
-- The Halo PC ammo and health meters look different.
 - The first-person weapon is a little brighter.
 - The **RENDERER** row in the display settings switches it after a restart.
 - The 32-bit builds, Android, FreeBSD and the consoles don't have it. Android has a Vulkan renderer of its own to test.

@@ -471,6 +471,12 @@ long determinism_check_ticks_done(
 	return -1;
 }
 
+boolean determinism_check_replaying(
+	void)
+{
+	return FALSE;
+}
+
 void determinism_check_game_load(
 	unsigned long *random_seed)
 {

@@ -30,6 +30,9 @@ back). Read as facts; the code is this game's:
     (or project_yellow_globals) lists under the name, as OpenSauce's
     UIWidgets.cpp does: a widget of its own, the one open closed (none on
     the dedicated server, as OpenSauce's has none);
+  - ai_transform_actor, ai_transform_actors, ai_transform_actors_by_type
+    and ai_actor_is_transforming start and ask after the map's actor
+    variant transforms (opensauce_transforms.c), on the host;
   - what needs a part of OpenSauce the game does not have yet answers as
     that part would with nothing to show, and says so once: BSP sky and lightmap
     sets, runtime vectors, bink movies, OpenSauce's third and fourth
@@ -59,6 +62,7 @@ blur ones, of the types Halo PC's and OpenSauce's scripts give them
 #include "interface/ui_widget.h"
 #include "opensauce.h"
 #include "opensauce_postprocess.h"
+#include "opensauce_transforms.h"
 #include "stubbs_functions.h"
 #include "network_coop.h"
 #include "networking/network_game_globals.h"
@@ -110,7 +114,7 @@ static void opensauce_script_evaluate(short function_index, long thread_index, b
 		{ 0 } }, { 0 }, __VA_ARGS__, FALSE }
 
 /* (OpenSauce's signatures, or Halo PC's for the two sound gains: every one
-SPV3's scripts call) */
+SPV3's scripts call, and the actor variant transforms') */
 static struct opensauce_script_function opensauce_script_functions[] =
 {
 	OPENSAUCE_SCRIPT_FUNCTION("weapon_data_get_real", _hs_type_real, 2, { _hs_type_object, _hs_type_string }),
@@ -167,6 +171,14 @@ static struct opensauce_script_function opensauce_script_functions[] =
 	/* (Halo PC's, which the Xbox's scripts never had) */
 	OPENSAUCE_SCRIPT_FUNCTION("sound_set_music_gain", _hs_type_void, 1, { _hs_type_real }),
 	OPENSAUCE_SCRIPT_FUNCTION("sound_set_effects_gain", _hs_type_void, 1, { _hs_type_real }),
+	/* (the actor variant transforms': opensauce_transforms.c) */
+	OPENSAUCE_SCRIPT_FUNCTION("ai_transform_actor", _hs_type_boolean, 3,
+		{ _hs_type_object, _hs_type_string, _hs_type_string }),
+	OPENSAUCE_SCRIPT_FUNCTION("ai_transform_actors", _hs_type_boolean, 3,
+		{ _hs_type_object_list, _hs_type_string, _hs_type_string }),
+	OPENSAUCE_SCRIPT_FUNCTION("ai_transform_actors_by_type", _hs_type_boolean, 4,
+		{ _hs_type_object_list, _hs_type_actor_variant, _hs_type_string, _hs_type_string }),
+	OPENSAUCE_SCRIPT_FUNCTION("ai_actor_is_transforming", _hs_type_boolean, 1, { _hs_type_object }),
 };
 
 /* (Halo PC's network globals, and OpenSauce's motion blur's) */
@@ -648,6 +660,27 @@ static boolean opensauce_script_data(
 		else
 			error(_error_silent, "OpenSauce scripts: scripted widget '%s' isn't in the map's lists", widget_name);
 	}
+#endif
+#ifdef OPENSAUCE_TRANSFORMS
+	/* (host-authoritative: a client has no transforms of its own,
+	opensauce_transforms.c, and its scripts don't run) */
+	else if (!strcmp(name, "ai_transform_actor"))
+	{
+		*value = opensauce_transforms_transform_actor(arguments[0], opensauce_string_argument(arguments[1]),
+			opensauce_string_argument(arguments[2]));
+	}
+	else if (!strcmp(name, "ai_transform_actors"))
+	{
+		*value = opensauce_transforms_transform_actors(arguments[0], NONE, opensauce_string_argument(arguments[1]),
+			opensauce_string_argument(arguments[2]));
+	}
+	else if (!strcmp(name, "ai_transform_actors_by_type"))
+	{
+		*value = arguments[1] != NONE && opensauce_transforms_transform_actors(arguments[0], arguments[1],
+			opensauce_string_argument(arguments[2]), opensauce_string_argument(arguments[3]));
+	}
+	else if (!strcmp(name, "ai_actor_is_transforming"))
+		*value = opensauce_transforms_actor_is_transforming(arguments[0]);
 #endif
 	else if (!strcmp(name, "physics_set_gravity"))
 	{

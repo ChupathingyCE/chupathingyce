@@ -267,6 +267,8 @@ struct bg_texture
 	struct xgpu_texture_description description;
 	bgfx_texture_handle_t texture;
 	BOOL created, mipmapped, failed;
+	/* made as 32-bit texels whatever its format (bg_texture_unpacked) */
+	BOOL unpacked;
 	/* the frame it was last bound in: a change after that is a new
 	texture, so the frame's earlier draws keep what they drew with */
 	unsigned long used_frame;
@@ -2912,11 +2914,124 @@ static void bg_downsample(const unsigned char *source, unsigned long width, unsi
 	}
 }
 
+/* a Halo PC texture whose channels are read from other places than they are
+stored: its texels are moved here, as they are decoded, to where the OpenGL
+path's texture swizzle reads them (xbox_textures.c's upload); bgfx has no
+swizzle of its own. A DXT one is decoded for it */
+static BOOL bg_texture_unpacked(const struct xgpu_texture_description *description)
+{
+	return description->pc_meter || description->pc_multipurpose;
+}
+
+/* a level's 32-bit ARGB texels (0xAARRGGBB) with their channels where the
+shaders read them: a Halo PC HUD meter's fill order (alpha) as its color and
+its shape (red) as its alpha (D3DCOMMON_PORT_PC_METER); a Halo PC
+multipurpose map's blue, green, alpha and red as red, green, blue and alpha
+(D3DCOMMON_PORT_PC_MULTIPURPOSE) */
+static void bg_texture_channels(const struct xgpu_texture_description *description, unsigned int *texels,
+	unsigned long count)
+{
+	unsigned long index;
+
+	for (index = 0; index < count; index++)
+	{
+		unsigned int texel = texels[index];
+		unsigned int alpha = texel >> 24, red = (texel >> 16) & 0xff, green = (texel >> 8) & 0xff, blue = texel & 0xff;
+
+		if (description->pc_meter)
+			texels[index] = (red << 24) | (alpha << 16) | (alpha << 8) | alpha;
+		else if (description->pc_multipurpose)
+			texels[index] = (red << 24) | (blue << 16) | (green << 8) | alpha;
+	}
+}
+
+/* a level as 32-bit texels, a DXT one decoded (bg_texture_unpacked's); a BC7
+one by the OpenGL upload's decoder, which the DXT one refuses */
+static BOOL bg_texture_decode(const struct xgpu_texture_description *description, unsigned long level,
+	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination)
+{
+	if (description->compressed && xgpu_texture_dxt(description))
+		return xgpu_texture_dxt_decode_level(description, level, source, destination);
+	return xgpu_texture_decode_level(description, level, source, palette, destination);
+}
+
+/* a mipmapped texture made with only the levels it has: bgfx's own makers give
+every level down to 1x1, so it is made from a DDS header, whose level count
+bgfx keeps (and the pixels then set as any texture's). Sampling stops at the
+last level then, as the OpenGL path's GL_TEXTURE_MAX_LEVEL has it (the Xbox's
+DXT textures stop at 4x4; levels below that made up of the last one's blocks
+were mostly its transparent corner, and alpha-tested leaves vanished at a
+distance). A BC7 one's header has Direct3D 10's part after it (DXGI's
+BC7_UNORM, 98), which the four-character code DX10 says is there. The levels
+follow the header, zero, as many bytes as bimg reads for them (it asserts
+past the end of a header alone); the pixels are set after */
+static bgfx_texture_handle_t bg_texture_levels_create(const struct xgpu_texture_description *description, int dxt,
+	unsigned long levels)
+{
+	BOOL volume = description->depth > 1;
+	unsigned long header_size = dxt == 7 ? 148 : 128, data = 0, level;
+	const bgfx_memory_t *memory;
+	uint32_t *header;
+
+	for (level = 0; level < levels; level++)
+	{
+		unsigned long width = bg_level_dimension(description->width, level);
+		unsigned long height = bg_level_dimension(description->height, level);
+		unsigned long depth = volume ? bg_level_dimension(description->depth, level) : 1;
+
+		/* (a compressed level in 4x4 blocks of 8 bytes, BC1's, or 16) */
+		data += dxt ? ((width + 3) / 4) * ((height + 3) / 4) * depth * (dxt == 1 ? 8 : 16) : width * height * depth * 4;
+	}
+	data *= description->cube_map ? 6 : 1;
+	memory = bgfx_alloc((uint32_t)(header_size + data));
+	header = (uint32_t *)memory->data;
+	memset(memory->data, 0, header_size + data);
+	header[0] = 0x20534444; /* "DDS " */
+	header[1] = 124;
+	/* (caps, height, width, pixel format, level count, depth) */
+	header[2] = 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000 | (volume ? 0x800000 : 0);
+	header[3] = (uint32_t)description->height;
+	header[4] = (uint32_t)description->width;
+	header[6] = volume ? (uint32_t)description->depth : 0;
+	header[7] = (uint32_t)levels;
+	header[19] = 32;
+	if (dxt)
+	{
+		header[20] = 0x4; /* a four-character code */
+		/* "DXT1", "DXT3", "DXT5", or "DX10" and its part (BC7_UNORM, a 2D or
+		3D texture, a cube map's flag, one in the array) */
+		header[21] = dxt == 1 ? 0x31545844 : dxt == 3 ? 0x33545844 : dxt == 7 ? 0x30315844 : 0x35545844;
+		if (dxt == 7)
+		{
+			header[32] = 98;
+			header[33] = volume ? 4 : 3;
+			header[34] = description->cube_map ? 0x4 : 0;
+			header[35] = 1;
+		}
+	}
+	else
+	{
+		/* (A8R8G8B8: bgfx's BGRA8) */
+		header[20] = 0x40 | 0x1;
+		header[22] = 32;
+		header[23] = 0x00ff0000;
+		header[24] = 0x0000ff00;
+		header[25] = 0x000000ff;
+		header[26] = 0xff000000;
+	}
+	/* (a texture, with levels; a whole cube map, or a volume) */
+	header[27] = 0x1000 | 0x400000 | 0x8;
+	header[28] = description->cube_map ? 0x200 | 0xfc00 : volume ? 0x200000 : 0;
+	return bgfx_create_texture(memory, BGFX_TEXTURE_NONE | (description->cube_map || volume ? 0 : BGFX_SAMPLER_NONE), 0,
+		NULL);
+}
+
 static void bg_texture_upload(struct bg_texture *entry, const unsigned char *base, const D3DCOLOR *palette)
 {
 	struct xgpu_texture_description *description = &entry->description;
+	BOOL unpacked = bg_texture_unpacked(description);
 	int dxt = description->compressed ? xgpu_texture_dxt(description) : 0;
-	unsigned long levels = description->levels ? description->levels : 1, level, full = 1, size, face, provided;
+	unsigned long levels = description->levels ? description->levels : 1, level, face;
 	BOOL volume = description->depth > 1;
 	BOOL bc7 = description->compressed && xgpu_texture_bc7(description);
 
@@ -2924,8 +3039,8 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 	compression) is sent as BC7 where the backend samples it, and decoded
 	by the OpenGL upload's decoder where it doesn't. A Halo PC HUD meter or
 	multipurpose map is decoded too, so its texels are where a later move
-	of its channels can reach them; bgfx doesn't move them yet for any
-	format (OpenGL does it with the texture's swizzle) */
+	of its channels can reach them (bg_texture_channels, as OpenGL's
+	swizzle moves them) */
 	if (bc7)
 	{
 		uint16_t wanted = volume ? BGFX_CAPS_FORMAT_TEXTURE_3D : description->cube_map ? BGFX_CAPS_FORMAT_TEXTURE_CUBE :
@@ -2941,30 +3056,30 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 		entry->failed = TRUE;
 		return;
 	}
-	/* bgfx's mipmapped textures have every level down to 1x1 (it has no
-	maximum level); the levels a texture lacks are made from its last */
-	size = description->width > description->height ? description->width : description->height;
-	if (volume && description->depth > size)
-		size = description->depth;
-	for (; size > 1; size >>= 1)
-		full++;
-	provided = levels;
-	if (levels > 1)
-		levels = full;
+	/* (a texture made the other way for the pixels here before: made again) */
+	if (entry->created && entry->unpacked != unpacked)
+	{
+		bgfx_destroy_texture(entry->texture);
+		entry->created = FALSE;
+	}
+	if (unpacked)
+		dxt = 0;
 	if (!entry->created)
 	{
 		bgfx_texture_format_t format = dxt == 1 ? BGFX_TEXTURE_FORMAT_BC1 : dxt == 3 ? BGFX_TEXTURE_FORMAT_BC2 :
 			dxt == 5 ? BGFX_TEXTURE_FORMAT_BC3 : dxt == 7 ? BGFX_TEXTURE_FORMAT_BC7 : BGFX_TEXTURE_FORMAT_BGRA8;
 
-		if (volume)
+		if (levels > 1)
+			entry->texture = bg_texture_levels_create(description, dxt, levels);
+		else if (volume)
 			entry->texture = bgfx_create_texture_3d((uint16_t)description->width, (uint16_t)description->height,
-				(uint16_t)description->depth, levels > 1, format, BGFX_TEXTURE_NONE, NULL, 0);
+				(uint16_t)description->depth, FALSE, format, BGFX_TEXTURE_NONE, NULL, 0);
 		else if (description->cube_map)
-			entry->texture = bgfx_create_texture_cube((uint16_t)description->width, levels > 1, 1, format,
+			entry->texture = bgfx_create_texture_cube((uint16_t)description->width, FALSE, 1, format,
 				BGFX_TEXTURE_NONE, NULL, 0);
 		else
 			entry->texture = bgfx_create_texture_2d((uint16_t)description->width, (uint16_t)description->height,
-				levels > 1, 1, format, BGFX_TEXTURE_NONE | BGFX_SAMPLER_NONE, NULL, 0);
+				FALSE, 1, format, BGFX_TEXTURE_NONE | BGFX_SAMPLER_NONE, NULL, 0);
 		if (!BGFX_HANDLE_IS_VALID(entry->texture))
 		{
 			platform_log("bgfx: a %lux%lu texture cannot be made", description->width, description->height);
@@ -2972,60 +3087,36 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 			return;
 		}
 		entry->created = TRUE;
+		entry->unpacked = unpacked;
 		entry->mipmapped = levels > 1;
 	}
 	for (face = 0; face < (description->cube_map ? 6UL : 1UL); face++)
-	for (level = 0; level < (entry->mipmapped ? levels : 1); level++)
+	for (level = 0; level < levels; level++)
 	{
 		unsigned long width = bg_level_dimension(description->width, level);
 		unsigned long height = bg_level_dimension(description->height, level);
 		unsigned long depth = volume ? bg_level_dimension(description->depth, level) : 1;
-		unsigned long from = level < provided ? level : provided - 1;
 		const unsigned char *source = base + face * xgpu_texture_face_size(description) +
-			xgpu_texture_level_offset(description, from);
+			xgpu_texture_level_offset(description, level);
 		const bgfx_memory_t *memory;
 
 		/* (Halo PC's cube map: its levels one after another, each the six
 		faces', the second and third swapped; xbox_textures.c's upload) */
 		if (description->pc_layout && description->cube_map)
-			source = base + xgpu_texture_level_offset(description, from) * 6 +
-				(face == 1 ? 2 : face == 2 ? 1 : face) * xgpu_texture_level_bytes(description, from);
+			source = base + xgpu_texture_level_offset(description, level) * 6 +
+				(face == 1 ? 2 : face == 2 ? 1 : face) * xgpu_texture_level_bytes(description, level);
 
 		if (dxt)
 		{
-			/* (a missing level: the last one's first blocks, as many as it has) */
-			unsigned long blocks = ((width + 3) / 4) * ((height + 3) / 4) * depth * (dxt == 1 ? 8 : 16);
-			unsigned long available = xgpu_texture_level_bytes(description, from);
-
-			memory = bgfx_copy(source, (uint32_t)(level == from ? available : blocks < available ? blocks : available));
-		}
-		else if (level == from)
-		{
-			memory = bgfx_alloc((uint32_t)(width * height * depth * 4));
-			xgpu_texture_decode_level(description, level, source, palette, (unsigned long *)memory->data);
+			memory = bgfx_copy(source, (uint32_t)xgpu_texture_level_bytes(description, level));
 		}
 		else
 		{
-			/* (a missing level: the last one, point sampled down) */
-			unsigned long from_width = bg_level_dimension(description->width, from);
-			unsigned long from_height = bg_level_dimension(description->height, from);
-			unsigned long from_depth = volume ? bg_level_dimension(description->depth, from) : 1;
-			unsigned long *decoded = malloc(from_width * from_height * from_depth * 4), x, y, z;
-
 			memory = bgfx_alloc((uint32_t)(width * height * depth * 4));
-			if (decoded && xgpu_texture_decode_level(description, from, source, palette, decoded))
-			{
-				for (z = 0; z < depth; z++)
-				for (y = 0; y < height; y++)
-				for (x = 0; x < width; x++)
-					((unsigned int *)memory->data)[(z * height + y) * width + x] = (unsigned int)decoded[
-						((z * from_depth / depth) * from_height + y * from_height / height) * from_width + x * from_width / width];
-			}
-			else
-			{
+			if (!bg_texture_decode(description, level, source, palette, (unsigned long *)memory->data))
 				memset(memory->data, 0, width * height * depth * 4);
-			}
-			free(decoded);
+			if (unpacked)
+				bg_texture_channels(description, (unsigned int *)memory->data, width * height * depth);
 		}
 		if (volume)
 			bgfx_update_texture_3d(entry->texture, (uint8_t)level, 0, 0, 0, (uint16_t)width, (uint16_t)height,
@@ -4947,33 +5038,43 @@ static const char bg_smaa_vulkan_language[] =
 	"#define bool3 bvec3\n"
 	"#define bool4 bvec4\n";
 
-/* a pass's program from xgpu_post.c's text, its samplers renamed to the
-stages' (tex0 to tex2) */
-static bgfx_program_handle_t bg_anti_alias_program(int pass)
+/* a pass's pixel shader from xgpu_post.c's text, its samplers renamed to
+the stages' (tex0 to tex2): malloc'd, or NULL */
+static char *bg_anti_alias_text(int pass)
 {
-	static const char *const names[4] =
-	{
-		"FXAA pixel", "SMAA edge detection pixel", "SMAA blending weight pixel", "SMAA neighborhood blending pixel"
-	};
 	static const char *const samplers[][2] =
 	{
 		{ "color_texture", "tex0" }, { "edges_texture", "tex0" }, { "area_texture", "tex1" },
 		{ "search_texture", "tex2" }, { "weights_texture", "tex1" },
 	};
 	struct xgpu_text text = { 0 };
-	struct bg_shader *vertex, *fragment;
 	char *source = xgpu_post_anti_alias_source(pass, bg_vulkan ? bg_smaa_vulkan_language : NULL);
 	unsigned long index;
 
 	if (!source)
-		return (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+		return NULL;
 	xgpu_text_append(&text, "%s", source);
 	free(source);
 	for (index = 0; index < sizeof(samplers) / sizeof(samplers[0]); index++)
 		bg_replace_all(&text, samplers[index][0], samplers[index][1]);
+	return text.buffer;
+}
+
+/* a pass's program (bg_anti_alias_text) */
+static bgfx_program_handle_t bg_anti_alias_program(int pass)
+{
+	static const char *const names[4] =
+	{
+		"FXAA pixel", "SMAA edge detection pixel", "SMAA blending weight pixel", "SMAA neighborhood blending pixel"
+	};
+	struct bg_shader *vertex, *fragment;
+	char *text = bg_anti_alias_text(pass);
+
+	if (!text)
+		return (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	vertex = bg_shader_get(bg_blit_vertex_source, FALSE, 0, "blit vertex", TRUE);
-	fragment = bg_shader_get(text.buffer, TRUE, 0, names[pass], TRUE);
-	free(text.buffer);
+	fragment = bg_shader_get(text, TRUE, 0, names[pass], TRUE);
+	free(text);
 	if (vertex->failed || fragment->failed || !BGFX_HANDLE_IS_VALID(vertex->shader) ||
 		!BGFX_HANDLE_IS_VALID(fragment->shader))
 		return (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
@@ -6932,3 +7033,6 @@ static BOOL bg_initialize(void)
 		anti_aliasing_prepare();
 	return TRUE;
 }
+
+/* HALO_BGFX_SHADER_CHECK (game issue #1833) */
+#include "d3d8_bgfx_check.inl"
