@@ -54,6 +54,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "lua_scripting.h"
 #include "lua_twiddlings.h"
 #include "spv3_mode.h"
+#include "../src/spv3_installer.h"
 #include "../../third_party/lua/lualib.h"
 
 #include <stdarg.h>
@@ -98,6 +99,9 @@ static struct
 	boolean announced;
 	boolean globals_loaded;
 	char pack[32];
+	/* SPV3 mode's own scripts running without lua.scripts: only the files
+	the installer writes, unchanged, are read (lua_read_file) */
+	boolean known_files_only;
 	/* hashes of what lua_log_once has logged */
 	unsigned long long logged[LUA_LOG_ONCE_SLOTS];
 	int logged_count;
@@ -280,6 +284,26 @@ static char *lua_read_file(
 	{
 		buffer[length] = 0;
 		*size = (unsigned int)length;
+		/* (without lua.scripts, SPV3 mode reads only SPV3's own files as
+		the installer wrote them: d:\lua\spv3\... must be one of its list,
+		at its size and CRC-32) */
+		if (lua_globals.known_files_only)
+		{
+			char const *relative = xbox_path;
+
+			if (!_strnicmp(relative, "d:\\", 3) || !_strnicmp(relative, "d:/", 3))
+				relative += 3;
+			if (!spv3_installer_known_lua(relative, buffer, (unsigned long long)length))
+			{
+				char key[LUA_PATH_LENGTH * 2 + 16];
+
+				snprintf(key, sizeof(key), "unknown %s", relative);
+				lua_log_once(key, "%s: not one of SPV3's own files as installed (lua.scripts is off): not run",
+					relative);
+				free(buffer);
+				return NULL;
+			}
+		}
 	}
 	return buffer;
 }
@@ -842,6 +866,7 @@ void lua_scripting_map_load(
 	lua_current_pack(pack, sizeof(pack));
 	if (!all && !(spv3_mode_active() && !strcmp(pack, "spv3")))
 		pack[0] = 0;
+	lua_globals.known_files_only = !all;
 	if (!all && !pack[0])
 	{
 		if (lua_script_count)

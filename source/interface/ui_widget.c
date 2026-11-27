@@ -2857,12 +2857,12 @@ void ui_widget_delete(
 		}
 #if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE)
 		/* port: SPV3's menus name a script on one 'widget deleted' handler
-		without the run-script flag: closing the new profile's "Creating
+		without the run-script flag, and only this one is run (by its name): closing the new profile's "Creating
 		profile" box sets the mission (lvl_spv3a10) before the difficulty
 		screen opens. It is the only thing that sets a new profile's first
 		mission: without it the mission stays unset and the difficulty
 		screen's LOADING never ends. SPV3 mode only */
-		if (handler->event_type == _widget_event_deleted && handler->script[0] &&
+		if (handler->event_type == _widget_event_deleted && !strcmp(handler->script, "lvl_spv3a10") &&
 			!TEST_FLAG(handler->flags, _event_handler_run_scenario_script_bit) && spv3_mode_active() &&
 			!hs_evaluate_by_name(handler->script))
 		{

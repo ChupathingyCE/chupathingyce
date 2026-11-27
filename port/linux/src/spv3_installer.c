@@ -1087,6 +1087,40 @@ static int manifest_known(struct release *release, unsigned char *buffer)
 
 /* ---------- public code */
 
+int spv3_installer_known_lua(const char *relative, const void *data, unsigned long long size)
+{
+	size_t index;
+
+	if (!relative || !data)
+		return 0;
+	for (index = 0; index < sizeof(spv3_files) / sizeof(*spv3_files); index++)
+	{
+		const struct spv3_file *file = &spv3_files[index];
+		const char *a = file->target, *b = relative;
+
+		if (strncmp(file->target, "lua/", 4) || file->size != size)
+			continue;
+		/* (the names as Windows' are, case ignored, either slash) */
+		while (*a && *b)
+		{
+			char x = *a == '\\' ? '/' : *a, y = *b == '\\' ? '/' : *b;
+
+			if (x >= 'A' && x <= 'Z')
+				x = (char)(x - 'A' + 'a');
+			if (y >= 'A' && y <= 'Z')
+				y = (char)(y - 'A' + 'a');
+			if (x != y)
+				break;
+			a++;
+			b++;
+		}
+		if (*a || *b)
+			continue;
+		return z_crc32(z_crc32(0L, Z_NULL, 0), (const Bytef *)data, (uInt)size) == file->crc;
+	}
+	return 0;
+}
+
 void spv3_installer_cancel(void)
 {
 	spv3_installer_cancelled = 1;

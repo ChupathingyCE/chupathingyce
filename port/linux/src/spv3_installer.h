@@ -29,4 +29,11 @@ int spv3_installer_install(const char *release_path, const char *destination, ca
 (the setup screen's Cancel, on the game's thread) */
 void spv3_installer_cancel(void);
 
+/* whether data (size bytes) is one of the Lua files the installer writes for
+the release this build knows: relative is its path under the data folder
+(lua/spv3/..., case ignored, either slash), and its size and CRC-32 must be
+that file's. SPV3 mode's scripts run without lua.scripts only from these
+(port/linux/game/lua_scripting.c) */
+int spv3_installer_known_lua(const char *relative, const void *data, unsigned long long size);
+
 #endif
