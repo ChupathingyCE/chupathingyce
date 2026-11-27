@@ -80,19 +80,25 @@ lua/
       JSON.lua
 ```
 
-## Turn on the Lua scripts
+## Lua scripts
 
-SPV3's HUD, skulls and other extras are Lua scripts. They're off unless you
-turn them on.
+SPV3's HUD, skulls and other extras are Lua scripts. In SPV3 mode they run
+on their own from `lua/spv3`; you don't need to turn anything on. They get
+the same limits as any script: they read and write only their own `data`
+folder and load only their own modules.
 
-1. Open `config.toml` ([where it is](settings.md)).
-2. Under `[lua]`, find `# scripts = false`. Change it to `scripts = true`.
-3. Save the file.
+Only SPV3's own files run this way: the ones the setup screen installs,
+unchanged. A file that's been edited, or an extra `.lua` file dropped into
+`lua/spv3`, doesn't run unless you turn on `lua.scripts`.
 
-```toml
-[lua]
-scripts = true
-```
+SPV3's scripts also read and change the game's memory, for things like its
+HUD and skulls. That goes through Twiddlings, which translates the Halo PC
+addresses they use into this game's. The `lua.twiddlings` setting (on by
+default) controls it: turn it off and every read gives 0 and every write is
+refused, so those scripts' extras stop working.
+
+The `lua.scripts` setting in `config.toml` is for your own scripts in
+`lua/scripts`. It stays off unless you turn it on.
 
 ## Play it
 

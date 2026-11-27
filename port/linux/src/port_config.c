@@ -1398,7 +1398,8 @@ static const struct config_setting config_settings[] =
 	/* ---- lua: mods' scripts for Chimera's Lua API (port/linux/game/lua_scripting.c) */
 	{ "lua.scripts", _config_boolean, "false", "HALO_LUA_SCRIPTS", _environment_value, _platform_desktop,
 		"Run mods' Lua scripts made for Chimera, from the lua folder beside\n"
-		"maps/. A map pack's own are in lua/<pack>, like lua/spv3." },
+		"maps/. A map pack's own are in lua/<pack>, like lua/spv3; a pack\n"
+		"mode's own run in that mode even with this off." },
 	{ "lua.twiddlings", _config_boolean, "true", "HALO_LUA_TWIDDLINGS", _environment_value, _platform_desktop,
 		"Let those scripts read and change the game's memory, translated\n"
 		"from Halo PC's. false makes every read 0 and refuses every write." },
