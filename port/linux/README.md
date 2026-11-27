@@ -1111,6 +1111,11 @@ Each frame shows the world between the last two ticks
   aim a little behind (two thirds of the way in a tick). Their input comes
   a tick late now and then, so their unit stops for a tick and turns twice
   as far in the next. The beam on the walls showed each of those as a jump.
+- In a first-person vehicle seat, the part of the view that the vehicle
+  moves (the limits and the leveling of the seat) mixes with the vehicle.
+  Only your own turn mixes by the times of the frames. Thus the view is
+  smooth at all frame rates, also at rates that do not divide a tick
+  (144, 165, uncapped).
 
 Thus the frames are one tick (33 ms) after the calculation. The calculation
 does not change.
