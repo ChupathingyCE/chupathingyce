@@ -37,6 +37,7 @@ it is here.
 #include "opensauce.h"
 #include "opensauce_scripts.h"
 #include "opensauce_postprocess.h"
+#include "opensauce_transforms.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -287,6 +288,10 @@ void opensauce_map_tags_loaded(
 		return;
 	/* (its post-processing tags: opensauce_postprocess.c) */
 	opensauce_postprocess_tags_loaded(tag_instances, tag_count);
+#ifdef OPENSAUCE_TRANSFORMS
+	/* (its actor variant transforms: opensauce_transforms.c) */
+	opensauce_transforms_tags_loaded(tag_instances, tag_count);
+#endif
 	/* (the scenario's first reference, its unused structure bsp's, is
 	OpenSauce's project_yellow: not in the scenario's schema, so checked
 	here) */
@@ -431,6 +436,9 @@ void opensauce_map_unloaded(
 	{
 		opensauce_scripts_map_unloaded();
 		opensauce_postprocess_map_unloaded();
+#ifdef OPENSAUCE_TRANSFORMS
+		opensauce_transforms_map_unloaded();
+#endif
 	}
 	opensauce_globals.active = FALSE;
 	opensauce_globals.camouflage_logged = FALSE;
