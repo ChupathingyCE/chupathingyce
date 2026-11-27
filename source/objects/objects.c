@@ -5239,21 +5239,6 @@ static short object_find_region_permutations_available_with_variant(
 			struct model_region_permutation);
 		if (!TEST_FLAG(permutation->flags, _model_region_permutation_cannot_be_chosen_randomly_bit))
 		{
-#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
-			/* port: Stubbs's permutations' variant numbers are masks of the
-			variants they go with (a robot's mailbot chest 2, the hand every
-			robot but two shares 107, a part of all of them -1): one goes with
-			a variant that has any of its bits, and any goes at random
-			(Stubbs mode only: port/linux/game/stubbs_mode.c) */
-			if (stubbs_mode_active())
-			{
-				if (variant_number==NONE || (permutation->variant_number & variant_number))
-				{
-					available_indices[result++] = i;
-				}
-				continue;
-			}
-#endif
 			if (permutation->variant_number==variant_number ||
 				variant_number==NONE && permutation->variant_number< 100)
 			{
@@ -5325,26 +5310,139 @@ static short object_determine_variant_number(
 				region_permutations[region_index],
 				struct model_region_permutation
 			)->variant_number;
-#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
-			/* port: in Stubbs's masks, the first chosen part's own variant (a
-			part of all of them, -1, says none): its lowest bit, which every
-			other region's parts are then chosen by (Stubbs mode only) */
-			if (stubbs_mode_active())
-			{
-				result = result==NONE ? 0 : (short)(result & -result);
-			}
-#endif
 		}
 	}
 
 	return result;
 }
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+/* port: Stubbs the Zombie's variants (Stubbs mode only). His model has a
+block of variants (at 0xA0, in Halo's unused space: 0x40 each, a name and a
+weight at 0x20), and his object's variant number is a 1-based index into
+it, from its placement (a10's mailbot 2, phonebot 5); any other is a variant
+chosen by weight (the robots': only the plain one has any). Each of his
+permutations has a 32-bit mask of the variants it goes with (where Halo has
+its variant number); a region takes, at random, one of its permutations
+whose mask has the variant's bit and that may be chosen at random. A region
+whose share index (at 0x20, in Halo's unused space) names another takes that
+region's permutation. So found in the retail game's chooser's behavior; the
+variant chosen by a placement's name instead of its number is not done */
+enum
+{
+	STUBBS_MODEL_VARIANTS_OFFSET = 0xA0,
+	STUBBS_MODEL_VARIANT_SIZE = 0x40,
+	STUBBS_MODEL_VARIANT_WEIGHT_OFFSET = 0x20,
+	STUBBS_MODEL_REGION_SHARE_OFFSET = 0x20,
+	STUBBS_PERMUTATION_MASK_OFFSET = 0x24,
+	MAXIMUM_STUBBS_MODEL_VARIANTS = 32,
+};
+
+static short object_stubbs_variant(
+	struct model const *model,
+	short variant_number)
+{
+	struct tag_block variants;
+	byte const *elements;
+	real total = 0.f, choice;
+	short index, count;
+
+	csmemcpy(&variants, (byte const *)model + STUBBS_MODEL_VARIANTS_OFFSET, sizeof(variants));
+	count = (short)MIN(MAX(variants.count, 0), MAXIMUM_STUBBS_MODEL_VARIANTS);
+	elements = count ? (byte const *)tag_block_get_element_with_size(&variants, 0, STUBBS_MODEL_VARIANT_SIZE) : NULL;
+	if (!elements)
+		return NONE;
+	if (variant_number >= 1 && variant_number <= count)
+		return variant_number;
+	for (index = 0; index < count; index++)
+	{
+		real weight;
+
+		csmemcpy(&weight, elements + index * STUBBS_MODEL_VARIANT_SIZE + STUBBS_MODEL_VARIANT_WEIGHT_OFFSET, sizeof(weight));
+		if (weight > 0.f)
+			total += weight;
+	}
+	if (total <= 0.f)
+		return 1;
+	choice = real_random_range(0.f, total);
+	for (index = 0; index < count; index++)
+	{
+		real weight;
+
+		csmemcpy(&weight, elements + index * STUBBS_MODEL_VARIANT_SIZE + STUBBS_MODEL_VARIANT_WEIGHT_OFFSET, sizeof(weight));
+		if (weight <= 0.f)
+			continue;
+		if (choice < weight)
+			return (short)(index + 1);
+		choice -= weight;
+	}
+	return count;
+}
+
+/* FALSE where the model has no variants block (Halo's choice is made) */
+static boolean object_stubbs_choose_region_permutations(
+	long object_index,
+	struct model *model)
+{
+	struct object_datum *object = object_get(object_index);
+	short variant = object_stubbs_variant(model, object->object.variant_number);
+	short region_count, region_index;
+	byte *region_permutations;
+	unsigned long bit;
+
+	if (variant == NONE)
+		return FALSE;
+	region_permutations = object_get_region_permutations(object_index, &region_count);
+	object->object.variant_number = variant;
+	bit = 1UL << (variant - 1);
+	for (region_index = 0; region_index < MIN(model->regions.count, region_count); region_index++)
+	{
+		struct model_region *region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
+		short available[MAXIMUM_PERMUTATIONS_PER_MODEL_REGION];
+		short available_count = 0, permutation_index;
+
+		for (permutation_index = 0;
+			permutation_index < MIN(region->permutations.count, MAXIMUM_PERMUTATIONS_PER_MODEL_REGION);
+			permutation_index++)
+		{
+			struct model_region_permutation *permutation = TAG_BLOCK_GET_ELEMENT(&region->permutations,
+				permutation_index, struct model_region_permutation);
+			unsigned long mask;
+
+			csmemcpy(&mask, (byte const *)permutation + STUBBS_PERMUTATION_MASK_OFFSET, sizeof(mask));
+			if (!TEST_FLAG(permutation->flags, _model_region_permutation_cannot_be_chosen_randomly_bit) && (mask & bit))
+				available[available_count++] = permutation_index;
+		}
+		region_permutations[region_index] = available_count ?
+			(byte)available[available_count==1 ? 0 : random_range(0, available_count)] : 0;
+	}
+	for (region_index = 0; region_index < MIN(model->regions.count, region_count); region_index++)
+	{
+		struct model_region *region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
+		short share;
+
+		csmemcpy(&share, (byte const *)region + STUBBS_MODEL_REGION_SHARE_OFFSET, sizeof(share));
+		if (share >= 0 && share < MIN(model->regions.count, region_count) && share != region_index)
+			region_permutations[region_index] = region_permutations[share];
+	}
+	return TRUE;
+}
+#endif
+
 static void object_choose_random_region_permutations(long object_index)
 {
 	struct object_datum *object = object_get(object_index);
 	struct object_definition *object_definition = object_definition_get(object->definition_index);
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: Stubbs's variants (Stubbs mode only: above) */
+	if (stubbs_mode_active() && object_definition->object.model.index!=NONE &&
+		object_stubbs_choose_region_permutations(object_index,
+			model_definition_get(object_definition->object.model.index)))
+	{
+		return;
+	}
+#endif
 	if (object_definition->object.model.index!=NONE)
 	{
 		struct model* model = model_definition_get(object_definition->object.model.index);
