@@ -297,6 +297,10 @@ with their authors credited in each commit.
   on Windows, host cheat and shadow setup fixes, and the Halo MCC map
   loader: MCC Workshop and MCC install maps, their scripts, HUDs, effects
   and campaigns.
+- Dynamic Lighting, Dynamic Shadows and shared renderer optimisations by
+  [chestahh](https://github.com/chestahh), originally developed for
+  [GulchCE](https://github.com/chestahh/GulchCE). [Original OpenCE port](https://github.com/chestahh/GulchCE/tree/035f47bb8fc682675456323dbb3095b506502ec6).
+  Used under GPL-3.0-or-later; our changes are in the git history.
 - PeterRichardsonGolf and the other GulchCE contributors: the Steam
   Workshop catalog with its items' titles and collections, and the MCC
   sharing rules.
