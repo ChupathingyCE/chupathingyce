@@ -20,6 +20,7 @@ and the debug keyboard that the game's console reads.
 #include "xiso.h"
 #include "pc_disc.h"
 #include "ce_installer.h"
+#include "spv3_installer.h"
 #include "touch_input.h"
 #include "delta.h"
 #include "networks_game.h"
@@ -828,6 +829,7 @@ enum
 	_data_xbox_disc = PLATFORM_IMPORT_XBOX_DISC,
 	_data_halo_pc_disc = PLATFORM_IMPORT_HALO_PC_DISC,
 	_data_custom_edition_installer = PLATFORM_IMPORT_CE_INSTALLER,
+	_data_spv3 = PLATFORM_IMPORT_SPV3,
 };
 
 struct data_extraction
@@ -875,6 +877,10 @@ static void *data_extraction_thread(void *context)
 	case _data_custom_edition_installer:
 		succeeded = ce_installer_extract_maps(extraction->image, extraction->destination,
 			data_extraction_progress, extraction, extraction->error, sizeof(extraction->error)) != 0;
+		break;
+	case _data_spv3:
+		succeeded = spv3_installer_install(extraction->image, extraction->destination, data_extraction_progress,
+			extraction, extraction->error, sizeof(extraction->error)) != 0;
 		break;
 	default:
 		succeeded = xiso_extract_maps(extraction->image, extraction->destination, data_extraction_progress,
@@ -928,6 +934,15 @@ BOOL platform_import_start(int kind, const char *image, const char *destination,
 	pthread_detach(thread);
 	pthread_mutex_unlock(&extraction_start_lock);
 	return TRUE;
+}
+
+void platform_import_cancel(void)
+{
+	/* (only SPV3's install stops part way: spv3_installer.c) */
+	pthread_mutex_lock(&extraction.lock);
+	if (extraction.kind == _data_spv3 && extraction.running && !extraction.finished)
+		spv3_installer_cancel();
+	pthread_mutex_unlock(&extraction.lock);
 }
 
 BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, unsigned long long *total,
@@ -1097,6 +1112,13 @@ int platform_import_kind(const char *path)
 		return _data_custom_edition_installer;
 	if (pc_disc_is_image(path))
 		return _data_halo_pc_disc;
+#if defined(HALO_64BIT) && defined(HALO_CUSTOM_EDITION) && !defined(HALO_WINDOW_TRANSLATED)
+	/* (SPV3's release, its zip or the folder it was unpacked to:
+	spv3_installer.c; only where SPV3 mode runs, the 64-bit desktop builds,
+	as the setup screen's row) */
+	if (spv3_installer_is_release(path))
+		return _data_spv3;
+#endif
 	return _data_unknown;
 }
 
