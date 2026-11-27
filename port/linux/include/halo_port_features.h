@@ -158,6 +158,13 @@ out the two settings and their help text */
 #define HALO_CONSOLE_NO_AUDIO_PROBE
 #endif
 
+/* the renderer's trace of a frame's draws (port/linux/src/d3d8_gl.c,
+debug.gpu_trace_frame): a developer's tool, in a console's build with its
+developer tools (HALO_CONSOLE_DEBUG_TOOLS) only */
+#if !defined(HALO_CONSOLE_DEBUG_TOOLS) && !defined(HALO_CONSOLE_NO_GPU_TRACE)
+#define HALO_CONSOLE_NO_GPU_TRACE
+#endif
+
 /* the debug camera flown by mouse and keyboard (source/camera/director.c,
 halo_linux_debug_camera_input in port/linux/src/xinput_sdl.c): a console
 has no mouse, and its controller flies the camera as before */
@@ -306,6 +313,17 @@ console's build, whichever switches it sets on its own */
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
 	!defined(HALO_CONSOLE_SKIP_DARK_LIGHTS)
 #define HALO_CONSOLE_SKIP_DARK_LIGHTS
+#endif
+
+/* each cluster's collideable objects that are not bipeds kept as a list of
+their own (port/linux/game/object_bounds_cache.c), for the vectors that test
+for no bipeds, with the changes to each cluster's list counted
+(cluster_partitions.c): the desktop builds and Android, on no console. From
+GulchCE by chestahh (granted 2026-11-26) */
+#if !(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_PORT_CLUSTER_OBJECT_LISTS)
+#define HALO_PORT_CLUSTER_OBJECT_LISTS 1
 #endif
 
 /* a map's navigation for computer-controlled characters (port/linux/game/

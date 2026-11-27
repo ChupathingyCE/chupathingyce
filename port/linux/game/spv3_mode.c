@@ -232,6 +232,77 @@ boolean spv3_mode_is_ui(
 	return map_name && !_stricmp(map_name, "ui") && spv3_mode_active();
 }
 
+/* (whether the ui open now is SPV3's own file, maps_spv3\ui.yelo, and not
+another ui the loader fell back to: spv3_mode_note_map_opened) */
+static boolean spv3_own_ui_open;
+
+void spv3_mode_note_map_opened(
+	char const *map_name,
+	char const *path)
+{
+	char own[256];
+
+	if (!spv3_mode_is_ui(map_name))
+		return;
+	snprintf(own, sizeof(own), "d:\\%s\\ui.yelo", SPV3_MODE_FOLDER);
+	spv3_own_ui_open = path && !_stricmp(path, own);
+	if (!spv3_own_ui_open)
+		spv3_mode_log("ui: %s is not %s: its scripts may not change the level", path ? path : "(none)", own);
+}
+
+boolean spv3_mode_own_ui_open(
+	char const *map_name)
+{
+	return spv3_mode_is_ui(map_name) && spv3_own_ui_open;
+}
+
+boolean spv3_mode_level_name(
+	char const *file,
+	char *name,
+	long size)
+{
+	static char dropped[16][32];
+	static long dropped_count;
+	char path[256];
+	size_t length = file ? strlen(file) : 0;
+	size_t index;
+	boolean valid = length > 0 && length < sizeof(dropped[0]) && _stricmp(file, "ui");
+	long logged;
+
+	if (size > 0)
+		name[0] = 0;
+	/* (a level's name: letters, digits and underscores, which no path,
+	family or pack suffix is made of) */
+	for (index = 0; valid && index < length; index++)
+	{
+		char c = file[index];
+
+		valid = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+	}
+	if (valid && spv3_mode_active() &&
+		snprintf(path, sizeof(path), "d:\\%s\\%s.yelo", SPV3_MODE_FOLDER, file) < (int)sizeof(path) &&
+		spv3_file_exists(path) &&
+		snprintf(name, (size_t)size, "%s@ce", file) < (int)size)
+	{
+		return TRUE;
+	}
+	if (size > 0)
+		name[0] = 0;
+	/* (each name dropped is said once) */
+	for (logged = 0; logged < dropped_count; logged++)
+	{
+		if (!strncmp(dropped[logged], file ? file : "", sizeof(dropped[0]) - 1))
+			return FALSE;
+	}
+	if (dropped_count < (long)NUMBEROF(dropped))
+	{
+		snprintf(dropped[dropped_count], sizeof(dropped[0]), "%s", file ? file : "");
+		dropped_count++;
+	}
+	spv3_mode_log("ui: map_name %.64s is not a level in %s: dropped", file ? file : "", SPV3_MODE_FOLDER);
+	return FALSE;
+}
+
 boolean spv3_mode_accepts_opensauce(
 	char const *map_name,
 	unsigned short flags)

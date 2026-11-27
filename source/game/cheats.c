@@ -68,6 +68,7 @@ symbols in this file:
 #include "scenario/scenario.h"
 #include "tag_files/tag_groups.h"
 #include "units/units.h"
+#include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 #ifdef HALO_64BIT
 #include "cseries/errors.h"
 #endif
@@ -570,6 +571,27 @@ static void cheat_objects_from_block(
 	return;
 }
 
+/* port: SPV3's maps list no weapons in their globals, so the cheat takes their
+first weapon tags, and SPV3 puts a trap for it among them: a weapon that blows
+up as it is made, with an explosion 900 units across that kills the player and
+throws the body out of the world. It is handed out as on Halo PC (the dead
+camera copes: dead_camera.c); SPV3 mode says so in the log, once a use. */
+static boolean cheat_weapon_is_spv3_trap(
+	long tag_index)
+{
+	struct item_definition const *definition;
+	char const *effect_name;
+
+	if (!spv3_mode_active())
+		return FALSE;
+	definition = item_definition_get(tag_index);
+	if (definition->item.detonation_effect.index == NONE)
+		return FALSE;
+	effect_name = tag_get_name(definition->item.detonation_effect.index);
+
+	return effect_name && !csstrcmp(effect_name, "cmt\\globals\\spv3\\cheat_all_weapons\\crash");
+}
+
 void cheat_all_weapons(
 	void)
 {
@@ -591,6 +613,8 @@ void cheat_all_weapons(
 			tag_index!=NONE && reference_count<NUMBEROF(references);
 			tag_index = tag_iterator_next(&iterator))
 		{
+			if (cheat_weapon_is_spv3_trap(tag_index))
+				spv3_mode_log("cheat_all_weapons: SPV3's trap for the cheat fires (%s explodes as it is made)", tag_get_name(tag_index));
 			references[reference_count].index = tag_index;
 			reference_count++;
 		}

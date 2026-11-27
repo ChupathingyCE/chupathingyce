@@ -351,3 +351,30 @@ def test_the_xbox_calls_only_the_menu_hooks_it_has():
         for name in set(re.findall(r"\bpc_menu_\w+", result.stdout)) - XBOX_PC_MENU_HOOKS:
             unanswered.setdefault(name, []).append(path.relative_to(ROOT).as_posix())
     assert unanswered == {}, "the Xbox build calls desktop menu hooks it doesn't have: {}".format(unanswered)
+
+
+def wire_samples(defines):
+    """whether network_distributed.h's gate keeps the wire's samples for
+    these defines"""
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if not compiler:
+        pytest.skip("no C compiler")
+    header = (ROOT / "port" / "linux" / "game" / "network_distributed.h").read_text()
+    start = header.index("#if defined(HALO_NETWORK_WIRE_CAPTURE)")
+    gate = header[start:header.index("#endif", start) + len("#endif")]
+    command = [compiler, "-E", "-dM", "-x", "c", "-"] + ["-D" + define for define in defines]
+    result = subprocess.run(command, input=gate + "\n", capture_output=True, text=True, check=True)
+    return any(line.split()[1] == "HALO_NETWORK_WIRE_SAMPLES"
+               for line in result.stdout.splitlines() if line.startswith("#define "))
+
+
+@pytest.mark.parametrize("console", ["xbox360", "wiiu"])
+def test_the_wire_self_test_is_a_developer_tool(console):
+    """the big-endian consoles' wire self-test (network_wire_self_test) and
+    its samples are in a build with its developer tools only (#1902); the
+    little-endian capture build keeps them, the desktop has neither"""
+    assert not wire_samples(CONSOLES[console])
+    assert wire_samples(CONSOLES[console] + ["HALO_CONSOLE_DEBUG_TOOLS"])
+    assert wire_samples(DESKTOP + ["HALO_NETWORK_WIRE_CAPTURE"])
+    assert not wire_samples(DESKTOP)
+    assert not wire_samples(CONSOLES["xbox"] + ["HALO_CONSOLE_DEBUG_TOOLS"])
