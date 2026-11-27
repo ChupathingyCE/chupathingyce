@@ -123,3 +123,19 @@ def test_a_small_part_drawn_differently_differs(tmp_path):
     verdict, reasons = renderer_gate.verdict_of(numbers, LIMITS)
     assert numbers["changed"] < renderer_gate.MAX_CHANGED
     assert verdict == "DIFFERS" and any("part" in reason for reason in reasons)
+
+
+def test_ssim_of_a_large_picture_stays_at_most_one():
+    """float32's summed-area table lost the low digits of a 1280x720
+    picture's sums: the same picture came out past 1"""
+    generator = numpy.random.default_rng(2)
+    values = generator.uniform(0, 255, size=(720, 1280))
+    value = renderer_gate.ssim(values, values.copy())
+    assert abs(value - 1.0) < 1e-9
+
+
+def test_a_busy_machine_is_not_idle():
+    assert renderer_gate.idle({"before": 0.4, "after": 0.8, "cpus": 10})
+    assert not renderer_gate.idle({"before": 0.4, "after": 1.2, "cpus": 10})
+    assert not renderer_gate.idle({"before": 3.0, "after": 0.5, "cpus": 10})
+    assert not renderer_gate.idle({"before": -1, "after": -1, "cpus": 10})

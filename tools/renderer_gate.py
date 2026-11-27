@@ -148,7 +148,7 @@ def camera_text(x, y, z, yaw, pitch):
 def load(path):
     from PIL import Image
     import numpy
-    return numpy.asarray(Image.open(path).convert("RGB"), dtype=numpy.float32)
+    return numpy.asarray(Image.open(path).convert("RGB"), dtype=numpy.float64)
 
 
 def half(picture):
@@ -166,7 +166,9 @@ def box(values, size):
     """the mean over each size by size window (valid windows only), from the
     summed-area table"""
     import numpy
-    table = numpy.pad(values, ((1, 0), (1, 0))).cumsum(0).cumsum(1)
+    # (in float64: float32's summed-area table loses the low digits of a
+    # 1280x720 picture's sums, and SSIM came out past 1)
+    table = numpy.pad(numpy.asarray(values, dtype=numpy.float64), ((1, 0), (1, 0))).cumsum(0).cumsum(1)
     return (table[size:, size:] - table[:-size, size:] - table[size:, :-size] + table[:-size, :-size]) / (size * size)
 
 
@@ -708,13 +710,24 @@ def bench(binary, renderers, arguments, out):
         results[game_map] = {row["renderer"]: row for row in data["results"]}
         load_after = os.getloadavg()[0] if hasattr(os, "getloadavg") else -1
         results[game_map]["load"] = {"before": load_before, "after": load_after, "cpus": os.cpu_count()}
-        # (before only: a software renderer's own threads load the machine)
-        if load_before > (os.cpu_count() or 1) / 2:
+        if not idle(results[game_map]["load"]):
             log(f"bench: {game_map}: the machine was busy (load {load_before:.1f} -> {load_after:.1f} on "
-                f"{os.cpu_count()} CPUs): the frame times are not to be trusted")
+                f"{os.cpu_count()} CPUs, {IDLE_LOAD} at most): the frame times are not to be trusted")
         if not arguments.keep:
             shutil.rmtree(out / f"bench-{game_map}", ignore_errors=True)
     return results
+
+
+# the most the load average may be, before the bench and after it, for its
+# frame times to count: another program's threads take the CPU from the game
+# and its renderer's (a software renderer's own threads load the machine
+# too, so its frame times never count, as docs/renderer-gate.md says)
+IDLE_LOAD = 1.0
+
+
+def idle(load):
+    """whether the machine was idle enough for a bench (its load before and after)"""
+    return 0 <= load["before"] < IDLE_LOAD and 0 <= load["after"] < IDLE_LOAD
 
 
 def bench_verdict(results, first, second, margin):
@@ -726,10 +739,12 @@ def bench_verdict(results, first, second, margin):
         if "error" in rows:
             return False, [f"{game_map}: {rows['error']}"]
         load = rows.get("load")
-        if load and load["before"] > (load["cpus"] or 1) / 2:
+        if load and not idle(load):
             passed = False
             reasons.append(f"{game_map}: the machine was busy (load {load['before']:.1f} -> {load['after']:.1f} on "
-                           f"{load['cpus']} CPUs): measure again with nothing else running")
+                           f"{load['cpus']} CPUs, {IDLE_LOAD} at most): measure again with nothing else running")
+        elif load:
+            reasons.append(f"{game_map}: idle (load {load['before']:.1f} -> {load['after']:.1f})")
         a, b = rows.get(first), rows.get(second)
         if not a or not b or "mean_ms" not in a or "mean_ms" not in b:
             return False, [f"{game_map}: no frames logged for one renderer"]
@@ -907,7 +922,7 @@ def main():
                         help="the pictures again with these settings on both renderers (the parity table)")
     parser.add_argument("--variant-maps", help="the maps the variants run on, comma separated (default: all)")
     parser.add_argument("--repeat-first", action="store_true",
-                        help="run the reference renderer twice and report its own run-to-run difference")
+                        help="run each renderer twice: a view either draws differently from itself is UNSTEADY, not counted")
     parser.add_argument("--min-ssim", type=float, default=MIN_SSIM)
     parser.add_argument("--max-changed", type=float, default=MAX_CHANGED)
     parser.add_argument("--pixel-delta", type=int, default=PIXEL_DELTA)
@@ -955,11 +970,16 @@ def main():
                 [view for view in views if view.map in variant_maps]
             runs = [(arguments.first, "first"), (arguments.second, "second")]
             if arguments.repeat_first and variant == "default":
-                runs.append((arguments.first, "first-again"))
+                # (and the renderer checked: a view either renderer can't
+                # draw the same twice says nothing of the renderers)
+                runs += [(arguments.first, "first-again"), (arguments.second, "second-again")]
             captured = {}
             for renderer, role in runs:
                 folder = out / variant / role
                 if arguments.from_pictures:
+                    # (an earlier run made before the second renderer ran twice)
+                    if role == "second-again" and not folder.is_dir():
+                        continue
                     captured[role] = kept_pictures(these, folder)
                 else:
                     captured[role] = capture(binary, renderer, these, ticks, folder, scratch, arguments,
@@ -995,21 +1015,29 @@ def main():
                 side_by_side([first, second, diff], [arguments.first, arguments.second, "difference"], sheet)
                 row.update(verdict=verdict, reasons=reasons, numbers=numbers, first=first, second=second, diff=diff,
                            sheet=sheet)
-                again = captured.get("first-again", ({},))[0].get(key)
-                if again:
-                    noise, _ = compare(first, again, arguments.pixel_delta)
-                    row["noise"] = noise
+                unsteady = []
+                if any("never held still" in note for note in notes):
+                    unsteady.append("the picture never held still")
+                for role, renderer in (("first-again", arguments.first), ("second-again", arguments.second)):
+                    again = captured.get(role, ({},))[0].get(key)
+                    if not again:
+                        continue
+                    noise, _ = compare(first if role == "first-again" else second, again, arguments.pixel_delta)
+                    if role == "first-again":
+                        row["noise"] = noise
                     if noise["ssim"] < 0.995 or noise["changed"] > arguments.max_changed / 4 or \
                             noise["worst_tile"] > arguments.max_tile / 2 or \
                             abs(noise["brightness"]) > arguments.max_brightness / 2:
-                        # (the view isn't still: two runs of the reference differ
-                        # too, so a difference here says nothing of the renderer)
-                        row["reasons"] = row.get("reasons", []) + [
-                            f"{arguments.first} differs from itself too (SSIM {noise['ssim']:.3f}, "
-                            f"{noise['changed'] * 100:.2f}% changed, brightness {noise['brightness']:+.2f})"]
-                        if verdict == "DIFFERS" and not beyond_noise(numbers, noise, arguments):
-                            verdict = "UNSTEADY"
-                            row["verdict"] = verdict
+                        unsteady.append(f"{renderer} differs from itself too (SSIM {noise['ssim']:.3f}, "
+                                        f"{noise['changed'] * 100:.2f}% changed, brightness {noise['brightness']:+.2f})")
+                if unsteady:
+                    # (the view isn't still: a run differs from another run of
+                    # the same renderer, so a difference here says nothing of the
+                    # renderers; it is shown and not counted)
+                    row["reasons"] = row.get("reasons", []) + unsteady
+                    if verdict == "DIFFERS":
+                        verdict = "UNSTEADY"
+                        row["verdict"] = verdict
                 rows.append(row)
                 log(f"{variant}/{key}: {verdict} SSIM {numbers['ssim']:.4f}, {numbers['changed'] * 100:.2f}% "
                     f"changed, brightness {numbers['brightness']:+.2f}")
