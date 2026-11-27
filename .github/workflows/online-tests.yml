@@ -1,0 +1,34 @@
+# The tests that need another site to be up, every night and by hand,
+# never on a pull request: a pull request shouldn't fail because a site
+# is slow or down. (Tier C's nightly half: docs/ci.md.)
+# - tools/test_map_download.py's real downloads from the community map
+#   repository (HALO_MAP_DOWNLOAD_ONLINE=1): a map, its listing and a
+#   hashed name, checked as the game checks them. What it catches that
+#   the rest can't: the repository changing what it sends.
+name: Online tests
+
+on:
+  schedule:
+    - cron: "41 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map-download:
+    if: github.repository == 'ChupathingyCE/chupathingyce'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pytest
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends python3-pytest
+
+      - name: Map downloads from the community map repository
+        env:
+          HALO_MAP_DOWNLOAD_ONLINE: "1"
+        run: python3 -m pytest -q -rs tools/test_map_download.py -k real

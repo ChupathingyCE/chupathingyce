@@ -6,7 +6,7 @@ and p2p_lobby.c use them): the host's link holds a door, never the token it
 listens with; the token comes back only with the password, for this host;
 a wrong or empty password opens nothing; older versions take the link for
 no invite; and the server browser's sealed token opens with the same
-password to the same token. Built by tools/test_p2p_join_password.py.
+password to the same token. Built by tools/test_join_password.py.
 */
 
 #include "p2p_internal.h"
