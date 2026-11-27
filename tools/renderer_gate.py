@@ -559,7 +559,14 @@ def capture(binary, renderer, views, ticks, out, scratch, arguments, settings, l
         if game_map.startswith("action:"):
             real_map = game_map.split(":", 1)[1]
             wait_for_game_port()
-            inputs = recording(binary, real_map, tick, scratch, arguments)
+            try:
+                inputs = recording(binary, real_map, tick, scratch, arguments)
+            except (RuntimeError, OSError, subprocess.CalledProcessError) as reason:
+                # (another copy of the game holding 127.0.0.1's game port, say:
+                # the map's views fail, and the rest of the gate goes on)
+                failures[game_map] = f"its recording could not be made: {reason}"
+                log(f"  {game_map}: FAILED: {failures[game_map]}")
+                continue
         for attempt in range(2):
             if inputs:
                 wait_for_game_port()
