@@ -1578,9 +1578,11 @@ static void validate_value(
 	{
 		long value = integer_get(address, field->size, is_unsigned);
 		long none = integer_none(field->size, is_unsigned);
-		long maximum = field->target_offset &&
+		/* (or the layout's own, where it has one: OpenSauce's four grenade
+		types, field_maximum) */
+		long maximum = field_maximum(field, field->target_offset &&
 			TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_pc_shader_types_bit) ?
-			field->target_offset : field->maximum;
+			field->target_offset : field->maximum);
 
 		if ((value >= 0 && value < maximum && value != none) || (none_allowed && value == none))
 			break;

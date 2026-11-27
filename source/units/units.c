@@ -2189,17 +2189,29 @@ short unit_add_grenade_type_to_inventory(
 	if (mcc_grenades_active()) return mcc_grenades_add(unit_index, grenade_type, grenade_count);
 	struct unit_datum *unit = unit_get(unit_index);
 
-	/* port: OpenSauce's maps may give an actor variant one of its four
-	grenade types; in SPV3 mode the two Halo has are taken and the others
-	passed over, logged (port/linux/game/spv3_mode.c) */
-	if (spv3_mode_active() && !VALID_INDEX(grenade_type, NUMBER_OF_UNIT_GRENADE_TYPES))
+#ifdef HALO_CUSTOM_EDITION
+	/* port: an OpenSauce map may give an actor variant one of its four
+	grenade types. With its globals listing them, the extra types' layer
+	above has them (port/linux/game/mcc_grenades.c); without, a third or
+	fourth is given none, logged (in SPV3 mode as its correction:
+	port/linux/game/spv3_mode.c) */
+	if (opensauce_map_active() && !VALID_INDEX(grenade_type, NUMBER_OF_UNIT_GRENADE_TYPES))
 	{
+		static boolean opensauce_grenade_type_logged = FALSE;
 		char what[80];
 
-		snprintf(what, sizeof(what), "grenade type %d (OpenSauce has four, Halo two) not given", grenade_type);
-		spv3_mode_note_correction(what);
+		snprintf(what, sizeof(what), "grenade type %d (OpenSauce has four, the map's globals two) not given",
+			grenade_type);
+		if (spv3_mode_active())
+			spv3_mode_note_correction(what);
+		else if (!opensauce_grenade_type_logged)
+		{
+			opensauce_grenade_type_logged = TRUE;
+			error(_error_silent, "OpenSauce map: %s", what);
+		}
 		return 0;
 	}
+#endif
 	match_assert("c:\\halo\\SOURCE\\units\\units.c", 7309, grenade_count>=0);
 	match_assert("c:\\halo\\SOURCE\\units\\units.c", 7310, (grenade_type >= 0) && (grenade_type < NUMBER_OF_UNIT_GRENADE_TYPES));
 

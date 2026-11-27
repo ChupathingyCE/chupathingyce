@@ -39,6 +39,10 @@ enum
 	OPENSAUCE_MAXIMUM_TAG_COUNT = 7680,
 	OPENSAUCE_MAXIMUM_HS_SYNTAX_NODES = 28501,
 	OPENSAUCE_HS_SYNTAX_DATA_SIZE = 0x38 + OPENSAUCE_MAXIMUM_HS_SYNTAX_NODES * 0x14,
+
+	/* its grenade types (game_globals_definitions.hpp's upgrade): Halo's
+	two and two more */
+	OPENSAUCE_NUMBER_OF_GRENADE_TYPES = 4,
 };
 
 /* ---------- structures */
@@ -108,6 +112,14 @@ its project_yellow_globals', as OpenSauce finds it; NONE if neither has one
 of that name with a definition, or the map isn't OpenSauce's */
 long opensauce_map_scripted_widget(
 	char const *name);
+
+/* whether the loaded map is OpenSauce's and its globals list more than
+Halo's two grenade types (OpenSauce allows four): their counts are kept by
+the extra grenade types' layer (mcc_grenades.c) */
+#ifdef HALO_CUSTOM_EDITION
+boolean opensauce_map_four_grenades(
+	void);
+#endif
 
 /* the map unloaded: whatever it changed put back */
 void opensauce_map_unloaded(
