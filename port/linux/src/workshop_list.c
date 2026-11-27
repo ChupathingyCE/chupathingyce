@@ -217,8 +217,22 @@ static int bbcode_tag(const char *text)
 		}
 		if (letter < length || (at[length] != ']' && at[length] != '=' && at[length] != ' '))
 			continue;
-		end = strchr(at + length, ']');
-		return end && end - text < 512 ? (int)(end - text) + 1 : 0;
+		/* (its end within 512 bytes, a [url=...]'s address and all: never a
+		scan of the whole text for each "[") */
+		for (end = at + length; *end && *end != ']' && end - text < 512; end++)
+			;
+		return *end == ']' ? (int)(end - text) + 1 : 0;
+	}
+	return 0;
+}
+
+/* whether text starts with name, any case (0: it does, as strncmp says) */
+static int names_match(const char *text, const char *name)
+{
+	for (; *name; text++, name++)
+	{
+		if ((*text >= 'A' && *text <= 'Z' ? *text + 32 : *text) != *name)
+			return 1;
 	}
 	return 0;
 }
@@ -229,6 +243,9 @@ breaks kept (the Guide's page shows its paragraphs). Longer than size: cut
 whole characters, ending "..."; so too when more (the text came cut) */
 static void plain_description(char *out, int size, const char *text, int more)
 {
+	/* (a picture's or a video's tag found unclosed once: not looked for
+	again, the text read once whatever its tags) */
+	int unclosed[2] = {0, 0};
 	int length = 0;
 
 	if (size < 4)
@@ -257,19 +274,21 @@ static void plain_description(char *out, int size, const char *text, int more)
 				out[length++] = '\n';
 			text += tag;
 			/* (nothing to read in a picture or a video: up to its closing tag) */
-			if (!strcmp(lower, "img") || !strcmp(lower, "previewyoutube"))
+			if ((!strcmp(lower, "img") && !unclosed[0]) || (!strcmp(lower, "previewyoutube") && !unclosed[1]))
 			{
 				const char *close;
 
 				for (close = text; *close; close++)
 				{
 					if (close[0] == '[' && close[1] == '/' && (tag = bbcode_tag(close)) > 0 &&
-						(int)strlen(lower) + 3 == tag)
+						(int)strlen(lower) + 3 == tag && !names_match(close + 2, lower))
 					{
 						text = close + tag;
 						break;
 					}
 				}
+				if (!*close)
+					unclosed[lower[0] == 'p'] = 1;
 			}
 			continue;
 		}
@@ -372,7 +391,8 @@ static long hex_four(const char *at, const char *end)
 
 /* a long string (a description) read into text, as much as fits, whole
 characters (*more: it went on); any \u escape, a pair of them too, as its
-character (a lone half: U+FFFD). 0 only when it isn't a JSON string */
+character (a lone half: U+FFFD); a broken escape or a control character as
+a space. 0 only when it isn't a JSON string or doesn't end */
 static int long_string(struct json *json, char *text, int size, int *more)
 {
 	int length = 0;
@@ -391,9 +411,9 @@ static int long_string(struct json *json, char *text, int size, int *more)
 			text[length] = 0;
 			return 1;
 		}
-		if (c < 0x20)
-			return 0;
-		piece[0] = (char)c;
+		/* (a control character, never in sound JSON: a space, the rest of
+		the document still read) */
+		piece[0] = c < 0x20 ? ' ' : (char)c;
 		if (c == '\\')
 		{
 			if (json->at >= json->end)
@@ -410,8 +430,12 @@ static int long_string(struct json *json, char *text, int size, int *more)
 			{
 				long code = hex_four(json->at, json->end), low;
 
+				/* (not four hex digits: a space, what follows read as it is) */
 				if (code < 0)
-					return 0;
+				{
+					piece[0] = ' ';
+					break;
+				}
 				json->at += 4;
 				if (code >= 0xD800 && code < 0xDC00 && json->end - json->at >= 6 && json->at[0] == '\\' &&
 					json->at[1] == 'u' && (low = hex_four(json->at + 2, json->end)) >= 0xDC00 && low < 0xE000)
@@ -427,7 +451,8 @@ static int long_string(struct json *json, char *text, int size, int *more)
 				count = code_point_utf8(piece, 4, (unsigned long)code);
 				break;
 			}
-			default: return 0;
+			/* (an escape JSON hasn't: a space) */
+			default: piece[0] = ' '; break;
 			}
 		}
 		else if (c >= 0x80)
@@ -518,7 +543,7 @@ static int lenient_string(struct json *json, char *text, int size)
 }
 
 /* one publishedfiledetails object; *kept when it is a Halo CE item of MCC's */
-static int read_details_item(struct json *json, struct workshop_browser_item *item, int *kept)
+static int read_details_fields(struct json *json, struct workshop_browser_item *item, int *kept, char **full)
 {
 	static char text[LONGEST_TEXT * 4];
 	char key[32];
@@ -557,7 +582,23 @@ static int read_details_item(struct json *json, struct workshop_browser_item *it
 				else if (!strcmp(key, "title"))
 					copy_cut(item->title, sizeof(item->title), text);
 				else if (!strcmp(key, "description"))
+				{
 					plain_description(item->description, (int)sizeof(item->description), text, more);
+					/* (the whole of it, for the item's page, when asked for) */
+					if (full)
+					{
+						char *whole = malloc(WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE), *smaller;
+
+						free(*full);
+						*full = NULL;
+						if (whole)
+						{
+							plain_description(whole, WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE, text, more);
+							smaller = realloc(whole, strlen(whole) + 1);
+							*full = smaller ? smaller : whole;
+						}
+					}
+				}
 				else if (!strcmp(key, "preview_url"))
 				{
 					/* (Steam's own picture host, https, a plain address: nothing else is fetched) */
@@ -612,7 +653,26 @@ static int read_details_item(struct json *json, struct workshop_browser_item *it
 	return 1;
 }
 
-int workshop_browser_read_details(const char *text, int length, struct workshop_browser_item *items, int maximum)
+/* one publishedfiledetails object; *kept when it is a Halo CE item of MCC's,
+its whole plain description in *full (full: NULL, not asked for; the
+caller's to free; NULL when there is none) */
+static int read_details_item(struct json *json, struct workshop_browser_item *item, int *kept, char **full)
+{
+	int sound;
+
+	if (full)
+		*full = NULL;
+	sound = read_details_fields(json, item, kept, full);
+	if (full && (!sound || !*kept))
+	{
+		free(*full);
+		*full = NULL;
+	}
+	return sound;
+}
+
+static int read_details_document(const char *text, int length, struct workshop_browser_item *items, int maximum,
+	char **full)
 {
 	struct json json;
 	char key[32];
@@ -643,12 +703,19 @@ int workshop_browser_read_details(const char *text, int length, struct workshop_
 					do
 					{
 						struct workshop_browser_item item;
+						char *whole = NULL;
 						int kept;
 
-						if (!read_details_item(&json, &item, &kept))
+						if (!read_details_item(&json, &item, &kept, full ? &whole : NULL))
 							return -1;
 						if (kept && count < maximum)
+						{
+							if (full)
+								full[count] = whole;
 							items[count++] = item;
+						}
+						else
+							free(whole);
 					} while (take(&json, ','));
 					if (!take(&json, ']'))
 						return -1;
@@ -663,6 +730,34 @@ int workshop_browser_read_details(const char *text, int length, struct workshop_
 	if (!take(&json, '}'))
 		return -1;
 	return found ? count : -1;
+}
+
+int workshop_browser_read_details_full(const char *text, int length, struct workshop_browser_item *items,
+	int maximum, char **full)
+{
+	int count, index;
+
+	if (full)
+	{
+		for (index = 0; index < maximum; index++)
+			full[index] = NULL;
+	}
+	count = read_details_document(text, length, items, maximum, full);
+	/* (a document that broke off: nothing of it kept) */
+	if (count < 0 && full)
+	{
+		for (index = 0; index < maximum; index++)
+		{
+			free(full[index]);
+			full[index] = NULL;
+		}
+	}
+	return count;
+}
+
+int workshop_browser_read_details(const char *text, int length, struct workshop_browser_item *items, int maximum)
+{
+	return workshop_browser_read_details_full(text, length, items, maximum, NULL);
 }
 
 /* the item ids of the page's links to items, each once, in the page's order
