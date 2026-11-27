@@ -77,6 +77,10 @@ public final class UpdateManifestTest {
             System.out.println(UpdateManifest.release(args[1]) ? "release" : "not a release");
             return;
         }
+        if (args.length == 4 && args[0].equals("release-newer")) {
+            System.out.println(UpdateManifest.releaseNewer(args[1], args[2], args[3]) ? "newer" : "not newer");
+            return;
+        }
         if (args.length == 3 && args[0].equals("compare")) {
             Integer order = UpdateManifest.compare(args[1], args[2]);
 

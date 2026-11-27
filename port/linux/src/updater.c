@@ -69,7 +69,10 @@ nightly/updates.json, signed by the prerelease key or a release key,
 update_signature_check_feed), whichever of them is the newest
 (update_version_compare). Nothing older than this build is ever offered, so
 going back from Testing to Release waits for the next release newer than
-the build installed. A feed's list, checked once, is kept, and its file is
+the build installed. A test build or a nightly is offered a release (of its
+version or newer) only when that release's commit was made after the build
+was (update_release_newer, by the release's created_at): a nightly of 0.9.2
+built after v0.9.2 already has it. A feed's list, checked once, is kept, and its file is
 installed from that copy (no second download of the list).
 
 A packaged install (packaged_install.h: the AUR's chupathingy-bin, marked
@@ -251,6 +254,9 @@ enum
 
 static SDL_AtomicInt updater_state;
 static char updater_latest_version[48];
+/* the latest release's made time (GitHub's created_at for it, its commit's
+date), when the newer version is that release: update_release_newer */
+static char updater_latest_made[32];
 
 /* the channels (update.channel), from the most stable */
 enum
@@ -680,10 +686,12 @@ done:
 its numbers, then its hotfix letter, a version without one first, 0.7.5,
 then 0.7.5a, 0.7.5b; a release before none of its test builds and
 nightlies, which are in the order they were built; never one that is not of
-that shape) */
-static int updater_newer(const char *version)
+that shape). made: the release's made time, when version is the latest
+release (update_release_newer: a test build or a nightly made after it is
+not offered it) */
+static int updater_newer(const char *version, const char *made)
 {
-	return update_version_newer(version, HALO_VERSION);
+	return update_release_newer(version, made, HALO_VERSION);
 }
 
 /* the lock, made on the game's thread before the first check starts */
@@ -723,9 +731,10 @@ static int updater_chosen_channel(void)
 	return _channel_release;
 }
 
-/* GitHub's latest release's version (its tag, without the v), into version;
-0 if there is none */
-static int updater_latest_release(char *version, size_t size)
+/* GitHub's latest release's version (its tag, without the v), into version,
+and its made time (its created_at, its commit's date; empty without one)
+into made; 0 if there is none */
+static int updater_latest_release(char *version, size_t size, char *made, size_t made_size)
 {
 	char path[1200];
 	char error[512] = "";
@@ -735,6 +744,7 @@ static int updater_latest_release(char *version, size_t size)
 	const char *tag;
 	int found = 0;
 
+	made[0] = 0;
 	updater_path(path, sizeof(path), "update-check.json");
 	updater_url(url, sizeof(url), 1, "releases/latest");
 	if (!update_download(url, path, MAXIMUM_CHECK_SIZE, NULL, NULL, error, sizeof(error)))
@@ -779,6 +789,24 @@ static int updater_latest_release(char *version, size_t size)
 					platform_log("update: the latest release's tag v%s is not a release's version: not used", version);
 					found = 0;
 				}
+			}
+		}
+	}
+	/* "created_at": "2026-11-26T02:15:07Z", the release's own, after its tag
+	(its assets' come later) */
+	if (found)
+	{
+		const char *created = strstr(tag, "\"created_at\"");
+
+		created = created ? strchr(created + 12, '"') : NULL;
+		if (created)
+		{
+			size_t end = strcspn(created + 1, "\"");
+
+			if (end < made_size)
+			{
+				memcpy(made, created + 1, end);
+				made[end] = 0;
 			}
 		}
 	}
@@ -855,6 +883,7 @@ static int SDLCALL updater_check_thread(void *context)
 {
 	char latest[sizeof(updater_latest_version)];
 	char candidate[sizeof(updater_latest_version)];
+	char made[sizeof(updater_latest_made)];
 	int found, channel, chosen = updater_chosen_channel(), best = _channel_release, answer, state;
 	/* (a channel whose list could not be read or used: nothing newer there
 	can be known) */
@@ -863,7 +892,7 @@ static int SDLCALL updater_check_thread(void *context)
 	size_t list_size = 0, best_size = 0;
 
 	(void)context;
-	found = updater_latest_release(latest, sizeof(latest));
+	found = updater_latest_release(latest, sizeof(latest), made, sizeof(made));
 	/* (Testing and Nightly: each feed more stable than the chosen one too,
 	the newest of them all offered) */
 	if (chosen != _channel_release)
@@ -880,6 +909,10 @@ static int SDLCALL updater_check_thread(void *context)
 		/* (a latest release whose tag is not a version is never offered:
 		the feed's build goes before it) */
 		order = found ? update_version_compare(candidate, latest, &comparable) : 1;
+		/* (the latest release, of the feed's version or newer, but made
+		before the feed's build was: the feed's build has it) */
+		if (found && comparable && order < 0 && best == _channel_release && !update_release_newer(latest, made, candidate))
+			order = 1;
 		if (!found || !comparable || order > 0)
 		{
 			snprintf(latest, sizeof(latest), "%s", candidate);
@@ -903,8 +936,10 @@ static int SDLCALL updater_check_thread(void *context)
 	}
 	/* (with nothing newer found, an answer only when every channel was
 	checked: "this is the latest" only then) */
-	answer = !found ? -1 : updater_newer(latest) ? 1 : unchecked >= 0 ? -1 : 0;
-	if (found && updater_newer(latest))
+	if (best != _channel_release)
+		made[0] = 0;
+	answer = !found ? -1 : updater_newer(latest, made) ? 1 : unchecked >= 0 ? -1 : 0;
+	if (found && updater_newer(latest, made))
 	{
 		platform_log("update: version %s is available (this is %s; %s)", latest, HALO_VERSION,
 			best == _channel_release ? "the latest release" : best == _channel_testing ? "the testing channel" :
@@ -942,7 +977,10 @@ static int SDLCALL updater_check_thread(void *context)
 	updater_feed_tag[0] = 0;
 	updater_latest_channel = best;
 	if (state == _updater_available)
+	{
 		snprintf(updater_latest_version, sizeof(updater_latest_version), "%s", latest);
+		snprintf(updater_latest_made, sizeof(updater_latest_made), "%s", made);
+	}
 	SDL_SetAtomicInt(&updater_answer, answer);
 	SDL_SetAtomicInt(&updater_state, state);
 	updater_locked(0);
@@ -2394,7 +2432,7 @@ void updater_poll(SDL_Window *window)
 	if (test_answer[0])
 	{
 		/* (a test does not answer the 64-bit offer: only a newer version) */
-		if (!updater_newer(updater_latest_version))
+		if (!updater_newer(updater_latest_version, updater_latest_made))
 			return;
 		platform_log("update: answering %s (debug.update_answer)", test_answer);
 		if (!strcmp(test_answer, "yes") && UPDATER_DOWNLOAD_PAGE_ONLY)
@@ -2432,7 +2470,7 @@ void updater_poll(SDL_Window *window)
 			{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes" },
 			{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Keep 32-bit" },
 		};
-		int newer = updater_newer(updater_latest_version);
+		int newer = updater_newer(updater_latest_version, updater_latest_made);
 
 		updater_offer_64bit = 0;
 		if (newer)

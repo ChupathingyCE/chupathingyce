@@ -108,7 +108,8 @@ final class Updater {
             return;
         int chosen = chosenChannel(config);
         new Thread(() -> {
-            String latest = latestRelease();
+            String[] release = latestRelease();
+            String latest = release != null ? release[0] : null;
             Feed best = null;
 
             // (Testing and Nightly: each feed more stable than the chosen one too)
@@ -120,7 +121,11 @@ final class Updater {
                 try {
                     String version = UpdateManifest.about(feed.list, feed.channel);
 
-                    if (latest == null || newer(version, latest)) {
+                    // (the latest release, of the feed's version or newer, but made before the feed's
+                    // build was: the feed's build has it)
+                    if (latest == null || newer(version, latest)
+                        || (best == null && !UpdateManifest.releaseNewer(latest, release[1], version)
+                            && UpdateManifest.compare(version, latest) != null)) {
                         latest = version;
                         best = feed;
                     }
@@ -132,7 +137,8 @@ final class Updater {
             String found = latest;
             Feed from = best;
 
-            if (found != null && newer(found, BuildConfig.HALO_VERSION))
+            if (found != null && (from != null ? newer(found, BuildConfig.HALO_VERSION)
+                : UpdateManifest.releaseNewer(found, release[1], BuildConfig.HALO_VERSION)))
                 activity.runOnUiThread(() -> ask(activity, found, from));
         }, "update check").start();
     }
@@ -582,14 +588,18 @@ final class Updater {
         return UpdateManifest.newer(version, current);
     }
 
-    /** GitHub's latest release's version (its tag, without the v), null if there is none */
-    private static String latestRelease() {
+    /**
+     * GitHub's latest release's version (its tag, without the v) and its made time (its created_at, its
+     * commit's date; "" without one), null if there is none
+     */
+    private static String[] latestRelease() {
         try {
             HttpURLConnection connection = open("https://api.github.com/repos/" + REPOSITORY + "/releases/latest");
 
             connection.setRequestProperty("Accept", "application/vnd.github+json");
             try (InputStream stream = connection.getInputStream()) {
-                String tag = new JSONObject(new String(readAll(stream), StandardCharsets.UTF_8)).optString("tag_name");
+                JSONObject json = new JSONObject(new String(readAll(stream), StandardCharsets.UTF_8));
+                String tag = json.optString("tag_name");
 
                 // (a version goes into the download's address: letters, digits and . _ + - only;
                 // and the latest release's is a release's, never a test build's or a nightly's)
@@ -597,7 +607,7 @@ final class Updater {
                     android.util.Log.i(LOG_TAG, "update: the latest release's tag " + tag + " is not used");
                     return null;
                 }
-                return tag.substring(1);
+                return new String[] { tag.substring(1), json.optString("created_at") };
             } finally {
                 connection.disconnect();
             }

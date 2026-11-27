@@ -199,6 +199,45 @@ def test_never_a_downgrade(checker):
         assert expected[0] in offered and all(every.index(c) > every.index(installed) for c in offered), installed
 
 
+# a release against the build installed (update_release_newer): from a test
+# build or a nightly, a release of its version or newer is offered only when
+# the release's commit (GitHub's created_at for it) was made after the build
+V092_MADE = "2026-11-26T02:15:07Z"
+RELEASE_NEWER = [
+    # a nightly built after the v0.9.2 commit already has 0.9.2: no prompt
+    ("0.9.2", V092_MADE, "0.9.2-nightly.202611271330", "not newer"),
+    ("0.9.2", V092_MADE, "0.9.2-testing.202611260300", "not newer"),
+    # the same minute is not after
+    ("0.9.2", V092_MADE, "0.9.2-nightly.202611260215", "not newer"),
+    # a nightly from before the release's commit is offered it
+    ("0.9.2", V092_MADE, "0.9.2-nightly.202611250400", "newer"),
+    # a hotfix made after the nightly: offered
+    ("0.9.2a", "2026-11-28T18:00:00Z", "0.9.2-nightly.202611271330", "newer"),
+    # a hotfix made before the nightly (its fix landed on main first): not offered
+    ("0.9.2a", "2026-11-27T09:00:00Z", "0.9.2-nightly.202611271330", "not newer"),
+    # an older release is never offered, whenever it was made
+    ("0.9.1a", "2026-11-28T18:00:00Z", "0.9.2-nightly.202611271330", "not newer"),
+    # no made time, or not one: the version order alone, as before
+    ("0.9.2", "", "0.9.2-nightly.202611271330", "newer"),
+    ("0.9.2", "yesterday", "0.9.2-nightly.202611271330", "newer"),
+    # a release's build: the version order alone, as before
+    ("0.9.2a", "2026-11-28T18:00:00Z", "0.9.2", "newer"),
+    ("0.9.2a", "2026-11-20T18:00:00Z", "0.9.2", "newer"),
+    ("0.9.2", V092_MADE, "0.9.2", "not newer"),
+    ("0.9.2", V092_MADE, "0.9.2a", "not newer"),
+]
+
+
+@pytest.mark.parametrize("release, made, current, answer", RELEASE_NEWER)
+def test_release_newer(checker, release, made, current, answer):
+    assert check(checker, "release-newer", release, made, current) == answer
+
+
+@pytest.mark.parametrize("release, made, current, answer", RELEASE_NEWER)
+def test_android_release_newer(java_classes, release, made, current, answer):
+    assert java(java_classes, "release-newer", release, made, current) == answer
+
+
 # ---------- the feeds' lists
 
 
