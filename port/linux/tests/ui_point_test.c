@@ -3,7 +3,7 @@ UI_POINT_TEST.C
 
 Tests of the menus' points and the window's (port/linux/src/ui_point.c): a
 click lands on the menu pixel under it at any window shape, display scale
-and screen width. Built and run by tools/test_ui_point.py; exits nonzero on
+and screen width. Built and run by tools/test_c_units.py; exits nonzero on
 a failure.
 */
 
