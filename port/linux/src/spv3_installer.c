@@ -31,8 +31,12 @@ straight to <target>.part, its size and CRC-32 checked against the list as
 it is written, then renamed over the target, so an install that stops never
 leaves a bad file under a real name. A target already there with the right
 size and CRC-32 is kept, so running it again resumes or repairs. A target,
-or a folder on the way to it, that is a link is refused. The free space is
-checked first.
+or a folder on the way to it, that is a link is refused: on POSIX systems each
+folder is opened from the one before it without following a link, and every
+file is opened, made and renamed in its folder from there, so a folder swapped
+for a link after a check isn't followed. A .part already there (a stopped
+run's, or a link of any kind someone put there) is removed, never written
+through: the new one is made fresh. The free space is checked first.
 */
 
 /* (the desktop ports only: the Android app imports the game data itself) */
@@ -55,6 +59,7 @@ void platform_log(const char *format, ...);
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include "../game/content_bytes.h"
 
@@ -69,6 +74,15 @@ void platform_log(const char *format, ...);
 #endif
 #ifndef O_NOFOLLOW
 #define O_NOFOLLOW 0
+#endif
+#ifndef O_DIRECTORY
+#define O_DIRECTORY 0
+#endif
+
+/* (POSIX: the folders are opened one from the other, openat and the rest;
+Windows has no such calls, see target_folder_open) */
+#ifndef _WIN32
+#define SPV3_FOLDER_DESCRIPTORS 1
 #endif
 
 /* ---------- constants */
@@ -255,6 +269,8 @@ static const struct spv3_file spv3_files[] =
 
 /* (spv3_installer_cancel: set from the game's thread, read by the import's) */
 static volatile int spv3_installer_cancelled;
+
+#define STOPPED_MESSAGE "Stopped. Add SPV3 again to carry on where it stopped."
 
 /* ---------- private code */
 
@@ -762,29 +778,148 @@ static int package_member(struct stream *package, const struct spv3_file *file, 
 
 /* ---------- private code: writing */
 
-/* the folders on the way to target made under destination, none of them a
-link (nor destination's data folder itself) */
-static int make_folders(const char *destination, const char *target, char *error, int error_size)
+/* the folder a target is written in, and the target's own name there */
+struct target_folder
 {
+	/* (POSIX: the folder, opened from destination one folder at a time;
+	otherwise NONE) */
+	int descriptor;
+	/* (its path: Windows' file calls take paths) */
 	char path[PATH_SIZE * 2];
-	const char *slash;
+	const char *name;
+};
+
+/* the folders on the way to target made under destination and the last one
+opened, none of them a link (but destination itself, and the folder at the
+target's top) */
+static int target_folder_open(const char *destination, const char *target, struct target_folder *folder,
+	char *error, int error_size)
+{
+	const char *start = target, *slash;
+	int top = 1;
 
 	/* (the data folder, and the folder a target is in at its top, maps_spv3
 	or lua, may be links: a player moves 11 GB to another drive so; a link
 	further down is refused) */
-	for (slash = strchr(target, '/'); slash; slash = strchr(slash + 1, '/'))
+	folder->descriptor = -1;
+	snprintf(folder->path, sizeof(folder->path), "%s", destination);
+#ifdef SPV3_FOLDER_DESCRIPTORS
+	folder->descriptor = open(destination, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (folder->descriptor < 0)
+		return refuse(error, error_size, "Couldn't open the data folder: %s.", strerror(errno));
+#endif
+	for (slash = strchr(start, '/'); slash; start = slash + 1, slash = strchr(start, '/'), top = 0)
 	{
-		snprintf(path, sizeof(path), "%s/%.*s", destination, (int)(slash - target), target);
-		if (slash != strchr(target, '/') && posix_is_link(path))
+		char name[MAXIMUM_NAME];
+		size_t length = (size_t)(slash - start);
+
+		if (length >= sizeof(name))
+			return refuse(error, error_size, "Couldn't make the folders for %s.", target);
+		memcpy(name, start, length);
+		name[length] = 0;
+		snprintf(folder->path, sizeof(folder->path), "%s/%.*s", destination, (int)(slash - target), target);
+#ifdef SPV3_FOLDER_DESCRIPTORS
+		{
+			int next;
+
+			mkdirat(folder->descriptor, name, 0755);
+			next = openat(folder->descriptor, name, O_RDONLY | O_DIRECTORY | O_CLOEXEC | (top ? 0 : O_NOFOLLOW));
+			if (next < 0)
+			{
+				int reason = errno;
+
+				close(folder->descriptor);
+				folder->descriptor = -1;
+				if (reason == ELOOP || reason == ENOTDIR)
+					return refuse(error, error_size, "%.*s is a link; SPV3 isn't written through one.",
+						(int)(slash - target), target);
+				return refuse(error, error_size, "Couldn't make %.*s: %s.", (int)(slash - target), target,
+					strerror(reason));
+			}
+			close(folder->descriptor);
+			folder->descriptor = next;
+		}
+#else
+		/* (Windows: checked by path, then made; a folder swapped for a link
+		between the check and the write is followed. Only someone already
+		able to write in the player's data folder, as the player, can do
+		that; there is no openat to close it) */
+		if (!top && posix_is_link(folder->path))
 			return refuse(error, error_size, "%.*s is a link; SPV3 isn't written through one.", (int)(slash - target),
 				target);
-		posix_make_directory(path);
+		posix_make_directory(folder->path);
+#endif
 	}
+	folder->name = start;
 	return 1;
 }
 
-/* whether the file at path is there with the size and CRC-32 listed */
-static int file_is_right(const char *path, const struct spv3_file *file, unsigned char *buffer,
+static void target_folder_close(struct target_folder *folder)
+{
+#ifdef SPV3_FOLDER_DESCRIPTORS
+	if (folder->descriptor >= 0)
+		close(folder->descriptor);
+#endif
+	folder->descriptor = -1;
+}
+
+/* a file of the folder opened, never through a link (POSIX) */
+static int target_folder_file(const struct target_folder *folder, const char *name, int flags)
+{
+#ifdef SPV3_FOLDER_DESCRIPTORS
+	return openat(folder->descriptor, name, flags | O_BINARY | O_CLOEXEC | O_NOFOLLOW, 0644);
+#else
+	char path[PATH_SIZE * 2 + MAXIMUM_NAME];
+
+	snprintf(path, sizeof(path), "%s/%s", folder->path, name);
+	return open(path, flags | O_BINARY | O_CLOEXEC | O_NOFOLLOW, 0644);
+#endif
+}
+
+/* (a link's own name removed, never what it points at) */
+static void target_folder_remove(const struct target_folder *folder, const char *name)
+{
+#ifdef SPV3_FOLDER_DESCRIPTORS
+	unlinkat(folder->descriptor, name, 0);
+#else
+	char path[PATH_SIZE * 2 + MAXIMUM_NAME];
+
+	snprintf(path, sizeof(path), "%s/%s", folder->path, name);
+	remove(path);
+#endif
+}
+
+static int target_folder_is_link(const struct target_folder *folder, const char *name)
+{
+#ifdef SPV3_FOLDER_DESCRIPTORS
+	struct stat information;
+
+	return fstatat(folder->descriptor, name, &information, AT_SYMLINK_NOFOLLOW) == 0 &&
+		S_ISLNK(information.st_mode);
+#else
+	char path[PATH_SIZE * 2 + MAXIMUM_NAME];
+
+	snprintf(path, sizeof(path), "%s/%s", folder->path, name);
+	return posix_is_link(path);
+#endif
+}
+
+static int target_folder_rename(const struct target_folder *folder, const char *from, const char *to)
+{
+#ifdef SPV3_FOLDER_DESCRIPTORS
+	return renameat(folder->descriptor, from, folder->descriptor, to);
+#else
+	char from_path[PATH_SIZE * 2 + MAXIMUM_NAME], to_path[PATH_SIZE * 2 + MAXIMUM_NAME];
+
+	snprintf(from_path, sizeof(from_path), "%s/%s", folder->path, from);
+	snprintf(to_path, sizeof(to_path), "%s/%s", folder->path, to);
+	return posix_replace_file(from_path, to_path);
+#endif
+}
+
+/* whether the target is there with the size and CRC-32 listed (not when
+the player stopped it while it was read) */
+static int file_is_right(const struct target_folder *folder, const struct spv3_file *file, unsigned char *buffer,
 	cabinet_progress_proc progress, void *context, unsigned long long done, unsigned long long total)
 {
 	struct posix_file_information information;
@@ -792,18 +927,23 @@ static int file_is_right(const char *path, const struct spv3_file *file, unsigne
 	uLong check = z_crc32(0L, Z_NULL, 0);
 	int descriptor;
 
-	if (posix_is_link(path) || posix_stat(path, &information) != 0 ||
-		(information.flags & _posix_file_is_directory))
+	if (target_folder_is_link(folder, folder->name))
+		return 0;
+	descriptor = target_folder_file(folder, folder->name, O_RDONLY | O_LARGEFILE);
+	if (descriptor < 0)
+		return 0;
+	if (posix_fstat(descriptor, &information) != 0 || (information.flags & _posix_file_is_directory))
 	{
+		close(descriptor);
 		return 0;
 	}
 	size = ((unsigned long long)information.size_high << 32) | information.size_low;
 	if (size != file->size)
+	{
+		close(descriptor);
 		return 0;
-	descriptor = open(path, O_RDONLY | O_BINARY | O_LARGEFILE | O_CLOEXEC);
-	if (descriptor < 0)
-		return 0;
-	while (read_so_far < size)
+	}
+	while (read_so_far < size && !spv3_installer_cancelled)
 	{
 		ssize_t count = read(descriptor, buffer, CHUNK_SIZE);
 
@@ -819,11 +959,11 @@ static int file_is_right(const char *path, const struct spv3_file *file, unsigne
 }
 
 /* one file: its package streamed to <target>.part, checked, renamed */
-static int install_file(struct release *release, const char *destination, const struct spv3_file *file,
-	unsigned char *buffer, cabinet_progress_proc progress, void *context, unsigned long long done,
-	unsigned long long total, char *error, int error_size)
+static int install_file(struct release *release, const char *destination, const struct target_folder *folder,
+	const struct spv3_file *file, unsigned char *buffer, cabinet_progress_proc progress, void *context,
+	unsigned long long done, unsigned long long total, char *error, int error_size)
 {
-	char package_name[PACKAGE_NAME_SIZE + 8], path[PATH_SIZE * 2], part[PATH_SIZE * 2 + 8];
+	char package_name[PACKAGE_NAME_SIZE + 8], part[MAXIMUM_NAME + 8];
 	struct stream package, member;
 	unsigned long long written = 0;
 	uLong check = z_crc32(0L, Z_NULL, 0);
@@ -844,10 +984,13 @@ static int install_file(struct release *release, const char *destination, const 
 		return refuse(error, error_size, "That copy of SPV3 is damaged: %s isn't what SPV3 " RELEASE_NAME " has.",
 			base_name(file->target));
 	}
-	snprintf(path, sizeof(path), "%s/%s", destination, file->target);
-	snprintf(part, sizeof(part), "%s.part", path);
-	if (posix_is_link(path) || posix_is_link(part))
+	snprintf(part, sizeof(part), "%s.part", folder->name);
+	if (target_folder_is_link(folder, folder->name))
 		ok = refuse(error, error_size, "%s is a link; SPV3 isn't written through one.", file->target);
+	/* (whatever is at the .part's name goes first, a stopped run's or a link
+	of either kind, so nothing is written through it and an old one doesn't
+	count against the free space; the new one is made, never opened) */
+	target_folder_remove(folder, part);
 	/* (room for its .part beside what is there: the first check counted only
 	the files not there at their size) */
 	{
@@ -860,7 +1003,7 @@ static int install_file(struct release *release, const char *destination, const 
 				(double)(file->size + FREE_SPACE_MARGIN) / 1e9, base_name(file->target));
 		}
 	}
-	output = ok ? open(part, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY | O_CLOEXEC | O_NOFOLLOW, 0644) : -1;
+	output = ok ? target_folder_file(folder, part, O_WRONLY | O_CREAT | O_EXCL) : -1;
 	if (ok && output < 0)
 		ok = refuse(error, error_size, "Couldn't write %s: %s.", file->target, strerror(errno));
 	while (ok)
@@ -870,7 +1013,7 @@ static int install_file(struct release *release, const char *destination, const 
 
 		if (spv3_installer_cancelled)
 		{
-			ok = refuse(error, error_size, "Stopped. Add SPV3 again to carry on where it stopped.");
+			ok = refuse(error, error_size, STOPPED_MESSAGE);
 			break;
 		}
 
@@ -910,10 +1053,10 @@ static int install_file(struct release *release, const char *destination, const 
 			ok = refuse(error, error_size, "Couldn't write %s: %s.", file->target, strerror(errno));
 		close(output);
 	}
-	if (ok && posix_replace_file(part, path) != 0)
+	if (ok && target_folder_rename(folder, part, folder->name) != 0)
 		ok = refuse(error, error_size, "Couldn't put %s in place: %s.", file->target, strerror(errno));
-	if (!ok)
-		remove(part);
+	if (!ok && output >= 0)
+		target_folder_remove(folder, part);
 	stream_close(&member);
 	stream_close(&package);
 	return ok;
@@ -1019,28 +1162,42 @@ int spv3_installer_install(const char *release_path, const char *destination, ca
 	for (index = 0; ok && index < sizeof(spv3_files) / sizeof(*spv3_files); index++)
 	{
 		const struct spv3_file *file = &spv3_files[index];
-		char path[PATH_SIZE * 2];
+		struct target_folder folder;
 
-		ok = make_folders(destination, file->target, error, error_size);
-		if (!ok)
-			break;
-		snprintf(path, sizeof(path), "%s/%s", destination, file->target);
-		if (file_is_right(path, file, buffer, progress, context, done, total))
+		/* (Cancel counts while the files there are checked too, not only
+		while one is written) */
+		if (spv3_installer_cancelled)
 		{
-			char part[PATH_SIZE * 2 + 8];
+			ok = refuse(error, error_size, STOPPED_MESSAGE);
+			break;
+		}
+		ok = target_folder_open(destination, file->target, &folder, error, error_size);
+		if (!ok)
+		{
+			target_folder_close(&folder);
+			break;
+		}
+		if (file_is_right(&folder, file, buffer, progress, context, done, total))
+		{
+			char part[MAXIMUM_NAME + 8];
 
-			/* (a .part a run that stopped left beside a file now right) */
-			snprintf(part, sizeof(part), "%s.part", path);
-			if (!posix_is_link(part))
-				remove(part);
+			/* (a .part a run that stopped left beside a file now right: its
+			name removed, a link's too) */
+			snprintf(part, sizeof(part), "%s.part", folder.name);
+			target_folder_remove(&folder, part);
+		}
+		else if (spv3_installer_cancelled)
+		{
+			ok = refuse(error, error_size, STOPPED_MESSAGE);
 		}
 		else
 		{
-			ok = install_file(&release, destination, file, buffer, progress, context, done, total, error,
+			ok = install_file(&release, destination, &folder, file, buffer, progress, context, done, total, error,
 				error_size);
 			if (ok)
 				platform_log("spv3 installer: wrote %s (%llu bytes)", file->target, file->size);
 		}
+		target_folder_close(&folder);
 		done += file->size;
 		if (progress)
 			progress(context, base_name(file->target), done, total);
