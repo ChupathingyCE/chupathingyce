@@ -763,6 +763,30 @@ void rasterizer_lights_reset_for_new_map(
 	return;
 }
 
+/* port: a structure bsp switched to. Its lens flare markers keep their
+visibility by their index in the bsp, which the old bsp's markers at those
+indices had left (a10's switch to the bridge carried 15 lit ones over): a
+marker at an index the old bsp had seen lit could be drawn, behind a wall of
+the new bsp, until its own test came back, which right after a loading screen
+takes the GPU some frames. They are seen again from none, as on a new map,
+and their slots taken anew. A console's build keeps what it had. From GulchCE
+by chestahh (granted 2026-11-26) */
+void rasterizer_lights_reset_for_new_structure_bsp(
+	void)
+{
+#if !(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER))
+	memset(local_lens_flare_occlusion_test_results2, 0, sizeof(local_lens_flare_occlusion_test_results2));
+#ifndef HALO_CONSOLE_WAITED_VISIBILITY_TESTS
+	memset(lens_flare_test_slots, 0, sizeof(lens_flare_test_slots));
+	memset(lens_flare_test_buckets, 0, sizeof(lens_flare_test_buckets));
+	lens_flare_test_cursor = 0;
+#endif
+#endif
+
+	return;
+}
+
 void rasterizer_lens_flare_submit(
 	struct rasterizer_lens_flare_submit_parameters const *parameters)
 {

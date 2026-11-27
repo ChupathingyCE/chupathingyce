@@ -190,6 +190,13 @@ symbols in this file:
 #include "cache/cache_files.h" /* port: tag_iterator (light_port_glow_definition_get) */
 #include "units/units.h"
 #include "plasma_lighting.h" /* port: port/linux/game/plasma_lighting.c (Light effects) */
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
+/* port: the Light effects' own lights' reach (light_compute_bounding_sphere) */
+#include "covenant_emitter_lighting.h"
+#include "covenant_lighting.h"
+#include "muzzle_lighting.h"
+#include "rocket_lighting.h"
+#endif
 #ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
 #include "items/weapon_definitions.h" /* port: light_is_flashlight */
 #include "items/weapon_export_function_mode.h"
@@ -2169,11 +2176,20 @@ static void light_compute_bounding_sphere(
 		: light->radius;
 
 	/* port: the clusters a light of the Light effects reaches, as far as it
-	lights (a glow's radius is its own) */
+	lights (a glow's radius is its own). A muzzle flash, an emitter, a
+	Covenant bolt's or a rocket's light of its own reaches as far as it was
+	made to, not as far as the map's light it borrowed (from GulchCE by
+	chestahh, granted 2026-11-26) */
 	if (maximum)
 	{
 		if (TEST_FLAG(light->flags, _point_light_port_glow_bit))
 			light_radius = MAX(light_radius, light->intensity_scale);
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
+		light_radius = muzzle_lighting_radius(light_index, light_radius);
+		light_radius = covenant_emitter_lighting_radius(light_index, light_radius);
+		light_radius = covenant_lighting_radius(light_index, light->object_index, light_radius);
+		light_radius = rocket_lighting_radius(light_index, light->object_index, light_radius);
+#endif
 		light_radius = plasma_lighting_radius(light_index, light->object_index, light_radius);
 	}
 

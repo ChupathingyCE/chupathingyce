@@ -32,9 +32,6 @@ game's log, d:\debug.txt (and debug.old.txt), is in logs/.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef HALO_WINDOW_REBASE
-#include <strings.h>
-#endif
 #include <unistd.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -445,8 +442,10 @@ it is. With the window at its linked address the name is the game's own.
 Returns xbox_path, or the renamed path in buffer. */
 static const char *window_save_path(const char *xbox_path, char *buffer, unsigned long buffer_size)
 {
+	static const char save_name[] = "savegame.bin";
 	const char *name = xbox_path;
 	const char *cursor;
+	unsigned long index;
 
 	if (PLATFORM_CONTIGUOUS_BASE == 0x80000000UL)
 		return xbox_path;
@@ -455,8 +454,12 @@ static const char *window_save_path(const char *xbox_path, char *buffer, unsigne
 		if (*cursor == '\\' || *cursor == '/' || *cursor == ':')
 			name = cursor + 1;
 	}
-	if (strcasecmp(name, "savegame.bin"))
-		return xbox_path;
+	/* (in any case; Windows has no strcasecmp) */
+	for (index = 0; index < sizeof(save_name); index++)
+	{
+		if (tolower((unsigned char)name[index]) != save_name[index])
+			return xbox_path;
+	}
 	snprintf(buffer, buffer_size, "%.*ssavegame-%08lx.bin", (int)(name - xbox_path), xbox_path,
 		(unsigned long)PLATFORM_CONTIGUOUS_BASE);
 	return buffer;
