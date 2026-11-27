@@ -289,6 +289,9 @@ struct bg_target
 	/* RGBA16F, with room above white: the back buffer with display.hdr
 	(bg_target_get, xgpu_tone_map.h) */
 	BOOL wide;
+	/* a multisampled depth buffer that can be read (resolved by bgfx: its
+	samples' first), for OpenSauce's post-processing (bg_depth_readable) */
+	BOOL readable;
 	bgfx_texture_handle_t texture;
 	unsigned long last_rendered, written;
 };
@@ -2438,12 +2441,19 @@ static struct bg_target **bg_target_bucket(DWORD data)
 	return &bg.targets[((data >> 12) ^ (data >> 20)) % BG_TARGET_BUCKETS];
 }
 
+/* the screen's multisampled depth buffer made readable, not write-only
+(bg_samples_flags): OpenSauce's post-processing reads it for its G-buffer
+(opensauce_postprocess_bgfx.inl), which asks for it on a map that draws
+some. Metal's only: it resolves a depth buffer's samples, which bgfx
+does not on every renderer */
+static BOOL bg_depth_readable;
+
 static struct bg_target *bg_target_get(const D3DSurface *surface)
 {
 	struct bg_target *entry;
 	unsigned long width, height;
 	float scale[2] = { 1.0f, 1.0f };
-	BOOL depth, wide = FALSE;
+	BOOL depth, wide = FALSE, readable;
 	int samples = 0;
 
 	if (!surface || !surface->Data)
@@ -2471,13 +2481,14 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 		scale[0] = (float)halo_shadow_map_scale();
 		scale[1] = scale[0];
 	}
+	readable = depth && samples > 1 && bg_depth_readable;
 	for (entry = *bg_target_bucket(surface->Data); entry; entry = entry->next)
 	{
 		/* (one bgfx would not make is kept, so it is asked for once, and is
 		no target: what would draw into it is left out) */
 		if (entry->data == surface->Data && entry->width == width && entry->height == height && entry->depth == depth &&
 			entry->scale[0] == scale[0] && entry->scale[1] == scale[1] && entry->samples == samples &&
-			entry->wide == wide)
+			entry->wide == wide && entry->readable == readable)
 			return BGFX_HANDLE_IS_VALID(entry->texture) ? entry : NULL;
 	}
 	entry = calloc(1, sizeof(*entry));
@@ -2489,11 +2500,12 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	entry->scale[1] = scale[1];
 	entry->samples = samples;
 	entry->wide = wide;
+	entry->readable = readable;
 	entry->pixel_width = (unsigned long)(width * scale[0] + 0.5f);
 	entry->pixel_height = (unsigned long)(height * scale[1] + 0.5f);
 	entry->texture = bgfx_create_texture_2d((uint16_t)entry->pixel_width, (uint16_t)entry->pixel_height, false, 1,
 		depth ? bg.depth_format : wide ? BGFX_TEXTURE_FORMAT_RGBA16F : BGFX_TEXTURE_FORMAT_BGRA8,
-		bg_samples_flags(samples, depth) | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+		bg_samples_flags(samples, depth && !readable) | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
 	/* (cleared once: what a new target holds is undefined) */
 	entry->fresh = TRUE;
 	entry->next = *bg_target_bucket(entry->data);

@@ -815,12 +815,21 @@ static void bgpp_gbuffer_make(void)
 		return;
 	ppgl.gbuffer_serial = ppgl.frame.frame_serial;
 	depth = bg_target_get(&device.depth_buffer);
-	if (!depth || !depth->depth || depth->pixel_width != ppgl.width || depth->pixel_height != ppgl.height ||
-		depth->samples > 1)
+	if (depth && depth->depth && depth->samples > 1 && !depth->readable && !bg_vulkan && !bg_d3d11 &&
+		!bg_depth_readable)
 	{
-		/* (a multisampled depth buffer is write-only on bgfx: bg_samples_flags) */
-		ppgl_log_once(0, depth && depth->samples > 1 ? "the depth buffer is multisampled, which bgfx cannot read: "
-			"the G-buffer is left empty" : "the depth buffer is not the back buffer's size: the G-buffer is left empty");
+		/* (a multisampled depth buffer is write-only on bgfx, bg_samples_flags:
+		on Metal, readable from the next frame on) */
+		bg_depth_readable = TRUE;
+		platform_log("OpenSauce post-processing: the multisampled depth buffer is made readable for its G-buffer");
+	}
+	if (!depth || !depth->depth || depth->pixel_width != ppgl.width || depth->pixel_height != ppgl.height ||
+		(depth->samples > 1 && !depth->readable))
+	{
+		if (!(depth && depth->samples > 1 && bg_depth_readable))
+			ppgl_log_once(0, depth && depth->samples > 1 ? "the depth buffer is multisampled and can't be read on this "
+				"renderer: the G-buffer is left empty" :
+				"the depth buffer is not the back buffer's size: the G-buffer is left empty");
 		if (bgpp_view(bgpp.gbuffer_framebuffer, ppgl.width, ppgl.height, FALSE))
 		{
 			bgfx_set_view_clear(bg.view, BGFX_CLEAR_COLOR, 0xff000000, 1.0f, 0);

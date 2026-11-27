@@ -26,9 +26,9 @@ D3DX do for an effect:
 - its standard values (ORTHOWORLDVIEWPROJECTION, SCENESIZE, PIXELSIZE,
   HUDSCALE, NEARCLIPDISTANCE, FARCLIPDISTANCE).
 OpenSauce is Kornner Studios' (GPL-3.0-or-later); its sources are read as
-facts. Desktop OpenGL draws it, and bgfx (opensauce_postprocess_bgfx.inl, from the
-same effects); OpenGL ES and the consoles' layers say they don't
-(halo_opensauce_pp_available), and the game logs that.
+facts. Desktop OpenGL draws it, and so does bgfx, from the same effects
+(opensauce_postprocess_bgfx.inl); OpenGL ES and the consoles' layers say
+they don't (halo_opensauce_pp_available), and the game logs that.
 */
 
 #include "opensauce_postprocess.h"
