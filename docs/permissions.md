@@ -9,6 +9,7 @@ permissions are kept on file and can be shown on request.
 | Who | What | Terms | Permission since |
 | --- | --- | --- | --- |
 | chester (chestahh) | His code in GulchCE, including its Halo MCC map support (`port/linux/game/mcc_*`, `port/linux/src/mcc_*`) | Relicensed by him to GPL-3.0, with credit | 2026-10-29 |
+| chester (chestahh) | Dynamic Lighting, Dynamic Shadows and shared renderer optimisations (GulchCE, [original OpenCE port](https://github.com/chestahh/GulchCE/tree/035f47bb8fc682675456323dbb3095b506502ec6), eda84c9a..035f47bb) | AGPL-3.0-or-later or GPL-3.0-or-later at our choice; we use GPL-3.0-or-later; his lines only | 2026-11-26 |
 | The GulchCE contributors (PeterRichardsonGolf and others) | Their work in GulchCE: the Steam Workshop catalog and the MCC sharing rules | Relicensed by them to GPL-3.0, with credit; OpenCE's own code inside GulchCE is not included | 2026-11-11 |
 | mOTA-lEV (SutlabSol) | His own code in OpenCE-Faber: medals, service records, Forge, Firefight | GPL-3.0, with attribution and links to his originals | 2026-11-07 |
 | thelinkin3000 | His Switch port work (warthog-switch) | GPL-3.0-or-later | 2026-10-21 |

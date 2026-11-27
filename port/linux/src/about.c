@@ -64,6 +64,7 @@ static const struct about_entry page[] =
 	{ _line_text, "HD HUD testing: ugoboom." },
 	{ _line_text, "Chimera: SnowyMouse, Aerocatia, Cambidd and contributors (and its Lua API)." },
 	{ _line_text, "Xbox 3D sound and reverb: the OpenH1 contributors and chestahh." },
+	{ _line_text, "Dynamic Lighting, Dynamic Shadows and shared renderer optimisations by chestahh, originally developed for GulchCE." },
 	{ _line_text, "Security reports: nickarcade." },
 	{ _line_text, "Grifball court: SlappyThePirate." },
 	{ _line_text, "Testing: FASTNOOB, FLTHY, Fujibayashi Kyou, Mega, OpenRift, roundzabout, Sabriel, Shadow Phoenix, snapchipper, TanFlo, ugoboom and Wonka." },

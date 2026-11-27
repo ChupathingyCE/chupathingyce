@@ -710,6 +710,26 @@
       ]
     },
     {
+      "name": "Dynamic Lighting, Dynamic Shadows and shared renderer optimisations",
+      "use": "The Light effects (display.light_effects) and the lighting and shadow work brought over from GulchCE: port/linux/game/*_lighting.c and the changes marked as his in the game's sources.",
+      "source": "https://github.com/chestahh/GulchCE/tree/035f47bb8fc682675456323dbb3095b506502ec6",
+      "copyright": [
+        "Copyright chestahh (GulchCE)"
+      ],
+      "license": "GPL-3.0-or-later, like the rest of the game (offered by chestahh under AGPL-3.0-or-later or GPL-3.0-or-later; his lines only)",
+      "credit": "Dynamic Lighting, Dynamic Shadows and shared renderer optimisations by chestahh (https://github.com/chestahh), originally developed for GulchCE (https://github.com/chestahh/GulchCE). Original OpenCE port: https://github.com/chestahh/GulchCE/tree/035f47bb8fc682675456323dbb3095b506502ec6. Our changes are in the git history.",
+      "packages": [
+        "game"
+      ],
+      "covers": [
+        "port/linux/game/plasma_lighting.c",
+        "port/linux/game/muzzle_lighting.c",
+        "port/linux/game/rocket_lighting.c",
+        "port/linux/game/covenant_lighting.c",
+        "port/linux/game/covenant_emitter_lighting.c"
+      ]
+    },
+    {
       "name": "HD controller buttons",
       "use": "The Duke's, PlayStation's and Switch's buttons in the prompts (input.button_style, input.hud_buttons).",
       "source": "DKrumpp's hd_buttons_v1 (Chupathingy Discord, November 11, 2026)",
