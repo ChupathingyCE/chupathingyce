@@ -629,6 +629,8 @@ static boolean ce_map_open(
 		strncpy(ce_map_name, map_name, sizeof(ce_map_name) - 1);
 		error(_error_silent, "%s map %s: %s, build %.32s", map_family_kind(family), map_name, path,
 			ce_map_file.header.build);
+		/* (SPV3's ui: whether it is its own file, spv3_mode.c) */
+		spv3_mode_note_map_opened(map_name, path);
 		return TRUE;
 	}
 	/* (the map open before stays open, and its version the one loaded) */

@@ -13622,6 +13622,10 @@ may switch levels with map_name, as the pack's own release's do (the bonus
 level its menu opens), which no other map's scripts may. What it names goes
 through main_set_map_name, a level only the pack has being the pack's */
 static boolean hs_scenario_pack_menus = FALSE;
+/* port: whether the map whose scripts are checked is SPV3's own ui.yelo
+(spv3_mode_own_ui_open), whose map_name names only maps_spv3's levels
+(hs_map_name_set) */
+static boolean hs_scenario_spv3_ui = FALSE;
 
 static boolean hs_name_listed(
 	char const *name,
@@ -14021,12 +14025,14 @@ static void hs_scenario_functions_check(
 		hs_scenario_pack_menus = map_pack_menus_known() && !csstrcmp(cache_file_loaded_map_name(), "ui");
 		if (hs_scenario_pack_menus)
 			error(_error_silent, "ui is a known map pack's menus: its scripts may call map_name");
-		/* (SPV3's menus, maps_spv3\ui.yelo, start each level with map_name
-		once a difficulty is chosen: spv3_mode.c) */
-		else if (spv3_mode_is_ui(cache_file_loaded_map_name()))
+		/* (SPV3's menus start each level with map_name once a difficulty is
+		chosen: only its own file's, maps_spv3\ui.yelo, and only for its
+		levels, hs_map_name_set; spv3_mode.c) */
+		hs_scenario_spv3_ui = !hs_scenario_pack_menus && spv3_mode_own_ui_open(cache_file_loaded_map_name());
+		if (hs_scenario_spv3_ui)
 		{
 			hs_scenario_pack_menus = TRUE;
-			spv3_mode_log("ui: its scripts may call map_name, which starts its levels");
+			spv3_mode_log("ui: its scripts may call map_name for maps_spv3's levels");
 		}
 	}
 #endif
@@ -16212,7 +16218,27 @@ HS_EVALUATE_RETURN_BOOLEAN_NO_ARGUMENTS(player_control_action_test_move_relative
 /* port: in network co-op, also for the players the scripts can't name (coop_scripts.c) */
 HS_EVALUATE_VOID_FROM_ARGUMENTS(player_add_equipment_evaluate, struct hs_arguments_long_word_boolean, (coop_scripts_player_add_equipment(arguments->value0, arguments->value1, arguments->value2)))
 HS_EVALUATE_VOID_FROM_ARGUMENTS(debug_player_teleport_evaluate, struct hs_arguments_short_word, (debug_player_teleport(arguments->value0, arguments->value1)))
-HS_EVALUATE_VOID_STRING(main_set_map_name_evaluate, main_set_map_name)
+/* port: map_name. While SPV3's own ui is loaded, only a level of
+maps_spv3 (spv3a10, which is spv3a10@ce here); any other name is dropped
+and said once (spv3_mode_level_name) */
+static void hs_map_name_set(
+	char const *map_name)
+{
+#ifdef HALO_MAP_LIST
+	if (hs_scenario_spv3_ui)
+	{
+		char level[64];
+
+		if (spv3_mode_level_name(map_name, level, sizeof(level)))
+			main_set_map_name(level);
+		return;
+	}
+#endif
+	main_set_map_name(map_name);
+	return;
+}
+
+HS_EVALUATE_VOID_STRING(main_set_map_name_evaluate, hs_map_name_set)
 HS_EVALUATE_VOID_STRING(main_set_multiplayer_map_name_evaluate, main_set_multiplayer_map_name)
 HS_EVALUATE_VOID_UNSIGNED_SHORT(main_set_difficulty_evaluate, main_set_difficulty)
 /* port: a campaign script still switches, and so does a player walking
