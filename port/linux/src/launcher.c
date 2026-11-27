@@ -174,6 +174,7 @@ enum
 	_action_move_old_folders,
 	_action_add_file,
 	_action_add_halo_pc,
+	_action_add_spv3,
 	_action_make_folders,
 	_action_open_game_folder,
 	_action_open_family_folder,
@@ -1772,6 +1773,11 @@ static void build_rows(void)
 		}
 		row = row_add(_action_add_file, "ADD MAPS FROM A FILE");
 		row->gap = !launcher.old_folders;
+#if defined(HALO_64BIT) && defined(HALO_CUSTOM_EDITION) && !defined(HALO_WINDOW_TRANSLATED)
+		/* (SPV3 from the player's own copy of its release: spv3_installer.c) */
+		row = row_add(_action_add_spv3, "ADD SPV3");
+		snprintf(row->help, sizeof(row->help), "Pick SPV3's release zip. Bring your own copy.");
+#endif
 		row_add(_action_make_folders, "MAKE THE FOLDERS");
 		row = row_add(_action_open_game_folder, "OPEN GAME FOLDER");
 		shown_path(launcher.root, row->help, sizeof(row->help));
@@ -2422,6 +2428,12 @@ static void draw_prompts(void)
 		prompt_add(UI_BUTTON_B, "CANCEL", 1, _button_b);
 		return;
 	}
+	/* (SPV3's install stops part way; the rest run to their end) */
+	if (launcher.dialog == _dialog_import && launcher.import_kind == PLATFORM_IMPORT_SPV3)
+	{
+		prompt_add(UI_BUTTON_B, "CANCEL", 1, _button_b);
+		return;
+	}
 	if (launcher.dialog)
 		return;
 	switch (launcher.screen)
@@ -2722,6 +2734,12 @@ static void choose(int purpose)
 		{ "Xbox disc images", "iso;xiso" },
 		{ "All files", "*" },
 	};
+	static const SDL_DialogFileFilter spv3_filters[] =
+	{
+		{ "SPV3's release", "zip" },
+		{ "SPV3's manifest (in its data folder)", "bin" },
+		{ "All files", "*" },
+	};
 
 	/* (no file dialog under gamescope, the Steam Deck's Game Mode: it would
 	never show, and the screen would wait for it) */
@@ -2748,11 +2766,13 @@ static void choose(int purpose)
 	snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "PICK A FILE");
 	snprintf(launcher.dialog_text, sizeof(launcher.dialog_text), "%s",
 		purpose == _action_add_halo_pc ? "Pick a Halo PC CD image or the Custom Edition installer." :
+		purpose == _action_add_spv3 ? "Pick SPV3's release zip, or manifest.bin in the data folder it unpacked to." :
 		"Pick your Xbox disc image, a Halo PC CD image or the Custom Edition installer.");
 	if (!launcher.script[0])
 	{
 		SDL_ShowOpenFileDialog(chosen, current_chooser(), platform_sdl_window(),
-			purpose == _action_add_halo_pc ? halo_pc_filters : xbox_filters, 3, NULL, false);
+			purpose == _action_add_halo_pc ? halo_pc_filters : purpose == _action_add_spv3 ? spv3_filters :
+			xbox_filters, 3, NULL, false);
 	}
 }
 
@@ -2824,6 +2844,7 @@ static void import_file(const char *path)
 	{
 		platform_log("launcher: the file picked is no disc image or installer this reads");
 		message("THAT FILE DIDN'T WORK", COLOR_WHITE,
+			launcher.chooser_purpose == _action_add_spv3 ? "That isn't SPV3's release zip or the folder it unpacked to." :
 			"That isn't an Xbox disc image, a Halo PC CD image or the Custom Edition installer.");
 		return;
 	}
@@ -2847,14 +2868,16 @@ static void import_file(const char *path)
 		return;
 	}
 	platform_log("launcher: importing maps (%s)", kind == PLATFORM_IMPORT_XBOX_DISC ? "Xbox disc image" :
-		kind == PLATFORM_IMPORT_HALO_PC_DISC ? "Halo PC CD image" : "Custom Edition installer");
+		kind == PLATFORM_IMPORT_HALO_PC_DISC ? "Halo PC CD image" : kind == PLATFORM_IMPORT_SPV3 ? "SPV3's release" :
+		"Custom Edition installer");
 	launcher.import_kind = kind;
 	launcher.import_file[0] = '\0';
 	launcher.import_done = launcher.import_total = 0;
 	launcher.dialog = _dialog_import;
 	snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "%s",
 		kind == PLATFORM_IMPORT_XBOX_DISC ? "COPYING YOUR XBOX MAPS" :
-		kind == PLATFORM_IMPORT_HALO_PC_DISC ? "COPYING YOUR HALO PC MAPS" : "COPYING THE CE MAPS");
+		kind == PLATFORM_IMPORT_HALO_PC_DISC ? "COPYING YOUR HALO PC MAPS" :
+		kind == PLATFORM_IMPORT_SPV3 ? "INSTALLING SPV3" : "COPYING THE CE MAPS");
 }
 
 static void import_finished(int succeeded, const char *error)
@@ -2879,6 +2902,11 @@ static void import_finished(int succeeded, const char *error)
 			go_home();
 			set_status(COLOR_GREEN, "%s", status);
 		}
+		return;
+	}
+	if (launcher.import_kind == PLATFORM_IMPORT_SPV3)
+	{
+		set_status(COLOR_GREEN, "SPV3 is in. Pick it in Play.");
 		return;
 	}
 	if (!launcher.import_done)
@@ -3130,6 +3158,7 @@ static void act(const struct row *row)
 	}
 	case _action_add_file:
 	case _action_add_halo_pc:
+	case _action_add_spv3:
 	case _action_pick_folder:
 		choose(row->action);
 		break;
@@ -3369,6 +3398,17 @@ static void dialog_input(int button)
 	{
 		if (button == _button_a || button == _button_b)
 			launcher.dialog = _dialog_none;
+		return;
+	}
+	if (launcher.dialog == _dialog_import)
+	{
+		/* (SPV3's install: it stops at its next chunk, that file's .part
+		removed, and says so when it has) */
+		if (button == _button_b && launcher.import_kind == PLATFORM_IMPORT_SPV3)
+		{
+			platform_log("launcher: SPV3's install cancelled");
+			platform_import_cancel();
+		}
 		return;
 	}
 	if (launcher.dialog == _dialog_sent)

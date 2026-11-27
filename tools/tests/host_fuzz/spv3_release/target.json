@@ -1,0 +1,28 @@
+{
+  "about": "SPV3's release as the setup screen takes it (spv3_installer.c): a zip from the player, its central directory, zip64 records and nested packages, installed into a scratch folder",
+  "harness": "port/linux/tests/spv3_release_fuzz.c",
+  "sources": [
+    "port/linux/src/spv3_installer.c",
+    "port/linux/src/posix_files.c",
+    "port/third_party/zlib/adler32.c",
+    "port/third_party/zlib/crc32.c",
+    "port/third_party/zlib/inffast.c",
+    "port/third_party/zlib/inflate.c",
+    "port/third_party/zlib/inftrees.c",
+    "port/third_party/zlib/zutil.c"
+  ],
+  "includes": [
+    "port/linux/src",
+    "port/third_party/zlib"
+  ],
+  "flags": [
+    "-std=gnu11",
+    "-w",
+    "-D_GNU_SOURCE",
+    "-D_FILE_OFFSET_BITS=64",
+    "-DZ_PREFIX",
+    "-Dz_errmsg=z_port_errmsg",
+    "-DHALO_SPV3_INSTALLER_STANDALONE"
+  ],
+  "max_len": 16000
+}

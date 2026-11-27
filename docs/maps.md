@@ -357,8 +357,17 @@ The pack's own `ui.map` isn't used: the game's menus stay the game's. To play
 with the pack's own menus instead, set `game.pack_menus = "cex"` in
 `config.toml` and restart. With the pack's menus, the game plays the pack's
 own movies too: put them in a `bink` folder beside its `ui.map`
-(`maps_cex/bink/intro.bik`, `credits.bik`, `attract1.bik` and so on). A movie
-the pack doesn't have plays from the game's own `bink` folder. A pack folder
+(`maps_cex/bink/intro.bik`, `credits.bik`, `attract1.bik` and so on).
+
+For each movie, the game looks in this order and plays the first it finds:
+
+1. The pack's `bink` folder, the movie in your language (`intro_de.bik`).
+2. The pack's `bink` folder, the movie without a language (`intro.bik`).
+3. The game's own `bink` folder, as without a pack.
+
+So a pack can bring only the movies it changes and use the game's for the
+rest. A movie that's in none of them is skipped. SPV3 works the same way, from
+`maps_spv3/bink` ([docs/spv3.md](spv3.md)). A pack folder
 needs a name of 1 to 8 letters and digits, other than `ce`, `md`, `pc`, `de`,
 `fr`, `es` and `it`.
 
