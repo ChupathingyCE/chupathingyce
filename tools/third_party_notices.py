@@ -6,12 +6,12 @@ those two files and no other license file (tools/ci_build.py; the Android
 app has them in its assets, tools/android_build.py and android64_build.py).
 
     python tools/third_party_notices.py OUTPUT [--package game|server]
-        [--with sdl3,bgfx,vulkan,spirv-cross,appimage,vulkan-android]
+        [--with sdl3,ffmpeg,bgfx,vulkan,spirv-cross,appimage,vulkan-android]
 
 What it lists is port/notices/components.json: one entry per component, the
 downloads it is in and the license files in the repository whose texts it
 carries. --with names the parts only some builds have (the SDL3 library
-beside the game, the bgfx renderer, its Vulkan back end, its SPIRV-Cross,
+beside the game, the movies' FFmpeg, the bgfx renderer, its Vulkan back end, its SPIRV-Cross,
 the AppImage's own runtime: tools/linux_appimage.py writes the
 AppImage's notices again with it, and the 64-bit Android app's Vulkan
 renderer). The header says where
@@ -36,7 +36,7 @@ from tools.version import commit, commit_inputs, release_build, version  # noqa:
 MANIFEST = ROOT / "port/notices/components.json"
 NAME = "THIRD-PARTY-NOTICES.txt"
 REPOSITORY = "https://github.com/ChupathingyCE/chupathingyce"
-FEATURES = ("sdl3", "bgfx", "vulkan", "spirv-cross", "appimage", "vulkan-android")
+FEATURES = ("sdl3", "ffmpeg", "bgfx", "vulkan", "spirv-cross", "appimage", "vulkan-android")
 PACKAGES = ("game", "server")
 RULE = "=" * 78
 

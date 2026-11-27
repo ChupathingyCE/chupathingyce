@@ -121,6 +121,7 @@ def test_packages_and_features_choose_entries():
     desktop = {entry["name"] for entry in notices.components("game", ALL_FEATURES)}
     assert "Opus" in game and "Opus" not in server
     assert "SDL3" not in game and "SDL3" in desktop
+    assert "FFmpeg" not in game and "FFmpeg" in desktop and "FFmpeg" not in server
     assert "SPIRV-Cross" in desktop and "glslang" in desktop and "glslang" not in game
     assert "Mbed TLS" in server and "Cyborg Interface Gothic" in server
 
