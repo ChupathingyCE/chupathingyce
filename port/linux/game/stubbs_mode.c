@@ -504,6 +504,47 @@ static long stubbs_animation_effects_convert(unsigned char *base, unsigned long 
 
 static long stubbs_animation_effects;
 
+/* an animation graph's unit damage animations: Halo's are 4 types (soft
+ping, hard ping, soft kill, hard kill) of 4 directions of 11 parts, 176;
+Stubbs's 6 types, 264: soft ping, hard ping, then two of his own (a melee
+ping, "m-ping", and one no graph fills), then the soft and hard kills. So
+read from the names of a10's. Halo's four are taken from Stubbs's places */
+enum
+{
+	HALO_UNIT_DAMAGE_ANIMATION_COUNT = 176,
+	STUBBS_UNIT_DAMAGE_ANIMATION_COUNT = 264,
+	UNIT_DAMAGE_ANIMATIONS_PER_TYPE = 44,
+	ANIMATION_GRAPH_UNIT_DAMAGE_ANIMATIONS_OFFSET = 0x3C,
+};
+typedef char stubbs_unit_damage_animations_assert[
+	offsetof(struct animation_graph, unit_damage_animations) == ANIMATION_GRAPH_UNIT_DAMAGE_ANIMATIONS_OFFSET &&
+	HALO_UNIT_DAMAGE_ANIMATION_COUNT == 4 * UNIT_DAMAGE_ANIMATIONS_PER_TYPE &&
+	STUBBS_UNIT_DAMAGE_ANIMATION_COUNT == 6 * UNIT_DAMAGE_ANIMATIONS_PER_TYPE ? 1 : -1];
+
+static long stubbs_unit_damage_animations_convert(unsigned char *base, unsigned long size, unsigned char *graph)
+{
+	static unsigned char const stubbs_types[4] = { 0, 1, 4, 5 };
+	unsigned long count, address, index;
+	unsigned char *list;
+
+	memcpy(&count, graph + ANIMATION_GRAPH_UNIT_DAMAGE_ANIMATIONS_OFFSET, 4);
+	memcpy(&address, graph + ANIMATION_GRAPH_UNIT_DAMAGE_ANIMATIONS_OFFSET + 4, 4);
+	if (count != STUBBS_UNIT_DAMAGE_ANIMATION_COUNT ||
+		(list = stubbs_host(base, size, address, count * 2)) == NULL)
+	{
+		return 0;
+	}
+	/* (each Halo entry from one at or past its own place: in place, in order) */
+	for (index = 0; index < HALO_UNIT_DAMAGE_ANIMATION_COUNT; index++)
+		memmove(list + index * 2, list + (stubbs_types[index / UNIT_DAMAGE_ANIMATIONS_PER_TYPE] *
+			UNIT_DAMAGE_ANIMATIONS_PER_TYPE + index % UNIT_DAMAGE_ANIMATIONS_PER_TYPE) * 2, 2);
+	count = HALO_UNIT_DAMAGE_ANIMATION_COUNT;
+	memcpy(graph + ANIMATION_GRAPH_UNIT_DAMAGE_ANIMATIONS_OFFSET, &count, 4);
+	return 1;
+}
+
+static long stubbs_unit_damage_animations;
+
 static long stubbs_animation_convert(unsigned char *base, unsigned long size, unsigned long address)
 {
 	unsigned char *graph = stubbs_host(base, size, address, 0x80);
@@ -513,6 +554,7 @@ static long stubbs_animation_convert(unsigned char *base, unsigned long size, un
 	if (!graph)
 		return 0;
 	stubbs_animation_effects += stubbs_animation_effects_convert(base, size, graph);
+	stubbs_unit_damage_animations += stubbs_unit_damage_animations_convert(base, size, graph);
 	memcpy(&count, graph + ANIMATION_GRAPH_UNITS_OFFSET, 4);
 	memcpy(&seats_address, graph + ANIMATION_GRAPH_UNITS_OFFSET + 4, 4);
 	{
@@ -576,9 +618,11 @@ static long stubbs_animation_convert(unsigned char *base, unsigned long size, un
 	return 1;
 }
 
-/* a weapon class's animations in Halo's order. Stubbs's classes have 69
-of their own order, one set of them for each way of moving (the sets, in
-order: standing, forward, back, left, right, then the four diagonals),
+/* a weapon class's animations in Halo's order. Stubbs's classes have up to 69
+of their own order (some fewer, the same order cut short: the vehicles'
+seats 67, the zombies' maimed seat 68, the head 61), one set of them for
+each way of moving (the sets, in order: standing, forward, back, left,
+right, then the four diagonals),
 where Halo has one list of 55 with a slot for each direction. Their order is
 read from the names of a10's classes ("stand unarmed idle", "... move b",
 "... melee s-l"); slots Halo has and Stubbs doesn't are left empty, which
@@ -588,6 +632,7 @@ attack-n, whistle and more) have no slot in Halo's list yet. */
 enum
 {
 	STUBBS_WEAPON_CLASS_ANIMATION_COUNT = 69,
+	STUBBS_WEAPON_CLASS_ANIMATION_COUNT_FEWEST = 61,
 	HALO_WEAPON_CLASS_ANIMATION_COUNT = 55,
 	STUBBS_SET_STANDING = 0,
 	STUBBS_SET_FORWARD,
@@ -654,7 +699,7 @@ static void stubbs_weapon_class_animations_order(unsigned char *base, unsigned l
 	memcpy(&count, block, 4);
 	memcpy(&address, block + 4, 4);
 	/* (only Stubbs's own order: anything else is left as it is) */
-	if (!sets || count != STUBBS_WEAPON_CLASS_ANIMATION_COUNT)
+	if (!sets || count < STUBBS_WEAPON_CLASS_ANIMATION_COUNT_FEWEST || count > STUBBS_WEAPON_CLASS_ANIMATION_COUNT)
 		return;
 	list = stubbs_host(base, size, address, count * 2);
 	if (!list)
@@ -668,14 +713,19 @@ static void stubbs_weapon_class_animations_order(unsigned char *base, unsigned l
 		{
 			memcpy(&set_animation_count, sets + set_index * STUBBS_ANIMATION_SET_SIZE + STUBBS_ANIMATION_SET_ANIMATIONS_OFFSET, 4);
 			memcpy(&set_address, sets + set_index * STUBBS_ANIMATION_SET_SIZE + STUBBS_ANIMATION_SET_ANIMATIONS_OFFSET + 4, 4);
-			if (set_animation_count == STUBBS_WEAPON_CLASS_ANIMATION_COUNT)
+			if (set_animation_count == count)
 				set_list = stubbs_host(base, size, set_address, set_animation_count * 2);
 		}
-		/* (a direction it lacks: the standing set's) */
+		/* (a direction it lacks: the standing set's; the slots past a
+		shorter list's end: none) */
+		for (index = 0; index < STUBBS_WEAPON_CLASS_ANIMATION_COUNT; index++)
+			slots[set_index][index] = -1;
 		if (set_list)
-			memcpy(slots[set_index], set_list, sizeof(slots[set_index]));
+			memcpy(slots[set_index], set_list, count * 2);
+		else if (set_index)
+			memcpy(slots[set_index], slots[STUBBS_SET_STANDING], sizeof(slots[set_index]));
 		else
-			memcpy(slots[set_index], set_index ? slots[STUBBS_SET_STANDING] : (short const *)list, sizeof(slots[set_index]));
+			memcpy(slots[set_index], list, count * 2);
 	}
 	for (index = 0; index < HALO_WEAPON_CLASS_ANIMATION_COUNT; index++)
 		halo[index] = -1;
@@ -956,6 +1006,7 @@ void stubbs_mode_convert_tags(
 	long converted_actor_variants = 0;
 
 	stubbs_animation_effects = 0;
+	stubbs_unit_damage_animations = 0;
 
 	if (!stubbs_mode_active() || tag_data_size < 0x28)
 		return;
@@ -1053,6 +1104,7 @@ void stubbs_mode_convert_tags(
 	stubbs_mode_log("%ld bipeds and %ld vehicles rewritten in Halo's unit layout", converted[0], converted[1]);
 	stubbs_mode_log("%ld animation graphs rewritten in Halo's layout", converted_animations);
 	stubbs_mode_log("%ld animation sounds that are effects played as effects", stubbs_animation_effects);
+	stubbs_mode_log("%ld graphs' damage animations rewritten in Halo's order", stubbs_unit_damage_animations);
 	stubbs_mode_log("%ld sounds of classes Halo lacks played as the nearest class before", converted_sounds);
 	stubbs_mode_log("%ld collision models' materials and regions rewritten in Halo's layout", converted_collision);
 	stubbs_mode_log("%ld weapon HUDs' image effects left out of their screen effects", converted_weapon_huds);
