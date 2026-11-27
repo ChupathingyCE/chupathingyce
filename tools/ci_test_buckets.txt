@@ -86,6 +86,7 @@ maps      tools/test_ai_nav.py
 area      tools/test_air_turn_aim.py
 area      tools/test_android_asm_convert.py
 area      tools/test_android_mcc_memory.py
+area      tools/test_ark_mode.py port/linux/game/ark_mode.c port/linux/include/ark_mode.h port/linux/include/ark_names.h port/linux/src/ark_files.c port/linux/src/ark_files.h port/linux/tests/ark_files_test.c port/linux/src/launcher.c port/linux/src/xbox_files.c port/linux/src/steam_workshop.c source/networking/network_client_manager.c source/networking/network_server_manager.c
 area      tools/test_audio_balance.py
 area      tools/test_audio_doppler.py
 area      tools/test_audio_levels.py
