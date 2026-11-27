@@ -4,7 +4,7 @@ The Build workflow (`.github/workflows/build.yml`) checks every change in tiers.
 
 | Tier | When | Jobs |
 |---|---|---|
-| A | every push to a pull request | `linux`, `linux-tests` (4 runners), `linux-big-endian`, `server` (x64), plus each platform whose own files changed |
+| A | every push to a pull request | `linux`, `linux-tests` (the tests the change needs, on 2 to 4 runners), `linux-big-endian`, `server` (x64), plus each platform whose own files changed |
 | B | the merge queue, on `main` with the pull request merged | A plus `linux64`, `windows`, `windows64`, `macos`, `android64`, `freebsd64` |
 | C | every push to `main` or a release branch, `batch/*` pull requests, build plumbing changes | every job: also the x86 and arm64 servers, `server-windows`, `server-container` |
 | D | runs started by hand or by the release workflows (nightly, test builds, releases) | every job, plus debug builds and symbols |
@@ -22,6 +22,24 @@ In tier A, the platform jobs for changed files use the same areas as the PR labe
 | `tools/linux64_build.py`, `tools/linux_sysroot.py`, `tools/bgfx-patches/`, the bgfx renderer files | `linux64` |
 
 Build plumbing means `configure.py`, `VERSION`, or `tools/ci_build.py`, `version.py`, `download.py`, `ffmpeg_build.py`, `bgfx_build.py` or `third_party_notices.py`. To build every platform on a branch before then, start Build by hand on it (`gh workflow run build.yml --ref <branch>`). The old `ci: full` label does nothing now.
+
+## Which tests run
+
+`tools/ci_test_buckets.txt` gives every test a bucket, and the plan job (`tools/ci_select_tests.py`) picks the tests for the run:
+
+| Bucket | Tier A (pull request) | Tiers B, C, D |
+|---|---|---|
+| `core` | always | always |
+| `area` | when the pull request changes the test's paths | always |
+| `security` | when the pull request changes the test's paths | always |
+| `maps` | never (they need maps: the maps runner's nightly) | never |
+| `local` | never | never |
+
+A test's paths are found from the test itself: the repository paths it names, its harness or fuzz files, and the tools modules it imports, plus any paths after it in the buckets file. A changed header counts as a change to every file that includes it, however deep, and a changed tools module as one to every module that imports it. A test without a bucket, or whose paths come out empty, runs on every pull request. A pull request that changes the build's plumbing (`configure.py`, `VERSION`, the `tools/*_build.py` and sysroot files, `ninja_syntax.py`), a workflow, the selector, the buckets file, the harness's shared parts, `tools/fuzz_support.py`, the prefix header or a `source/cseries/` header runs every test, and so does one whose files GitHub can't list. So does a changed file that no test's paths name (the core tests' paths and the test lists count; documentation doesn't), with a notice in the plan job's log naming it. The merge queue runs every test, so a path a test missed shows up there, before the merge.
+
+linux-tests runs on one to three pytest runners (by the tests' weight) plus `other`, which has the harness tests, the script tests and the updater's. `python3 tools/ci_select_tests.py --event pull_request --changed files.json --explain` shows what a set of files would run, and why.
+
+A new test goes in `area` unless it guards something every change can break (`core`) or it is a security regression (`security`). `tools/test_ci_select.py` fails until it has a line.
 
 A nightly, test build or release is published only from a tier D run of that exact commit where every platform built and passed.
 
