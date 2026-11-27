@@ -60,7 +60,8 @@ int workshop_browser_id_valid(const char *text)
 /* one item's object into item: 1 when it is sound JSON (kept or not: *kept) */
 static int read_item(struct json *json, struct workshop_browser_item *item, int *kept)
 {
-	static char text[LONGEST_TEXT];
+	/* (each call's own: the Workshop reads answers on several threads at once) */
+	char text[LONGEST_TEXT];
 	char key[32];
 	int has_title = 0;
 
@@ -545,7 +546,8 @@ static int lenient_string(struct json *json, char *text, int size)
 /* one publishedfiledetails object; *kept when it is a Halo CE item of MCC's */
 static int read_details_fields(struct json *json, struct workshop_browser_item *item, int *kept, char **full)
 {
-	static char text[LONGEST_TEXT * 4];
+	/* (each call's own: the Workshop reads answers on several threads at once) */
+	char text[LONGEST_TEXT * 4];
 	char key[32];
 	long long number, result = 0, app = 0;
 	int halo1 = 0, campaign = 0, multiplayer = 0;
