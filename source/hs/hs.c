@@ -15348,6 +15348,10 @@ static void hs_enumerate_navpoints(
 {
 	long hud_globals_index;
 
+	/* port: no map, no globals (an unknown command in init.txt runs before
+	the first map, and its "command not found" looks for names) */
+	if (global_scenario_index == NONE || !global_game_globals)
+		return;
 	hud_globals_index = interface_get_tag_index(_interface_hud_globals);
 	if (hud_globals_index != NONE)
 	{
@@ -15366,6 +15370,9 @@ static void hs_enumerate_navpoints(
 static void hs_enumerate_hud_messages(
 	void)
 {
+	/* port: no map, no scenario (as hs_enumerate_navpoints) */
+	if (global_scenario_index == NONE)
+		return;
 	if (global_scenario_get()->hud_messages.index != NONE)
 	{
 		struct hud_message_text_definition const *hud_messages;

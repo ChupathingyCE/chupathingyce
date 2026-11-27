@@ -55,7 +55,16 @@ enum
 	_material_elite_energy_shield,
 	_material_ice,
 	_material_hunter_shield,
-	NUMBER_OF_MATERIAL_TYPES,
+	/* port: Halo's own, which its tags are checked against
+	(port/linux/game/tag_schema_*.c) */
+	NUMBER_OF_HALO_MATERIAL_TYPES,
+#ifdef HALO_STUBBS_LIMITS
+	/* port: the game's, with Stubbs the Zombie's two more (Stubbs mode's
+	tags are checked against these: port/linux/game/tag_schema_groups.c) */
+	NUMBER_OF_MATERIAL_TYPES = NUMBER_OF_HALO_MATERIAL_TYPES + 2,
+#else
+	NUMBER_OF_MATERIAL_TYPES = NUMBER_OF_HALO_MATERIAL_TYPES,
+#endif
 	MAXIMUM_NUMBER_OF_MATERIAL_TYPES = 40,
 };
 
