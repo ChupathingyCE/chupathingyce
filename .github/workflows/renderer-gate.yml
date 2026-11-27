@@ -48,9 +48,15 @@ jobs:
         env:
           MAPS_WANTED: ${{ inputs.maps }}
         run: |
-          [ -n "$HALO_GATE_MAPS" ] && [ -n "$HALO_DATA_ROOT_SCRIPT" ] ||
+          # (tools/renderer_gate.py makes each copy's data root with the
+          # runner's HALO_DATA_ROOT_SCRIPT, passed through to it as it is)
+          [ -n "${HALO_GATE_MAPS:-}" ] && [ -n "${HALO_DATA_ROOT_SCRIPT:-}" ] ||
             { echo "::error::the runner sets HALO_GATE_MAPS and HALO_DATA_ROOT_SCRIPT"; exit 1; }
-          set -- --binary build/linux64/chupathingy --out "$RUNNER_TEMP/gate" --xvfb :93 \
+          export HALO_DATA_ROOT_SCRIPT
+          # (an X display no one else on the runner has)
+          display=90
+          while [ -e "/tmp/.X$display-lock" ] || [ -e "/tmp/.X11-unix/X$display" ]; do display=$((display + 1)); done
+          set -- --binary build/linux64/chupathingy --out "$RUNNER_TEMP/gate" --xvfb ":$display" \
             --env HALO_VULKAN_BLOCKLIST=false --maps "$HALO_GATE_MAPS" --repeat-first \
             --platform "Linux (bgfx on lavapipe, OpenGL on llvmpipe)"
           [ -n "${HALO_GATE_MAPS_CE:-}" ] && set -- "$@" --maps-ce "$HALO_GATE_MAPS_CE"
