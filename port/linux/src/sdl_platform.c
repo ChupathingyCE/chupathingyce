@@ -936,6 +936,15 @@ BOOL platform_import_start(int kind, const char *image, const char *destination,
 	return TRUE;
 }
 
+void platform_import_cancel(void)
+{
+	/* (only SPV3's install stops part way: spv3_installer.c) */
+	pthread_mutex_lock(&extraction.lock);
+	if (extraction.kind == _data_spv3 && extraction.running && !extraction.finished)
+		spv3_installer_cancel();
+	pthread_mutex_unlock(&extraction.lock);
+}
+
 BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, unsigned long long *total,
 	BOOL *succeeded, char *error, int error_size)
 {
@@ -1103,10 +1112,13 @@ int platform_import_kind(const char *path)
 		return _data_custom_edition_installer;
 	if (pc_disc_is_image(path))
 		return _data_halo_pc_disc;
+#if defined(HALO_64BIT) && defined(HALO_CUSTOM_EDITION) && !defined(HALO_WINDOW_TRANSLATED)
 	/* (SPV3's release, its zip or the folder it was unpacked to:
-	spv3_installer.c) */
+	spv3_installer.c; only where SPV3 mode runs, the 64-bit desktop builds,
+	as the setup screen's row) */
 	if (spv3_installer_is_release(path))
 		return _data_spv3;
+#endif
 	return _data_unknown;
 }
 

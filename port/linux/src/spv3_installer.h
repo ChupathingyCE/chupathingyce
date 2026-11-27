@@ -25,4 +25,8 @@ player in error */
 int spv3_installer_install(const char *release_path, const char *destination, cabinet_progress_proc progress,
 	void *context, char *error, int error_size);
 
+/* the install under way stopped at its next chunk, its .part removed
+(the setup screen's Cancel, on the game's thread) */
+void spv3_installer_cancel(void);
+
 #endif

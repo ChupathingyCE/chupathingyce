@@ -102,10 +102,18 @@ enum
 	PATH_SIZE = 1200,
 };
 
+#ifndef HALO_SPV3_INSTALLER_STANDALONE
 /* SPV3 3.3.0's data\manifest.bin */
 #define RELEASE_MANIFEST_SIZE 9477ULL
 #define RELEASE_MANIFEST_CRC 0x85e0aa9bUL
 #define RELEASE_NAME "3.3.0"
+#else
+/* (the fuzz target's own test release, tools/tests/host_fuzz/spv3_release's
+seeds: none of SPV3's, so the install's whole path is fuzzed too) */
+#define RELEASE_MANIFEST_SIZE 328ULL
+#define RELEASE_MANIFEST_CRC 0xa92bc0d5UL
+#define RELEASE_NAME "test"
+#endif
 /* room kept free beside SPV3's files */
 #define FREE_SPACE_MARGIN (256ULL << 20)
 
@@ -163,6 +171,7 @@ struct stream
 goes under the data folder, its size and CRC-32 */
 static const struct spv3_file spv3_files[] =
 {
+#ifndef HALO_SPV3_INSTALLER_STANDALONE
 	{ "1da11bd2-6292-47e7-9b3d-efd1266d890c", "lua/spv3/modules/CMT/DEPRECATED/armor_abilities.lua", 6741UL, 0xe8e23f1eUL },
 	{ "89c7f4ad-61b1-4daa-91f8-0e174a6cdc2a", "lua/spv3/modules/CMT/DEPRECATED/armor_ability/camo.lua", 1033UL, 0xecf8d1a8UL },
 	{ "16e51780-c39e-43a1-9d33-0dc49f9c37b1", "lua/spv3/modules/CMT/DEPRECATED/armor_ability/visr.lua", 1490UL, 0xcd823820UL },
@@ -238,7 +247,14 @@ static const struct spv3_file spv3_files[] =
 	{ "bdaa3768-c960-4116-a738-80f77a0e37eb", "maps_spv3/spv3d30_evolved.yelo", 389208131UL, 0x403ae826UL },
 	{ "52af0e5b-c176-4e9d-84ad-c803ca443a76", "maps_spv3/spv3d40.yelo", 525160917UL, 0x7ee6574bUL },
 	{ "a8a4fec5-8be4-4f4e-819f-9df62e051f6e", "maps_spv3/ui.yelo", 574822415UL, 0x00605c90UL },
+#else
+	{ "00000000-0000-4000-8000-000000000001", "lua/spv3/modules/test.lua", 50UL, 0xb9eddbfeUL },
+	{ "00000000-0000-4000-8000-000000000002", "maps_spv3/test.yelo", 3000UL, 0xb26b8940UL },
+#endif
 };
+
+/* (spv3_installer_cancel: set from the game's thread, read by the import's) */
+static volatile int spv3_installer_cancelled;
 
 /* ---------- private code */
 
@@ -256,10 +272,14 @@ static int refuse(char *error, int error_size, const char *format, ...)
 	return 0;
 }
 
+/* the last part of a path, after its last / or \ (a Windows path has
+either) */
 static const char *base_name(const char *path)
 {
-	const char *slash = strrchr(path, '/');
+	const char *slash = strrchr(path, '/'), *backslash = strrchr(path, '\\');
 
+	if (backslash && (!slash || backslash > slash))
+		slash = backslash;
 	return slash ? slash + 1 : path;
 }
 
@@ -749,12 +769,13 @@ static int make_folders(const char *destination, const char *target, char *error
 	char path[PATH_SIZE * 2];
 	const char *slash;
 
-	if (posix_is_link(destination))
-		return refuse(error, error_size, "The game folder is a link; SPV3 isn't written through one.");
+	/* (the data folder, and the folder a target is in at its top, maps_spv3
+	or lua, may be links: a player moves 11 GB to another drive so; a link
+	further down is refused) */
 	for (slash = strchr(target, '/'); slash; slash = strchr(slash + 1, '/'))
 	{
 		snprintf(path, sizeof(path), "%s/%.*s", destination, (int)(slash - target), target);
-		if (posix_is_link(path))
+		if (slash != strchr(target, '/') && posix_is_link(path))
 			return refuse(error, error_size, "%.*s is a link; SPV3 isn't written through one.", (int)(slash - target),
 				target);
 		posix_make_directory(path);
@@ -827,6 +848,18 @@ static int install_file(struct release *release, const char *destination, const 
 	snprintf(part, sizeof(part), "%s.part", path);
 	if (posix_is_link(path) || posix_is_link(part))
 		ok = refuse(error, error_size, "%s is a link; SPV3 isn't written through one.", file->target);
+	/* (room for its .part beside what is there: the first check counted only
+	the files not there at their size) */
+	{
+		posix_ulong free_low = 0, free_high = 0, total_low = 0, total_high = 0;
+
+		if (ok && posix_disk_space(destination, &free_low, &free_high, &total_low, &total_high) == 0 &&
+			(((unsigned long long)free_high << 32) | free_low) < file->size + FREE_SPACE_MARGIN)
+		{
+			ok = refuse(error, error_size, "SPV3 needs %.1f GB more free here for %s.",
+				(double)(file->size + FREE_SPACE_MARGIN) / 1e9, base_name(file->target));
+		}
+	}
 	output = ok ? open(part, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY | O_CLOEXEC | O_NOFOLLOW, 0644) : -1;
 	if (ok && output < 0)
 		ok = refuse(error, error_size, "Couldn't write %s: %s.", file->target, strerror(errno));
@@ -834,6 +867,12 @@ static int install_file(struct release *release, const char *destination, const 
 	{
 		long count = stream_read(&member, buffer, CHUNK_SIZE);
 		long written_now = 0;
+
+		if (spv3_installer_cancelled)
+		{
+			ok = refuse(error, error_size, "Stopped. Add SPV3 again to carry on where it stopped.");
+			break;
+		}
 
 		if (count < 0 || written + (unsigned long long)(count > 0 ? count : 0) > file->size)
 		{
@@ -905,6 +944,11 @@ static int manifest_known(struct release *release, unsigned char *buffer)
 
 /* ---------- public code */
 
+void spv3_installer_cancel(void)
+{
+	spv3_installer_cancelled = 1;
+}
+
 int spv3_installer_is_release(const char *path)
 {
 	struct release release;
@@ -925,6 +969,7 @@ int spv3_installer_install(const char *release_path, const char *destination, ca
 	size_t index;
 	int ok = 1;
 
+	spv3_installer_cancelled = 0;
 	if (!release_open(&release, release_path))
 		return refuse(error, error_size, "That isn't SPV3's release zip or the folder it was unpacked to.");
 	buffer = malloc(CHUNK_SIZE);

@@ -2394,6 +2394,12 @@ static void draw_prompts(void)
 		prompt_add(UI_BUTTON_B, "CANCEL", 1, _button_b);
 		return;
 	}
+	/* (SPV3's install stops part way; the rest run to their end) */
+	if (launcher.dialog == _dialog_import && launcher.import_kind == PLATFORM_IMPORT_SPV3)
+	{
+		prompt_add(UI_BUTTON_B, "CANCEL", 1, _button_b);
+		return;
+	}
 	if (launcher.dialog)
 		return;
 	switch (launcher.screen)
@@ -3358,6 +3364,17 @@ static void dialog_input(int button)
 	{
 		if (button == _button_a || button == _button_b)
 			launcher.dialog = _dialog_none;
+		return;
+	}
+	if (launcher.dialog == _dialog_import)
+	{
+		/* (SPV3's install: it stops at its next chunk, that file's .part
+		removed, and says so when it has) */
+		if (button == _button_b && launcher.import_kind == PLATFORM_IMPORT_SPV3)
+		{
+			platform_log("launcher: SPV3's install cancelled");
+			platform_import_cancel();
+		}
 		return;
 	}
 	if (launcher.dialog == _dialog_sent)
