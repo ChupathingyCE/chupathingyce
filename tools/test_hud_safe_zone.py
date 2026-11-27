@@ -294,7 +294,7 @@ def test_wired_and_registered():
     assert re.search(r'^#define DEFAULT_HUD_SAFE_ZONE "\\"xbox\\""\n#else\n#define DEFAULT_HUD_SAFE_ZONE "\\"auto\\""$',
                      default, re.M), default
     settings = (ROOT / "tools/port_settings.py").read_text(encoding="utf-8")
-    assert '[("ON", "xbox"), ("SINGLE SCREEN ONLY", "auto"), ("OFF", "pc")]' in settings
+    assert '[("ON", "xbox"), ("SINGLE SCREEN", "auto"), ("OFF", "pc")]' in settings
 
 
 if __name__ == "__main__":

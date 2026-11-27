@@ -2353,6 +2353,10 @@ static const struct config_setting config_settings[] =
 		"Pixel shaders show their first texture." },
 	{ "debug.gpu_debug_flat", _config_boolean, "false", "HALO_GPU_DEBUG_FLAT", _environment_set_is_true, _platform_all,
 		"Pixel shaders show their vertex color." },
+	{ "debug.freeze_at_tick", _config_integer, "0", "HALO_FREEZE_AT_TICK", _environment_value, _platform_all,
+		"Stop the game at this tick of a map, as game_speed 0 does, and keep\n"
+		"drawing it: every run then shows the same moment, for comparing\n"
+		"pictures (tools/renderer_gate.py). 0 for never." },
 	{ "debug.screenshot_directory", _config_string, "\"\"", "HALO_SCREENSHOT_DIR", _environment_value, _platform_all,
 		"A folder to save frames to, with debug.screenshot_every. Leave it empty\n"
 		"for none." },
@@ -2572,12 +2576,6 @@ static const struct config_setting config_settings[] =
 		"triangles that debug commands draw. Its buffers take 1440 KB. It is\n"
 		"off because the retail game had none, and a stock 64 MB console may\n"
 		"not have the room." },
-	{ "console.simulate_64mb", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
-		"No longer used. A devkit gets 64 MB from the XBE's own flag now, set\n"
-		"with tools/xbox_package.py --devkit-64mb." },
-	{ "console.large_caches", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
-		"No longer used. A console with 128 MB or more gets the larger caches\n"
-		"on its own now (console.memory_class)." },
 };
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
@@ -3838,7 +3836,8 @@ static const struct
 /* the settings an earlier version had under another name, whose value the
 player chose goes on under the new one (config_forward_renamed), and the
 retired settings a newer one does the job of: an older file that has one
-still loads, and the old name's lines are taken out of it */
+still loads, and the old name's lines are taken out of it (a retired
+setting with no successor, name NULL: its lines are only taken out) */
 static const struct
 {
 	const char *old_name;
@@ -3870,6 +3869,11 @@ static const struct
 	{ "debug.guide_section", "debug.delta_section", NULL, 0 },
 	{ "debug.guide_row", "debug.delta_row", NULL, 0 },
 	{ "debug.guide_test", "debug.delta_test", NULL, 0 },
+	/* the original Xbox's, retired: a devkit gets 64 MB from the XBE's own
+	flag (tools/xbox_package.py --devkit-64mb), and a console with 128 MB
+	or more the larger caches on its own (console.memory_class) */
+	{ "console.simulate_64mb", NULL, NULL, 0 },
+	{ "console.large_caches", NULL, NULL, 0 },
 };
 
 #define NUMBER_OF_CONFIG_RENAMED (sizeof(config_renamed) / sizeof(config_renamed[0]))
@@ -4748,8 +4752,8 @@ static char *config_forward_renamed(const char *text, toml_datum_t table)
 		const char *source = result ? result : text;
 		const char *old_name = config_renamed[renamed].old_name;
 		const char *old_dot = strchr(old_name, '.');
-		long index = config_setting_index(config_renamed[renamed].name);
-		const struct config_setting *setting;
+		long index = config_renamed[renamed].name ? config_setting_index(config_renamed[renamed].name) : -1;
+		const struct config_setting *setting = NULL;
 		struct config_text out = { NULL, 0, 0 };
 		struct config_text block = { NULL, 0, 0 };
 		const char *line;
@@ -4760,17 +4764,21 @@ static char *config_forward_renamed(const char *text, toml_datum_t table)
 		int forward, given, in_place;
 		toml_datum_t old_datum = toml_seek(table, old_name);
 
-		if (index < 0 || !old_dot)
+		if ((config_renamed[renamed].name && index < 0) || !old_dot)
 			continue;
-		setting = &config_settings[index];
-		given = toml_seek(table, setting->name).type != TOML_UNKNOWN;
-		forward = old_datum.type != TOML_UNKNOWN && (!given || config_renamed[renamed].combine) &&
-			(!config_renamed[renamed].old_default ||
-			!config_datum_is(old_datum, setting->type, config_renamed[renamed].old_default));
+		given = forward = in_place = 0;
+		if (index >= 0)
+		{
+			setting = &config_settings[index];
+			given = toml_seek(table, setting->name).type != TOML_UNKNOWN;
+			forward = old_datum.type != TOML_UNKNOWN && (!given || config_renamed[renamed].combine) &&
+				(!config_renamed[renamed].old_default ||
+				!config_datum_is(old_datum, setting->type, config_renamed[renamed].old_default));
+			/* (the new name's lines where the old one's were: only in the same
+			section, and with no value of its own there) */
+			in_place = !given && !strncmp(setting->name, old_name, (size_t)(old_dot - old_name) + 1);
+		}
 		snprintf(section, sizeof(section), "%.*s", (int)(old_dot - old_name), old_name);
-		/* (the new name's lines where the old one's were: only in the same
-		section, and with no value of its own there) */
-		in_place = !given && !strncmp(setting->name, old_name, (size_t)(old_dot - old_name) + 1);
 		for (line = source; *line; line += strcspn(line, "\n") + (line[strcspn(line, "\n")] ? 1 : 0))
 			capacity++;
 		starts = malloc((capacity + 1) * sizeof(*starts));
