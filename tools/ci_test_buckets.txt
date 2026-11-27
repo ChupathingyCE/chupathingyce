@@ -129,7 +129,6 @@ area      tools/test_console_meter_stages.py
 area      tools/test_console_packager.py
 security  tools/test_console_reports.py
 area      tools/test_console_structure_culling.py
-area      tools/test_console_tag_refs.py
 core      tools/test_content_golden.py
 area      tools/test_content_map_probe.py
 area      tools/test_controller_layout.py
