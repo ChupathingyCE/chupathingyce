@@ -104,6 +104,10 @@ static void observer_up_from_forward(const real_vector3d *f,real_vector3d *u) {
     (void)f;u->k=1;u->i=u->j=0;
 }
 static struct {real dead_timer,multiplayer_switch_timer,singleplayer_switch_timer;} dead_camera_constants={3,15,3};
+/* SPV3 mode (spv3_mode.c): off here, as on every stock map */
+static boolean spv3_mode_active(void) {return 0;}
+static void spv3_mode_log(const char *format, ...) {(void)format;}
+#define valid_real(x) ((x)==(x))
 '''
 TESTS = r'''
 static void reset(int count) {
