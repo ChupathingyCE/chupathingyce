@@ -2,7 +2,7 @@
 PARTY_TEAMS_TEST.C
 
 Tests of the host's party teams plan (port/linux/src/party_teams_plan.c).
-Built and run by tools/test_party_teams.py; exits nonzero on a failure.
+Built and run by tools/test_c_units.py; exits nonzero on a failure.
 */
 
 #include "../src/party_teams_plan.h"

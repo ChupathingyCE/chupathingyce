@@ -59,15 +59,91 @@ typedef char verify_heap_above_ce_tag_cache[PLATFORM_CE_TAG_CACHE_BASE + PLATFOR
 Edition's, 0x40440000 to 0x426C0000, their structure BSPs at its top. With an
 SPV3 install in the data folder (maps_spv3) at the first allocation, the heap
 starts above that and the room for the port's conversions above it, and the
-part of the window past Custom Edition's own is mapped here; SPV3 mode reads
-its maps with it (port/linux/game/spv3_mode.c). Without one, nothing moves */
+part of the window past Custom Edition's own is mapped here; an OpenSauce
+map asking for its memory upgrades is read with it
+(port/linux/game/opensauce_maps.c). On the builds that read those maps, an
+OpenSauce maps folder does the same: maps_os with a map in it, or an
+OpenSauce mod's own (maps_<pack> with its ui.yelo). Without one, nothing moves */
 #include "posix.h"
+#include "opensauce_maps.h"
+#include <stdio.h>
 #define OPENSAUCE_TAG_CACHE_TOP (PLATFORM_CE_TAG_CACHE_BASE + 0x02280000U)
 #define OPENSAUCE_HEAP_BASE 0x42C00000U
 typedef char verify_heap_above_opensauce_window[OPENSAUCE_TAG_CACHE_TOP + PLATFORM_CE_CONVERSION_ROOM_SIZE <=
 	OPENSAUCE_HEAP_BASE ? 1 : -1];
-extern int spv3_opensauce_window;
 const char *platform_data_root(void);
+
+/* whether name starts with prefix (count characters of it, all when
+count < 0), in any case */
+static int heap_name_starts(const char *name, const char *prefix, int count)
+{
+	for (; count && *prefix; prefix++, name++, count--)
+	{
+		char a = *name >= 'A' && *name <= 'Z' ? (char)(*name + 32) : *name;
+		char b = *prefix >= 'A' && *prefix <= 'Z' ? (char)(*prefix + 32) : *prefix;
+
+		if (a != b)
+			return 0;
+	}
+	return count >= 0 || !*name;
+}
+#define HEAP_IS_SPV3(name) heap_name_starts((name), "maps_spv3", -1)
+
+/* the OpenSauce maps folder in the data root that has the window mapped,
+into on_disk: maps_spv3 (SPV3's install), else maps_os or an OpenSauce mod's
+folder on the builds that read their maps; FALSE if there is none */
+static int heap_opensauce_folder(const char *root, char *on_disk, size_t size)
+{
+#ifdef OPENSAUCE_MAPS_MEMORY_UPGRADES
+	void *directory;
+	char name[256];
+	int found = 0;
+#endif
+
+	if (posix_find_entry_case_insensitive(root, "maps_spv3", on_disk, size))
+		return 1;
+#ifdef OPENSAUCE_MAPS_MEMORY_UPGRADES
+	/* (maps_os with a map in it: the folder Make the folders makes, empty,
+	maps nothing) */
+	if (posix_find_entry_case_insensitive(root, OPENSAUCE_MAPS_FOLDER, on_disk, size))
+	{
+		char path[1100];
+
+		snprintf(path, sizeof(path), "%s/%s", root, on_disk);
+		directory = posix_directory_open(path);
+		while (!found && directory && posix_directory_next(directory, name, sizeof(name)))
+		{
+			size_t length = strlen(name);
+
+			found = (length > 5 && heap_name_starts(name + length - 5, ".yelo", -1)) ||
+				(length > 4 && heap_name_starts(name + length - 4, ".map", -1));
+		}
+		if (directory)
+			posix_directory_close(directory);
+		if (found)
+			return 1;
+	}
+	directory = posix_directory_open(root);
+	while (!found && directory && posix_directory_next(directory, name, sizeof(name)))
+	{
+		char path[1100], ui[64];
+
+		if (!heap_name_starts(name, "maps_", 5))
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", root, name);
+		if (posix_find_entry_case_insensitive(path, "ui.yelo", ui, sizeof(ui)))
+		{
+			snprintf(on_disk, size, "%s", name);
+			found = 1;
+		}
+	}
+	if (directory)
+		posix_directory_close(directory);
+	return found;
+#else
+	return 0;
+#endif
+}
 #endif
 /* where the heap starts: XBOX_HEAP_BASE, or above OpenSauce's window */
 static unsigned int heap_base = XBOX_HEAP_BASE;
@@ -107,7 +183,7 @@ static BOOL heap_initialize(void)
 		char on_disk[64];
 		const char *root = platform_data_root();
 
-		if (root && root[0] && posix_find_entry_case_insensitive(root, "maps_spv3", on_disk, sizeof(on_disk)))
+		if (root && root[0] && heap_opensauce_folder(root, on_disk, sizeof(on_disk)))
 		{
 			void *window = xbox_pointer(XBOX_HEAP_BASE);
 
@@ -115,14 +191,15 @@ static BOOL heap_initialize(void)
 				MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) == window)
 			{
 				heap_base = OPENSAUCE_HEAP_BASE;
-				spv3_opensauce_window = 1;
-				platform_log("SPV3: maps_spv3 is in the data folder: OpenSauce's tag window 0x%08x to 0x%08x is "
-					"mapped, the heap starts at 0x%08x", PLATFORM_CE_TAG_CACHE_BASE, OPENSAUCE_TAG_CACHE_TOP,
-					heap_base);
+				opensauce_tag_window = 1;
+				platform_log("%s: %s is in the data folder: OpenSauce's tag window 0x%08x to 0x%08x is "
+					"mapped, the heap starts at 0x%08x", HEAP_IS_SPV3(on_disk) ? "SPV3" : "OpenSauce",
+					on_disk, PLATFORM_CE_TAG_CACHE_BASE, OPENSAUCE_TAG_CACHE_TOP, heap_base);
 			}
 			else
-				platform_log("SPV3: OpenSauce's tag window could not be mapped (%s): SPV3's maps will not load",
-					strerror(errno));
+				platform_log("%s: OpenSauce's tag window could not be mapped (%s): %s maps will not load",
+					HEAP_IS_SPV3(on_disk) ? "SPV3" : "OpenSauce", strerror(errno),
+					HEAP_IS_SPV3(on_disk) ? "SPV3's" : "OpenSauce's larger");
 		}
 	}
 #endif

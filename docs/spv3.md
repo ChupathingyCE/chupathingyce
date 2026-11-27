@@ -28,6 +28,12 @@ install into it:
    `chimera/lua/global/init.lua` into it.
 3. Make the folder `lua/spv3/modules`. Copy everything in SPV3's `lua`
    folder into it: `CMT`, `class`, `halo_classes` and `JSON.lua`.
+4. For SPV3's movies, make the folder `maps_spv3/bink`. Copy `attract.bik`,
+   `credits.bik` and `credits_xbox.bik` from your SPV3 install into it.
+   `attract.bik` plays when the game starts, and the credits play at the end
+   of the campaign. Without them, the game's own intro plays instead. To
+   skip the movie at start, set `skip_intro = true` under `[display]` in
+   `config.toml`.
 
 When you're done, it looks like this:
 
@@ -40,6 +46,10 @@ maps_spv3/
   bitmaps.map
   sounds.map
   loc.map
+  bink/
+    attract.bik
+    credits.bik
+    credits_xbox.bik
 lua/
   spv3/
     scripts/

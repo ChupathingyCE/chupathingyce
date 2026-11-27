@@ -40,7 +40,7 @@ def test_workshop_list(tmp_path):
 
 def test_workshop_list_fuzz(tmp_path):
     """the readers of Steam's answers under libFuzzer, from seeds of each
-    kind, for a short while"""
+    kind (and fuzzing from them, with HALO_FUZZ_SECONDS)"""
     cc = fuzz_support.libfuzzer_compiler()
     if not cc:
         fuzz_support.skip("no clang with libFuzzer")
@@ -66,6 +66,6 @@ def test_workshop_list_fuzz(tmp_path):
         b"\x04" + b'\\"total_pages\\":23,\\"results\\":[{\\"publishedfileid\\":\\"5\\",\\"creator\\":\\"6\\"}],'
         b'\\"creator_player_link_details\\":[{\\"steamid\\":\\"6\\",\\"persona_name\\":\\"a\\\\\\"b\\u00e9\\"}]')
     (seeds / "profile").write_bytes(b"\x05" + b"<steamID><![CDATA[Name]]></steamID>")
-    result = fuzz_support.run_fuzzer(binary, tmp_path, int(os.environ.get("HALO_FUZZ_SECONDS", "20")), seeds=[seeds],
+    result = fuzz_support.run_fuzzer(binary, tmp_path, fuzz_support.fuzz_seconds(), seeds=[seeds],
                                      max_len=16384)
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]
