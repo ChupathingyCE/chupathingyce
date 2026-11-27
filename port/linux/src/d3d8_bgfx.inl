@@ -145,6 +145,12 @@ static struct draw_uniforms bg_uniforms;
 /* the viewport's depth range (x MinZ, y MaxZ - MinZ), and a biased draw's
 offset (x slope factor, y constant in depth units) */
 static float bg_depth_range[4], bg_depth_bias[4];
+/* a draw lit for each pixel (display.per_pixel_lighting): its lights, from
+the vertex constants (model_light_register); and the Light effects' (their
+slots that light it, their occlusion volumes' and where those are), as
+prepare_draw sets them */
+static float bg_model_lights[XGPU_MODEL_LIGHT_COUNT][4];
+static float bg_plasma_slots[4], bg_plasma_occlusion[4], bg_plasma_transform[2][4];
 
 static const struct
 {
@@ -172,8 +178,16 @@ static const struct
 	{ "texture_lod_bias", bg_uniforms.texture_lod_bias, 1, 4 },
 	{ "depth_range", bg_depth_range, 1, 4 },
 	{ "depth_bias", bg_depth_bias, 1, 4 },
+	{ "model_lights", &bg_model_lights[0][0], XGPU_MODEL_LIGHT_COUNT, 4 },
+	{ "plasma_model_slots_v4", bg_plasma_slots, 1, 4 },
+	{ "plasma_occ_enabled_v4", bg_plasma_occlusion, 1, 4 },
+	{ "plasma_occ_transform0", bg_plasma_transform[0], 1, 4 },
+	{ "plasma_occ_transform1", bg_plasma_transform[1], 1, 4 },
 };
 #define BG_UNIFORM_COUNT (sizeof(bg_uniform_sources) / sizeof(bg_uniform_sources[0]))
+/* model_lights, and the four Light effects' after it (bg_lighting_update) */
+#define BG_UNIFORM_MODEL_LIGHTS (BG_UNIFORM_COUNT - 5)
+#define BG_UNIFORM_PLASMA_SLOTS (BG_UNIFORM_COUNT - 4)
 
 /* the varyings, at the same locations in both stages */
 static const char *const bg_varyings[] =
@@ -193,6 +207,11 @@ static const char *const bg_attribute_names[XGPU_VERTEX_ATTRIBUTE_COUNT] =
 	"a_position", "a_normal", "a_tangent", "a_bitangent", "a_color0", "a_color1", "a_color2", "a_color3",
 	"a_indices", "a_weight", "a_texcoord0", "a_texcoord1", "a_texcoord2", "a_texcoord3", "a_texcoord4", "a_texcoord5",
 };
+
+/* the stages of the Light effects' two occlusion volumes, past the game's
+four (plasma_model_shader.c's plasma_occ_texture0 and 1; OpenGL's units 6
+and 7, plasma_occlusion_gl.c) */
+#define BG_PLASMA_STAGE 4
 
 /* bg_shader_get's variants */
 enum
@@ -313,6 +332,8 @@ static struct
 	bgfx_vertex_layout_t layout;
 	bgfx_uniform_handle_t uniforms[BG_UNIFORM_COUNT];
 	bgfx_uniform_handle_t samplers[4];
+	/* the Light effects' occlusion volumes' (BG_PLASMA_STAGE) */
+	bgfx_uniform_handle_t plasma_samplers[2];
 	unsigned long frame;
 
 	/* the window's pixels, as bgfx's back buffer was last reset to */
@@ -337,6 +358,8 @@ static struct
 	unsigned short present_view;
 
 	bgfx_texture_handle_t blank, blank_cube, blank_volume;
+	/* (1x1x1 white: a Light effects' slot without walls, plasma_occlusion_gl.c's) */
+	bgfx_texture_handle_t white_volume;
 	/* (1x1 white: a clear of some color channels, bg_clear_channels) */
 	bgfx_texture_handle_t white;
 	struct bg_shader *shaders[BG_SHADER_BUCKETS];
@@ -630,9 +653,12 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 
 			if (strncmp(type, "sampler", 7) == 0)
 			{
-				/* tex0 to tex3 at their stages; others in order */
+				/* tex0 to tex3 at their stages, the Light effects'
+				occlusion volumes at 4 and 5 (in the vertex shader too, which
+				declares them first: BG_PLASMA_STAGE); others in order */
 				int binding = strncmp(name, "tex", 3) == 0 && name[3] >= '0' && name[3] <= '3' && !name[4] ?
-					name[3] - '0' : sampler_next;
+					name[3] - '0' : strncmp(name, "plasma_occ_texture", 18) == 0 && (name[18] == '0' || name[18] == '1') &&
+					!name[19] ? BG_PLASMA_STAGE + name[18] - '0' : sampler_next;
 
 				sampler_next = binding + 1;
 				if (bg_vulkan)
@@ -1851,22 +1877,35 @@ static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, int flag
 	return shader;
 }
 
-static struct bg_shader *bg_vertex_shader(struct vertex_shader_object *program, BOOL immediate)
+/* a vertex program's shader, made or asked for: lit for each pixel (its
+lighting's normal and position handed on, display.per_pixel_lighting) and
+the Light effects' form (plasma_model_shader.c), as vertex_shader_make's */
+static struct bg_shader *bg_vertex_shader_entry(struct vertex_shader_object *program, BOOL immediate, BOOL lit,
+	BOOL plasma)
 {
-	void **slot = &program->bg_shader[immediate ? 1 : 0];
+	void **slot = &program->bg_shader[(immediate ? 1 : 0) + (lit ? 2 : 0) + (plasma ? 4 : 0)];
 
 	if (!*slot)
 	{
 		/* (packed normals are unpacked as they are staged: bg_vertex_element) */
-		char *glsl = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count, 0, NULL, FALSE);
+		char *glsl = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count, 0,
+			lit ? &program->lighting : NULL, plasma);
 
 		*slot = bg_shader_get(glsl, FALSE, 0, "vertex", FALSE);
 		free(glsl);
 	}
-	return bg_shader_ready(*slot) ? *slot : NULL;
+	return *slot;
 }
 
-static struct bg_shader *bg_fragment_shader(const struct nv2a_pixel_shader_key *key, int flags)
+static struct bg_shader *bg_vertex_shader(struct vertex_shader_object *program, BOOL immediate, BOOL lit,
+	BOOL plasma)
+{
+	struct bg_shader *shader = bg_vertex_shader_entry(program, immediate, lit, plasma);
+
+	return bg_shader_ready(shader) ? shader : NULL;
+}
+
+static struct bg_shader *bg_fragment_shader_entry(const struct nv2a_pixel_shader_key *key, int flags)
 {
 	unsigned long hash = (unsigned long)bg_hash(key, sizeof(*key), 14695981039346656037ULL) ^ (unsigned long)flags;
 	struct bg_fragment **bucket = &bg.fragments[hash % BG_SHADER_BUCKETS], *entry;
@@ -1875,7 +1914,7 @@ static struct bg_shader *bg_fragment_shader(const struct nv2a_pixel_shader_key *
 	for (entry = *bucket; entry; entry = entry->next)
 	{
 		if (entry->hash == hash && entry->flags == flags && !memcmp(&entry->key, key, sizeof(*key)))
-			return bg_shader_ready(entry->shader) ? entry->shader : NULL;
+			return entry->shader;
 	}
 	/* (bgfx's samplers have no LOD bias: the water's ripples' bias,
 	D3DTSS_MIPMAPLODBIAS, is the lookup's, as on OpenGL ES; bg_uniforms sets
@@ -1891,7 +1930,14 @@ static struct bg_shader *bg_fragment_shader(const struct nv2a_pixel_shader_key *
 	free(glsl);
 	entry->next = *bucket;
 	*bucket = entry;
-	return bg_shader_ready(entry->shader) ? entry->shader : NULL;
+	return entry->shader;
+}
+
+static struct bg_shader *bg_fragment_shader(const struct nv2a_pixel_shader_key *key, int flags)
+{
+	struct bg_shader *shader = bg_fragment_shader_entry(key, flags);
+
+	return bg_shader_ready(shader) ? shader : NULL;
 }
 
 /* ---------- each map's programs, made at its loading screen */
@@ -3481,7 +3527,8 @@ static void bg_uniforms_update(float texture_scale[4][4])
 		(bg.target_scale[0] > bg.target_scale[1] ? bg.target_scale[0] : bg.target_scale[1]);
 	bg_depth_bias[1] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZOFFSET]) / 16777216.0f;
 	bg_depth_bias[2] = bg_depth_bias[3] = 0.0f;
-	for (index = 0; index < BG_UNIFORM_COUNT; index++)
+	/* (the lighting's only for a draw that has it: bg_lighting_update) */
+	for (index = 0; index < BG_UNIFORM_MODEL_LIGHTS; index++)
 	{
 		if (bg_uniform_sources[index].components == 1)
 		{
@@ -3932,6 +3979,146 @@ static BOOL bg_enumerate_room(unsigned long uniform_bytes, unsigned long vertice
 }
 #endif
 
+/* ---------- per-pixel lighting and the Light effects (prepare_draw's)
+
+A model lighting program's draw is lit for each pixel with
+display.per_pixel_lighting (nv2a_psh.c model_lighting), and the Light
+effects' lights that light it get their falloff and walls (plasma_model_shader.c,
+plasma_occlusion_gl.c), from shaders of their own, as on OpenGL. A form that
+fails to translate is not tried again: the program is drawn as the vertex
+shader lights it (without the Light effects) from then on, as OpenGL's. One
+still on a compiler thread is drawn without for those frames, rather than
+left out. */
+
+/* the Light effects' occlusion volumes for the draw, at BG_PLASMA_STAGE
+(plasma_occlusion_bind_model's) */
+static struct
+{
+	bgfx_texture_handle_t handle[2];
+} bg_plasma_textures;
+
+static void bg_plasma_apply_textures(void)
+{
+	int slot;
+
+	for (slot = 0; slot < 2; slot++)
+		bgfx_set_texture((uint8_t)(BG_PLASMA_STAGE + slot), bg.plasma_samplers[slot], bg_plasma_textures.handle[slot],
+			BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_W_CLAMP | BGFX_SAMPLER_MIP_POINT);
+}
+
+/* the lights from the vertex constants, and the Light effects' slots and
+volumes (plasma_mask: their slots lighting the draw) */
+static void bg_lighting_update(unsigned int plasma_mask)
+{
+	int light, slot;
+
+	for (light = 0; light < XGPU_MODEL_LIGHT_COUNT; light++)
+		memcpy(bg_model_lights[light], device.constants[model_light_register(light)], sizeof(bg_model_lights[0]));
+	bgfx_set_uniform(bg.uniforms[BG_UNIFORM_MODEL_LIGHTS], &bg_model_lights[0][0], XGPU_MODEL_LIGHT_COUNT);
+	if (!plasma_mask)
+		return;
+	bg_plasma_slots[0] = (plasma_mask & 1) ? 1.0f : 0.0f;
+	bg_plasma_slots[1] = (plasma_mask & 2) ? 1.0f : 0.0f;
+	for (slot = 0; slot < 2; slot++)
+	{
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
+		float transform[4];
+		const DWORD *resource = (const DWORD *)plasma_occlusion_model_texture(slot, transform);
+		struct xgpu_texture_description description;
+		bgfx_texture_handle_t handle = BGFX_INVALID_HANDLE;
+		BOOL mipmapped = FALSE;
+		long override = -1;
+
+		if (resource && bg_texture_get(resource, NULL, &description, &handle, &mipmapped, &override) &&
+			override < 0 && BGFX_HANDLE_IS_VALID(handle) && description.depth > 1)
+		{
+			bg_plasma_occlusion[slot] = 1.0f;
+			memcpy(bg_plasma_transform[slot], transform, sizeof(transform));
+			bg_plasma_textures.handle[slot] = handle;
+			continue;
+		}
+#endif
+		bg_plasma_occlusion[slot] = 0.0f;
+		bg_plasma_textures.handle[slot] = bg.white_volume;
+	}
+	bgfx_set_uniform(bg.uniforms[BG_UNIFORM_PLASMA_SLOTS], bg_plasma_slots, 1);
+	bgfx_set_uniform(bg.uniforms[BG_UNIFORM_PLASMA_SLOTS + 1], bg_plasma_occlusion, 1);
+	bgfx_set_uniform(bg.uniforms[BG_UNIFORM_PLASMA_SLOTS + 2], bg_plasma_transform[0], 1);
+	bgfx_set_uniform(bg.uniforms[BG_UNIFORM_PLASMA_SLOTS + 3], bg_plasma_transform[1], 1);
+}
+
+/* the program of a form: made, still being made (NULL), or failed (NULL,
+*failed) */
+static struct bg_program *bg_form_program(struct vertex_shader_object *program, BOOL immediate, BOOL lit,
+	BOOL plasma, const struct nv2a_pixel_shader_key *key, int flags, BOOL *failed)
+{
+	struct bg_shader *vertex = bg_vertex_shader_entry(program, immediate, lit, plasma);
+	struct bg_shader *fragment = bg_fragment_shader_entry(key, flags);
+	struct bg_program *entry;
+
+	*failed = FALSE;
+	if (!bg_shader_ready(vertex) || !bg_shader_ready(fragment))
+	{
+		*failed = vertex->failed || fragment->failed;
+		return NULL;
+	}
+	entry = bg_program_entry(vertex, fragment);
+	if (!BGFX_HANDLE_IS_VALID(entry->program))
+	{
+		*failed = TRUE;
+		return NULL;
+	}
+	return entry;
+}
+
+/* the draw's program, as prepare_draw chooses it: the Light effects' form
+while one lights the draw (*plasma_mask its slots), lit for each pixel with
+the setting, else the program as it is. The key's lighting is the form's. */
+static struct bg_program *bg_draw_program(struct vertex_shader_object *program, BOOL immediate,
+	struct nv2a_pixel_shader_key *key, int flags, unsigned int *plasma_mask)
+{
+	struct bg_program *entry = NULL;
+	BOOL failed;
+
+	*plasma_mask = program->plasma_model && !program->plasma_lighting_failed ? plasma_model_lighting_mask() : 0;
+	if (*plasma_mask)
+	{
+		BOOL lit = program->lighting.lights && !program->lighting_failed && per_pixel_lighting();
+
+		key->per_pixel_lighting = lit ? (unsigned char)program->lighting.lights : 0;
+		key->plasma_model = (unsigned char)lit;
+		entry = bg_form_program(program, immediate, lit, TRUE, key, flags, &failed);
+		if (failed)
+		{
+			platform_log("bgfx: vertex shader %lu cannot be drawn with the Light effects here (refer to the shader "
+				"log above): drawn without them", program->id);
+			program->plasma_lighting_failed = TRUE;
+		}
+		if (!entry)
+		{
+			key->per_pixel_lighting = 0;
+			key->plasma_model = 0;
+			*plasma_mask = 0;
+		}
+	}
+	if (!entry && program->lighting.lights && !program->lighting_failed && per_pixel_lighting())
+	{
+		key->per_pixel_lighting = (unsigned char)program->lighting.lights;
+		entry = bg_form_program(program, immediate, TRUE, FALSE, key, flags, &failed);
+		if (failed)
+		{
+			platform_log("bgfx: vertex shader %lu cannot be lit for each pixel here (refer to the shader log above): "
+				"lit for each vertex", program->id);
+			program->lighting_failed = TRUE;
+		}
+		if (!entry)
+			key->per_pixel_lighting = 0;
+	}
+	if (!entry)
+		entry = bg_form_program(program, immediate, FALSE, FALSE, key, flags, &failed);
+	return entry;
+}
+
 static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, unsigned long vertex_count,
 	const WORD *indices, unsigned long index_count, unsigned long rebase)
 {
@@ -3950,6 +4137,7 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	uint32_t stencil, back_stencil, rgba;
 	uint64_t state;
 	BOOL has_depth, native, starved = FALSE;
+	unsigned int plasma_mask;
 	int stage;
 
 	if (!vertex_count || !program || !declaration || !program->instructions)
@@ -4000,21 +4188,20 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	key.fog_table_mode = (unsigned char)D3D__RenderState[D3DRS_FOGTABLEMODE];
 	key.hdr = hdr_draw_tag();
 
-	vertex_shader = bg_vertex_shader(program, immediate);
-	fragment_shader = bg_fragment_shader(&key, has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE] ?
-		_bg_shader_depth_bias : 0);
 	{
-		struct bg_program *entry = vertex_shader && fragment_shader ? bg_program_entry(vertex_shader, fragment_shader) :
-			NULL;
+		int flags = has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE] ? _bg_shader_depth_bias : 0;
+		struct bg_program *entry = bg_draw_program(program, immediate, &key, flags, &plasma_mask);
 
 		handle = entry ? entry->program : (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 #ifdef HALO_SHADER_PREP
 		if (entry && entry->noted != shader_prep_serial)
 		{
-			prep_note(&entry->noted, program, immediate, FALSE, FALSE,
-				has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE], declaration->packed_mask, &key);
+			prep_note(&entry->noted, program, immediate, key.per_pixel_lighting != 0, plasma_mask != 0,
+				flags != 0, declaration->packed_mask, &key);
 		}
 #endif
+		vertex_shader = entry ? entry->vertex : NULL;
+		fragment_shader = entry ? entry->fragment : NULL;
 	}
 	native = !indices && type != D3DPT_QUADLIST && type != D3DPT_TRIANGLEFAN && type != D3DPT_POLYGON &&
 		type != D3DPT_LINELOOP;
@@ -4134,12 +4321,16 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	}
 
 	bg_uniforms_update(texture_scale);
+	if (key.per_pixel_lighting || plasma_mask)
+		bg_lighting_update(plasma_mask);
 	state = bg_state(has_depth, &stencil, &back_stencil, &rgba) | bg_topology(type);
 	bgfx_set_state(state, rgba);
 	bgfx_set_stencil(stencil, back_stencil);
 	bg_view_set(bg.framebuffer, rect, FALSE);
 	/* (after the view is set: its blits touch it, which drops what is set) */
 	bg_apply_textures();
+	if (plasma_mask)
+		bg_plasma_apply_textures();
 	if (bg.test_active)
 	{
 		/* (inside a visibility test: a query of its own, summed at the end) */
@@ -4741,33 +4932,43 @@ static const char bg_smaa_vulkan_language[] =
 	"#define bool3 bvec3\n"
 	"#define bool4 bvec4\n";
 
-/* a pass's program from xgpu_post.c's text, its samplers renamed to the
-stages' (tex0 to tex2) */
-static bgfx_program_handle_t bg_anti_alias_program(int pass)
+/* a pass's pixel shader from xgpu_post.c's text, its samplers renamed to
+the stages' (tex0 to tex2): malloc'd, or NULL */
+static char *bg_anti_alias_text(int pass)
 {
-	static const char *const names[4] =
-	{
-		"FXAA pixel", "SMAA edge detection pixel", "SMAA blending weight pixel", "SMAA neighborhood blending pixel"
-	};
 	static const char *const samplers[][2] =
 	{
 		{ "color_texture", "tex0" }, { "edges_texture", "tex0" }, { "area_texture", "tex1" },
 		{ "search_texture", "tex2" }, { "weights_texture", "tex1" },
 	};
 	struct xgpu_text text = { 0 };
-	struct bg_shader *vertex, *fragment;
 	char *source = xgpu_post_anti_alias_source(pass, bg_vulkan ? bg_smaa_vulkan_language : NULL);
 	unsigned long index;
 
 	if (!source)
-		return (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+		return NULL;
 	xgpu_text_append(&text, "%s", source);
 	free(source);
 	for (index = 0; index < sizeof(samplers) / sizeof(samplers[0]); index++)
 		bg_replace_all(&text, samplers[index][0], samplers[index][1]);
+	return text.buffer;
+}
+
+/* a pass's program (bg_anti_alias_text) */
+static bgfx_program_handle_t bg_anti_alias_program(int pass)
+{
+	static const char *const names[4] =
+	{
+		"FXAA pixel", "SMAA edge detection pixel", "SMAA blending weight pixel", "SMAA neighborhood blending pixel"
+	};
+	struct bg_shader *vertex, *fragment;
+	char *text = bg_anti_alias_text(pass);
+
+	if (!text)
+		return (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	vertex = bg_shader_get(bg_blit_vertex_source, FALSE, 0, "blit vertex", TRUE);
-	fragment = bg_shader_get(text.buffer, TRUE, 0, names[pass], TRUE);
-	free(text.buffer);
+	fragment = bg_shader_get(text, TRUE, 0, names[pass], TRUE);
+	free(text);
 	if (vertex->failed || fragment->failed || !BGFX_HANDLE_IS_VALID(vertex->shader) ||
 		!BGFX_HANDLE_IS_VALID(fragment->shader))
 		return (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
@@ -6594,6 +6795,22 @@ static BOOL bg_initialize(void)
 		platform_log("bgfx: %s on %s (vendor %04x, device %04x), window %dx%d",
 			bgfx_get_renderer_name(bgfx_get_renderer_type()), *bgfx_gpu_name ? bgfx_gpu_name : "an unnamed GPU",
 			(unsigned)caps->vendorId, (unsigned)caps->deviceId, width, height);
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
+		{
+			/* the Light effects' "auto" from the GPU bgfx draws with, as
+			d3d8_gl.c's from OpenGL's renderer string: off on one in software
+			(Mesa's lavapipe, SwiftShader), low on an older Intel HD
+			(port/linux/game/lighting_config.c) */
+			extern int xgpu_software_renderer, xgpu_weak_renderer;
+
+			xgpu_software_renderer = caps->vendorId == BGFX_PCI_ID_SOFTWARE_RASTERIZER ||
+				strstr(bgfx_gpu_name, "llvmpipe") || strstr(bgfx_gpu_name, "lavapipe") ||
+				strstr(bgfx_gpu_name, "softpipe") || strstr(bgfx_gpu_name, "SwiftShader") ||
+				strstr(bgfx_gpu_name, "Software") || strstr(bgfx_gpu_name, "Basic Render Driver");
+			xgpu_weak_renderer = (caps->vendorId == BGFX_PCI_ID_INTEL || strstr(bgfx_gpu_name, "Intel")) &&
+				strstr(bgfx_gpu_name, "HD Graphics") && !strstr(bgfx_gpu_name, "Iris");
+		}
+#endif
 	}
 
 	glslang_initialize_process();
@@ -6646,6 +6863,14 @@ static BOOL bg_initialize(void)
 			bgfx_copy(faces, sizeof(faces)), 0);
 		bg.blank_volume = bgfx_create_texture_3d(1, 1, 1, false, BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_NONE,
 			bgfx_copy(&black, 4), 0);
+	}
+	{
+		static const unsigned int white = 0xffffffff;
+
+		bg.white_volume = bgfx_create_texture_3d(1, 1, 1, false, BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(&white, 4), 0);
+		bg.plasma_samplers[0] = bgfx_create_uniform("plasma_occ_texture0", BGFX_UNIFORM_TYPE_SAMPLER, 1);
+		bg.plasma_samplers[1] = bgfx_create_uniform("plasma_occ_texture1", BGFX_UNIFORM_TYPE_SAMPLER, 1);
 	}
 	{
 		struct bg_shader *vertex, *fragment;
@@ -6702,3 +6927,6 @@ static BOOL bg_initialize(void)
 		anti_aliasing_prepare();
 	return TRUE;
 }
+
+/* HALO_BGFX_SHADER_CHECK (game issue #1833) */
+#include "d3d8_bgfx_check.inl"
