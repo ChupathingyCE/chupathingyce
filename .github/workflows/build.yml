@@ -208,6 +208,7 @@ jobs:
       tier: ${{ steps.plan.outputs.tier }}
       run: ${{ steps.plan.outputs.run }}
       server_archs: ${{ steps.plan.outputs.server_archs }}
+      tests: ${{ steps.tests.outputs.tests }}
     steps:
       - name: Plan
         id: plan
@@ -280,6 +281,42 @@ jobs:
           [ "$(has '^(tools/linux64_build\.py$|tools/linux_sysroot\.py$|tools/bgfx-patches/|port/linux/src/(d3d8_bgfx|bgfx_))')" = true ] \
             && jobs+=(linux64)
           finish "$tier" "$([ "$tier" = a ] && echo "a pull request" || echo "the merge queue")" '["x64"]' ${jobs[@]+"${jobs[@]}"}
+
+      # (the workflow's own commit: the test lists, the buckets and the
+      # selector, and for a pull request the tree its files are looked up in)
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Which tests linux-tests runs, and on how many runners
+      # (tools/ci_select_tests.py, docs/ci.md): a pull request's own files
+      # choose the area tests beside the core ones; every other run, the
+      # merge queue's among them, runs them all. A pull request whose files
+      # cannot be read, or that has too many for GitHub to list, runs them all.
+      - name: Tests
+        id: tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          changed=()
+          if [ "$EVENT" = pull_request ] && [[ "$HEAD_REF" != batch/* ]]; then
+            list="$RUNNER_TEMP/changed.json"
+            if gh api --paginate "repos/$REPOSITORY/pulls/$NUMBER/files?per_page=100" \
+                --jq '.[] | {filename, previous_filename, patch}' > "$list" \
+              && [ "$(wc -l < "$list")" -lt 3000 ]; then
+              changed=(--changed "$list")
+            else
+              echo "::notice::the pull request's files could not be listed: every test runs"
+            fi
+          fi
+          python3 tools/ci_select_tests.py --event "$EVENT" ${changed[@]+"${changed[@]}"} --explain > "$RUNNER_TEMP/tests.json"
+          jq -r '"tests: \(.why)", (.parts[] | "\(.name): \(.pytest) \(.harness) \(.scripts)\(if .update_install then " tools/test_update_install.py" else "" end)")' "$RUNNER_TEMP/tests.json"
+          echo "tests=$(jq -c . "$RUNNER_TEMP/tests.json")" >> "$GITHUB_OUTPUT"
 
   info:
     needs: gate
@@ -562,23 +599,24 @@ jobs:
           key: ccache-linux-ubuntu-clang22-${{ github.sha }}
 
   linux-tests:
-    needs: [gate, linux]
+    needs: [gate, plan, linux]
     # The tests, against the linux job's build (its tree: build.ninja, ninja's
-    # log, build/), in parallel: the pytest files of tools/ci_tests.txt split
-    # into shards, each on its own runner with pytest-xdist's workers (one a
-    # processor); and one runner for the engine's harness (tools/harness),
-    # the tests written as scripts (tools/ci_test_scripts.txt) and the
-    # self-updater from end to end. The lists are read from this workflow's
-    # own commit, so that a release branch's commit built with main's
-    # workflow runs the tests it has (the others are left out with a notice).
-    # Same toolchain as the linux job.
+    # log, build/), in parallel, as the plan job chose and split them
+    # (tools/ci_select_tests.py): the pytest files of tools/ci_tests.txt in
+    # shards, each on its own runner with pytest-xdist's workers (one a
+    # processor), one to three by their weight; and one runner, "other", for
+    # the engine's harness (tools/harness), the tests written as scripts
+    # (tools/ci_test_scripts.txt) and the self-updater from end to end. The
+    # lists are read from this workflow's own commit, so that a release
+    # branch's commit built with main's workflow runs the tests it has (the
+    # others are left out with a notice). Same toolchain as the linux job.
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        part: ["pytest 1 3", "pytest 2 3", "pytest 3 3", "other"]
-    name: linux-tests (${{ matrix.part }})
+        part: ${{ fromJSON(needs.plan.outputs.tests).parts }}
+    name: linux-tests (${{ matrix.part.name }})
     env:
       LLVM_MAJOR: 22
       APT_PACKAGES: >-
@@ -615,7 +653,7 @@ jobs:
           echo "/usr/lib/llvm-$LLVM_MAJOR/bin" >> "$GITHUB_PATH"
 
       - uses: actions/cache/save@v4
-        if: ${{ env.CACHE_SAVE == 'true' && steps.apt-cache.outputs.cache-hit != 'true' && matrix.part == 'other' }}
+        if: ${{ env.CACHE_SAVE == 'true' && steps.apt-cache.outputs.cache-hit != 'true' && matrix.part.name == 'other' }}
         with:
           path: ${{ runner.temp }}/apt
           key: ${{ steps.apt.outputs.key }}
@@ -627,20 +665,10 @@ jobs:
       # (JDK 17 for the Android touch layout's checks, tools/test_touch_layout.py,
       # one of the script tests: not left to the runner image)
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
-        if: matrix.part == 'other'
+        if: matrix.part.name == 'other'
         with:
           distribution: temurin
           java-version: "17"
-
-      # (the test lists, from this workflow's commit)
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.workflow_sha }}
-          path: .ci-lists
-          sparse-checkout: |
-            tools/ci_tests.txt
-            tools/ci_test_scripts.txt
-          sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@v4
         with:
@@ -674,74 +702,43 @@ jobs:
       - name: Test
         env:
           HALO_SANITIZERS_REQUIRED: "1"
-          PART: ${{ matrix.part }}
+          PYTEST_FILES: ${{ matrix.part.pytest }}
+          HARNESS_FILES: ${{ matrix.part.harness }}
+          SCRIPT_FILES: ${{ matrix.part.scripts }}
+          UPDATE_INSTALL: ${{ matrix.part.update_install }}
           HALO_UPDATE_TEST_SDL: build/linux
           UPDATE_INSTALL_REQUIRED: "1"
         run: |
-          # (a list's files that are in this commit: a release branch's commit,
-          # built with main's workflow, may not have every test main has yet)
+          # (the files this part was given that are in this commit: a release
+          # branch's commit, built with main's workflow, may not have every
+          # test main has yet)
           present() {
-            grep -v -e '^#' -e '^[[:space:]]*$' "$1" | while read -r test; do
+            for test in "$@"; do
               if [ -f "$test" ]; then echo "$test"; else echo "::notice::$test: not in this commit" >&2; fi
             done
           }
-          set -- $PART
-          case "$1" in
-            pytest)
-              # (shard $2 of $3: the files dealt out longest first to the
-              # shard with the least so far; the few long ones, the fuzzers,
-              # weighed by their seconds on a runner, every other file as 2)
-              tests=$(present .ci-lists/tools/ci_tests.txt | awk -v shard="$2" -v shards="$3" '
-                BEGIN {
-                  weight["tools/test_map_fuzz.py"] = 200; weight["tools/test_host_fuzz.py"] = 180
-                  weight["tools/test_steam_content.py"] = 160; weight["tools/test_server_control.py"] = 90
-                  weight["tools/test_delta_peer.py"] = 70; weight["tools/test_workshop_list.py"] = 25
-                  weight["tools/test_steam_bridge.py"] = 20
-                }
-                { files[NR] = $0; w[NR] = ($0 in weight) ? weight[$0] : 2 }
-                END {
-                  for (i = 1; i <= NR; i++) order[i] = i
-                  for (i = 1; i <= NR; i++) for (j = i + 1; j <= NR; j++)
-                    if (w[order[j]] > w[order[i]]) { t = order[i]; order[i] = order[j]; order[j] = t }
-                  for (i = 1; i <= NR; i++) {
-                    best = 1
-                    for (k = 2; k <= shards; k++) if (load[k] < load[best]) best = k
-                    load[best] += w[order[i]]
-                    if (best == shard) print files[order[i]]
-                  }
-                }')
-              echo "$tests"
-              # (a shard dealt no file runs nothing: a bare pytest would
-              # collect the whole tree; #1125)
-              if [ -z "$tests" ]; then
-                echo "::notice::shard $2 of $3: no test files in this commit"
-              else
-                python3 -m pytest -q -n auto --durations=15 $tests
-              fi
-              ;;
-            other)
-              # (the self-updater from end to end, against the 32-bit SDL 3 the
-              # linux job built in build/linux: tools/test_update_install.py;
-              # UPDATE_INSTALL_REQUIRED, so that a missing piece fails, never skips)
-              if [ -f tools/test_update_install.py ]; then
-                python3 -m pytest -q -rs tools/test_update_install.py
-              else
-                echo "::notice::tools/test_update_install.py: not in this commit"
-              fi
-              # (the asset-free tests of the engine's own functions, tools/harness;
-              # the two left out were written against code of ours that has
-              # changed since, and wait to be brought up to date)
-              if [ -f tools/harness/__init__.py ]; then
-                python3 -m pytest -q -n auto tools/harness \
-                  --ignore=tools/harness/tests/test_elevator_prediction.py \
-                  --ignore=tools/harness/tests/test_server_teardown.py
-              fi
-              for test in $(present .ci-lists/tools/ci_test_scripts.txt); do
-                echo "== $test"
-                python3 "$test"
-              done
-              ;;
-          esac
+          tests=$(present $PYTEST_FILES)
+          if [ -n "$tests" ]; then
+            python3 -m pytest -q -n auto --durations=15 $tests
+          fi
+          # (the self-updater from end to end, against the 32-bit SDL 3 the
+          # linux job built in build/linux: tools/test_update_install.py;
+          # UPDATE_INSTALL_REQUIRED, so that a missing piece fails, never skips)
+          if [ "$UPDATE_INSTALL" = true ]; then
+            tests=$(present tools/test_update_install.py)
+            if [ -n "$tests" ]; then python3 -m pytest -q -rs $tests; fi
+          fi
+          # (the asset-free tests of the engine's own functions, tools/harness;
+          # the ones not brought up to date with the code they test are in the
+          # local bucket, tools/ci_test_buckets.txt, and never given)
+          tests=$(present $HARNESS_FILES)
+          if [ -n "$tests" ] && [ -f tools/harness/__init__.py ]; then
+            python3 -m pytest -q -n auto $tests
+          fi
+          for test in $(present $SCRIPT_FILES); do
+            echo "== $test"
+            python3 "$test"
+          done
 
   linux-big-endian:
     needs: gate

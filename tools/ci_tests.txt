@@ -27,6 +27,7 @@ tools/test_ce_joins.py
 tools/test_ce_query_gates.py
 tools/test_ce_resource_maps.py
 tools/test_ce_vorbis_resample.py
+tools/test_ci_select.py
 tools/test_compressed_maps.py
 tools/test_conduct_rules.py
 tools/test_config_console_replace.py
