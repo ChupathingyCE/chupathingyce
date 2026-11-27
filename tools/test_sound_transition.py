@@ -135,7 +135,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='halo-transition-test-') as directory:
         unit=Path(directory)/'transition.c'; exe=Path(directory)/'transition.exe'
         unit.write_text(PRELUDE+function(source,'sound_set_definition_end')+function(source,'update_channel_for_looping_sound')+TESTS)
-        subprocess.run([*compiler,str(unit),'-o',str(exe)],check=True)
+        subprocess.run([*compiler,str(unit),'-o',str(exe),'-lm'],check=True)
         subprocess.run([str(exe)],check=True)
 
 if __name__=='__main__':main()

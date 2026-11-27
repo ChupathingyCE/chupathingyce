@@ -85,7 +85,9 @@ parser.add_argument(
     action="store_true",
     help="the 32-bit Linux build (ninja linux) with its Xbox memory window wherever HALO_WINDOW_BASE puts it "
     "(HALO_WINDOW_REBASE: source/cseries/xbox_address.h), to test on the desktop what the Switch's guest "
-    "does; never a build to ship",
+    "does, never a build to ship; and the 32-bit Windows build (ninja windows) with its window wherever it "
+    "fits (or where HALO_WINDOW_BASE puts it), which Chupathingy32 ships: 32-bit Windows keeps 0x80000000 "
+    "up for itself",
 )
 parser.add_argument(
     "--packaged",

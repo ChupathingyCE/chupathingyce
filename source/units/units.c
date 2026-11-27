@@ -10405,7 +10405,14 @@ static short unit_animation_update(
 	struct animation_state *animation)
 {
 	long sound_index;
-	short result = animation_update_internal(
+	short result;
+
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: Stubbs's animations' effects (Stubbs mode only: port/linux/game/stubbs_engine.c) */
+	if (stubbs_mode_active())
+		stubbs_engine_animation_effect(unit_index, animation_graph_index, animation);
+#endif
+	result = animation_update_internal(
 		1,
 		animation_graph_index,
 		animation,
