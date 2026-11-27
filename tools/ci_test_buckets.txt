@@ -97,6 +97,7 @@ area      tools/test_bgfx_present.py
 area      tools/test_bgfx_shader_check.py
 area      tools/test_bgfx_vulkan_start.py
 area      tools/test_bgfx_window_pacing.py
+area      tools/test_bink_decode.py
 area      tools/test_bitmap_byte_order.py
 area      tools/test_build_workflow.py
 area      tools/test_button_mappings.py
@@ -301,6 +302,7 @@ area      tools/test_shader_keys.py
 area      tools/test_sound_cache_pages.py
 area      tools/test_sound_cache_platforms.py
 area      tools/test_split_screen_input.py
+security  tools/test_spv3_installer.py
 area      tools/test_spv3_menu_levels.py
 area      tools/test_spv3_survey.py
 security  tools/test_steam_bridge.py
