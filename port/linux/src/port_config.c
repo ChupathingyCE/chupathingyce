@@ -1075,6 +1075,14 @@ static const struct config_setting config_settings[] =
 	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
 		"On-screen touch controls: \"on\" or \"off\". \"auto\" shows them only\n"
 		"when no controller is connected." },
+	/* USB controllers through SDL's HIDAPI drivers (sdl_platform.c); the
+	desktop's SDL reads them so already. Off by default, as SDL has it on
+	Android: Android asks each time a controller is plugged in, and the
+	game then holds it, away from other apps */
+	{ "input.raw_hid", _config_boolean, "false", "HALO_RAW_HID", _environment_set_is_true, _platform_android,
+		"USB controllers read by the game itself instead of through Android,\n"
+		"at the controller's own rate. Android asks each time a controller is\n"
+		"plugged in, and the game holds it while it runs. Read at start." },
 #ifdef HALO_PORT_GYRO_AIM
 	/* gyro aiming (port/linux/src/gyro_aim.c, xinput_sdl.c): the
 	controller's gyroscope, each local player from their own. Off by

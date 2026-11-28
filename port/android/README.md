@@ -271,6 +271,7 @@ These settings are only for Android:
 | Setting | Function |
 | --- | --- |
 | `input.touch_controls` | The touch controls in a game. `"on"` (the default): shown on a touchscreen, also with a controller connected. `"auto"`: shown only while no controller is connected. `"off"`: never shown. A device without a touchscreen never shows them. The menus take taps with each value. |
+| `input.raw_hid` | `false` (the default): controllers come through Android. `true`: the game reads USB controllers itself, through SDL's HIDAPI drivers, at the controller's own rate instead of after Android's input system. Android asks each time a controller is plugged in, and the game holds it while it runs. Bluetooth controllers don't change. Read at start. |
 | `display.screen_width` | The number of columns of the 480-line picture. `0` (the default): the shape of the display (1068 on a 20:9 phone). `640`: the 4:3 shape of the Xbox. |
 | `display.resolution_limit` | The lines the game draws at, scaled up to the display. `"480"` (the default): the game's own. `"720"`, `"900"`, `"1080"` (or any number between): sharper, but more work for the GPU and the battery. `"native"`: the display's own. Never more than the display has. Video Setup's Resolution sets it, and a change applies at once. |
 | `display.stats_log` | `false` (the default): `true` writes a line a second to the log with the frame rate, the mode, the map, the renderer and the size of the 3D view, for a bug report or to compare two builds. |

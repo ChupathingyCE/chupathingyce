@@ -755,6 +755,17 @@ BOOL platform_sdl_initialize(void)
 	/* touching the screen must not aim or fire (the mouse drives the
 	controller emulation in xinput_sdl.c) */
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+	/* input.raw_hid: USB controllers read by SDL's own drivers (HIDAPI)
+	instead of through Android's input system, at the controller's own
+	rate. SDL leaves this off on Android because Android asks the player
+	for each controller and the game then holds it; with it on, SDL's Java
+	side (HIDDeviceManager) asks for the USB controllers its drivers know
+	(Xbox, PlayStation, Switch Pro, 8BitDo and others) as they are opened,
+	and Bluetooth stays as it was. SDL's src/hidapi/android and
+	HIDDeviceManager.java are the reference for this path. (before
+	SDL_Init: the joystick subsystem reads it as it starts) */
+	if (config_boolean("input.raw_hid"))
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "1");
 #endif
 #ifdef HALO_GAME_BROWSER
 	/* the dedicated server and a probe play no sound and need no display
@@ -3996,7 +4007,7 @@ void platform_pump_events(void)
 			break;
 #endif
 		case SDL_EVENT_GAMEPAD_ADDED:
-#if defined(HALO_ANDROID) && !defined(HALO_IOS)
+#if defined(HALO_ANDROID) && !defined(HALO_IOS) && !defined(HALO_64BIT)
 			/* (the guest reaches SDL only through host_imports.list, which
 			has no SDL_GetGamepadName) */
 			SDL_OpenGamepad(event.gdevice.which);
@@ -4005,12 +4016,20 @@ void platform_pump_events(void)
 				SDL_Gamepad *gamepad = SDL_OpenGamepad(event.gdevice.which);
 
 				/* (which pads the game drives: under Steam Input, Steam's
-				virtual ones, named for the controllers behind them) */
+				virtual ones, named for the controllers behind them; on
+				Android, whether SDL reads it over USB itself, input.raw_hid,
+				which only its own drivers give a path) */
 				if (gamepad)
 				{
 					const char *name = SDL_GetGamepadName(gamepad);
 
+#if defined(HALO_ANDROID) && !defined(HALO_IOS)
+					platform_log("gamepad: %s (%04x:%04x, %s)", name ? name : "(unnamed)",
+						SDL_GetGamepadVendor(gamepad), SDL_GetGamepadProduct(gamepad),
+						SDL_GetGamepadPath(gamepad) ? "USB, SDL's driver" : "Android's input");
+#else
 					platform_log("gamepad: %s", name ? name : "(unnamed)");
+#endif
 				}
 			}
 #endif
