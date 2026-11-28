@@ -46,6 +46,13 @@ this build's is not played. Anything else wrong is logged, and the rest used.
 When mods that are on name others that are on as incompatible, the game asks
 at startup whether to play them anyway, turn those named off, or quit
 (port_mods_conflicts).
+
+The Mods menu and that startup question aren't built yet: the load order's
+functions (port_mods_name to port_mods_revert in port_mods.h), the
+conflicts' and port_mods_startup have no caller. They are kept for the
+modding work, which builds the Mods menu on them. Until then the mods play
+in the order and with the mods turned off that load_order.toml says (written
+by hand), else all of them in the default order.
 */
 
 /* (the builds with the mods folder: the desktop builds and Android,

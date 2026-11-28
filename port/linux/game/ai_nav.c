@@ -43,6 +43,12 @@ Here, once a map (a bounded step a tick, the same from run to run):
 
 A hop that fails a user (it does not come out where the hop goes) is left be
 a while, and for the map after three failures with none taken.
+
+Kept with no caller yet: ai_nav_route, ai_nav_reachable,
+ai_nav_add_teleporter, ai_nav_hop_result, ai_nav_next_jump_from,
+ai_nav_jump_height and ai_nav_report. Forge's characters (#1809) and the
+bots' own searches are meant to move onto them; Forge uses
+ai_nav_route_kinds today (forge_ai_move.inc).
 */
 
 #include "halo_port_features.h"
