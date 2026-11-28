@@ -40,6 +40,22 @@ typedef char damage_resistance_material_shield_leak_fraction_offset_assert[
 typedef char damage_resistance_material_body_damage_multiplier_offset_assert[
 	offsetof(struct damage_resistance_material, body_damage_multiplier) == 0x3C ? 1 : -1];
 
+/* port: a Halo 2 level's explosive object's damage stages, in the resistance's
+unused bytes (h2_level.c writes them, h2_vehicle_wrecks.c runs them): as its body
+falls to a stage's health its looping effect starts and, a fuse at or over
+none, it blows up that many seconds on; at none it blows up in death_delay */
+struct h2_explosive_port
+{
+	unsigned long mark;
+	real death_delay;
+	real stage_health[3];
+	real stage_fuse[3];
+	struct tag_reference stage_effect[3];
+	char marker[16];
+};
+
+#define H2_EXPLOSIVE_MARK 0x68326578UL
+
 struct damage_resistance
 {
 	unsigned long flags;
@@ -48,7 +64,13 @@ struct damage_resistance
 	real maximum_body_vitality;
 	real body_system_shock;
 	long body_vitality_unused[6];
-	real body_stun_unused[7];
+	/* port: a Halo 2 level's body regeneration (h2_damage.c; its
+	builder writes them, every other map's are the tag's unused zeros) */
+	real port_body_minimum_stun_damage;
+	real port_body_stun_time;
+	real port_body_recharge_velocity;   /* of the maximum, a tick */
+	real port_body_recharge_fraction;
+	real body_stun_unused[3];
 	real friendly_damage_resistance;
 	long friendly_damage_unused[2];
 	long body_unused[8];

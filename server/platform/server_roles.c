@@ -456,38 +456,6 @@ int server_roles_moderator_remove(const char *which, char *found_name, int found
 	return result;
 }
 
-int server_roles_moderator_count(void)
-{
-	int count;
-
-	pthread_mutex_lock(&roles_mutex);
-	refresh_moderators(0);
-	count = roles.moderator_count;
-	pthread_mutex_unlock(&roles_mutex);
-	return count;
-}
-
-int server_roles_moderator_get(int index, int *role, char *key_text, int key_text_size, char *name, int name_size)
-{
-	int found = 0;
-
-	pthread_mutex_lock(&roles_mutex);
-	if (index >= 0 && index < roles.moderator_count)
-	{
-		char key[CONTROL_KEY_TEXT + 1];
-
-		control_key_text(roles.moderators[index].key, key);
-		if (roles.moderators[index].account)
-			key[CONTROL_ACCOUNT_TEXT] = 0;
-		*role = roles.moderators[index].role;
-		snprintf(key_text, (size_t)key_text_size, "%s", key);
-		snprintf(name, (size_t)name_size, "%s", roles.moderators[index].name);
-		found = 1;
-	}
-	pthread_mutex_unlock(&roles_mutex);
-	return found;
-}
-
 static int set_keyed(struct keyed_role *list, int maximum, int count, const unsigned char *keys, const int *list_roles,
 	const char *const *names, const int *bound)
 {

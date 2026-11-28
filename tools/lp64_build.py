@@ -210,10 +210,14 @@ def rewritten_inputs(extra_roots: Sequence[Path] = ()) -> List[Path]:
     including file find the rewritten copies."""
     roots = [Path("source"), LINUX_PORT_DIR / "game", LINUX_PORT_DIR / "src", LINUX_PORT_DIR / "include",
              Path("port/include"), KCP_DIR, TOML_DIR, Path("server/src"), *extra_roots]
+    # (Project Ark's units, port/linux/game/ark, are 32-bit code only: no
+    # 64-bit build compiles or includes them)
+    ark = LINUX_PORT_DIR / "game" / "ark"
     files = []
     for root in roots:
         for path in sorted(root.rglob("*")):
-            if path.is_file() and path.suffix.lower() in (".c", ".h", ".inl", ".inc") and not path.name.startswith("posix_"):
+            if path.is_file() and path.suffix.lower() in (".c", ".h", ".inl", ".inc") and not path.name.startswith("posix_") \
+                    and ark not in path.parents:
                 files.append(path)
     return files
 

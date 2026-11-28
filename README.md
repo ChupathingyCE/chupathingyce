@@ -82,7 +82,7 @@ Download the latest release from the [Releases page](https://github.com/Chupathi
 | Android 9 or later, 64-bit | `chupathingyce-android64-release.zip` |
 | FreeBSD | `chupathingyce-freebsd64-release.zip` |
 
-Step-by-step setup for each system, including the Steam Deck, is in [docs/install.md](docs/install.md#getting-started). Older 32-bit PCs and the Linux zip are there too.
+Step-by-step setup for each system, including the Steam Deck, is in [docs/install.md](docs/install.md#getting-started). The 32-bit builds and the Linux zip are there too. On a 32-bit Windows PC, use [Chupathingy32](https://github.com/ChupathingyCE/chupathingy32/releases).
 
 The game checks for updates when it starts and asks before installing one. It only installs updates we've signed. On a Mac, it opens the download page instead.
 
@@ -107,7 +107,7 @@ Where your maps, settings and saves go: [docs/install.md](docs/install.md#where-
 - **Join a game.** Open **Multiplayer > Online Games**, pick a game and press **A**. Or press **Join** on [stats.chupathingy.org](https://stats.chupathingy.org).
 - **Host a game.** In Online Games, press **Y** to create one. Everyone can see it on the list.
 - **Invite a friend.** Send them your game's invite link.
-- **Join by address.** On **System Link**, press **X** for **DIRECT IP** and type the host's address or name, like at a LAN party. [More](docs/online.md#join-by-address).
+- **Join by address.** On **System Link**, pick **DIRECT IP** (or press **X**) and type the host's address or name, like at a LAN party. [More](docs/online.md#join-by-address).
 - **Play the campaign together.** Host it online from Create Game. [Here's how](docs/online.md#online-co-op).
 
 Chupathingy players on every platform play together. They also play with players on other Halo CE builds when the versions match.
@@ -297,6 +297,10 @@ with their authors credited in each commit.
   on Windows, host cheat and shadow setup fixes, and the Halo MCC map
   loader: MCC Workshop and MCC install maps, their scripts, HUDs, effects
   and campaigns.
+- Dynamic Lighting, Dynamic Shadows and shared renderer optimisations by
+  [chestahh](https://github.com/chestahh), originally developed for
+  [GulchCE](https://github.com/chestahh/GulchCE). [Original OpenCE port](https://github.com/chestahh/GulchCE/tree/035f47bb8fc682675456323dbb3095b506502ec6).
+  Used under GPL-3.0-or-later; our changes are in the git history.
 - PeterRichardsonGolf and the other GulchCE contributors: the Steam
   Workshop catalog with its items' titles and collections, and the MCC
   sharing rules.

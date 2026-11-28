@@ -41,7 +41,7 @@ def test_spoofed_peer_sources_are_dropped(tmp_path):
          "-D__HALO_LINUX_PLATFORM_H", "-include", "port/linux/tests/p2p_fuzz_prelude.h",
          "-iquote", "port/linux/include", "-Iport/third_party/monocypher", "-Iport/third_party/kcp",
          "-Iport/linux/src",
-         "port/linux/tests/p2p_spoofed_source_test.c", "port/linux/src/p2p_crypto.c", "port/linux/src/p2p_probe.c",
+         "port/linux/tests/p2p_spoofed_source_test.c", "port/linux/src/p2p_crypto.c", "port/linux/game/content_sha256.c", "port/linux/src/p2p_probe.c",
          "port/linux/src/p2p_copies.c", "port/linux/src/log_address.c", *map(str, objects),
          "-o", str(output)],
         capture_output=True, text=True, cwd=ROOT,

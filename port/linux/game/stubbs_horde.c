@@ -333,14 +333,6 @@ static long horde_zombie_variant_of_unit(
 	return zombie;
 }
 
-static boolean horde_unit_is_player(
-	long unit_index)
-{
-	struct unit_datum *unit = unit_try_and_get(unit_index);
-
-	return unit && unit->unit.player_index != NONE;
-}
-
 boolean stubbs_horde_unit_is_zombie(
 	long unit_index)
 {

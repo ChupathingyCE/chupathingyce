@@ -58,7 +58,7 @@ again the next time it is opened. Each byte is hashed once each time: the
 tags as they are read, and then only what copying the resource maps' tags
 in wrote (ce_resources_place: the copies, the tags' addresses, a retail
 map's bitmaps and sounds it changed), not the tags whole again. The hashing uses the processor's SHA-256
-instructions where it has them (mcc_sha256.c). The original Xbox has none,
+instructions where it has them (content_sha256.c). The original Xbox has none,
 and hashes nothing (CE_MAP_HASHED): its maps are checked, not compared
 with the check as they load.
 */
@@ -71,7 +71,10 @@ with the check as they load.
 #include "main/console.h"
 #include "tag_files/tag_groups.h"
 #include "ce_map_checks.h"
-#include "mcc_sha256.h"
+#include "content_sha256.h"
+#include "opensauce.h"
+#include "opensauce_maps.h"
+#include "opensauce_survey.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -254,19 +257,19 @@ static void ce_digest(
 	unsigned long size,
 	byte digest[CE_DIGEST_SIZE])
 {
-	struct mcc_sha256 context;
+	struct content_sha256 context;
 	byte const *at = data;
 
-	mcc_sha256_begin(&context);
+	content_sha256_begin(&context);
 	while (size)
 	{
 		unsigned long chunk = size < 0x40000000UL ? size : 0x40000000UL;
 
-		mcc_sha256_add(&context, at, (int)chunk);
+		content_sha256_add(&context, at, chunk);
 		at += chunk;
 		size -= chunk;
 	}
-	mcc_sha256_end(&context, digest);
+	content_sha256_end(&context, digest);
 }
 
 static boolean ce_file_read(
@@ -333,44 +336,62 @@ which the checks below would refuse with no reason a player could act on.
 (As OpenCE's build-145 refuses them, MrBruh's finding.) */
 static boolean ce_needs_opensauce(
 	HANDLE file,
-	char const *map_name)
+	char const *map_name,
+	unsigned short *opensauce_flags)
 {
 	byte header[8];
 	unsigned long signature;
 	unsigned short flags;
 
+	*opensauce_flags = 0;
 	if (!ce_file_read(file, CE_OPENSAUCE_HEADER_OFFSET, header, sizeof(header)))
 		return FALSE;
 	memcpy(&signature, header, sizeof(signature));
 	memcpy(&flags, header + CE_OPENSAUCE_HEADER_FLAGS_OFFSET, sizeof(flags));
 	if (signature != (unsigned long)CE_OPENSAUCE_HEADER_SIGNATURE || !flags)
 		return FALSE;
-	/* (SPV3 mode reads OpenSauce's memory upgrades, and nothing else of its
-	header's asks: port/linux/game/spv3_mode.c) */
-	return !spv3_mode_accepts_opensauce(map_name, flags);
+	*opensauce_flags = flags;
+	/* (OpenSauce's memory upgrades are read with the larger tag window, and
+	nothing else of its header's asks: port/linux/game/opensauce_maps.c) */
+	return !opensauce_maps_accepts_header(map_name, flags);
 }
 
-/* SPV3 mode's survey of a map (port/linux/game/spv3_mode.c): its header and
-its tag data read again, for the log only */
-static void ce_spv3_survey(
+/* the survey of an OpenSauce map, and of any map in SPV3 mode
+(port/linux/game/opensauce_survey.c): its header and its tag data read
+again, for the log only */
+static void ce_opensauce_survey(
 	HANDLE file,
 	char const *map_name,
 	unsigned long file_size,
 	unsigned long tag_data_offset,
 	unsigned long tag_data_size)
 {
+#ifdef OPENSAUCE_SURVEY
 	byte header[CE_HEADER_SIZE];
 	byte *tags;
 
-	if (!spv3_mode_active() || !ce_range_within(tag_data_offset, tag_data_size, file_size) ||
-		tag_data_size > SPV3_OPENSAUCE_TAG_CACHE_SIZE || !ce_file_read(file, 0, header, sizeof(header)))
+	if (!ce_range_within(tag_data_offset, tag_data_size, file_size) || tag_data_size > OPENSAUCE_TAG_CACHE_SIZE ||
+		!ce_file_read(file, 0, header, sizeof(header)))
 	{
+		return;
+	}
+	if (!opensauce_survey_wanted(header))
+	{
+		/* (no survey: the last one's over) */
+		opensauce_survey_map(map_name, header, NULL, 0, file_size);
 		return;
 	}
 	tags = malloc(tag_data_size);
 	if (tags && ce_file_read(file, tag_data_offset, tags, tag_data_size))
-		spv3_mode_survey(map_name, header, tags, tag_data_size, file_size);
+		opensauce_survey_map(map_name, header, tags, tag_data_size, file_size);
 	free(tags);
+#else
+	(void)file;
+	(void)map_name;
+	(void)file_size;
+	(void)tag_data_offset;
+	(void)tag_data_size;
+#endif
 }
 
 /* the instance at a tag handle, if it is the handle of one */
@@ -1262,32 +1283,47 @@ boolean ce_map_check(
 	unsigned long started = system_milliseconds();
 	boolean valid;
 	char const *family = ce_map_family_name();
+	unsigned short opensauce_flags = 0;
+	struct opensauce_maps_session session;
 
 	ce_refusal[0] = 0;
 	ce_explanation[0] = 0;
 	ce_message[0] = 0;
 	ce_checking = TRUE;
+	/* (the tag cache's size is this map's while it is checked:
+	opensauce_maps.c) */
+	opensauce_maps_check_started();
 	ce_checking_bsp_count = 0;
 	memset(&ce_checking_digests, 0, sizeof(ce_checking_digests));
-	/* (SPV3 mode's survey, logged before the checks: nothing in other modes) */
+	/* (an OpenSauce map's survey, logged before the checks: nothing for
+	other maps outside SPV3 mode) */
 	if (file_size != INVALID_FILE_SIZE && !file_size_high)
-		ce_spv3_survey(file, map_name, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
+		ce_opensauce_survey(file, map_name, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
 	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > CE_MAXIMUM_FILE_SIZE)
 		valid = ce_refuse("its size could not be read, or is over 2 GB");
 	else if (file_length < CE_HEADER_SIZE || (unsigned long)file_length > file_size)
 		valid = ce_refuse("it is cut short: its header says %ld bytes, the file has %lu", file_length, file_size);
-	else if (ce_needs_opensauce(file, map_name))
+	else if (ce_needs_opensauce(file, map_name, &opensauce_flags))
 	{
 		ce_refusal_explain("It needs OpenSauce.");
 		valid = ce_refuse("it needs OpenSauce (its OpenSauce header asks for memory upgrades or mod data)");
 	}
+	else if (opensauce_flags && (opensauce_maps_session_now(&session),
+		!opensauce_maps_online_allows(map_name, opensauce_flags, &session)))
+	{
+		/* (an OpenSauce map only this game reads, in an online game: local
+		play for now, opensauce_maps.c) */
+		ce_refusal_explain("OpenSauce maps play offline for now.");
+		valid = ce_refuse("it is an OpenSauce map, and this is an online game: they play offline for now");
+	}
 	else
 		valid = ce_map_check_tags(file, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
 	ce_checking = FALSE;
+	opensauce_maps_check_done();
 	if (!valid)
 	{
 		error(_error_silent, "%s map %s refused: %s", family, map_name, ce_refusal);
-		spv3_mode_log("%s: REFUSED by the map checks: %s", map_name, ce_refusal);
+		opensauce_survey_checked(map_name, ce_refusal);
 		console_warning("%s map %s refused: %s", family, map_name, ce_refusal);
 		/* (the game shows it in place of the damaged disc error:
 		cache_files_windows.c) */
@@ -1310,6 +1346,7 @@ boolean ce_map_check(
 		ce_checked_digests = ce_checking_digests;
 		ce_checked_stale = FALSE;
 		error(_error_silent, "%s map %s: checked (%lu ms)", family, map_name, system_milliseconds() - started);
+		opensauce_survey_checked(map_name, NULL);
 	}
 	return valid;
 }

@@ -37,6 +37,8 @@ def generated(control=None):
         'static void ui_mouse_forget_widget(struct widget_instance *widget);',
         'static struct widget_instance *ui_widget_launch_widget(struct widget_instance *widget, long tag_index)'
         ' { (void)widget; (void)tag_index; return NULL; }',
+        'static void ui_widget_port_deleted_handler_script(struct ui_widget_event_handler_reference const *handler)'
+        ' { (void)handler; }',
     ]
     # (ui_widget_delete is public in the game; static here, as the others)
     code += [functions[name].replace('void ui_widget_delete(', 'static void ui_widget_delete(', 1)

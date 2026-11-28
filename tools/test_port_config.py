@@ -239,6 +239,7 @@ def build(cc, kind, directory):
 	shutil.copy(ROOT / "port/linux/src/port_config.c", source)
 	shutil.copy(ROOT / "port/linux/src/port_config.h", source)
 	shutil.copy(ROOT / "port/linux/src/packaged_install.h", source)
+	shutil.copy(ROOT / "port/linux/src/config_template_repair.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_limits.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_capacity.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_features.h", source)
@@ -1512,6 +1513,30 @@ def test_xbox_tuning(program, directory):
 		f"xbox/tuning: particles {values} {tuning_lines(output)}")
 
 
+def test_xbox_retired_console_settings(program, directory):
+	"""console.simulate_64mb and console.large_caches, retired with nothing
+	in their place (config_renamed in port_config.c): a new Xbox file does not
+	list them, and an older one that has them loads without a word about an
+	unknown setting, their lines (help text too) taken out once."""
+	case = Case(program, directory / "xbox_retired")
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	check("simulate_64mb" not in text and "large_caches" not in text, "xbox/retired: a new file lists them")
+	old = ("\n# No longer used. A devkit gets 64 MB from the XBE's own flag now, set\n"
+		"# with tools/xbox_package.py --devkit-64mb.\nsimulate_64mb = true\n"
+		"\n# No longer used. A console with 128 MB or more gets the larger caches\n"
+		"# on its own now (console.memory_class).\n# large_caches = false\n")
+	check("\n[console]\n" in text, "xbox/retired: no [console]")
+	case.path.write_text(text.replace("\n[console]\n", "\n[console]\n" + old, 1))
+	values, output = case.get("console.debug_geometry")
+	check("unknown setting" not in output and "cannot be read" not in output, f"xbox/retired: {output}")
+	after = case.text()
+	check("simulate_64mb" not in after and "large_caches" not in after and "No longer used" not in after,
+		"xbox/retired: the old lines stay")
+	case.get("console.debug_geometry")
+	check(case.text() == after, "xbox/retired: the file changed on the next start")
+
+
 def test_xbox_follows_new_defaults(program, directory):
 	"""The original Xbox has no screen to ask about new defaults on: a file it
 	wrote before one changed, the setting commented out at the old default,
@@ -1551,7 +1576,7 @@ def main():
 	with tempfile.TemporaryDirectory() as directory:
 		directory = Path(directory)
 		program = build(arguments.cc, "xbox", directory / "xbox")
-		for test in (test_xbox_follows_new_defaults, test_xbox_tuning):
+		for test in (test_xbox_follows_new_defaults, test_xbox_tuning, test_xbox_retired_console_settings):
 			try:
 				test(program, directory / "xbox" / "cases")
 				print(f"ok   xbox: {test.__name__}")

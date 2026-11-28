@@ -82,6 +82,7 @@ machine (their datum identifiers need not be).
 #include "network_rules.h"
 #include "../src/delta_chat_bridge.h"
 #ifdef HALO_GAME_BROWSER
+#include "../src/server_names.h"
 /* (delta_peer_game.c's: a machine's verified accounts, device and handles
 as a ban line's fields; 0 when it has none) */
 int delta_peer_game_machine_identity_text(int machine_index, char *text, int size);
@@ -890,22 +891,6 @@ void distributed_vector_unpack(
 	result->i = (real)vector->i / scale;
 	result->j = (real)vector->j / scale;
 	result->k = (real)vector->k / scale;
-}
-
-void distributed_unit_vector_unpack(
-	struct distributed_vector const *vector,
-	real_vector3d *result)
-{
-	real length;
-
-	distributed_vector_unpack(vector, DISTRIBUTED_UNIT_SCALE, result);
-	length = (real)sqrt(result->i * result->i + result->j * result->j + result->k * result->k);
-	if (length > 0.0f)
-	{
-		result->i /= length;
-		result->j /= length;
-		result->k /= length;
-	}
 }
 
 word distributed_vitality_pack(
@@ -4044,12 +4029,6 @@ static short distributed_shield_effects = 0;
 /* (whether the host has said them this game, for the log) */
 static boolean distributed_shield_effects_heard = FALSE;
 
-short network_shield_effects(
-	void)
-{
-	return distributed_shield_effects;
-}
-
 /* OpenCE's distributed message 92, client_build, which this build never
 sends and drops unread */
 #define DISTRIBUTED_CLIENT_BUILD_KIND 92
@@ -4755,11 +4734,6 @@ static boolean distributed_message_stale(
 	case _distributed_message_damage_animations:
 	case _distributed_message_coop_screen_effect:
 	case _distributed_message_coop_device_states:
-#ifdef HALO_MCC_NETWORK
-	case _distributed_message_mcc_grenades:
-	case _distributed_message_mcc_campaign:
-	case _distributed_message_mcc_object_names:
-#endif
 		break;
 	default:
 		return FALSE;
@@ -5124,13 +5098,96 @@ static unsigned long distributed_ban_until(
 }
 
 /* whether a line of BANS_FILE's is a ban (an address or a hardware id to
-refuse; # begins a comment) */
+refuse, or a dedicated server's name rule: a field "name="; # begins a
+comment) */
 static boolean distributed_ban_line(
 	char const *line)
 {
+	char name[4];
+
 	return line[0] != '#' && (strstr(line, "ip=") || strstr(line, "hwid=") || strstr(line, "account=") ||
-		strstr(line, "device="));
+		strstr(line, "device=") || distributed_ban_field(line, "name=", name, sizeof(name)));
 }
+
+#ifdef HALO_GAME_BROWSER
+/* (the dedicated server: server_commands.c, as a player joins or changes
+their name) whether a player's name (count characters, as Unicode code
+points) is one a line of BANS_FILE's names, its "name=" (server_names.h's
+rule key: case, accents, look-alike letters, color codes and spaces aside,
+the whole name; never a part of one), the ban not over (its "until="): the
+rule as written, kept to printable ASCII, in rule */
+boolean network_distributed_name_banned(
+	unsigned int const *name,
+	int count,
+	char *rule,
+	long rule_size)
+{
+	char line[512];
+	char text[96];
+	FILE *file;
+	boolean banned = FALSE;
+
+	if (rule_size > 0)
+		rule[0] = 0;
+	if (!name || count <= 0)
+		return FALSE;
+	file = fopen(BANS_FILE, "r");
+	if (!file)
+		return FALSE;
+	while (!banned && fgets(line, sizeof(line), file))
+	{
+		unsigned long until;
+		char const *start;
+		char const *end;
+
+		if (line[0] == '#' || !distributed_ban_field(line, "name=", text, sizeof(text)))
+			continue;
+		until = distributed_ban_until(line);
+		if (until && (unsigned long)time(NULL) >= until)
+			continue;
+		/* (the rule's own text, as it is in the file: UTF-8 kept for its
+		key, unlike distributed_ban_field's printable copy) */
+		start = line;
+		while (start && !((start == line || start[-1] == '\t') && !strncmp(start, "name=", 5)))
+		{
+			start = strchr(start, '\t');
+			if (start)
+				start++;
+		}
+		if (!start)
+			continue;
+		start += 5;
+		end = start + strcspn(start, "\t\r\n");
+		if ((size_t)(end - start) >= sizeof(text))
+			continue;
+		csmemcpy(text, start, (size_t)(end - start));
+		text[end - start] = 0;
+		if (!server_names_rule_matches(text, name, count))
+			continue;
+		banned = TRUE;
+		distributed_printable(rule, rule_size, text);
+	}
+	fclose(file);
+	return banned;
+}
+
+/* (the dedicated server: server_commands.c) a comment line in BANS_FILE,
+"# " and the text (kept to printable ASCII): TRUE if written */
+boolean network_distributed_ban_comment(
+	char const *text)
+{
+	char kept[192];
+	FILE *file;
+
+	distributed_printable(kept, sizeof(kept), text);
+	file = fopen(BANS_FILE, "a");
+	if (!file)
+		return FALSE;
+	fprintf(file, "# %s\n", kept);
+	fclose(file);
+	return TRUE;
+}
+#endif
 
 /* (the host's) each client machine's budget for its lobby messages
 (network_rules.h), and whether its going over has been logged since it
@@ -5417,8 +5474,8 @@ void network_distributed_ban(
 
 /* (the dedicated server's sv_banlist) BANS_FILE's index-th ban (from 0,
 comments and other lines not counted): when it was made, the hardware id
-banned ("none"), the players' names, why, and when it ends (0: never); no
-address. FALSE past the last */
+banned ("none"), the players' names (a name rule's line: "name=" and its
+name), why, and when it ends (0: never); no address. FALSE past the last */
 boolean network_distributed_ban_entry(
 	long index,
 	char *when,
@@ -5461,7 +5518,13 @@ boolean network_distributed_ban_entry(
 		}
 		if (!distributed_ban_field(line, "hwid=", hardware_id, hardware_id_size) || !hardware_id[0])
 			snprintf(hardware_id, (size_t)hardware_id_size, "none");
-		distributed_ban_field(line, "players=", players, players_size);
+		/* (a name rule's line, with no players: its name, as the line has
+		it) */
+		if (!distributed_ban_field(line, "players=", players, players_size) && players_size > 5 &&
+			distributed_ban_field(line, "name=", players + 5, players_size - 5))
+		{
+			csmemcpy(players, "name=", 5);
+		}
 		distributed_ban_field(line, "reason=", reason, reason_size);
 		*until = distributed_ban_until(line);
 	}
@@ -5741,12 +5804,6 @@ static word distributed_kind_entry_size(
 	case _distributed_message_unit_states: size = DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE; break;
 	case _distributed_message_player_statistics: size = sizeof(struct distributed_player_statistics); break;
 	case _distributed_message_pings: size = sizeof(struct distributed_player_ping); break;
-#ifdef HALO_MCC_NETWORK
-	case _distributed_message_mcc_grenades: size = mcc_network_inventory_entry_size(); break;
-	case _distributed_message_mcc_campaign: size = mcc_network_campaign_entry_size(); break;
-	case _distributed_message_mcc_game_speed: size = sizeof(real); break;
-	case _distributed_message_mcc_object_names: size = mcc_object_names_entry_size(); break;
-#endif
 	case _distributed_message_actor_states: size = network_actors_entry_size(); break;
 	case _distributed_message_structure_bsp: size = sizeof(struct distributed_structure_bsp); break;
 	case _distributed_message_coop_presentation: size = network_coop_presentation_entry_size(); break;
@@ -5821,14 +5878,6 @@ static void distributed_handle_message(
 		net_monitor_message_in(header.type, size, header.game_time, distributed_handling_batch,
 			!distributed_handling_batch && network_connection_last_read_was_unreliable());
 	}
-#ifdef HALO_MCC_NETWORK
-	/* MCC messages never execute in an ordinary OpenCE session, even in a batch. */
-	if (header.type >= _distributed_message_mcc_grenades && !mcc_cache_tags_loaded())
-	{
-		net_monitor_warning(_net_monitor_mcc, header.type, size);
-		return;
-	}
-#endif
 	/* a tick's messages in one: each as if it came alone */
 	if (header.type == _distributed_message_batch)
 	{
@@ -5881,12 +5930,6 @@ static void distributed_handle_message(
 	}
 	/* (entries of a size of their own: their least here, and each read no
 	further than the message's end) */
-#ifdef HALO_MCC_NETWORK
-	/* A clock command is host-only and ordered, never accepted from datagrams. */
-	if (header.type == _distributed_message_mcc_game_speed &&
-		(machine_index != NONE || network_connection_last_read_was_unreliable() ||
-			header.count != 1 || size != sizeof(header) + sizeof(real))) return;
-#endif
 	entry_size = distributed_kind_entry_size(header.type, NULL);
 	if (header.type == 0 || header.type >= NUMBER_OF_DISTRIBUTED_MESSAGES ||
 		size < sizeof(header) + header.count * entry_size)
@@ -6097,20 +6140,6 @@ static void distributed_handle_message(
 	case _distributed_message_inventories:
 		network_objects_handle_inventories(entries, header.count);
 		break;
-#ifdef HALO_MCC_NETWORK
-	case _distributed_message_mcc_grenades:
-		mcc_network_handle_inventories(entries, header.count);
-		break;
-	case _distributed_message_mcc_campaign:
-		mcc_network_handle_campaign(entries, header.count);
-		break;
-	case _distributed_message_mcc_game_speed:
-		mcc_game_speed_receive(entries, header.count);
-		break;
-	case _distributed_message_mcc_object_names:
-		mcc_object_names_receive(entries, header.count, header.game_time);
-		break;
-#endif
 	case _distributed_message_object_changes:
 		network_objects_handle_changes(entries, header.count);
 		break;
@@ -6755,7 +6784,7 @@ void *distributed_wire_copy(
 }
 #endif
 
-#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+#ifdef HALO_NETWORK_WIRE_SAMPLES
 /* ---------- the wire's samples (network_distributed.h)
 
 Every kind of message the byte order turns, filled field by field with
@@ -7337,4 +7366,17 @@ long network_wire_self_test(
 	return failed;
 }
 #endif
+#endif
+
+#if defined(HALO_BIG_ENDIAN) && !defined(HALO_NETWORK_WIRE_SAMPLES)
+/* the self-test without its samples, which are a developer tool on a
+big-endian build (--console-debug-tools): none compared, none failed */
+long network_wire_self_test(
+	char *report,
+	long report_size)
+{
+	if (report_size > 0)
+		snprintf(report, (size_t)report_size, "not checked (debug tools only)");
+	return 0;
+}
 #endif

@@ -63,6 +63,8 @@ static void prep_present(void);
 /* the bgfx test backend in place of OpenGL (display.renderer = "bgfx";
 d3d8_bgfx.inl, at the end of this file, which shares the device's state) */
 static BOOL bg_initialize(void);
+/* (HALO_BGFX_SHADER_CHECK: d3d8_bgfx_check.inl) */
+static void bg_shader_check_if_asked(void);
 static BOOL bg_active(void);
 static BOOL bg_anti_alias_prepare(BOOL smaa);
 static void bg_anti_alias(BOOL smaa, short x0, short y0, short x1, short y1);
@@ -760,8 +762,9 @@ struct vertex_shader_object
 	GLuint plasma_shader[2], plasma_lit_shader[2];
 	unsigned char plasma_tried;
 #ifdef HALO_BGFX
-	/* as shader[], the bgfx backend's (d3d8_bgfx.inl) */
-	void *bg_shader[2];
+	/* as shader[], lit_shader[] and their Light effects forms, the bgfx
+	backend's (d3d8_bgfx.inl): [immediate + lit * 2 + plasma * 4] */
+	void *bg_shader[8];
 #endif
 #ifdef HALO_VULKAN
 	/* the Vulkan backend's name for its program: a hash of its instructions
@@ -2754,6 +2757,11 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 		}
 		viewport_update_constants();
 
+#ifdef HALO_BGFX
+		/* (HALO_BGFX_SHADER_CHECK: bgfx's shaders compiled for each of its
+		backends, and the game stops, before any window: CI's check) */
+		bg_shader_check_if_asked();
+#endif
 		/* (the dedicated server and a probe draw nothing: server/src) */
 		if (!config_boolean("debug.null_renderer") &&
 #ifdef HALO_GAME_BROWSER
@@ -3026,7 +3034,14 @@ HRESULT WINAPI D3DDevice_GetDepthStencilSurface(D3DSurface **result)
 	return S_OK;
 }
 
+#ifdef HALO_CONSOLE_NO_GPU_TRACE
+/* (the trace of a frame's draws, debug.gpu_trace_frame: a developer's tool,
+left out of a console's build without them) */
+#define trace_frame() FALSE
+#define trace_draw(kind, type, count, first_vertex) ((void)0)
+#else
 static BOOL trace_frame(void);
+#endif
 
 void WINAPI D3DDevice_SetRenderTarget(D3DSurface *render_target, D3DSurface *depth_stencil)
 {
@@ -5206,6 +5221,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 
 /* ---------- tracing (debug.gpu_trace_frame) */
 
+#ifndef HALO_CONSOLE_NO_GPU_TRACE
 static BOOL trace_frame(void)
 {
 	static long frame = -2;
@@ -5217,11 +5233,12 @@ static BOOL trace_frame(void)
 
 static void trace_draw(const char *kind, D3DPRIMITIVETYPE type, unsigned long count, const float *first_vertex)
 {
-	struct vertex_shader_object *program = current_program();
+	struct vertex_shader_object *program;
 	DWORD *rs = D3D__RenderState;
 
 	if (!trace_frame())
 		return;
+	program = current_program();
 	platform_log("%s type %d count %lu vs %lu (decl %lu) vp %lu,%lu %lux%lu z%.2f-%.2f zen %lu zw %lu zf %lx blend %lu %lx/%lx cull %lx cw %08lx tm %05lx cc %lx fin %08lx/%08lx at %lu/%lx",
 		kind, type, count, program ? program->id : 0, device.vertex_shader ? device.vertex_shader->id : 0,
 		device.viewport.X, device.viewport.Y, device.viewport.Width, device.viewport.Height,
@@ -5298,6 +5315,7 @@ static void trace_draw(const char *kind, D3DPRIMITIVETYPE type, unsigned long co
 		}
 	}
 }
+#endif
 
 
 /* Mesa's GL thread queues a glBufferSubData of up to 8 KB; a larger one

@@ -1,0 +1,14 @@
+{
+  "about": "a map's bitmap texels as the renderers decode them (xbox_textures.c's DXT, BC7 and uncompressed decoders, swizzled, linear, volume and cube, Xbox and Halo PC layouts): every level of every face from exactly its bytes into exactly its texels",
+  "harness": "tools/tests/host_fuzz/texture_decode/texture_decode_fuzz.c",
+  "game_sources": [
+    {
+      "source": "port/linux/src/xbox_textures.c",
+      "append": "tools/tests/host_fuzz/texture_decode/texture_decode_unit.c"
+    }
+  ],
+  "flags": [
+    "-std=gnu11"
+  ],
+  "max_len": 65536
+}

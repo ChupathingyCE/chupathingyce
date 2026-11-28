@@ -107,14 +107,6 @@ long hud_hires_asset_mcc(long asset)
 	return asset >= 0 && asset < hud_hires_asset_count() && hud_hires_embedded[asset].mcc;
 }
 
-long hud_hires_asset_fits_mcc(long asset, long width, long height)
-{
-	const struct hud_hires_embedded *embedded = &hud_hires_embedded[asset];
-
-	return hud_hires_asset_mcc(asset) && width > 0 && height > 0 && embedded->width % width == 0 &&
-		embedded->height % height == 0 && embedded->width / width == embedded->height / height;
-}
-
 static int hud_enabled, titles_enabled, titles_cyborg, titles_from_files;
 static unsigned long settings_changes;
 

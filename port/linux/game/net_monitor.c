@@ -813,6 +813,27 @@ void net_monitor_player_name(
 {
 	int index;
 
+	/* (an automated network test's joining machine: debug.network_test_name,
+	UTF-8, for a test of what a host does with a name) */
+	if (monitor.state == _monitor_off && config_string("debug.network_test")[0] &&
+		config_string("debug.network_test_name")[0])
+	{
+		unsigned char const *cursor = (unsigned char const *)config_string("debug.network_test_name");
+
+		for (index = 0; index < size - 1 && *cursor; index++)
+		{
+			unsigned int character = *cursor++;
+			int more = character >= 0xE0 ? 2 : character >= 0xC0 ? 1 : 0;
+
+			if (more)
+				character &= 0x3F >> more;
+			for (; more && (*cursor & 0xC0) == 0x80; more--)
+				character = (character << 6) | (*cursor++ & 0x3F);
+			name[index] = (wchar_t)character;
+		}
+		name[index] = 0;
+		return;
+	}
 	if (monitor.state == _monitor_off || !monitor.name[0])
 		return;
 	for (index = 0; index < size - 1 && monitor.name[index]; index++)

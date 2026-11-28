@@ -38,6 +38,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "tag_files.h"
 #include "stubbs_mode.h"
 #include "stubbs_engine.h"
+#include "content_bytes.h"
+#include "models/model_animation_definitions.h"
 
 #ifndef HALO_CONSOLE_NO_STUBBS
 
@@ -142,15 +144,6 @@ static void stubbs_engine_forget_players(
 	}
 	for (index = 0; index < MAXIMUM_STUBBS_UNIT_COUNTS; index++)
 		stubbs_unit_counts[index].unit_index = NONE;
-}
-
-static long stubbs_read_long(
-	unsigned char const *address)
-{
-	long value;
-
-	csmemcpy(&value, address, 4);
-	return value;
 }
 
 static struct stubbs_unit_definition const *stubbs_unit_definition_get(
@@ -508,8 +501,8 @@ void stubbs_engine_note_unit_definition(
 	}
 	stubbs_unit_definitions_noted = TRUE;
 	{
-		long definition_index = stubbs_read_long(instance + 0x0C);
-		unsigned long group = (unsigned long)stubbs_read_long(instance);
+		long definition_index = content_s32(instance + 0x0C);
+		unsigned long group = (unsigned long)content_s32(instance);
 
 		if (group == 'bipd' && stubbs_biped_noted_count < MAXIMUM_STUBBS_UNITS_NOTED)
 		{
@@ -523,8 +516,8 @@ void stubbs_engine_note_unit_definition(
 			}
 		}
 	}
-	count = stubbs_read_long(unit + STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET);
-	address = (unsigned long)stubbs_read_long(unit + STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET + 4);
+	count = content_s32(unit + STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET);
+	address = (unsigned long)content_s32(unit + STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET + 4);
 	if (count <= 0 || stubbs_unit_definition_count >= MAXIMUM_STUBBS_UNIT_DEFINITIONS)
 		return;
 	if (count > STUBBS_MAXIMUM_SPECIAL_ATTACKS)
@@ -537,7 +530,7 @@ void stubbs_engine_note_unit_definition(
 	}
 
 	noted = &stubbs_unit_definitions[stubbs_unit_definition_count++];
-	noted->definition_index = stubbs_read_long(instance + 0x0C);
+	noted->definition_index = content_s32(instance + 0x0C);
 	noted->special_attack_count = (short)count;
 	for (index = 0; index < count; index++)
 	{
@@ -546,10 +539,10 @@ void stubbs_engine_note_unit_definition(
 		short cost;
 
 		/* (a tag reference: its group, name, name length and tag index) */
-		attack->object_group = (unsigned long)stubbs_read_long(element + STUBBS_SPECIAL_ATTACK_OBJECT_OFFSET);
-		attack->object_definition_index = stubbs_read_long(element + STUBBS_SPECIAL_ATTACK_OBJECT_OFFSET + 0x0C);
-		attack->ready_effect_index = stubbs_read_long(element + STUBBS_SPECIAL_ATTACK_READY_EFFECT_OFFSET + 0x0C);
-		attack->throw_effect_index = stubbs_read_long(element + STUBBS_SPECIAL_ATTACK_THROW_EFFECT_OFFSET + 0x0C);
+		attack->object_group = (unsigned long)content_s32(element + STUBBS_SPECIAL_ATTACK_OBJECT_OFFSET);
+		attack->object_definition_index = content_s32(element + STUBBS_SPECIAL_ATTACK_OBJECT_OFFSET + 0x0C);
+		attack->ready_effect_index = content_s32(element + STUBBS_SPECIAL_ATTACK_READY_EFFECT_OFFSET + 0x0C);
+		attack->throw_effect_index = content_s32(element + STUBBS_SPECIAL_ATTACK_THROW_EFFECT_OFFSET + 0x0C);
 		csmemcpy(&attack->speed, element + STUBBS_SPECIAL_ATTACK_SPEED_OFFSET, 4);
 		csmemcpy(&cost, element + STUBBS_SPECIAL_ATTACK_COST_OFFSET, 2);
 		attack->cost = cost;
@@ -767,6 +760,44 @@ void stubbs_engine_player_move_origin(
 
 	if (local_player_index != NONE)
 		stubbs_local_players[local_player_index].origin_unit_index = to_unit_index;
+}
+
+/* an animation graph's sound reference as Stubbs mode leaves it: Halo's
+element (model_animations.c's), its unused long the effect a Stubbs graph
+names in its place, or NONE (stubbs_mode.c) */
+struct stubbs_animation_sound_reference
+{
+	struct tag_reference sound;
+	long effect;
+};
+typedef char stubbs_animation_sound_reference_size_assert[
+	sizeof(struct stubbs_animation_sound_reference) == 0x14 ? 1 : -1];
+
+void stubbs_engine_animation_effect(
+	long object_index,
+	long animation_graph_index,
+	struct animation_state const *state)
+{
+	struct animation_graph const *graph;
+	struct animation const *animation;
+	struct stubbs_animation_sound_reference const *reference;
+
+	if (!stubbs_mode_active() || animation_graph_index == NONE || !state ||
+		(graph = animation_graph_definition_get(animation_graph_index)) == NULL ||
+		!VALID_INDEX(state->index, graph->animations.count))
+	{
+		return;
+	}
+	animation = TAG_BLOCK_GET_ELEMENT(&graph->animations, state->index, struct animation);
+	if (animation->sound_index == NONE || animation->private_sound_frame_index != state->frame_index ||
+		!VALID_INDEX(animation->sound_index, graph->sound_references.count))
+	{
+		return;
+	}
+	reference = TAG_BLOCK_GET_ELEMENT(&graph->sound_references, animation->sound_index,
+		struct stubbs_animation_sound_reference);
+	if (reference->sound.index == NONE && reference->effect != NONE && reference->effect != 0)
+		effect_new_from_object(reference->effect, object_index, object_index, NONE, 0.f, 0.f, NULL, NULL);
 }
 
 #endif

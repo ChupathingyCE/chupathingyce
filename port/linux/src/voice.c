@@ -43,6 +43,7 @@ copy hears is written to, for the tests' own checks. A release's build
 #include "voice_jitter.h"
 #include "build_identity.h"
 #include "delta_wire.h"
+#include "../game/content_bytes.h"
 
 #include <SDL3/SDL.h>
 #include <opus.h>
@@ -256,16 +257,6 @@ int voice_hears(void)
 
 /* ---------- debug.voice_test */
 
-static unsigned long read_le(const unsigned char *data, int bytes)
-{
-	unsigned long value = 0;
-	int index;
-
-	for (index = bytes - 1; index >= 0; index--)
-		value = value << 8 | data[index];
-	return value;
-}
-
 /* the test's feed: "tone", or a WAV file of 16-bit PCM at 48 kHz (its first
 channel) */
 static void test_load(const char *source)
@@ -291,13 +282,13 @@ static void test_load(const char *source)
 		}
 		while (offset + 8 <= size)
 		{
-			unsigned long chunk = read_le(data + offset + 4, 4);
+			unsigned long chunk = content_u32le(data + offset + 4);
 
 			if (!memcmp(data + offset, "fmt ", 4) && chunk >= 16 && offset + 8 + chunk <= size)
 			{
-				channels = (int)read_le(data + offset + 10, 2);
-				rate = read_le(data + offset + 12, 4);
-				bits = (int)read_le(data + offset + 22, 2);
+				channels = (int)content_u16le(data + offset + 10);
+				rate = content_u32le(data + offset + 12);
+				bits = (int)content_u16le(data + offset + 22);
 			}
 			else if (!memcmp(data + offset, "data", 4) && channels > 0 && bits == 16 && rate == RATE)
 			{
@@ -310,7 +301,7 @@ static void test_load(const char *source)
 				if (voice.test_samples)
 				{
 					for (index = 0; index < frames; index++)
-						voice.test_samples[index] = (short)read_le(data + offset + 8 + index * 2 * (unsigned long)channels, 2);
+						voice.test_samples[index] = (short)content_u16le(data + offset + 8 + index * 2 * (unsigned long)channels);
 					voice.test_count = frames;
 				}
 				break;
@@ -726,13 +717,6 @@ int voice_speaker_talking(unsigned long now, int speaker_machine)
 	struct speaker *speaker = speaker_of(speaker_machine, 0);
 
 	return speaker && now - speaker->heard_time < VOICE_TALKING_TIME;
-}
-
-int voice_speaker_channel(int speaker_machine)
-{
-	struct speaker *speaker = speaker_of(speaker_machine, 0);
-
-	return speaker ? speaker->channel : 0;
 }
 
 void voice_reset(void)

@@ -210,6 +210,10 @@ unsigned char stubbs_mode_owns_data(void const *address, long size)
 	(void)size;
 	return 0;
 }
+unsigned char stubbs_mode_active(void)
+{
+	return 0;
+}
 
 /* ---------- code */
 

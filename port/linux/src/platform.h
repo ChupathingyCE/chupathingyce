@@ -283,8 +283,6 @@ port/windows/src/win32_memory_watch.c has the same (tools/test_texture_cache_pla
 /* the console's: reserves size bytes of address space, uncommitted (the
 memory mapping calls commit them), and returns where; NULL if it cannot */
 void *platform_xbox_window_reserve(unsigned int size);
-/* reserves the window now if it is not yet (xbox_memory.c does at start-up) */
-void platform_xbox_window_ensure(void);
 /* a host pointer's Xbox address, unchecked */
 #define PLATFORM_XBOX_OFFSET(pointer) \
 	((unsigned long long)(unsigned int)((uintptr_t)(pointer) - xbox_address_space_base))

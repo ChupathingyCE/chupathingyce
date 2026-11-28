@@ -669,6 +669,14 @@ builds alone for now, not the consoles */
 #define HALO_CONSOLE_NO_STUBBS 1
 #endif
 
+/* Stubbs mode's counts past Halo's, in the builds that have Stubbs mode (the
+desktop's): 35 material types where Halo has 33 (source/game/game_globals.h).
+Halo's maps are still checked against Halo's own counts, so they play as
+before; a console keeps Halo's counts and builds as before */
+#if !defined(HALO_CONSOLE_NO_STUBBS) && !defined(HALO_STUBBS_LIMITS)
+#define HALO_STUBBS_LIMITS 1
+#endif
+
 /* the medals' icons (port/assets/medals, tools/medal_assets.py: the site's
 medals), in the kill feed (display.medals) and DELTA's SERVICE RECORD: the
 game list's builds with a player (HALO_GAME_BROWSER: the desktops and the

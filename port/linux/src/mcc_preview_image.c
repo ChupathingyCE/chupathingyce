@@ -11,11 +11,7 @@
 #include "zlib_prefixed.h"
 #include <stdlib.h>
 #include <string.h>
-
-static unsigned be32(const unsigned char *p)
-{
-    return (unsigned)p[0]<<24 | (unsigned)p[1]<<16 | (unsigned)p[2]<<8 | p[3];
-}
+#include "../game/content_bytes.h"
 
 void mcc_preview_image_free(struct mcc_preview_image *image)
 {
@@ -42,15 +38,15 @@ int mcc_preview_png(const unsigned char *data, unsigned size, struct mcc_preview
     compressed = malloc(size);
     if (!compressed) return 0;
     while (at <= size-12) {
-        unsigned length = be32(data+at);
+        unsigned length = content_u32be(data+at);
         const unsigned char *kind = data+at+4, *body = data+at+8;
         unsigned k;
-        if (length > size-at-12 || crc32(0,kind,length+4) != be32(body+length)) goto done;
+        if (length > size-at-12 || crc32(0,kind,length+4) != content_u32be(body+length)) goto done;
         for (k=0; k<4; k++) if (!((kind[k]>='A' && kind[k]<='Z') || (kind[k]>='a' && kind[k]<='z'))) goto done;
         if (kind[2]&32) goto done;
         if (!state) {
             if (memcmp(kind,"IHDR",4) || length != 13) goto done;
-            width = be32(body); height = be32(body+4);
+            width = content_u32be(body); height = content_u32be(body+4);
             if (!width || !height || width > MCC_PREVIEW_DIMENSION_LIMIT || height > MCC_PREVIEW_DIMENSION_LIMIT ||
                 body[8] != 8 || (body[9] != 2 && body[9] != 6) || body[10] || body[11] || body[12]) goto done;
             channels = body[9] == 2 ? 3 : 4;

@@ -31,12 +31,14 @@ know, which are put right when the map's tags load:
     fills in) and draws only where there is alpha (its shape). Halo PC keeps
     those the other way round, the shape in the color and the fill order in
     alpha. Every bitmap a unit or weapon HUD interface draws as a meter is
-    listed (ce_hud_bitmap_is_meter), and the texture cache has the renderer
-    sample its channels from where Halo PC keeps them (xbox_texture_cache.c,
-    D3DCOMMON_PORT_PC_METER; xbox_textures.c, a texture swizzle; on the
-    original Xbox, a 32-bit one's channels are swapped as it loads and the
-    meter shader reads a compressed one's where they are,
-    rasterizer_xbox_dynavobgeom.c). A meter
+    listed (ce_hud_bitmap_is_meter), and the meter shader reads its
+    channels where Halo PC keeps them (rasterizer_xbox_dynavobgeom.c), and
+    draws it as Chimera does (hud_draw.c, hud_meter_custom_edition). The
+    bitmap itself is drawn as it is, since many custom HUDs draw the same
+    one as a static element too (the meter's empty marks). On the original
+    Xbox, a 32-bit one's channels are swapped as it loads, and the meter
+    shader reads a compressed one's where they are (xbox_texture_cache.c
+    still marks a meter's texture, D3DCOMMON_PORT_PC_METER). A meter
     flagged "use Xbox shading" (MCC's flag, which Chimera reads too) has
     its bitmap in the Xbox's order, as halopc-restored's Xbox order meters
     and custom HUDs do, so its bitmap is not listed and is drawn as the
@@ -68,6 +70,7 @@ hud_definitions.hpp agrees).
 #include "ce_map_checks.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
+#include "interface/hud_definitions.h"
 #include "rasterizer/rasterizer_swizzle.h"
 #include "rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h"
 
@@ -76,6 +79,7 @@ hud_definitions.hpp agrees).
 
 #include <stdio.h>
 #include <stdlib.h>
+#include "content_bytes.h"
 
 /* ---------- constants */
 
@@ -251,6 +255,9 @@ static struct
 	byte const *xbox_bitmaps;
 } ce_hud_button_icon_groups[4];
 static long ce_hud_button_icon_group_count;
+/* a Custom Edition map's HUD is loaded: its weapon HUD elements' own
+anchors are honored (ce_hud_child_anchor) */
+static boolean ce_hud_child_anchors;
 
 /* ---------- private code */
 
@@ -260,17 +267,11 @@ unsigned long ce_resources_allocate(unsigned long size);
 unsigned long ce_resources_free_mark(void);
 void ce_resources_free_to(unsigned long mark);
 
-static unsigned long ce_hud_read_long(
-	byte const *data)
-{
-	return *(unsigned long const *)data;
-}
-
 /* the bitmap group a tag reference names in this map's tags, or NULL */
 static byte *ce_hud_bitmap_group(
 	byte const *reference)
 {
-	long tag_index = (long)ce_hud_read_long(reference + TAG_REFERENCE_INDEX_OFFSET);
+	long tag_index = (long)content_u32(reference + TAG_REFERENCE_INDEX_OFFSET);
 	struct ce_tag_instance *instance;
 
 	if (tag_index == -1 || (tag_index & 0xffff) >= ce_hud_tag_count)
@@ -288,10 +289,10 @@ static byte *ce_hud_block_elements(
 	unsigned long element_size,
 	long *count)
 {
-	unsigned long address = ce_hud_read_long(block + TAG_BLOCK_ADDRESS_OFFSET);
+	unsigned long address = content_u32(block + TAG_BLOCK_ADDRESS_OFFSET);
 	byte *elements;
 
-	*count = (long)ce_hud_read_long(block + TAG_BLOCK_COUNT_OFFSET);
+	*count = (long)content_u32(block + TAG_BLOCK_COUNT_OFFSET);
 	if (*count <= 0 || !address)
 		return NULL;
 	elements = *count <= CE_HUD_MAXIMUM_ELEMENTS ? ce_loaded_pointer(address, (unsigned long)*count * element_size) :
@@ -400,8 +401,8 @@ static void ce_hud_meter_bitmap(
 	bitmap_group = ce_hud_bitmap_group(element + ELEMENT_BITMAP_OFFSET);
 	if (!bitmap_group)
 		return;
-	count = (long)ce_hud_read_long(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET + TAG_BLOCK_COUNT_OFFSET);
-	address = ce_hud_read_long(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET + TAG_BLOCK_ADDRESS_OFFSET);
+	count = (long)content_u32(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET + TAG_BLOCK_COUNT_OFFSET);
+	address = content_u32(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET + TAG_BLOCK_ADDRESS_OFFSET);
 	if (count <= 0 || !address)
 		return;
 	bitmaps = count <= CE_HUD_MAXIMUM_BITMAPS ? ce_loaded_pointer(address, (unsigned long)count * BITMAP_SIZE) : NULL;
@@ -986,6 +987,7 @@ void ce_hud_tags_loaded(
 			break;
 		}
 	}
+	ce_hud_child_anchors = TRUE;
 	error(_error_silent, "Custom Edition maps: %ld HUD placements at half their scale or less, %ld meter bitmaps sampled in "
 		"Halo PC's channels", ce_hud_placements_halved, ce_hud_meter_bitmap_count);
 	ce_tags_guard_end();
@@ -1000,6 +1002,22 @@ void ce_hud_tags_unloaded(
 {
 	ce_hud_meter_bitmap_count = 0;
 	ce_hud_button_icon_group_count = 0;
+	ce_hud_child_anchors = FALSE;
+}
+
+/* a weapon HUD element's own anchor (the "anchor" MCC put in its header's
+pad: 0 from its parent's, 1 to 9 the nine anchors) on the Custom Edition
+map loaded: the corner it is drawn from (_hud_anchor_top_left to
+_hud_anchor_center), or NONE to keep its parent's. As Chimera reads them
+(SnowyMouse's, GPL-3.0; its behavior, not its code): the four corners and
+the middle. The middles of the edges (6 to 9), which the Xbox's renderer
+has no case for, and any other value keep the parent's, as they did */
+short ce_hud_child_anchor(
+	short child_anchor)
+{
+	if (!ce_hud_child_anchors || child_anchor < 1 || child_anchor > _hud_anchor_center + 1)
+		return NONE;
+	return (short)(child_anchor - 1);
 }
 
 /* the blocks of a weapon HUD interface's crosshairs or overlays, and their

@@ -343,31 +343,6 @@ static void hrtf_initialize(void)
 	}
 }
 
-/* DirectSound's azimuth (degrees, -180 to 180, the right positive) and
-elevation (-90 to 90) of a direction right, up and ahead: in each octant
-45 degrees times the lesser side over the greater, and 90 less the
-greater's turn past 45 (surround_split's) */
-static void hrtf_angles(float right, float up, float ahead, float *azimuth, float *elevation)
-{
-	float horizontal = sqrtf(right * right + ahead * ahead), height = fabsf(up);
-	float front = fabsf(ahead), side = fabsf(right);
-
-	if (height < horizontal)
-		*elevation = height / horizontal * 45.0f;
-	else
-		*elevation = height > 0.0f ? 90.0f - horizontal / height * 45.0f : 0.0f;
-	if (up < 0.0f)
-		*elevation = -*elevation;
-	if (front > side)
-		*azimuth = side / front * 45.0f;
-	else
-		*azimuth = side > 0.0f ? 90.0f - front / side * 45.0f : 0.0f;
-	if (ahead < 0.0f)
-		*azimuth = 180.0f - *azimuth;
-	if (right < 0.0f)
-		*azimuth = -*azimuth;
-}
-
 /* out blended from a to b by t (0 to 1) */
 static void hrtf_blend(const struct hrtf_direction *a, const struct hrtf_direction *b, float t,
 	struct hrtf_direction *out)

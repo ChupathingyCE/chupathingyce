@@ -46,7 +46,6 @@ goes back to; Gearbox's from Select Profile), and whether it or a dialog of
 its is up, taking the input */
 void profile_screen_open(boolean from_online_games);
 boolean profile_screen_active(void);
-boolean profile_screen_dialog_active(void);
 boolean profile_screen_dialog_only(void);
 void profile_screen_process(void);
 void profile_screen_render(void);

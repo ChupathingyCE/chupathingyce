@@ -58,6 +58,9 @@ struct tag_iterator {long absolute_index;};
 #define match_assert(file,line,c) CHECK(c)
 #define OBJECTS_H_FILE "test"
 struct test_buffer {byte *data;};
+typedef struct test_buffer IDirect3DVertexBuffer8;
+/* the 32-bit build's xbox_address.h: an address is the pointer */
+#define XBOX_POINTER(type,address) ((type *)(address))
 static void IDirect3DVertexBuffer8_Lock(void *b,int offset,int size,byte **data,int flags){*data=b&&((struct test_buffer*)b)->data?((struct test_buffer*)b)->data+offset:NULL;}
 static void IDirect3DVertexBuffer8_Unlock(void *b){}
 static long rasterizer_geometry_get_vertex_size(short type){return type==5?32:68;}

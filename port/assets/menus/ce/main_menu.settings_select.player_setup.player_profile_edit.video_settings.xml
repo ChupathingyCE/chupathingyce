@@ -452,7 +452,7 @@
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/hud_safe_zone_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/video_settings/labels" string_index="37" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/hud_safe_zone_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|SINGLE SCREEN ONLY|OFF" setting="display.hud_safe_zone" values="xbox|auto|pc" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/hud_safe_zone_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|SINGLE SCREEN|OFF" setting="display.hud_safe_zone" values="xbox|auto|pc" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_console_style" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop android switch">
@@ -630,11 +630,29 @@
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_lighting" width="1" height="1">
 	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_glow" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/video_settings/labels" string_index="57" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="display.glow" values="off|on" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_glow_intensity" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_intensity_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_intensity_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_intensity_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/video_settings/labels" string_index="58" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_intensity_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="50%|75%|100%|125%|150%|200%" setting="display.glow_intensity" values="0.225|0.34|0.45|0.56|0.68|0.9" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_ray_tracing" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/ray_tracing_label"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/ray_tracing_spinner" x="320" y="1"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/ray_tracing_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/video_settings/labels" string_index="57" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/ray_tracing_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/video_settings/labels" string_index="59" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/ray_tracing_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|SHADOWS|SHADOWS + AO" setting="display.ray_tracing" values="off|shadows|ao" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
@@ -646,24 +664,6 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/rt_quality_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/video_settings/labels" string_index="60" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/rt_quality_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="AUTO|LOW|MEDIUM|HIGH" setting="display.ray_tracing_quality" values="auto|low|medium|high" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
-		<on event="created" run="port setting load"/>
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_glow" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop">
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_label"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_spinner" x="320" y="1"/>
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/video_settings/labels" string_index="58" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="display.glow" values="off|on" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
-		<on event="created" run="port setting load"/>
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_glow_intensity" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop">
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_intensity_label"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_intensity_spinner" x="320" y="1"/>
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_intensity_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/video_settings/labels" string_index="59" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/glow_intensity_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="50%|75%|100%|125%|150%|200%" setting="display.glow_intensity" values="0.225|0.34|0.45|0.56|0.68|0.9" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
@@ -734,9 +734,9 @@
 		<string text="HDR BRIGHTNESS:"/>
 		<string text="HDR PEAK:"/>
 		<string text="HUD BRIGHTNESS:"/>
-		<string text="RAY TRACING:"/>
 		<string text="GLOW:"/>
 		<string text="GLOW STRENGTH:"/>
+		<string text="RAY TRACING:"/>
 		<string text="RT QUALITY:"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/help_strings">
@@ -746,12 +746,12 @@
 		<string text="The size of the window."/>
 		<string text="Higher is sharper, but uses more battery."/>
 		<string text="Sync frames to the display."/>
-		<string text="For G-SYNC or FreeSync: V-Sync with the frame rate held\njust under the refresh rate. Auto follows the system."/>
+		<string text="For G-SYNC or FreeSync. V-Sync with the frame rate\nheld under the refresh rate. Auto follows the system."/>
 		<string text="The frame rate limit; 30 is the Xbox's. Auto is twice\nthe display's refresh rate."/>
 		<string text="Draw a frame for every display refresh."/>
 		<string text="Smooth jagged edges."/>
 		<string text="Smooth jagged edges."/>
-		<string text="The field of view, in and out of vehicles, and the reticle."/>
+		<string text="The field of view, the weapon and the reticle."/>
 		<string text="Shadows, lighting and detail."/>
 		<string text="The menus, text, buttons, HUD and scoreboard."/>
 		<string text="HDR, the HDR display, tone mapping and brightness."/>
@@ -759,7 +759,7 @@
 		<string text="Adjust the field of view."/>
 		<string text="The field of view in vehicles.\nSame keeps it as before."/>
 		<string text="How wide your weapon is drawn.\nSame follows the view."/>
-		<string text="Size the reticle to the field of view, so it matches\nthe weapon's spread."/>
+		<string text="Size the reticle to the field of view."/>
 		<string text="The reticle's size. 100% is the Xbox's."/>
 		<string text="Draw your weapon and arms. Off hides them."/>
 		<string text="Native draws at full resolution. Original draws at\n640x480 and scales it up."/>
@@ -774,15 +774,15 @@
 		<string text="Sharper textures seen at an angle."/>
 		<string text="How far the world is drawn."/>
 		<string text="Dead bodies fall limp and come to rest.\nOff looks like the Xbox."/>
-		<string text="Takes effect on restart."/>
-		<string text="Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files."/>
+		<string text="The menus' look. Takes effect on restart."/>
+		<string text="Classic looks like Halo's titles. Cyborg matches\nthe text. Halo makes them from your own Halo files."/>
 		<string text="Draw text and titles in high resolution."/>
 		<string text="Draw the HUD in high resolution."/>
-		<string text="Keep the HUD in from the screen's edges, as on the Xbox.\nOff moves it to the edges."/>
+		<string text="Keep the HUD in from the edges, as on the Xbox.\nSingle Screen skips it in split screen."/>
 		<string text="Drop-down slides down from the top.\nClassic is the Xbox's."/>
-		<string text="The buttons prompts show. Auto follows the controller\nyou use."/>
+		<string text="The buttons in prompts. Auto follows the controller\nyou use."/>
 		<string text="The buttons in menus and the Guide."/>
-		<string text="Classic: the game's own buttons."/>
+		<string text="The buttons in a game's prompts. Classic is\nthe map's own, HD the flat ones."/>
 		<string text="Names above players, where the host allows them."/>
 		<string text="Adjust the size of player names."/>
 		<string text="Show team games by team, or all players by score."/>
@@ -790,7 +790,7 @@
 		<string text="Platform logos and the Delta mark beside names.\nOff shows just names and scores."/>
 		<string text="Show the time left on your powerups."/>
 		<string text="Show the time left, or the time played, in multiplayer."/>
-		<string text="While dead, follow a player's view, if the host allows it."/>
+		<string text="While dead, follow a player's view,\nif the host allows it."/>
 		<string text="Keep the light of explosions, plasma and glows past\nwhite, and roll it off instead of clipping."/>
 		<string text="With HDR, on an HDR display, show that light\nbrighter than white. From the next start."/>
 		<string text="Neutral keeps the picture and rolls off only the\nbrightest parts. ACES is filmic, Reinhard softer."/>
@@ -798,9 +798,9 @@
 		<string text="How bright white is on an HDR display, in nits.\nAuto is the display's own."/>
 		<string text="The brightest highlight on an HDR display,\nin nits. Auto asks the display."/>
 		<string text="The HUD's and menus' white on an HDR display,\nin nits."/>
-		<string text="Ray-traced sun shadows of characters and vehicles,\nand AO. Off looks like the Xbox."/>
 		<string text="A soft glow around lights and bright things.\nOff looks like the Xbox."/>
 		<string text="How strong the glow is."/>
+		<string text="Ray-traced sun shadows of characters and vehicles,\nand AO. Off looks like the Xbox."/>
 		<string text="How much ray tracing costs. Lower is faster and softer.\nAuto is Medium on laptops and handhelds, High elsewhere."/>
 	</strings>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/display_profile_item" type="text" left="51" top="177" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="13" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">

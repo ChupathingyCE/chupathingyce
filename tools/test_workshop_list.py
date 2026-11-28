@@ -38,9 +38,37 @@ def test_workshop_list(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+
+def test_workshop_list_threads(tmp_path):
+    """the readers on several threads at once, each answer its own (under
+    ThreadSanitizer where the compiler has it)"""
+    if os.name == "nt":
+        pytest.skip("pthreads test")
+    cc = next((path for path in map(shutil.which, ("clang", "cc", "gcc")) if path), None)
+    if not cc:
+        pytest.skip("no C compiler")
+    binary = tmp_path / "workshop_list_threads_test"
+    sources = [str(ROOT / "port" / "linux" / "tests" / "workshop_list_threads_test.c"),
+               str(ROOT / "port" / "linux" / "src" / "workshop_list.c")]
+    flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-O1", "-g", "-pthread"]
+    build = subprocess.run([cc, *flags, "-fsanitize=thread", *sources, "-o", str(binary)],
+                           capture_output=True, text=True)
+    sanitized = build.returncode == 0
+    if sanitized:
+        probe = subprocess.run([str(binary)], capture_output=True, text=True,
+                               env=dict(os.environ, TSAN_OPTIONS="halt_on_error=1"))
+        # (a TSan runtime that can't start here, as on some kernels' address layouts: built without it)
+        sanitized = "ThreadSanitizer: unexpected memory mapping" not in probe.stderr and \
+            "FATAL: ThreadSanitizer" not in probe.stderr
+    if not sanitized:
+        build = subprocess.run([cc, *flags, *sources, "-o", str(binary)], capture_output=True, text=True)
+        assert build.returncode == 0, build.stdout + build.stderr
+        probe = subprocess.run([str(binary)], capture_output=True, text=True)
+    assert probe.returncode == 0, probe.stdout + probe.stderr[-4000:]
+
 def test_workshop_list_fuzz(tmp_path):
     """the readers of Steam's answers under libFuzzer, from seeds of each
-    kind, for a short while"""
+    kind (and fuzzing from them, with HALO_FUZZ_SECONDS)"""
     cc = fuzz_support.libfuzzer_compiler()
     if not cc:
         fuzz_support.skip("no clang with libFuzzer")
@@ -66,6 +94,6 @@ def test_workshop_list_fuzz(tmp_path):
         b"\x04" + b'\\"total_pages\\":23,\\"results\\":[{\\"publishedfileid\\":\\"5\\",\\"creator\\":\\"6\\"}],'
         b'\\"creator_player_link_details\\":[{\\"steamid\\":\\"6\\",\\"persona_name\\":\\"a\\\\\\"b\\u00e9\\"}]')
     (seeds / "profile").write_bytes(b"\x05" + b"<steamID><![CDATA[Name]]></steamID>")
-    result = fuzz_support.run_fuzzer(binary, tmp_path, int(os.environ.get("HALO_FUZZ_SECONDS", "20")), seeds=[seeds],
+    result = fuzz_support.run_fuzzer(binary, tmp_path, fuzz_support.fuzz_seconds(), seeds=[seeds],
                                      max_len=16384)
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]

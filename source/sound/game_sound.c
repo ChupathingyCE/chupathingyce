@@ -537,6 +537,10 @@ void scripted_sound_new(
 	real_point3d position;
 	long impulse_sound_index;
 
+	/* port: a source object deleted since the script had it is none, as
+	if none were given (#1861) */
+	if (!object_try_and_get(source_object_index))
+		source_object_index = NONE;
 	if (definition_index != NONE)
 	{
 		network_coop_note_sound(_coop_sound_impulse, definition_index, source_object_index, scale);
@@ -768,6 +772,10 @@ void scripted_looping_sound_start(
 	long looping_sound_index;
 	struct game_looping_sound_datum *looping_sound;
 
+	/* port: a source object deleted since the script had it is none, as
+	if none were given (#1861) */
+	if (!object_try_and_get(source_object_index))
+		source_object_index = NONE;
 	if (sound_index != NONE)
 	{
 		definition = looping_sound_definition_get(sound_index);

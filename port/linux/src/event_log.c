@@ -9,7 +9,7 @@ Built with the platform layer's ABI, with nothing of the game's: the unit
 tests (server/tests/events_test.c) build it as it is.
 
 Limits (bounded memory, whatever the game): a game keeps at most
-event_log_capacity() events (network.events_limit), and its players' slots,
+network.events_limit's events (event_log_set_capacity), and its players' slots,
 tags and per-player weapons, vehicles and pickups to the sizes in
 event_log.h. When the events are full the samples (positions, pings) thin
 out first: those of every other second are dropped, then every other of
@@ -157,9 +157,12 @@ struct text
 
 /* ---------- globals */
 
+/* (the records wanted, apart from event_log: an initializer not zeros would
+put the whole of it in the data segment instead of bss) */
+static int event_log_capacity_wanted = EVENT_LOG_DEFAULT_EVENTS;
+
 static struct
 {
-	int capacity_wanted;
 	int recording;
 	struct event_log_game game;
 	char id[2 * 16 + 1];
@@ -184,7 +187,7 @@ static struct
 	int players_full;
 	/* the game's first kill (First Strike) */
 	struct medal_game medal_game;
-} event_log = { .capacity_wanted = EVENT_LOG_DEFAULT_EVENTS };
+} event_log;
 
 /* ---------- private code */
 
@@ -1001,13 +1004,8 @@ static void write_sessions(struct text *text, int end_tick)
 
 void event_log_set_capacity(int capacity)
 {
-	event_log.capacity_wanted = capacity < EVENT_LOG_MINIMUM_EVENTS ? EVENT_LOG_MINIMUM_EVENTS :
+	event_log_capacity_wanted = capacity < EVENT_LOG_MINIMUM_EVENTS ? EVENT_LOG_MINIMUM_EVENTS :
 		capacity > EVENT_LOG_MAXIMUM_EVENTS ? EVENT_LOG_MAXIMUM_EVENTS : capacity;
-}
-
-int event_log_capacity(void)
-{
-	return event_log.capacity_wanted;
 }
 
 void event_log_begin(struct event_log_game const *game, unsigned char const random_id[16])
@@ -1017,10 +1015,10 @@ void event_log_begin(struct event_log_game const *game, unsigned char const rand
 
 	/* (the records' memory kept from game to game, as long as its size is
 	the one wanted) */
-	if (!event_log.records || event_log.capacity != event_log.capacity_wanted)
+	if (!event_log.records || event_log.capacity != event_log_capacity_wanted)
 	{
 		free(event_log.records);
-		event_log.capacity = event_log.capacity_wanted;
+		event_log.capacity = event_log_capacity_wanted;
 		event_log.records = malloc((size_t)event_log.capacity * sizeof(*event_log.records));
 		if (!event_log.records)
 			event_log.capacity = 0;

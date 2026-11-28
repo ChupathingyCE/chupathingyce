@@ -12,6 +12,9 @@ there, a file that is no map, a map file cut short (its copy into the cache
 fails: game_precache_new_map_refusable) and a map whose tags are damaged
 (game_load fails: main_new_map). Then Blood Gulch must load.
 
+An init.txt command the build doesn't know, before the first map, is refused
+too, and the game starts.
+
 Based on goatbutt's test in OpenH1 (the OpenH1 team), reworked for our build.
 
 Needs the macOS or Linux build (build/macos/chupathingy, build/linux64/
@@ -164,6 +167,18 @@ def test_init_txt_map_name_refused_for_the_main_menu(game, tmp_path):
     assert status == 0, output[-3000:]
     assert "EXCEPTION" not in debug, debug[-3000:]
     assert "can't load map 'levels\\test\\bloodgluch\\bloodgluch'" in debug, debug[-3000:]
+    assert loaded(debug, GOOD_NAME), f"bloodgulch did not load after:\n{debug[-3000:]}"
+
+
+def test_init_txt_unknown_command_before_the_first_map(game, tmp_path):
+    """init.txt runs before any map is loaded. A command this build doesn't
+    know (another build's, from a data folder shared with other ports) is
+    "command not found", and looking for close names then must not read a
+    map's globals: 0.9.2 crashed there at start-up (hs_enumerate_navpoints)."""
+    status, output, debug = play(game, tmp_path, 20, [(12, f'map_name "{GOOD_NAME}"')],
+                                 init="chimera_show_fps true\nzzq\n")
+    assert status == 0, output[-3000:]
+    assert "EXCEPTION" not in debug and "fault at" not in debug, debug[-3000:]
     assert loaded(debug, GOOD_NAME), f"bloodgulch did not load after:\n{debug[-3000:]}"
 
 

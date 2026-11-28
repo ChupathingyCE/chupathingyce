@@ -149,6 +149,19 @@ CORNERS = {
     ("hud_ammo_meters__0", (0, 27, 130, 45)): [-2, 108],
     ("hud_ammo_meters__0", (0, 78, 130, 88)): [-5, 312],
 }
+# sheets whose cells take the restored sprite's whole rectangle from their
+# top left corner, not aligned by their content: the ammo and grenade
+# counters' digits and icons. The Xbox's sprites and Halo PC's are the same
+# rectangles, which the restored sheets have at 4x (the Xbox's 4 is a texel
+# wider, its art at its left), so a Custom Edition map with halopc-restored's
+# resource maps draws each glyph where its own sprite puts it. Aligned by its
+# content, a glyph moved up to three of the art's texels (about half a pixel
+# to a pixel at 1080p) toward where the Xbox's blurred one sits, so the Xbox
+# maps' counters sat a little apart from the others' (#1822)
+SPRITE_ALIGNED = {
+    HUD + "combined\\hud_counter_numbers",
+    HUD + "combined\\hud_ammo_type_icons",
+}
 
 
 # ---------- Xbox maps
@@ -209,8 +222,11 @@ MCC_MATCH = 0.5
 # MCC sheets left as the map draws them: the ammo and grenade counters'
 # panels, which MCC draws taller than the restored art (64 texels to its 56,
 # at the same size), so the art left a transparent strip along their bottom
-# (#1821); at the same size the restored art adds no detail
-MCC_OWN_SHEETS = {"hud_weapon_backgrounds__0", "hud_weapon_backgrounds__1", "hud_weapon_backgrounds__2"}
+# (#1821); at the same size the restored art adds no detail. Their outlines
+# (hud_ammo_outlines 0, 2 and 3) stay MCC's too: the restored ones have
+# another shape, so MCC's panel color ran past them (#1985)
+MCC_OWN_SHEETS = {"hud_weapon_backgrounds__0", "hud_weapon_backgrounds__1", "hud_weapon_backgrounds__2",
+                  "hud_ammo_outlines__0", "hud_ammo_outlines__2", "hud_ammo_outlines__3"}
 # the sheets whose sequences the HUD globals' button icons name
 MESSAGE_ICONS = ("ui\\hud\\bitmaps\\combined\\hud_msg_icons", "ui\\hud\\bitmaps\\hud_msg_icons_sm")
 
@@ -738,6 +754,9 @@ def sheet_cells(name: str, tag: str, texels: np.ndarray, group: dict, index: int
             return None
         score, source, scale, corner, clip, cell_kind, _ = best
         corner = CORNERS.get((name, tuple(cell)), corner)
+        if (tag in SPRITE_ALIGNED and kind == "art" and keep is None and
+                clip[2] - clip[0] <= (right - left) * scale and clip[3] - clip[1] <= (bottom - top) * scale):
+            corner = clip[:2]
         if tag in METERS:
             cell_kind = "meter"
         flat = source.replace("/", "__").replace(" ", "_")

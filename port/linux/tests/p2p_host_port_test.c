@@ -4,7 +4,7 @@ P2P_HOST_PORT_TEST.C
 Tests of the port a host's tunnel takes (port/linux/src/p2p_host_port.h):
 the default 2302 when it is free, the next free one when it is taken, a
 random port when all are, and a port the player chose as it is. Built and
-run by tools/test_p2p_host_port.py; exits nonzero on a failure.
+run by tools/test_c_units.py; exits nonzero on a failure.
 */
 
 #include "../src/p2p_host_port.h"

@@ -1939,7 +1939,8 @@ void ai_scripting_detach_unit(
 			unit_index & UNSIGNED_SHORT_MAX);
 	}
 
-	if (unit_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		long actor_index = unit_get(unit_index)->unit.actor_index;
 		if (actor_index != NONE)
@@ -2895,7 +2896,8 @@ void ai_scripting_stop_looking(
 			hs_runtime_get_executing_thread_name());
 	}
 
-	if (unit_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		long actor_index = unit_get(unit_index)->unit.actor_index;
 		if (actor_index != NONE)
@@ -3081,7 +3083,8 @@ void ai_scripting_vehicle_encounter(
 			ai_name);
 	}
 
-	if (unit_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *vehicle = unit_get(unit_index);
 		short target_encounter_index = NONE;
@@ -3256,7 +3259,10 @@ void ai_scripting_attach_unit(
 				biped's spawned actor variant (a10's extra zombies join the
 				"zombies" squad that way; Stubbs mode only:
 				port/linux/game/stubbs_mode.c) */
-				if (actor_variant_index == NONE && stubbs_mode_active())
+				if (actor_variant_index == NONE && stubbs_mode_active() &&
+					/* (port: and a unit deleted since the script had it
+					has none: #1861) */
+					object_try_and_get(unit_index))
 				{
 					actor_variant_index = unit_definition_get(
 						unit_get(unit_index)->definition_index)->unit.spawned_actor_variant.index;
@@ -3500,7 +3506,8 @@ void ai_scripting_force_active_by_unit(
 			force ? "true" : "false");
 	}
 
-	if (unit_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		long actor_index = unit_get(unit_index)->unit.actor_index;
 
@@ -3686,7 +3693,8 @@ void ai_scripting_magically_see_unit(
 			unit_index & UNSIGNED_SHORT_MAX);
 	}
 
-	if (ai_reference != NONE && unit_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (ai_reference != NONE && object_try_and_get(unit_index))
 	{
 		struct ai_script_actor_reference_iterator iterator;
 		struct actor_datum *actor;
@@ -4299,7 +4307,8 @@ void ai_scripting_look_at_object(
 			hs_runtime_get_executing_thread_name());
 	}
 
-	if (unit_index != NONE && object_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index) && object_index != NONE)
 	{
 		long actor_index = unit_get(unit_index)->unit.actor_index;
 

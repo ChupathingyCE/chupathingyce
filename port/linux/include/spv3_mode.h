@@ -14,26 +14,11 @@ its files ship.
 #define SPV3_MODE_PACK_ID "spv3"
 #define SPV3_MODE_FOLDER "maps_spv3"
 
-/* OpenSauce's memory upgrades (blam_memory_upgrades.hpp: 1.5 times Custom
-Edition's): its tag cache, which its maps' structure BSPs are linked to the
-top of, and its tag count */
-#define SPV3_OPENSAUCE_TAG_CACHE_SIZE 0x02280000UL
-#define SPV3_OPENSAUCE_TAG_COUNT 7680
-
 /* whether SPV3 mode is on: with the spv3 pack's menus (maps_spv3\ui.yelo) */
 boolean spv3_mode_active(void);
 
 /* whether the folder of a pack is SPV3's and has its ui.yelo */
 boolean spv3_mode_pack_present(char const *pack);
-
-/* nonzero once the larger tag window OpenSauce's maps need is mapped: on a
-64-bit desktop build, by its heap at the first allocation when an SPV3
-install (maps_spv3) is in the data folder (port/linux/src/xbox_heap.c) */
-extern int spv3_opensauce_window;
-
-/* the Custom Edition tag cache's size: OpenSauce's in SPV3 mode with the
-window mapped, else Custom Edition's */
-unsigned long spv3_mode_tag_cache_size(unsigned long custom_edition_size);
 
 /* a line in debug.txt, "spv3: ...", in SPV3 mode only */
 void spv3_mode_log(char const *format, ...);
@@ -46,32 +31,22 @@ boolean spv3_mode_map_path(char const *file, char *path, long size);
 Custom Edition map, in SPV3 mode */
 boolean spv3_mode_is_ui(char const *map_name);
 
-/* whether a Custom Edition cache whose OpenSauce header asks for flags may
-be read: in SPV3 mode, with the window mapped, memory upgrades alone (each
-other flag logged and refused) */
-boolean spv3_mode_accepts_opensauce(char const *map_name, unsigned short flags);
+/* a Custom Edition map opened from path (cache_files_windows.c): for the
+ui, whether it is SPV3's own maps_spv3\ui.yelo */
+void spv3_mode_note_map_opened(char const *map_name, char const *path);
 
-/* the survey of a map just read, before it is checked (ce_map_checks.c):
-its header, OpenSauce's header, its tags' groups, its BSPs against the
-window and its scripts' functions and globals the game lacks; once per map,
-in SPV3 mode. tags is the tag data as read, at the tag cache's base */
-void spv3_mode_survey(char const *map_name, void const *cache_header, void const *tags, unsigned long tag_data_size,
-	unsigned long file_size);
+/* whether the ui open is SPV3's own file (not one the loader fell back to):
+only its scripts may change the level (hs.c) */
+boolean spv3_mode_own_ui_open(char const *map_name);
 
-/* a script's function or global the game lacks, named as the scripts were
-compiled (hs_compile.c), counted for the map's summary */
-void spv3_mode_note_missing_function(char const *name);
-void spv3_mode_note_missing_global(char const *name);
-/* the map's scripts compiled: the counts logged and cleared */
-void spv3_mode_scripts_summary(long dropped_scripts, long scripts, long dropped_globals, long globals);
-
-/* a resource (a bitmap's pixels or a sound's samples) a tag asked a resource
-map for that it does not have */
-void spv3_mode_note_resource_miss(char const *kind, char const *tag_name);
+/* a level SPV3's ui names with map_name (spv3a10) as this game names it
+(spv3a10@ce) into name: FALSE, the name said once in the log, unless it is
+a plain name of maps_spv3's .yelo levels */
+boolean spv3_mode_level_name(char const *file, char *name, long size);
 
 /* a change SPV3 mode made to what a map asks for (a camera point narrowed,
 camera_scripting.c; a grenade type passed over, units.c): counted and its
-first ones logged */
+first ones logged, in SPV3 mode, by OpenSauce's map log (opensauce_survey.h) */
 void spv3_mode_note_correction(char const *what);
 
 #endif

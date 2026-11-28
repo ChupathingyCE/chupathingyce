@@ -9,6 +9,7 @@ The rules of network_rules.h.
 #include "../include/delta.h"
 
 #include <string.h>
+#include "content_bytes.h"
 
 typedef char network_rules_layout_kinds_fit[sizeof(((struct network_rules_layout *)0)->dropped) ==
 	DELTA_LAYOUT_KIND_BYTES ? 1 : -1];
@@ -79,16 +80,6 @@ static void put32(uint8_t *at, uint32_t value)
 	put16(at + 2, value >> 16);
 }
 
-static unsigned get16(uint8_t const *at)
-{
-	return (unsigned)at[0] | ((unsigned)at[1] << 8);
-}
-
-static uint32_t get32(uint8_t const *at)
-{
-	return (uint32_t)get16(at) | ((uint32_t)get16(at + 2) << 16);
-}
-
 void network_rules_aim_assist_write(uint8_t *message, int block, int32_t game_time)
 {
 	put16(message, (NETWORK_RULES_AIM_ASSIST_SIZE << 4) | (NETWORK_RULES_MESSAGE_TYPE_DATA << 2));
@@ -105,15 +96,15 @@ int network_rules_aim_assist_read(uint8_t const *message, int size, int from_dat
 
 	if (from_datagram || size != NETWORK_RULES_AIM_ASSIST_SIZE)
 		return 0;
-	header = get16(message);
+	header = content_u16le(message);
 	if ((header >> 4) != NETWORK_RULES_AIM_ASSIST_SIZE || ((header >> 2) & 3) != NETWORK_RULES_MESSAGE_TYPE_DATA ||
 		message[2] != NETWORK_RULES_AIM_ASSIST_KIND || message[3] != 1)
 	{
 		return 0;
 	}
-	if (get16(message + 8) > 1 || get16(message + 10) != 0)
+	if (content_u16le(message + 8) > 1 || content_u16le(message + 10) != 0)
 		return 0;
-	*block = (int)get16(message + 8);
+	*block = (int)content_u16le(message + 8);
 	return 1;
 }
 
@@ -134,8 +125,8 @@ void network_rules_input_head_read(uint8_t const *head, int *player, int *struct
 	*player = head[0];
 	*structure_bsp = head[1];
 	*no_friendly_fire = head[2] != 0;
-	*tick = (int32_t)get32(head + 4);
-	*host_time = (int32_t)get32(head + 8);
+	*tick = (int32_t)content_u32le(head + 4);
+	*host_time = (int32_t)content_u32le(head + 8);
 }
 
 int network_rules_mouse_is_aim_device(uint64_t mouse_ms, uint64_t stick_ms, uint64_t touch_ms,
@@ -469,7 +460,7 @@ int network_rules_shield_effects_read(uint8_t const *message, int size, int from
 
 	if (from_datagram || size != NETWORK_RULES_SHIELD_EFFECTS_SIZE)
 		return 0;
-	header = get16(message);
+	header = content_u16le(message);
 	if ((header >> 4) != NETWORK_RULES_SHIELD_EFFECTS_SIZE || ((header >> 2) & 3) != NETWORK_RULES_MESSAGE_TYPE_DATA ||
 		message[2] != NETWORK_RULES_SHIELD_EFFECTS_KIND || message[3] != 1)
 	{
@@ -477,9 +468,9 @@ int network_rules_shield_effects_read(uint8_t const *message, int size, int from
 	}
 	if (maximum > NETWORK_RULES_SHIELD_EFFECTS_LIMIT)
 		maximum = NETWORK_RULES_SHIELD_EFFECTS_LIMIT;
-	if (get16(message + 8) > (unsigned)maximum || get16(message + 10) != 0)
+	if (content_u16le(message + 8) > (unsigned)maximum || content_u16le(message + 10) != 0)
 		return 0;
-	*effects = (int)get16(message + 8);
+	*effects = (int)content_u16le(message + 8);
 	return 1;
 }
 
@@ -902,10 +893,10 @@ int network_rules_fork_advertised(uint8_t const *reserved, int size, unsigned *b
 	{
 		struct network_rules_fork const *row = &network_rules_forks[fork];
 
-		if ((get16(reserved) & row->modded_mask) == row->modded_mark)
+		if ((content_u16le(reserved) & row->modded_mask) == row->modded_mark)
 		{
 			if (base_version)
-				*base_version = row->base_version_at + 2 <= size ? get16(reserved + row->base_version_at) : 0;
+				*base_version = row->base_version_at + 2 <= size ? content_u16le(reserved + row->base_version_at) : 0;
 			return fork;
 		}
 	}
@@ -1128,11 +1119,6 @@ int network_rules_search_answered(uint32_t address, int direct_ip_host, uint32_t
 
 /* ---------- chupa-43a's facts */
 
-static unsigned rules_word(uint8_t const *bytes)
-{
-	return (unsigned)bytes[0] | ((unsigned)bytes[1] << 8);
-}
-
 static void rules_put_word(uint8_t *bytes, unsigned value)
 {
 	bytes[0] = (uint8_t)value;
@@ -1140,20 +1126,10 @@ static void rules_put_word(uint8_t *bytes, unsigned value)
 }
 
 /* (the join request's version word: the packet codec's order, big-endian) */
-static unsigned rules_codec_word(uint8_t const *bytes)
-{
-	return ((unsigned)bytes[0] << 8) | (unsigned)bytes[1];
-}
-
 static void rules_put_codec_word(uint8_t *bytes, unsigned value)
 {
 	bytes[0] = (uint8_t)(value >> 8);
 	bytes[1] = (uint8_t)value;
-}
-
-static uint32_t rules_long(uint8_t const *bytes)
-{
-	return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) | ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
 }
 
 static void rules_put_long(uint8_t *bytes, uint32_t value)
@@ -1308,7 +1284,7 @@ int network_rules_join_request_refused(unsigned version, uint8_t const *tail, in
 		return 0;
 	if (tail_size != layout.join_request_extra || layout.join_request_version_at + 2 > tail_size)
 		return 1;
-	return rules_codec_word(tail + layout.join_request_version_at) != version;
+	return content_u16be(tail + layout.join_request_version_at) != version;
 }
 
 int network_rules_header_expand(uint8_t const *message, int size, uint8_t *out, int room, int extra, int has_epoch,
@@ -1341,7 +1317,7 @@ int network_rules_header_expand(uint8_t const *message, int size, uint8_t *out, 
 
 			if (size - in < 2)
 				return 0;
-			length = rules_word(message + in);
+			length = content_u16le(message + in);
 			if (length < NETWORK_RULES_HEADER_SIZE - 2 || (int)length > size - in - 2 ||
 				at + 2 + (int)length + extra > room)
 			{
@@ -1373,7 +1349,7 @@ int network_rules_header_strip(uint8_t const *message, int size, uint8_t *out, i
 	if (size < NETWORK_RULES_HEADER_SIZE + extra || (has_epoch && extra < NETWORK_RULES_EPOCH_SIZE))
 		return 0;
 	if (has_epoch)
-		*epoch = rules_long(message + NETWORK_RULES_HEADER_SIZE);
+		*epoch = content_u32le(message + NETWORK_RULES_HEADER_SIZE);
 	memcpy(out, message, NETWORK_RULES_HEADER_SIZE);
 	in = NETWORK_RULES_HEADER_SIZE + extra;
 	if (message[2] != NETWORK_RULES_BATCH_KIND)
@@ -1392,11 +1368,11 @@ int network_rules_header_strip(uint8_t const *message, int size, uint8_t *out, i
 			message's header: the messages before it are kept) */
 			if (size - in < 2)
 				break;
-			length = rules_word(message + in);
+			length = content_u16le(message + in);
 			if ((int)length < NETWORK_RULES_HEADER_SIZE - 2 + extra || (int)length > size - in - 2)
 				break;
 			if (has_epoch)
-				inner = rules_long(message + in + NETWORK_RULES_HEADER_SIZE);
+				inner = content_u32le(message + in + NETWORK_RULES_HEADER_SIZE);
 			if (!has_epoch || inner == want || (keep_kind && message[in + 2] == keep_kind))
 			{
 				rules_put_word(out + at, length - (unsigned)extra);

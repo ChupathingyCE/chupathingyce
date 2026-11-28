@@ -40,6 +40,7 @@ works too, as does a disc with its maps folder stored as it is.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../game/content_bytes.h"
 
 enum
 {
@@ -75,12 +76,6 @@ struct disc_files
 	int count;
 	int damaged;
 };
-
-static unsigned int read_u32(const unsigned char *bytes)
-{
-	return (unsigned int)bytes[0] | (unsigned int)bytes[1] << 8 | (unsigned int)bytes[2] << 16 |
-		(unsigned int)bytes[3] << 24;
-}
 
 static int same_name(const char *a, const char *b)
 {
@@ -179,7 +174,7 @@ static void list_directory(struct cabinet_import *import, unsigned int sector, u
 
 		if (record[25] & FLAG_DIRECTORY)
 		{
-			list_directory(import, read_u32(record + 2), read_u32(record + 10), path, depth + 1, list);
+			list_directory(import, content_u32le(record + 2), content_u32le(record + 10), path, depth + 1, list);
 		}
 		else if (!(record[25] & FLAG_MORE))
 		{
@@ -195,8 +190,8 @@ static void list_directory(struct cabinet_import *import, unsigned int sector, u
 				break;
 			}
 			snprintf(file->path, sizeof(file->path), "%s", path);
-			file->sector = read_u32(record + 2);
-			file->size = read_u32(record + 10);
+			file->sector = content_u32le(record + 2);
+			file->size = content_u32le(record + 10);
 			file->cabinet = is_cabinet;
 			list->count++;
 		}
@@ -240,7 +235,7 @@ int pc_disc_extract_maps(const char *image_path, const char *destination, cabine
 		cabinet_fail(&import, "This is not a CD image.%s", NULL);
 		goto done;
 	}
-	list_directory(&import, read_u32(root + 2), read_u32(root + 10), "", 0, list);
+	list_directory(&import, content_u32le(root + 2), content_u32le(root + 10), "", 0, list);
 	if (list->damaged)
 	{
 		cabinet_fail(&import, "The CD image's file system is damaged.%s", NULL);

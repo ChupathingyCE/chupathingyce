@@ -105,7 +105,7 @@ SCREENS = {
              "Sync frames to the display.", NOT_CONSOLE),
             # (display.vrr: sdl_platform.c's platform_vrr, port/linux/src/vrr.h)
             ("VARIABLE REFRESH:", "display.vrr", [("OFF", "off"), ("ON", "on"), ("AUTO", "auto")],
-             "For G-SYNC or FreeSync: V-Sync with the frame rate held\njust under the refresh rate. Auto follows the system.",
+             "For G-SYNC or FreeSync. V-Sync with the frame rate\nheld under the refresh rate. Auto follows the system.",
              "desktop"),
             # (port/linux/game/menu_functions.c: 30 also turns display.interpolation
             # off, the others on, on every platform. Instant Aim,
@@ -131,7 +131,7 @@ SCREENS = {
         "views": [
             # (the view's own rows, the field of view first: a page of their
             # own, so that the main list and ADVANCED sit 24 apart)
-            ("view", "VIEW", "The field of view, in and out of vehicles, and the reticle.", [
+            ("view", "VIEW", "The field of view, the weapon and the reticle.", [
                 ("FIELD OF VIEW:", "display.field_of_view",
                  [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
                   for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
@@ -144,7 +144,7 @@ SCREENS = {
                  [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
                  "How wide your weapon is drawn.\nSame follows the view.", None),
                 ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
-                 "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
+                 "Size the reticle to the field of view.", None),
                 ("RETICLE SIZE:", "display.reticle_scale", RETICLE_SIZES,
                  "The reticle's size. 100% is the Xbox's.", None),
                 ("WEAPON MODEL:", "display.first_person_weapon", ON_OFF,
@@ -193,9 +193,9 @@ SCREENS = {
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
                  [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox")],
-                 "Takes effect on restart.", NOT_CONSOLE),
+                 "The menus' look. Takes effect on restart.", NOT_CONSOLE),
                 ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
-                 "Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files.",
+                 "Classic looks like Halo's titles. Cyborg matches\nthe text. Halo makes them from your own Halo files.",
                  # (not on the consoles, the Switch included, which have the
                  # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE)
                  "desktop android"),
@@ -206,8 +206,8 @@ SCREENS = {
                 # (display.hud_safe_zone: hud_draw.c's hud_safe_zone_bounds;
                 # two numbers are in config.toml alone)
                 ("SAFE ZONES:", "display.hud_safe_zone",
-                 [("ON", "xbox"), ("SINGLE SCREEN ONLY", "auto"), ("OFF", "pc")],
-                 "Keep the HUD in from the screen's edges, as on the Xbox.\nOff moves it to the edges.", None),
+                 [("ON", "xbox"), ("SINGLE SCREEN", "auto"), ("OFF", "pc")],
+                 "Keep the HUD in from the edges, as on the Xbox.\nSingle Screen skips it in split screen.", None),
                 # (the ~ key's console: terminal.c's drop-down one, or the
                 # Xbox's lines at the bottom)
                 ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
@@ -219,11 +219,11 @@ SCREENS = {
                 ("BUTTON STYLE:", "input.button_style",
                  [("AUTO", "auto"), ("DUKE", "duke"), ("XBOX", "xbox"), ("PLAYSTATION", "playstation"),
                   ("SWITCH", "switch")],
-                 "The buttons prompts show. Auto follows the controller\nyou use.", "desktop android switch"),
+                 "The buttons in prompts. Auto follows the controller\nyou use.", "desktop android switch"),
                 ("MENU BUTTONS:", "input.button_look", [("GEM", "gem"), ("FLAT", "flat")],
                  "The buttons in menus and the Guide.", "desktop android switch"),
                 ("HUD BUTTONS:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
-                 "Classic: the game's own buttons.", "desktop android switch"),
+                 "The buttons in a game's prompts. Classic is\nthe map's own, HD the flat ones.", "desktop android switch"),
                 ("PLAYER NAMES:", "display.player_names",
                  [("NONE", "none"), ("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies")],
                  "Names above players, where the host allows them.", NOT_CONSOLE),
@@ -243,7 +243,7 @@ SCREENS = {
                  "Show the time left, or the time played, in multiplayer.", None),
                 ("FOLLOW CAMERA:", "display.follow_camera",
                  [("OFF", "off"), ("LONG WAITS", "long_waits"), ("ALWAYS", "always")],
-                 "While dead, follow a player's view, if the host allows it.", None),
+                 "While dead, follow a player's view,\nif the host allows it.", None),
             ]),
             ("hdr", "HDR SETUP", "HDR, the HDR display, tone mapping and brightness.", [
                 ("HDR:", "display.hdr", ON_OFF,
@@ -310,14 +310,14 @@ SCREENS = {
             ("HEADPHONE 3D:", "audio.hrtf", [("OFF", "off"), ("ON", "on"), ("AUTO", "auto")],
              "3D sound as on the Xbox. Turn off for speakers.", None),
             ("REVERB:", "audio.reverb", ON_OFF,
-             "Room echo, and muffled sound behind walls.", None),
+             "Echo that matches the place you are in.", None),
             ("DOPPLER:", "audio.doppler", ON_OFF,
              "Pitch shift of moving sounds, as on the Xbox.", None),
             ("HIT SOUNDS:", "audio.hit_sounds", ON_OFF,
              "A tone when your shot hits another player.", None),
             # (the mods folder's tag files: port/linux/game/mods.c, docs/mods.md)
             ("MODS:", "game.mods", ON_OFF,
-             "Sound tags from the mods folder replace a map's.\nLocal games only; see docs/mods.md.", None),
+             "Sound tags from the mods folder replace a map's.\nLocal games only.", None),
         ],
     },
     # (chat.quick_messages, a list of lines, is in config.toml alone. The
@@ -357,12 +357,12 @@ SCREENS = {
         ],
         "views": [
             # (update.channel's help is update.h's UPDATE_CHANNEL_HELP, as
-            # the setup screen shows it)
+            # the setup screen shows it, on two lines to fit the help line)
             ("updates", "UPDATES", "Update checks, and which builds you get.", [
                 ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
                  "Check for a new version at startup.", NOT_CONSOLE),
                 ("CHANNEL:", "update.channel", [("RELEASE", "release"), ("TESTING", "testing"), ("NIGHTLY", "nightly")],
-                 UPDATE_CHANNEL_HELP, NOT_CONSOLE),
+                 UPDATE_CHANNEL_HELP.replace(". ", ".\n", 1), NOT_CONSOLE),
                 # (shown once a newer version is found; how the install
                 # goes is its value and the help line: menu_functions.c)
                 INSTALL_UPDATE,
@@ -450,7 +450,7 @@ GYRO_ROWS = [
     ("INVERT VERTICAL:", "input.gyro_invert_vertical", YES_NO,
      "Tilting it up looks down.", GYRO_PLATFORMS),
     ("DEADZONE:", "input.gyro_deadzone", GYRO_DEADZONES,
-     "Ignore motion slower than this (degrees a second).", GYRO_PLATFORMS),
+     "Ignore motion slower than this, in degrees a second.", GYRO_PLATFORMS),
 ]
 
 # Controls Setup: the keyboard and mouse's actions, in groups (the order of
@@ -1749,11 +1749,11 @@ HOST_OPTIONS = {
          "Allow or block aim assist for mouse players.",
          None),
         ("PLAYER NAMES:", "network.allow_player_names", [("OFF", "false"), ("ALLOWED", "true")],
-         "Let players show names above heads. Off: as on the Xbox.", None),
+         "Let players show names above heads.\nOff, as on the Xbox.", None),
         ("FOLLOW CAMERA:", "network.allow_follow_camera", [("OFF", "false"), ("ALLOWED", "true")],
          "Let players watch others while they wait to respawn.", None),
         ("PORT:", "network.tunnel_port", [("RANDOM", "0")] + [(str(port), str(port)) for port in range(2302, 2311)],
-         "The UDP port for hosting. Forward it on your router if friends can't join.",
+         "The UDP port for hosting. Forward it on your\nrouter if friends can't join.",
          None),
     ],
 }
@@ -2098,3 +2098,13 @@ def multiplayer_files() -> dict:
 
 
 REPLACED_FOLDERS = [f"{MT}/server_settings"]
+
+
+def generated_files() -> dict:
+    """every file the rows here make, by its path in port/assets/menus, as
+    tools/ce_menus.py --settings writes it (tools/test_settings_generated.py
+    checks the committed ones are the same)"""
+    files = {f"ce/{name}": "\n".join(lines) for name, lines in [*settings_files().items(),
+                                                                 *multiplayer_files().items()]}
+    files["chupathingy/settings_pages.xml"] = "\n".join(chupathingy_settings_pages())
+    return files

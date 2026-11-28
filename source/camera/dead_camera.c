@@ -25,6 +25,7 @@ symbols in this file:
 #include "game/players.h"
 #include "memory/data.h"
 #include "objects/objects.h"
+#include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 
 /* ---------- constants */
 
@@ -146,6 +147,33 @@ void dead_camera_update(
 	else
 	{
 		result->position = camera->position;
+	}
+	/* port: SPV3's trap for cheat_all_weapons (cheats.c) throws the dead
+	body about 1e12 units out of the world. Halo PC's release build has no
+	check here and goes on; in SPV3 mode the camera stays at the last place
+	the body was in the world (where the player died) instead of halting.
+	Stock maps keep the check. */
+	if (spv3_mode_active())
+	{
+		real_point3d const *p = &result->position;
+
+		if (valid_real(p->x) && p->x >= -5000.f && p->x <= 5000.f &&
+			valid_real(p->y) && p->y >= -5000.f && p->y <= 5000.f &&
+			valid_real(p->z) && p->z >= -5000.f && p->z <= 5000.f)
+		{
+			camera->position = *p;
+		}
+		else
+		{
+			static long logged_unit_index = NONE;
+
+			if (logged_unit_index != camera->unit_index)
+			{
+				spv3_mode_log("dead camera: the body left the world; the view stays where the player died");
+				logged_unit_index = camera->unit_index;
+			}
+			result->position = camera->position;
+		}
 	}
 
 	result->depth = camera->distance;

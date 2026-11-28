@@ -6,7 +6,7 @@
 #if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "mcc_manifest.h"
 #include "mcc_json.h" /* port: our own JSON lookups, json_reader.h */
-#include "../game/mcc_sha256.h"
+#include "../game/content_sha256.h"
 #include "posix.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -198,7 +198,7 @@ int mcc_manifest_metadata_digest(const char *level, unsigned char digest[32])
 	/* (on the heap: an item's text holds up to 1,024 map paths) */
 	struct steam_workshop_item_text *item = NULL;
 	struct mcc_manifest *manifest = NULL;
-	struct mcc_sha256 sha;
+	struct content_sha256 sha;
 
 	memset(digest, 0, 32);
 	leaf = level ? strrchr(level, '\\') : NULL;
@@ -246,8 +246,8 @@ int mcc_manifest_metadata_digest(const char *level, unsigned char digest[32])
 		while (at > 0 && strcmp(paths[order[at - 1]], paths[moved]) > 0) { order[at] = order[at - 1]; at--; }
 		order[at] = moved;
 	}
-	mcc_sha256_begin(&sha);
-	mcc_sha256_add(&sha, "MCC package metadata 1", 22);
+	content_sha256_begin(&sha);
+	content_sha256_add(&sha, "MCC package metadata 1", 22);
 	for (index = 0; index < count; index++)
 	{
 		int which = order[index];
@@ -257,11 +257,11 @@ int mcc_manifest_metadata_digest(const char *level, unsigned char digest[32])
 		length[1] = (unsigned char)(sizes[which] >> 8);
 		length[2] = (unsigned char)(sizes[which] >> 16);
 		length[3] = (unsigned char)(sizes[which] >> 24);
-		mcc_sha256_add(&sha, paths[which], (int)strlen(paths[which]) + 1);
-		mcc_sha256_add(&sha, length, 4);
-		mcc_sha256_add(&sha, texts[which], sizes[which]);
+		content_sha256_add(&sha, paths[which], strlen(paths[which]) + 1);
+		content_sha256_add(&sha, length, 4);
+		content_sha256_add(&sha, texts[which], sizes[which]);
 	}
-	mcc_sha256_end(&sha, digest);
+	content_sha256_end(&sha, digest);
 	made = 1;
 done:
 	for (index = 0; index < 3; index++) free(texts[index]);

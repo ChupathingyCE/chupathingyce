@@ -3,7 +3,7 @@
  * state. The source stream belongs to mcc_validation and outlives this check. */
 struct mcc_resource_check {
     struct mcc_runtime runtime;
-    struct mcc_sha256 hash;
+    struct content_sha256 hash;
     uint32_t table[256], crc, offset, size;
     unsigned type, mask;
     int framed;
@@ -47,8 +47,8 @@ struct mcc_resource_check *mcc_resources_check_begin(char const *name,
         for (j=0;j<8;j++) value=(value>>1)^(0xEDB88320u & (0u-(value&1u)));
         check->table[i]=value;
     }
-    mcc_sha256_begin(&check->hash);
-    mcc_sha256_add(&check->hash,"GulchCE MCC content v1",sizeof("GulchCE MCC content v1")-1);
+    content_sha256_begin(&check->hash);
+    content_sha256_add(&check->hash,"GulchCE MCC content v1",sizeof("GulchCE MCC content v1")-1);
     return check;
 failed:
     if (reason && size) snprintf(reason,size,"%s",check->runtime.failure[0] ?
@@ -88,7 +88,7 @@ int mcc_resources_check_step(struct mcc_resource_check *check, uint32_t *checksu
                     check->crc=(check->crc>>8)^check->table[(check->crc^buffer[k])&255];
             } else if (!check->runtime.source.read(check->runtime.source.context,
                 check->offset,bytes,buffer)) return -1;
-            mcc_sha256_add(&check->hash,buffer,(int)bytes);
+            content_sha256_add(&check->hash,buffer, bytes);
             check->offset+=bytes;
             spent+=bytes;
         }
@@ -98,7 +98,7 @@ int mcc_resources_check_step(struct mcc_resource_check *check, uint32_t *checksu
             if (check->type>2) {
                 *checksum=~check->crc;
                 if (!*checksum) *checksum=1;
-                mcc_sha256_end(&check->hash,digest);
+                content_sha256_end(&check->hash,digest);
                 return 1;
             }
             check->offset=0;

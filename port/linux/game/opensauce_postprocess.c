@@ -1022,7 +1022,7 @@ void opensauce_postprocess_tags_loaded(void *tag_instances, long tag_count)
 	{
 		pp_log("%d shaders, %d effects, %d effect instances%s; drawn %s", (int)pp.shader_count, (int)pp.effect_count,
 			(int)pp.instance_count, pp.has_bloom ? ", and bloom" : "",
-			config_boolean("display.opensauce_post_processing") ? "by the OpenGL renderer" :
+			config_boolean("display.opensauce_post_processing") ? "by the OpenGL or bgfx renderer" :
 			"never (display.opensauce_post_processing is off)");
 	}
 }
@@ -1048,7 +1048,7 @@ void opensauce_postprocess_render_stage(int stage, struct render_frustum const *
 		if (!pp.logged_unavailable)
 		{
 			pp.logged_unavailable = TRUE;
-			pp_log("not drawn: only the OpenGL renderer draws it yet");
+			pp_log("not drawn: only the OpenGL and bgfx renderers draw it");
 		}
 		return;
 	}

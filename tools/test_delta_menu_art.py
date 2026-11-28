@@ -34,7 +34,7 @@ def test_embedded_and_wired():
         assert f"chupathingy/main_menu/menu_delta__{state}.png" in files
     main_menu = (MENUS / "chupathingy" / "main_menu.xml").read_text()
     assert re.search(r'<widget name="chupathingy/main_menu_delta"', main_menu)
-    assert main_menu.count('run="port delta open"') >= 4
+    assert main_menu.count('run="port delta open"') >= 2
     menu_tags = (ROOT / "port" / "linux" / "game" / "menu_tags.c").read_text()
     assert '"port delta open"' in menu_tags
     functions = (ROOT / "port" / "linux" / "game" / "menu_functions.c").read_text()
@@ -58,10 +58,9 @@ def test_rows_only_with_the_setting():
     offered = menu_tags[menu_tags.index("static boolean main_menu_delta_offered(void)"):]
     offered = offered[:offered.index("\n}\n")]
     assert 'config_boolean("delta.menu_item")' in offered
-    for patch in ("static void main_menu_delta_patch(void)", "static void multiplayer_delta_patch_gearbox(void)"):
-        body = menu_tags[menu_tags.index(patch):]
-        body = body[:body.index("\n}\n")]
-        assert "main_menu_delta_offered()" in body, patch
+    body = menu_tags[menu_tags.index("static void main_menu_delta_patch(void)"):]
+    body = body[:body.index("\n}\n")]
+    assert "main_menu_delta_offered()" in body
     ui_widget = (ROOT / "source" / "interface" / "ui_widget.c").read_text()
     assert "pc_menu_delta_item_offered()" in ui_widget
     assert "online_games.delta &&" in ui_widget

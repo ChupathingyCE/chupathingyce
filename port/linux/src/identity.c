@@ -13,11 +13,13 @@ does the asking.
 /* (consoles leave it out until their own endpoints come) */
 #ifndef HALO_CONSOLE_NO_DELTA_IDENTITY
 
+#include "../game/content_sha256.h"
 #include "monocypher.h"
 #include "monocypher-ed25519.h"
 
 #include <stdio.h>
 #include <string.h>
+#include "../game/content_bytes.h"
 
 static const char issuer_label[] = "chupathingy identity issuer v1\n";
 static const char device_label[] = "chupathingy device cert v1\n";
@@ -34,78 +36,11 @@ static const char code_label[] = "chupathingy device code v1\n";
 /* (a code's characters: no 0, 1, I, L or O, as a console's Link Profile code) */
 static const char code_alphabet[] = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
-/* ---------- SHA-256 (FIPS 180-4), for the IDs */
-
-static const unsigned long sha256_k[64] =
-{
-	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-	0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-	0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-	0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-	0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-	0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-	0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-	0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-};
-
-#define ROTATE(x, n) ((((x) >> (n)) | ((x) << (32 - (n)))) & 0xFFFFFFFFUL)
-
-static void sha256_block(unsigned long *state, const unsigned char *block)
-{
-	unsigned long w[64], a, b, c, d, e, f, g, h, t1, t2;
-	int index;
-
-	for (index = 0; index < 16; index++)
-	{
-		w[index] = (unsigned long)block[index * 4] << 24 | (unsigned long)block[index * 4 + 1] << 16 |
-			(unsigned long)block[index * 4 + 2] << 8 | block[index * 4 + 3];
-	}
-	for (; index < 64; index++)
-	{
-		unsigned long s0 = ROTATE(w[index - 15], 7) ^ ROTATE(w[index - 15], 18) ^ (w[index - 15] >> 3);
-		unsigned long s1 = ROTATE(w[index - 2], 17) ^ ROTATE(w[index - 2], 19) ^ (w[index - 2] >> 10);
-
-		w[index] = (w[index - 16] + s0 + w[index - 7] + s1) & 0xFFFFFFFFUL;
-	}
-	a = state[0], b = state[1], c = state[2], d = state[3], e = state[4], f = state[5], g = state[6], h = state[7];
-	for (index = 0; index < 64; index++)
-	{
-		t1 = (h + (ROTATE(e, 6) ^ ROTATE(e, 11) ^ ROTATE(e, 25)) + ((e & f) ^ (~e & g)) + sha256_k[index] +
-			w[index]) & 0xFFFFFFFFUL;
-		t2 = ((ROTATE(a, 2) ^ ROTATE(a, 13) ^ ROTATE(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) & 0xFFFFFFFFUL;
-		h = g, g = f, f = e, e = (d + t1) & 0xFFFFFFFFUL, d = c, c = b, b = a, a = (t1 + t2) & 0xFFFFFFFFUL;
-	}
-	state[0] = (state[0] + a) & 0xFFFFFFFFUL, state[1] = (state[1] + b) & 0xFFFFFFFFUL;
-	state[2] = (state[2] + c) & 0xFFFFFFFFUL, state[3] = (state[3] + d) & 0xFFFFFFFFUL;
-	state[4] = (state[4] + e) & 0xFFFFFFFFUL, state[5] = (state[5] + f) & 0xFFFFFFFFUL;
-	state[6] = (state[6] + g) & 0xFFFFFFFFUL, state[7] = (state[7] + h) & 0xFFFFFFFFUL;
-}
+/* ---------- SHA-256, for the IDs (the game's one: content_sha256.c) */
 
 void identity_sha256(const void *data, int size, unsigned char *digest)
 {
-	unsigned long state[8] =
-	{
-		0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
-	};
-	const unsigned char *bytes = (const unsigned char *)data;
-	unsigned char last[128];
-	int done = 0, rest, padded, index;
-	unsigned long long bits = (unsigned long long)size * 8;
-
-	for (; size - done >= 64; done += 64)
-		sha256_block(state, bytes + done);
-	rest = size - done;
-	memset(last, 0, sizeof(last));
-	memcpy(last, bytes + done, (size_t)rest);
-	last[rest] = 0x80;
-	padded = rest < 56 ? 64 : 128;
-	for (index = 0; index < 8; index++)
-		last[padded - 1 - index] = (unsigned char)(bits >> (8 * index));
-	sha256_block(state, last);
-	if (padded == 128)
-		sha256_block(state, last + 64);
-	for (index = 0; index < 32; index++)
-		digest[index] = (unsigned char)(state[index / 4] >> (24 - 8 * (index % 4)));
+	content_sha256(data, size > 0 ? (size_t)size : 0, digest);
 }
 
 /* ---------- keys and signatures */
@@ -193,17 +128,6 @@ static int signed_by(const unsigned char *public_key, const char *label, const u
 
 /* ---------- the certificates and the list */
 
-static unsigned long read32(const unsigned char *bytes)
-{
-	return (unsigned long)bytes[0] | (unsigned long)bytes[1] << 8 | (unsigned long)bytes[2] << 16 |
-		(unsigned long)bytes[3] << 24;
-}
-
-static unsigned read16(const unsigned char *bytes)
-{
-	return (unsigned)bytes[0] | (unsigned)bytes[1] << 8;
-}
-
 static int all_zero(const unsigned char *bytes, int size)
 {
 	int index;
@@ -232,8 +156,8 @@ int identity_parse_issuer(const unsigned char *data, int size, struct identity_i
 	{
 		return 0;
 	}
-	issuer->valid_from = read32(data + 8);
-	issuer->valid_until = read32(data + 12);
+	issuer->valid_from = content_u32le(data + 8);
+	issuer->valid_until = content_u32le(data + 12);
 	if (issuer->valid_from >= issuer->valid_until)
 		return 0;
 	memcpy(issuer->public_key, data + 16, IDENTITY_KEY_SIZE);
@@ -296,8 +220,8 @@ int identity_parse_device(const unsigned char *data, int size, struct identity_d
 	device->handle[length] = 0;
 	device->platform = data[5];
 	device->flags = data[7];
-	device->issued = read32(data + 8);
-	device->expires = read32(data + 12);
+	device->issued = content_u32le(data + 8);
+	device->expires = content_u32le(data + 12);
 	if (device->issued >= device->expires)
 		return 0;
 	memcpy(device->serial, data + 16, 8);
@@ -305,7 +229,7 @@ int identity_parse_device(const unsigned char *data, int size, struct identity_d
 	memcpy(device->account, data + 32, IDENTITY_ID_SIZE);
 	memcpy(device->public_key, data + 48, IDENTITY_KEY_SIZE);
 	identity_device_id(device->public_key, device->device_id);
-	device->capabilities = read32(data + 80);
+	device->capabilities = content_u32le(data + 80);
 	device->body_size = IDENTITY_DEVICE_HEADER + length;
 	return 1;
 }
@@ -335,7 +259,7 @@ int identity_parse_revoked(const unsigned char *data, int size, struct identity_
 	{
 		return 0;
 	}
-	count = (int)read16(data + 28);
+	count = (int)content_u16le(data + 28);
 	if (count > IDENTITY_REVOKED_MOST || size != IDENTITY_REVOKED_HEADER + 16 * count + IDENTITY_SIGNATURE_SIZE)
 		return 0;
 	/* (sorted, no repeats: what identity_is_revoked's search needs) */
@@ -347,9 +271,9 @@ int identity_parse_revoked(const unsigned char *data, int size, struct identity_
 			return 0;
 		}
 	}
-	revoked->serial = read32(data + 8);
-	revoked->issued = read32(data + 12);
-	revoked->next_update = read32(data + 16);
+	revoked->serial = content_u32le(data + 8);
+	revoked->issued = content_u32le(data + 12);
+	revoked->next_update = content_u32le(data + 16);
 	memcpy(revoked->issuer, data + 20, IDENTITY_KEY_ID_SIZE);
 	revoked->count = count;
 	revoked->ids = data + IDENTITY_REVOKED_HEADER;

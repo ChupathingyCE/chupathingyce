@@ -95,7 +95,7 @@ def test_scripted_widgets_open_only_listed_definitions():
     lookup = (ROOT / "port/linux/game/opensauce_map.c").read_text(encoding="utf-8")
     body = lookup[lookup.index("static long opensauce_scripted_widget_in("):]
     body = body[:body.index("\n}\n")]
-    assert "ce_loaded_pointer(opensauce_read32(root, offset + 4), (unsigned long)count * SCRIPTED_WIDGET_SIZE)" in body
+    assert "ce_loaded_pointer(content_u32(root + offset + 4), (unsigned long)count * SCRIPTED_WIDGET_SIZE)" in body
     assert "'DeLa'" in body and "UI_WIDGET_DEFINITION_SIZE" in body
     find = lookup[lookup.index("long opensauce_map_scripted_widget("):]
     find = find[:find.index("\n}\n")]

@@ -27,6 +27,7 @@ it did before the console had the file.
 #include "posix.h"
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 #include "packaged_install.h"
+#include "config_template_repair.h"
 #endif
 
 #include <time.h>
@@ -905,6 +906,11 @@ static const struct config_setting config_settings[] =
 #endif
 		"If it can't start, the game draws with OpenGL. Set \"gl\" to go back.\n"
 		"Read when Chupathingy starts." },
+#ifdef HALO_METAL_ASK
+	{ "display.metal_asked", _config_boolean, "false", "HALO_METAL_ASKED", _environment_value, _platform_desktop,
+		"Chupathingy sets this after it asks once whether to go from Metal\n"
+		"back to OpenGL. Don't edit it." },
+#endif
 #if defined(__APPLE__) && !defined(HALO_IOS)
 	{ "display.metal_hud", _config_boolean, "false", "HALO_METAL_HUD", _environment_set_is_true, _platform_desktop,
 		"Show Apple's Metal Performance HUD over the game: frame rate, frame\n"
@@ -1434,7 +1440,8 @@ static const struct config_setting config_settings[] =
 	/* ---- lua: mods' scripts for Chimera's Lua API (port/linux/game/lua_scripting.c) */
 	{ "lua.scripts", _config_boolean, "false", "HALO_LUA_SCRIPTS", _environment_value, _platform_desktop,
 		"Run mods' Lua scripts made for Chimera, from the lua folder beside\n"
-		"maps/. A map pack's own are in lua/<pack>, like lua/spv3." },
+		"maps/. A map pack's own are in lua/<pack>, like lua/spv3; a pack\n"
+		"mode's own run in that mode even with this off." },
 	{ "lua.twiddlings", _config_boolean, "true", "HALO_LUA_TWIDDLINGS", _environment_value, _platform_desktop,
 		"Let those scripts read and change the game's memory, translated\n"
 		"from Halo PC's. false makes every read 0 and refuses every write." },
@@ -2100,6 +2107,11 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test's host: a file the host writes its invite link\n"
 		"to once it has one, for a joining machine's command line. Leave it\n"
 		"empty for none." },
+	{ "debug.network_test_name", _config_string, "\"\"", "HALO_NETWORK_TEST_NAME", _environment_value,
+		_platform_all,
+		"With debug.network_test: the name this machine's player joins under\n"
+		"(UTF-8), over the profile's, for a test of what a host does with a\n"
+		"name. Empty keeps the profile's." },
 	{ "debug.monitor_name", _config_string, "\"Chupa\"", "HALO_MONITOR_NAME", _environment_value, _platform_all,
 		"With debug.network_test's monitor: the name its player joins under." },
 	{ "debug.monitor_output", _config_string, "\"\"", "HALO_MONITOR_OUTPUT", _environment_value, _platform_all,
@@ -2389,6 +2401,10 @@ static const struct config_setting config_settings[] =
 		"Pixel shaders show their first texture." },
 	{ "debug.gpu_debug_flat", _config_boolean, "false", "HALO_GPU_DEBUG_FLAT", _environment_set_is_true, _platform_all,
 		"Pixel shaders show their vertex color." },
+	{ "debug.freeze_at_tick", _config_integer, "0", "HALO_FREEZE_AT_TICK", _environment_value, _platform_all,
+		"Stop the game at this tick of a map, as game_speed 0 does, and keep\n"
+		"drawing it: every run then shows the same moment, for comparing\n"
+		"pictures (tools/renderer_gate.py). 0 for never." },
 	{ "debug.screenshot_directory", _config_string, "\"\"", "HALO_SCREENSHOT_DIR", _environment_value, _platform_all,
 		"A folder to save frames to, with debug.screenshot_every. Leave it empty\n"
 		"for none." },
@@ -2608,12 +2624,6 @@ static const struct config_setting config_settings[] =
 		"triangles that debug commands draw. Its buffers take 1440 KB. It is\n"
 		"off because the retail game had none, and a stock 64 MB console may\n"
 		"not have the room." },
-	{ "console.simulate_64mb", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
-		"No longer used. A devkit gets 64 MB from the XBE's own flag now, set\n"
-		"with tools/xbox_package.py --devkit-64mb." },
-	{ "console.large_caches", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
-		"No longer used. A console with 128 MB or more gets the larger caches\n"
-		"on its own now (console.memory_class)." },
 };
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
@@ -3874,7 +3884,8 @@ static const struct
 /* the settings an earlier version had under another name, whose value the
 player chose goes on under the new one (config_forward_renamed), and the
 retired settings a newer one does the job of: an older file that has one
-still loads, and the old name's lines are taken out of it */
+still loads, and the old name's lines are taken out of it (a retired
+setting with no successor, name NULL: its lines are only taken out) */
 static const struct
 {
 	const char *old_name;
@@ -3906,6 +3917,11 @@ static const struct
 	{ "debug.guide_section", "debug.delta_section", NULL, 0 },
 	{ "debug.guide_row", "debug.delta_row", NULL, 0 },
 	{ "debug.guide_test", "debug.delta_test", NULL, 0 },
+	/* the original Xbox's, retired: a devkit gets 64 MB from the XBE's own
+	flag (tools/xbox_package.py --devkit-64mb), and a console with 128 MB
+	or more the larger caches on its own (console.memory_class) */
+	{ "console.simulate_64mb", NULL, NULL, 0 },
+	{ "console.large_caches", NULL, NULL, 0 },
 };
 
 #define NUMBER_OF_CONFIG_RENAMED (sizeof(config_renamed) / sizeof(config_renamed[0]))
@@ -4784,8 +4800,8 @@ static char *config_forward_renamed(const char *text, toml_datum_t table)
 		const char *source = result ? result : text;
 		const char *old_name = config_renamed[renamed].old_name;
 		const char *old_dot = strchr(old_name, '.');
-		long index = config_setting_index(config_renamed[renamed].name);
-		const struct config_setting *setting;
+		long index = config_renamed[renamed].name ? config_setting_index(config_renamed[renamed].name) : -1;
+		const struct config_setting *setting = NULL;
 		struct config_text out = { NULL, 0, 0 };
 		struct config_text block = { NULL, 0, 0 };
 		const char *line;
@@ -4796,17 +4812,21 @@ static char *config_forward_renamed(const char *text, toml_datum_t table)
 		int forward, given, in_place;
 		toml_datum_t old_datum = toml_seek(table, old_name);
 
-		if (index < 0 || !old_dot)
+		if ((config_renamed[renamed].name && index < 0) || !old_dot)
 			continue;
-		setting = &config_settings[index];
-		given = toml_seek(table, setting->name).type != TOML_UNKNOWN;
-		forward = old_datum.type != TOML_UNKNOWN && (!given || config_renamed[renamed].combine) &&
-			(!config_renamed[renamed].old_default ||
-			!config_datum_is(old_datum, setting->type, config_renamed[renamed].old_default));
+		given = forward = in_place = 0;
+		if (index >= 0)
+		{
+			setting = &config_settings[index];
+			given = toml_seek(table, setting->name).type != TOML_UNKNOWN;
+			forward = old_datum.type != TOML_UNKNOWN && (!given || config_renamed[renamed].combine) &&
+				(!config_renamed[renamed].old_default ||
+				!config_datum_is(old_datum, setting->type, config_renamed[renamed].old_default));
+			/* (the new name's lines where the old one's were: only in the same
+			section, and with no value of its own there) */
+			in_place = !given && !strncmp(setting->name, old_name, (size_t)(old_dot - old_name) + 1);
+		}
 		snprintf(section, sizeof(section), "%.*s", (int)(old_dot - old_name), old_name);
-		/* (the new name's lines where the old one's were: only in the same
-		section, and with no value of its own there) */
-		in_place = !given && !strncmp(setting->name, old_name, (size_t)(old_dot - old_name) + 1);
 		for (line = source; *line; line += strcspn(line, "\n") + (line[strcspn(line, "\n")] ? 1 : 0))
 			capacity++;
 		starts = malloc((capacity + 1) * sizeof(*starts));
@@ -5683,6 +5703,60 @@ static void config_report_unread(const char *path)
 }
 #endif
 
+/* the desktops whose config.toml an update may have replaced with the
+template v0.9.2a's 64-bit zips held (config_template_repair.h, #2029) */
+#if !defined(HALO_ANDROID) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE) && !defined(CONFIG_CONSOLE_FILES) && \
+	!defined(HALO_CONSOLE_CONFIG_IN_DATA_ROOT) && (defined(_WIN32) || defined(__linux__) || defined(__APPLE__))
+#define CONFIG_TEMPLATE_REPAIR 1
+#endif
+
+#ifdef CONFIG_TEMPLATE_REPAIR
+/* the player's config.toml back from config.toml.old, once, when the
+template is in its place (config_template_should_repair); the template kept
+as config.toml.template-0.9.2a. Nothing is touched otherwise, nor when that
+name is taken already */
+static void config_repair_template(const char *path)
+{
+	char old[1100], kept[1100];
+	size_t size = 0, old_size = 0;
+	char *current, *previous;
+	int repair;
+
+	if ((size_t)snprintf(old, sizeof(old), "%s.old", path) >= sizeof(old) ||
+		(size_t)snprintf(kept, sizeof(kept), "%s" CONFIG_TEMPLATE_REPAIR_SUFFIX, path) >= sizeof(kept) ||
+		!SDL_GetPathInfo(old, NULL))
+	{
+		return;
+	}
+	/* (a repair cut short between its two renames: the template kept, no
+	config.toml, the player's file still config.toml.old) */
+	if (SDL_GetPathInfo(kept, NULL))
+	{
+		if (!SDL_GetPathInfo(path, NULL) && SDL_RenamePath(old, path))
+			platform_log("settings: finished putting config.toml back from config.toml.old");
+		return;
+	}
+	current = config_read_file(path, &size);
+	previous = current ? config_read_file(old, &old_size) : NULL;
+	repair = current && previous && strlen(current) == size && strlen(previous) == old_size &&
+		config_template_should_repair(current, previous);
+	free(current);
+	free(previous);
+	if (!repair)
+		return;
+	if (!SDL_RenamePath(path, kept))
+		return;
+	if (!SDL_RenamePath(old, path))
+	{
+		/* (as it was) */
+		SDL_RenamePath(kept, path);
+		return;
+	}
+	platform_log("settings: config.toml was the template an update put in its place; "
+		"config.toml.old is config.toml again (the template is config.toml" CONFIG_TEMPLATE_REPAIR_SUFFIX ")");
+}
+#endif
+
 static void config_load(void)
 {
 	char path[1024];
@@ -5708,6 +5782,9 @@ static void config_load(void)
 	}
 
 	config_path(path, sizeof(path));
+#ifdef CONFIG_TEMPLATE_REPAIR
+	config_repair_template(path);
+#endif
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	config_report_unread(path);
 #endif
@@ -6187,6 +6264,23 @@ static char *config_refresh_commented(const char *text, const struct config_sett
 	return out.buffer;
 }
 
+#ifdef HALO_METAL_ASK
+/* ---------- the Mac's question about Metal (port_config.h) */
+
+int config_metal_ask_pending(void)
+{
+	return !config_boolean("display.metal_asked") && !strcmp(config_string("display.renderer"), "bgfx");
+}
+
+void config_metal_ask_answer(int use_opengl)
+{
+	if (use_opengl && !config_write("display.renderer", "gl"))
+		platform_log("settings: cannot write display.renderer = \"gl\"");
+	if (!config_write_boolean("display.metal_asked", 1))
+		platform_log("settings: cannot write display.metal_asked");
+}
+
+#endif
 /* ---------- retired menus
 
 Gearbox's menus (display.menus "gearbox", or the older "pc") are no longer a

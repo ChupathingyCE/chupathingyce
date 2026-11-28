@@ -42,7 +42,7 @@ def test_console_claims(tmp_path):
          str(ROOT / "port" / "console" / "tests" / "console_claims_test.c"),
          str(ROOT / "port" / "console" / "reports" / "console_claims.c"),
          str(ROOT / "port" / "linux" / "src" / "game_report.c"), str(link / "console_link.c"),
-         str(ROOT / "port" / "linux" / "src" / "p2p_crypto.c"), str(qrcodegen / "qrcodegen.c"),
+         str(ROOT / "port" / "linux" / "src" / "p2p_crypto.c"), str(ROOT / "port" / "linux" / "game" / "content_sha256.c"), str(qrcodegen / "qrcodegen.c"),
          str(monocypher / "monocypher.c"), str(monocypher / "monocypher-ed25519.c"),
          "-o", str(binary)],
         capture_output=True, text=True,

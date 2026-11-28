@@ -16,6 +16,7 @@ than a few KB kept.
 #include "halo_map_packs.h"
 #include "xbox_mod_maps.h"
 #include "spv3_mode.h"
+#include "opensauce_maps.h"
 #include "stubbs_mode.h"
 
 #include <stdio.h>
@@ -607,14 +608,6 @@ struct xbox_mod_pack const *map_pack_library_pack(
 	return NULL;
 }
 
-void map_pack_folder(
-	char const *pack,
-	char *folder,
-	long size)
-{
-	snprintf(folder, (size_t)size, "maps_%s", pack ? pack : "");
-}
-
 boolean map_pack_file_path(
 	char const *pack,
 	char const *file,
@@ -869,8 +862,10 @@ char const *map_pack_menus(
 		if (value && value[0] && strlen(value) < sizeof(name))
 		{
 			folder_pack(value, name, sizeof(name));
-			/* (SPV3's menus are its ui.yelo, a Custom Edition map: spv3_mode.c) */
-			if (pack_valid(name) && (map_pack_present(name, "ui") || spv3_mode_pack_present(name)))
+			/* (SPV3's menus are its ui.yelo, a Custom Edition map: spv3_mode.c;
+			and another OpenSauce mod's too: opensauce_maps.c) */
+			if (pack_valid(name) && (map_pack_present(name, "ui") || spv3_mode_pack_present(name) ||
+				opensauce_maps_pack_present(name)))
 				snprintf(pack, sizeof(pack), "%s", name);
 		}
 	}
@@ -889,6 +884,20 @@ boolean map_pack_menus_known(
 	return known && !_stricmp(known->pack, pack) && !_stricmp(known->file, "ui");
 }
 
+short opensauce_maps_menus_level_rule(
+	char const *map_name)
+{
+	if (!map_name || strcmp(map_name, "ui"))
+		return _opensauce_menus_may_not_change_level;
+	/* (the known pack's fingerprinted ui.map is the menus played only when
+	no OpenSauce mod's ui.yelo is: opensauce_maps.c) */
+	if (map_pack_menus_known() && !opensauce_maps_pack())
+		return _opensauce_menus_known_pack;
+	if (spv3_mode_own_ui_open(map_name))
+		return _opensauce_menus_spv3;
+	return _opensauce_menus_may_not_change_level;
+}
+
 boolean map_pack_menus_movie_path(
 	char const *movie,
 	char *path,
@@ -903,14 +912,21 @@ boolean map_pack_menus_movie_path(
 	long index;
 	size_t length;
 
-	if (!pack || !movie || size <= 0 || !map_pack_file_path(pack, "ui", folder, sizeof(folder)))
+	if (!pack || !movie || size <= 0)
 		return FALSE;
+	/* (the folder that has the pack's ui.map: maps_cex\, or an alias's; a
+	pack whose menus are a ui.yelo, SPV3's, has no ui.map: its own folder,
+	maps_spv3\) */
+	if (!map_pack_file_path(pack, "ui", folder, sizeof(folder)) &&
+		snprintf(folder, sizeof(folder), "d:\\maps_%s\\ui", pack) >= (int)sizeof(folder))
+	{
+		return FALSE;
+	}
 	for (cursor = movie; *cursor; cursor++)
 	{
 		if (*cursor == '\\' || *cursor == '/')
 			file = cursor + 1;
 	}
-	/* (the folder that has the pack's ui.map: maps_cex\, or an alias's) */
 	ui = strrchr(folder, '\\');
 	if (!ui || !file[0] || strlen(file) >= sizeof(stem))
 		return FALSE;

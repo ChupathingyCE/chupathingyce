@@ -300,6 +300,7 @@ void release_assert_failed(char const *condition, char const *file, int line, in
 void system_exit(int code) { (void)code; abort(); }
 void tag_validate_report(char const *message) { (void)message; }
 int stubbs_mode_owns_data(void const *address, int size) { (void)address; (void)size; return 0; }
+unsigned char stubbs_mode_active(void) { return 0; }
 
 /* (only at run time, with objects and scripts running: never here) */
 #define NEVER(name) void name(void) { abort(); }

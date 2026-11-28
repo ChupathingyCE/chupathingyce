@@ -18,6 +18,8 @@ build it by itself (tools/test_playlist_maps.py). Plain types only.
 
 #include <stddef.h>
 
+#include "../game/content_sha256.h"
+
 /* what is signed: this, then the document's exact bytes */
 #define PLAYLIST_MANIFEST_CONTEXT "chupathingy-playlist-maps 1\n"
 
@@ -108,10 +110,7 @@ int playlist_manifest_path_valid(const char *text);
 /* SHA-256 in pieces, for files too large to hold */
 struct playlist_sha256
 {
-	unsigned int state[8];
-	unsigned long long length;
-	unsigned char block[64];
-	unsigned int used;
+	struct content_sha256 content;
 };
 
 void playlist_sha256_begin(struct playlist_sha256 *context);

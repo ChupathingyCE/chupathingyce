@@ -25,6 +25,8 @@ enum
 	_device_position_loops_bit = 0,
 	_device_position_animation_not_interpolated_bit,
 	NUMBER_OF_DEVICE_DEFINITION_FLAGS,
+	/* port: a Halo 2 looping position with no frame from last to first (h2_objanim.c) */
+	H2_DEVICE_POSITION_SNAPS_BIT = 31,
 };
 
 enum
@@ -91,7 +93,14 @@ struct _machine_definition
 	short type;
 	word flags;
 	real door_open_time;
-	unsigned long unused1[20];
+	/* port: a converted Halo 2 level's machine's "apply collision damage
+	scale" (h2_objanim.c; port/linux/game/h2_machine_riders.c), 0 elsewhere */
+	real h2_collision_damage_scale;
+	/* port: a converted Halo 2 level's machine's own bounding radius and
+	offset (h2_objanim.c): its door's sphere, device_machines.c */
+	real h2_bounding_radius;
+	real_vector3d h2_bounding_offset;
+	unsigned long unused1[15];
 	short collision_response;
 	short elevator_node_index;
 	unsigned int unused2[13];

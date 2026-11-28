@@ -201,7 +201,8 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
     n.build(outputs=staged_brokers, rule="android64_copy", inputs=Path("port/assets/network/brokers.txt"))
     # the game's license and the notices of everything else built in
     # (tools/third_party_notices.py), in the APK as in every download
-    staged_licenses = ninja_notices(n, "android64", build_dir / "assets", ["sdl3", "vulkan-android"])
+    staged_licenses = ninja_notices(n, "android64", build_dir / "assets",
+                                   ["sdl3", *(["ffmpeg"] if getattr(sln, "with_ffmpeg", True) else []), "vulkan-android"])
     # the Vulkan renderer's shader compiler and driver loader, beside libmain.so
     staged_vulkan = vulkan_rules(n, "android64", ndk, build_dir, jni_dir, validation)
     n.build(outputs="android64", rule="phony",

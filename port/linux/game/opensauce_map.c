@@ -37,10 +37,15 @@ it is here.
 #include "opensauce.h"
 #include "opensauce_scripts.h"
 #include "opensauce_postprocess.h"
+#include "opensauce_transforms.h"
+#include "opensauce_bsp_sets.h"
+#include "game/game_globals.h"
+#include "scenario/scenario.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include "content_bytes.h"
 
 /* ---------- constants */
 
@@ -114,6 +119,11 @@ static struct
 	real gravity_before;
 	/* (camouflage past 1 said once a map) */
 	boolean camouflage_logged;
+	/* Halo PC's music and effects gains, as the map's scripts set them
+	(opensauce_map_set_sound_gain): 1 until they do */
+	real music_gain;
+	real effects_gain;
+	boolean sound_gains_set;
 	/* the loaded map's tags, project_yellow and project_yellow_globals,
 	for the scripted widgets (opensauce_map_scripted_widget): NULL until
 	its tags are checked, and again once it unloads */
@@ -133,16 +143,6 @@ static char const *const opensauce_flag_names[NUMBER_OF_OPENSAUCE_HEADER_FLAGS] 
 };
 
 /* ---------- private code */
-
-static unsigned long opensauce_read32(
-	byte const *data,
-	long offset)
-{
-	unsigned long value;
-
-	memcpy(&value, data + offset, sizeof(value));
-	return value;
-}
 
 static void opensauce_log(
 	char const *format,
@@ -188,7 +188,7 @@ static unsigned long opensauce_reference_index(
 	byte const *root,
 	long offset)
 {
-	return opensauce_read32(root, offset + 0x0C);
+	return content_u32(root + offset + 0x0C);
 }
 
 /* a tag block's count (struct tag_block: its count first) */
@@ -196,7 +196,7 @@ static long opensauce_block_count(
 	byte const *root,
 	long offset)
 {
-	return (long)opensauce_read32(root, offset);
+	return (long)content_u32(root + offset);
 }
 
 static void opensauce_gravity_restore(
@@ -221,7 +221,7 @@ boolean opensauce_header_read(
 	byte const *yelo = (byte const *)cache_header + OPENSAUCE_HEADER_OFFSET;
 	unsigned short flags;
 
-	if (opensauce_read32(yelo, 0) != (unsigned long)OPENSAUCE_HEADER_SIGNATURE)
+	if (content_u32(yelo) != (unsigned long)OPENSAUCE_HEADER_SIGNATURE)
 		return FALSE;
 	if (header)
 	{
@@ -296,6 +296,14 @@ void opensauce_map_tags_loaded(
 		return;
 	/* (its post-processing tags: opensauce_postprocess.c) */
 	opensauce_postprocess_tags_loaded(tag_instances, tag_count);
+#ifdef OPENSAUCE_TRANSFORMS
+	/* (its actor variant transforms: opensauce_transforms.c) */
+	opensauce_transforms_tags_loaded(tag_instances, tag_count);
+#endif
+#ifdef OPENSAUCE_BSP_SETS
+	/* (its BSPs' lightmap and sky sets: opensauce_bsp_sets.c) */
+	opensauce_bsp_sets_tags_loaded(tag_instances, tag_count, scenario_tag_index);
+#endif
 	/* (the scenario's first reference, its unused structure bsp's, is
 	OpenSauce's project_yellow: not in the scenario's schema, so checked
 	here) */
@@ -317,7 +325,7 @@ void opensauce_map_tags_loaded(
 		"game globals override %s (built into the map by OpenSauce's tools), player speed scale %.3f%s",
 		(int)*(short const *)(yelo_root + YELO_VERSION_OFFSET),
 		opensauce_block_count(yelo_root, YELO_SCRIPTED_WIDGETS_OFFSET),
-		opensauce_read32(yelo_root, YELO_GAMEPLAY_FLAGS_OFFSET),
+		(unsigned long)content_u32(yelo_root + YELO_GAMEPLAY_FLAGS_OFFSET),
 		opensauce_reference_index(yelo_root, YELO_GAME_GLOBALS_OFFSET) != 0xFFFFFFFFUL ? "set" : "none",
 		(double)player_speed_scale, player_speed_scale != 1.0f ? " (not honored: OpenSauce reads none at run time)" : "");
 
@@ -394,7 +402,7 @@ static long opensauce_scripted_widget_in(
 	count = opensauce_block_count(root, offset);
 	/* (the block's elements all within the map's tags, as a tag's root) */
 	elements = count > 0 && count < 0x10000 ?
-		ce_loaded_pointer(opensauce_read32(root, offset + 4), (unsigned long)count * SCRIPTED_WIDGET_SIZE) : NULL;
+		ce_loaded_pointer(content_u32(root + offset + 4), (unsigned long)count * SCRIPTED_WIDGET_SIZE) : NULL;
 	if (!elements)
 		return NONE;
 	for (index = 0; index < count; index++)
@@ -428,9 +436,55 @@ long opensauce_map_scripted_widget(
 	return tag_index;
 }
 
+boolean opensauce_map_four_grenades(
+	void)
+{
+	struct game_globals *globals;
+
+	if (!opensauce_globals.active || !opensauce_globals.tag_instances)
+		return FALSE;
+	globals = scenario_get_game_globals();
+	return globals && globals->grenades.count > 2;
+}
+
+void opensauce_map_set_sound_gain(
+	boolean music,
+	float gain)
+{
+	real *field;
+
+	if (!opensauce_globals.active)
+		return;
+	/* (Halo PC's range: 0 to 1, and anything else of it NaN taken as 1) */
+	if (!(gain >= 0.0f))
+		gain = gain < 0.0f ? 0.0f : 1.0f;
+	if (gain > 1.0f)
+		gain = 1.0f;
+	field = music ? &opensauce_globals.music_gain : &opensauce_globals.effects_gain;
+	if (!opensauce_globals.sound_gains_set)
+	{
+		opensauce_globals.music_gain = 1.0f;
+		opensauce_globals.effects_gain = 1.0f;
+		opensauce_globals.sound_gains_set = TRUE;
+	}
+	if (*field != gain)
+		opensauce_log("%s gain %.2f by its scripts (%s)", music ? "music" : "effects", (double)gain,
+			music ? "sound_set_music_gain" : "sound_set_effects_gain");
+	*field = gain;
+}
+
+float opensauce_map_sound_gain(
+	boolean music)
+{
+	if (!opensauce_globals.active || !opensauce_globals.sound_gains_set)
+		return 1.0f;
+	return music ? opensauce_globals.music_gain : opensauce_globals.effects_gain;
+}
+
 void opensauce_map_unloaded(
 	void)
 {
+	opensauce_globals.sound_gains_set = FALSE;
 	opensauce_gravity_restore();
 	opensauce_globals.tag_instances = NULL;
 	opensauce_globals.tag_count = 0;
@@ -440,6 +494,12 @@ void opensauce_map_unloaded(
 	{
 		opensauce_scripts_map_unloaded();
 		opensauce_postprocess_map_unloaded();
+#ifdef OPENSAUCE_TRANSFORMS
+		opensauce_transforms_map_unloaded();
+#endif
+#ifdef OPENSAUCE_BSP_SETS
+		opensauce_bsp_sets_map_unloaded();
+#endif
 	}
 	opensauce_globals.active = FALSE;
 	opensauce_globals.camouflage_logged = FALSE;
