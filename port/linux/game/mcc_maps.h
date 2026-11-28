@@ -14,6 +14,8 @@ GulchCE's mcc_maps is read when there is no maps_mcc (mcc_maps_directory) */
 char const *mcc_maps_directory(void);
 char const *mcc_maps_folder(void);
 void mcc_maps_rescan(void);
+/* changes with each mcc_maps_rescan (a Workshop download, a new list) */
+unsigned long mcc_maps_rescan_count(void);
 short mcc_maps_count(boolean multiplayer_only);
 /* Exact scenario-type lists; display indices still use the full catalog. */
 short mcc_maps_type_count(boolean campaign);
@@ -45,6 +47,7 @@ boolean mcc_maps_workshop_title(char const *item_id, char *title, unsigned size)
 /* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
 the shared code calls do nothing, their arguments unevaluated */
 #define mcc_maps_rescan() ((void)0)
+#define mcc_maps_rescan_count() ((unsigned long)0)
 #define mcc_maps_campaign(a0) ((void)sizeof(a0), (boolean)0)
 #define mcc_maps_count(a0) ((void)sizeof(a0), (short)0)
 #define mcc_maps_description(a0) ((void)sizeof(a0), (wchar_t const *)L"")

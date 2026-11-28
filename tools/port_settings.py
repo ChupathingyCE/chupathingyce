@@ -26,7 +26,8 @@ ON_OFF = [("ON", "true"), ("OFF", "false")]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
 # how fast a zoomed view turns, on top of the zoom's own slowing
-ZOOM_SENSITIVITIES = [(f"{round(value * 100)}%", f"{value:g}") for value in (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2)]
+# (5% steps, #1422; a value set by hand between them shows as the nearest)
+ZOOM_SENSITIVITIES = [(f"{percent}%", f"{percent / 100:g}") for percent in range(25, 205, 5)]
 RETICLE_SIZES = [(f"{round(value * 100)}%", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)]
 
 # A row that does something rather than set a setting (A runs its function,
@@ -1079,6 +1080,7 @@ def replaced(folder: str) -> bool:
 # ---------- multiplayer (PLAN.md section 11)
 
 MT = "main_menu/multiplayer_type_select"
+PM = "main_menu/profile_manager"
 
 # strings added to the PC version's lists: (at, strings) of each list. Slayer's
 # kills to win goes up to 500, for big games (the Xbox editor's are
@@ -1342,6 +1344,19 @@ WIDGET_PATCHES = {
         f"{MT}/join_game/join_game_button_refresh": f"{MT}/join_game/button_clipboard",
         f"{MT}/join_game/join_game_button_update": f"{MT}/join_game/join_game_button_refresh",
     }},
+    # (the profile's "Delta:" line under the Spartan, and DELTA, Delta
+    # Profile, between DELETE and OK: their widgets are _profile_manager_extras';
+    # the buttons narrower to fit five)
+    f"{PM}/player_profile_extended_desc": {"children": [
+        f'<child widget="{PM}/delta_line" x="428" y="296"/>',
+    ]},
+    f"{PM}/profile_manager_button_bar": {
+        "insert_before": {f"{PM}/profile_manager_button_ok": [
+            f'<child widget="{PM}/profile_manager_button_delta" x="246" y="1"/>']},
+        "offsets": {f"{PM}/profile_manager_button_new": (6, 1), f"{PM}/profile_manager_button_delete": (126, 1),
+                    f"{PM}/profile_manager_button_ok": (366, 1), "common_button_back": (486, 1)},
+    },
+    **{f"{PM}/profile_manager_button_{name}": {"set": {"width": 116}} for name in ("new", "delete", "ok")},
 }
 
 # frames added after a PC bitmap's (by our names): (the Xbox map's bitmap,
@@ -1721,7 +1736,7 @@ HOST_OPTIONS = {
         ("FOLLOW CAMERA:", "network.allow_follow_camera", [("OFF", "false"), ("ALLOWED", "true")],
          "Let players watch others while they wait to respawn.", None),
         ("PORT:", "network.tunnel_port", [("RANDOM", "0")] + [(str(port), str(port)) for port in range(2302, 2311)],
-         "The UDP port for hosting. Forward it on your\nrouter if friends can't join.",
+         "The UDP port for hosting. Forward it if friends can't join.",
          None),
     ],
 }
@@ -2047,6 +2062,23 @@ def _map_kind() -> list:
     return lines
 
 
+def _profile_manager_extras() -> list:
+    """the profile manager's widgets of the port's (WIDGET_PATCHES places
+    them): a Halo profile's "Delta:" line (menu_functions.c), and DELTA,
+    Delta Profile (port/linux/game/profile_screen.c; hidden with
+    display.delta_profile or without a game list: menu_functions.c)"""
+    lines = _widget(f"{PM}/delta_line", [("type", "text"), ("controller", 1), ("width", 150), ("height", 20),
+                                         ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("align", "center")], [])
+    lines += _widget(f"{PM}/profile_manager_button_delta",
+                     [("type", "text"), ("width", 116), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
+                      ("text", "DELTA"), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
+                      ("text_y", 2)],
+                     ['<on event="a" run="port delta profile open"/>',
+                      '<on event="start" run="port delta profile open"/>',
+                      '<on event="left_mouse" run="port delta profile open"/>'])
+    return lines
+
+
 def multiplayer_files() -> dict:
     """the port's multiplayer widgets: the browser's additions, the server
     settings, the lobby"""
@@ -2074,5 +2106,9 @@ def generated_files() -> dict:
     checks the committed ones are the same)"""
     files = {f"ce/{name}": "\n".join(lines) for name, lines in [*settings_files().items(),
                                                                  *multiplayer_files().items()]}
+    files["ce/main_menu.profile_manager.port.xml"] = "\n".join(
+        ['<?xml version="1.0" encoding="UTF-8"?>',
+         "<!-- The port's widgets of the profile manager, in the PC version's style (tools/port_settings.py) -->",
+         "<menus>", *_profile_manager_extras(), "</menus>", ""])
     files["chupathingy/settings_pages.xml"] = "\n".join(chupathingy_settings_pages())
     return files

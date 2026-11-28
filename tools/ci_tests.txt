@@ -102,6 +102,7 @@ tools/test_line_of_sight.py
 tools/test_linux_port.py
 tools/test_listen_address.py
 tools/test_lobby_budget.py
+tools/test_lobby_directions.py
 tools/test_lobby_host_crown.py
 tools/test_lobby_layout.py
 tools/test_lobby_switch_prompt.py
@@ -155,6 +156,7 @@ tools/test_mcc_skulls.py
 tools/test_mcc_validation.py
 tools/test_mcc_workshop.py
 tools/test_medal_rules.py
+tools/test_menu_patches.py
 tools/test_menu_text_fit.py
 tools/test_menu_unique_rows.py
 tools/test_metal_ask.py
