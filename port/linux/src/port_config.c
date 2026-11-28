@@ -980,7 +980,15 @@ static const struct config_setting config_settings[] =
 		"headphones. Stereo output only." },
 	{ "audio.hit_sounds", _config_boolean, "false", "HALO_HIT_SOUNDS", _environment_value, _platform_all,
 		"A short tone when your shot hits another player in multiplayer, as\n"
-		"Halo PC had. false is the Xbox's: none." },
+		"Halo PC had. false is the Xbox's: none. The tone is the map's own\n"
+		"\"ting\"; on maps without one (the Xbox's), the ting from your own\n"
+		"Custom Edition sounds.map in maps_ce, else audio.hit_sound_file, else\n"
+		"none." },
+	{ "audio.hit_sound_file", _config_string, "\"\"", "HALO_HIT_SOUND_FILE", _environment_value, _platform_all,
+		"A sound file (WAV 16-bit PCM, or Ogg Vorbis, up to 1 MB) for hit\n"
+		"sounds on maps without a ting, when Custom Edition's sounds.map is\n"
+		"not in maps_ce. A name alone means a file in data/sounds next to the\n"
+		"maps folder. Leave it empty for none." },
 	{ "audio.doppler", _config_boolean, "true", "HALO_AUDIO_DOPPLER", _environment_value, _platform_all,
 		"Shift the pitch of moving sounds, like a Warthog or a projectile going\n"
 		"past, as the Xbox did. false keeps every sound at its own pitch." },

@@ -293,18 +293,27 @@ boolean game_engine_multiplayer_sound_exists(
 }
 #endif
 
+#if defined(HALO_PORT_VOICE_AUDIO) && defined(HALO_CUSTOM_EDITION)
+/* (port/linux/game/hit_sound.c) */
+void hit_sound_play(void);
+#endif
+
 /* port: audio.hit_sounds' tone, played at once, never queued, at the tag's
 own gain: the globals' "ting" (sound 0x2B, which Halo PC's HUD played on a
 hit; Custom Edition's maps have it, at full gain), or, on the Xbox's maps,
-whose globals end at countdown_timer_end and have no ting, the countdown's
-tick, a short soft beep every map has. The damage code
-(source/objects/damage.c) asks for it. */
+whose globals end at countdown_timer_end and have no ting, hit_sound.c's
+(the ting of the player's own Custom Edition files, or a sound file of
+theirs, or none). The damage code (source/objects/damage.c) asks for it. */
 void game_engine_play_hit_sound(
 	void)
 {
 #ifdef HALO_GAME_BROWSER
-	_game_engine_play_multiplayer_sound(game_engine_multiplayer_sound_exists(_multiplayer_sound_ting) ?
-		_multiplayer_sound_ting : _multiplayer_sound_countdown_timer);
+	if (game_engine_multiplayer_sound_exists(_multiplayer_sound_ting))
+		_game_engine_play_multiplayer_sound(_multiplayer_sound_ting);
+#if defined(HALO_PORT_VOICE_AUDIO) && defined(HALO_CUSTOM_EDITION)
+	else
+		hit_sound_play();
+#endif
 #endif
 	return;
 }
