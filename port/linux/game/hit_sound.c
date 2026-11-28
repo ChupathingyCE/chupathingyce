@@ -3,16 +3,22 @@ HIT_SOUND.C
 
 audio.hit_sounds' tone where the map's globals have no "ting" (the Xbox's
 maps' end before it: game_engine_multiplayer_sounds.c). In order:
-1. the ting of the player's own Custom Edition sounds.map (maps_ce), its
-   resource named ...\ting, read when the first hit wants it;
+1. the ting of the player's own Custom Edition sounds.map (where this map's
+   family finds it: map_family_resource), its resource
+   sound\sfx\impulse\ting\ting;
 2. the sound file audio.hit_sound_file names (a WAV of 16-bit PCM, or Ogg
-   Vorbis; a name alone is a file in data/sounds beside the maps folder), no
-   larger than 1 MB, its first 2 seconds;
+   Vorbis; a name alone is a file in data/sounds beside the maps folder) of
+   any length: its first 2 seconds, and no more of the file read than they
+   need (4 MB at most);
 3. none. Never the countdown's beep, and no sound of Halo's is shipped.
-It plays through the mixer as a voice of its own (dsound_sdl.c's
-dsound_voice_*), in the middle, at audio.effects_volume. What was read is
-read again when config.toml changes. Desktop builds only: the consoles and
-the dedicated server have no hit sounds.
+It is read as a multiplayer map without a ting loads, under its loading
+screen (hit_sound_map_loaded, from game_engine_initialize_for_new_map), and
+again when config.toml changes, on the next tick (hit_sound_update), never
+when a hit wants it; it goes when the map does (hit_sound_map_unloaded), so
+the next map's resource maps are looked at afresh. It plays through the
+mixer as a voice of its own (dsound_sdl.c's dsound_voice_*), in the middle,
+at audio.effects_volume. Desktop builds only: the consoles and the dedicated
+server have no hit sounds.
 */
 
 #include "cseries.h"
@@ -23,6 +29,7 @@ the dedicated server have no hit sounds.
 
 #include "halo_map_families.h"
 #include "content_resource_map.h"
+#define HIT_SOUND_VORBIS
 #include "hit_sound_decode.h"
 #include "../src/port_config.h"
 #include "../src/port_folders.h"
@@ -41,10 +48,9 @@ int dsound_voice_submit(void *voice, const short *samples, unsigned long frames)
 unsigned long dsound_voice_queued(void *voice);
 void dsound_voice_place(void *voice, int mode, const float *position, float minimum_distance, float maximum_distance,
 	float gain);
-/* content_vorbis.c's */
-int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sample_rate, short **samples);
-void ce_vorbis_free(short *samples);
-
+void hit_sound_map_loaded(boolean map_has_ting);
+void hit_sound_map_unloaded(void);
+void hit_sound_update(void);
 void hit_sound_play(void);
 
 enum
@@ -54,12 +60,13 @@ enum
 
 static struct
 {
+	/* a multiplayer map without a ting is loaded: the tone is wanted */
+	boolean wanted;
 	unsigned long read_at;
-	boolean looked;
 	short *samples;
 	long frames;
 	void *voice;
-} hit_sound = { (unsigned long)-1 };
+} hit_sound = { FALSE, (unsigned long)-1 };
 
 static boolean file_read(HANDLE file, unsigned long offset, void *buffer, unsigned long size)
 {
@@ -73,36 +80,16 @@ static boolean file_read(HANDLE file, unsigned long offset, void *buffer, unsign
 mixer's rate, at most HIT_SOUND_MAXIMUM_SECONDS */
 static boolean tone_make(const unsigned char *data, struct hit_sound_samples const *samples)
 {
-	short *mono = NULL, *decoded = NULL;
+	short *mono = malloc((size_t)HIT_SOUND_MAXIMUM_SOURCE_FRAMES * sizeof(short));
 	long frames = 0;
 	int rate = samples->rate;
 
-	if (samples->compression == HIT_SOUND_COMPRESSION_OGG)
-	{
-		int channels = 0, index;
-
-		frames = ce_vorbis_decode(data, (int)samples->size, &channels, &rate, &decoded);
-		if (frames <= 0 || !decoded || channels < 1 || channels > 2 || rate < 8000 || rate > 96000)
-		{
-			if (decoded)
-				ce_vorbis_free(decoded);
-			return FALSE;
-		}
-		if (frames > (long)rate * HIT_SOUND_MAXIMUM_SECONDS)
-			frames = (long)rate * HIT_SOUND_MAXIMUM_SECONDS;
-		mono = malloc((size_t)frames * sizeof(short));
-		for (index = 0; mono && index < frames; index++)
-			mono[index] = (short)(channels == 2 ? (decoded[index * 2] + decoded[index * 2 + 1]) / 2 : decoded[index]);
-		ce_vorbis_free(decoded);
-	}
-	else
-	{
-		long maximum = (long)rate * HIT_SOUND_MAXIMUM_SECONDS;
-
-		mono = malloc((size_t)maximum * sizeof(short));
-		if (mono)
-			frames = hit_sound_mono(data, samples->size, samples->compression, samples->channels, mono, maximum);
-	}
+	/* (Ogg Vorbis: only its first seconds decoded) */
+	if (mono && samples->compression == HIT_SOUND_COMPRESSION_OGG)
+		frames = hit_sound_ogg_mono(data, samples->size, mono, HIT_SOUND_MAXIMUM_SOURCE_FRAMES, &rate);
+	else if (mono)
+		frames = hit_sound_mono(data, samples->size, samples->compression, samples->channels, mono,
+			(long)rate * HIT_SOUND_MAXIMUM_SECONDS);
 	if (!mono || frames <= 0)
 	{
 		free(mono);
@@ -210,7 +197,10 @@ static boolean file_load(void)
 	file = fopen(path, "rb");
 	if (file && !fseek(file, 0, SEEK_END))
 		size = ftell(file);
-	if (file && size > 0 && size <= HIT_SOUND_MAXIMUM_BYTES && !fseek(file, 0, SEEK_SET))
+	/* (its start alone: the tone is its first seconds) */
+	if (size > HIT_SOUND_FILE_READ_BYTES)
+		size = HIT_SOUND_FILE_READ_BYTES;
+	if (file && size > 0 && !fseek(file, 0, SEEK_SET))
 	{
 		data = malloc((size_t)size);
 		if (data && fread(data, 1, (size_t)size, file) == (size_t)size)
@@ -234,29 +224,53 @@ static boolean file_load(void)
 	if (made)
 		platform_log("hit sounds: %s", path);
 	else
-		platform_log("hit sounds: %s is not a WAV (16-bit PCM) or Ogg Vorbis file of up to 1 MB; no hit sound", path);
+		platform_log("hit sounds: %s is not a WAV (16-bit PCM) or Ogg Vorbis file; no hit sound", path);
 	return made;
 }
 
+/* the tone let go (closing the voice stops what it plays, before its
+samples go) */
+static void tone_forget(void)
+{
+	dsound_voice_close(hit_sound.voice);
+	hit_sound.voice = NULL;
+	free(hit_sound.samples);
+	hit_sound.samples = NULL;
+	hit_sound.frames = 0;
+}
+
+/* the tone read, if hit sounds are on: the ting, else the player's file */
+static void tone_read(void)
+{
+	tone_forget();
+	hit_sound.read_at = config_changes();
+	if (config_boolean("audio.hit_sounds") && !ting_load())
+		file_load();
+}
+
+void hit_sound_map_loaded(boolean map_has_ting)
+{
+	tone_forget();
+	hit_sound.wanted = !map_has_ting;
+	if (hit_sound.wanted)
+		tone_read();
+}
+
+void hit_sound_map_unloaded(void)
+{
+	tone_forget();
+	hit_sound.wanted = FALSE;
+}
+
+void hit_sound_update(void)
+{
+	if (hit_sound.wanted && hit_sound.read_at != config_changes())
+		tone_read();
+}
+
+/* (only what was read as the map loaded, or after a settings change) */
 void hit_sound_play(void)
 {
-	if (hit_sound.read_at != config_changes())
-	{
-		hit_sound.read_at = config_changes();
-		/* (closing the voice stops what it plays, before its samples go) */
-		dsound_voice_close(hit_sound.voice);
-		hit_sound.voice = NULL;
-		free(hit_sound.samples);
-		hit_sound.samples = NULL;
-		hit_sound.frames = 0;
-		hit_sound.looked = FALSE;
-	}
-	if (!hit_sound.looked)
-	{
-		hit_sound.looked = TRUE;
-		if (!ting_load())
-			file_load();
-	}
 	if (!hit_sound.frames)
 		return;
 	if (!hit_sound.voice)

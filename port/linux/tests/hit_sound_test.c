@@ -41,13 +41,17 @@ int main(void)
 	unsigned char adpcm[HIT_SOUND_ADPCM_BLOCK_BYTES];
 	long frames;
 
-	/* a ting's path, and others' */
-	CHECK(hit_sound_ting_path("sound\\sfx\\ui\\ting"));
-	CHECK(hit_sound_ting_path("TING"));
-	CHECK(!hit_sound_ting_path("sound\\sfx\\ui\\ting__permutations"));
-	CHECK(!hit_sound_ting_path("sound\\sfx\\ui\\countdown_timer"));
-	CHECK(!hit_sound_ting_path("sound\\sfx\\ui\\tin"));
+	/* the ting's path (the whole of it, any case), and others' */
+	CHECK(hit_sound_ting_path("sound\\sfx\\impulse\\ting\\ting"));
+	CHECK(hit_sound_ting_path("Sound\\SFX\\Impulse\\Ting\\TING"));
+	CHECK(!hit_sound_ting_path("sound\\sfx\\ui\\ting"));
+	CHECK(!hit_sound_ting_path("ting"));
+	CHECK(!hit_sound_ting_path("sound\\sfx\\impulse\\ting\\ting__permutations"));
+	CHECK(!hit_sound_ting_path("sound\\sfx\\impulse\\ting\\tin"));
+	CHECK(!hit_sound_ting_path("mod\\sound\\sfx\\impulse\\ting\\ting"));
+	CHECK(!hit_sound_ting_path("sound/sfx/impulse/ting/ting"));
 	CHECK(!hit_sound_ting_path(""));
+	CHECK(!hit_sound_ting_path(NULL));
 
 	/* a sound's resource: one pitch range, one permutation of Xbox ADPCM */
 	memset(sound, 0, sizeof(sound));
@@ -100,10 +104,17 @@ int main(void)
 	/* (doubled to 48 kHz: each sample, then halfway to the next) */
 	frames = hit_sound_resample(out, 4, 24000, resampled, 512);
 	CHECK(frames == 8 && resampled[0] == 1000 && resampled[1] == 0 && resampled[2] == -1000 && resampled[4] == 2000);
-	/* (a data chunk past the file's end, 8-bit, a third channel, not a WAV) */
-	put32(wav + 40, 9);
-	CHECK(!hit_sound_wav(wav, sizeof(wav), &samples));
+	/* (a data chunk past what was read, the start of a long file: what is
+	there of it is taken) */
+	put32(wav + 40, 0x7fffffff);
+	CHECK(hit_sound_wav(wav, sizeof(wav), &samples) && samples.offset == 44 && samples.size == 8);
+	CHECK(hit_sound_wav(wav, sizeof(wav) - 3, &samples) && samples.size == 5);
+	CHECK(!hit_sound_wav(wav, 45, &samples));
 	put32(wav + 40, 8);
+	/* (refused: a format chunk past the end, 8-bit, a third channel, not a WAV) */
+	put32(wav + 16, 0x1000);
+	CHECK(!hit_sound_wav(wav, sizeof(wav), &samples));
+	put32(wav + 16, 16);
 	put16(wav + 34, 8);
 	CHECK(!hit_sound_wav(wav, sizeof(wav), &samples));
 	put16(wav + 34, 16);

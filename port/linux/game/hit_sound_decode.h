@@ -3,11 +3,13 @@ HIT_SOUND_DECODE.H
 
 The hit tone's samples (hit_sound.c), whole in this header so that its test
 (port/linux/tests/hit_sound_test.c) builds it alone: Custom Edition's ting
-found in its sounds.map (a resource named ...\ting: the sound, its pitch
-ranges and its permutations, laid out as ce_resources.c reads them, the
-samples at the file offset the first permutation gives), a WAV file's 16-bit
-PCM, Xbox ADPCM decoded, and any of them made one channel at the mixer's
-rate. Everything read is anyone's file: every size and offset is checked.
+found in its sounds.map (the resource sound\sfx\impulse\ting\ting: the
+sound, its pitch ranges and its permutations, laid out as ce_resources.c
+reads them, the samples at the file offset the first permutation gives), a
+WAV file's 16-bit PCM (its start: a long file is read only as far as the
+tone needs), Xbox ADPCM decoded, and any of them made one channel at the
+mixer's rate. Everything read is anyone's file: every size and offset is
+checked.
 */
 
 #ifndef HIT_SOUND_DECODE_H
@@ -16,13 +18,21 @@ rate. Everything read is anyone's file: every size and offset is checked.
 #include "content_audio.h"
 
 #include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum
 {
-	/* the longest tone played, and the largest file or samples read */
+	/* the longest tone played, the largest samples read from sounds.map,
+	and the most of a player's file read (its start: the tone is its first
+	seconds, whatever its length) */
 	HIT_SOUND_MAXIMUM_SECONDS = 2,
 	HIT_SOUND_MAXIMUM_BYTES = 1024 * 1024,
+	HIT_SOUND_FILE_READ_BYTES = 4 * 1024 * 1024,
+	/* the highest rate taken, and so the most frames a tone's samples are
+	decoded to before they are brought to the mixer's */
+	HIT_SOUND_MAXIMUM_RATE = 96000,
+	HIT_SOUND_MAXIMUM_SOURCE_FRAMES = HIT_SOUND_MAXIMUM_RATE * HIT_SOUND_MAXIMUM_SECONDS,
 	/* (dsound_sdl.c's OUTPUT_RATE: a voice there is not resampled) */
 	HIT_SOUND_OUTPUT_RATE = 48000,
 
@@ -68,18 +78,21 @@ static inline int hit_sound_u16(const unsigned char *at)
 	return at[0] | (at[1] << 8);
 }
 
-/* whether a resource's path is a ting's: its last part "ting" (any case) */
+/* whether a resource's path is the ting's (the globals' multiplayer sound
+0x2B in Custom Edition's maps): sound\sfx\impulse\ting\ting, any case */
 static inline int hit_sound_ting_path(const char *path)
 {
-	const char *last = path, *at;
+	static const char ting[] = "sound\\sfx\\impulse\\ting\\ting";
+	size_t index;
 
-	for (at = path; *at; at++)
+	if (!path)
+		return 0;
+	for (index = 0; ting[index]; index++)
 	{
-		if (*at == '\\' || *at == '/')
-			last = at + 1;
+		if (tolower((unsigned char)path[index]) != ting[index])
+			return 0;
 	}
-	return tolower((unsigned char)last[0]) == 't' && tolower((unsigned char)last[1]) == 'i' &&
-		tolower((unsigned char)last[2]) == 'n' && tolower((unsigned char)last[3]) == 'g' && !last[4];
+	return !path[index];
 }
 
 /* a Custom Edition sound resource's first permutation's samples (offset:
@@ -127,7 +140,9 @@ static inline int hit_sound_wav(const unsigned char *data, unsigned long size, s
 		unsigned long length = hit_sound_u32(data + at + 4);
 		const unsigned char *chunk = data + at + 8;
 
-		if (length > size - at - 8)
+		/* (the data chunk may run past what was read of a long file: what
+		there is of it is taken; any other chunk must be whole) */
+		if (length > size - at - 8 && memcmp(data + at, "data", 4))
 			return 0;
 		if (!memcmp(data + at, "fmt ", 4))
 		{
@@ -135,12 +150,15 @@ static inline int hit_sound_wav(const unsigned char *data, unsigned long size, s
 				return 0;
 			samples->channels = hit_sound_u16(chunk + 2);
 			samples->rate = (int)hit_sound_u32(chunk + 4);
-			if (samples->channels < 1 || samples->channels > 2 || samples->rate < 8000 || samples->rate > 96000)
+			if (samples->channels < 1 || samples->channels > 2 || samples->rate < 8000 ||
+				samples->rate > HIT_SOUND_MAXIMUM_RATE)
 				return 0;
 			have_format = 1;
 		}
 		else if (!memcmp(data + at, "data", 4))
 		{
+			if (length > size - at - 8)
+				length = size - at - 8;
 			if (!have_format || length < 2u * (unsigned long)samples->channels)
 				return 0;
 			samples->compression = HIT_SOUND_COMPRESSION_NONE;
@@ -243,5 +261,55 @@ static inline long hit_sound_resample(const short *in, long frames, int rate, sh
 	}
 	return made;
 }
+
+#ifdef HIT_SOUND_VORBIS
+/* (content_vorbis.c's: the first `count` frames of a stream, without
+decoding the rest) */
+int ce_vorbis_edges(const unsigned char *data, int size, int count, int whole, int *channels, int *sample_rate,
+	short *head, int *head_frames, short *tail, int *tail_frames);
+
+/* an Ogg Vorbis stream's first HIT_SOUND_MAXIMUM_SECONDS made one channel,
+at most maximum frames (HIT_SOUND_MAXIMUM_SOURCE_FRAMES holds any rate
+taken), its rate in *rate: the frames made, 0 if it is not one this takes.
+Only its start is decoded, so a long stream (or the start of one, as much
+of a file as was read) is as quick as a short one */
+static inline long hit_sound_ogg_mono(const unsigned char *data, unsigned long size, short *out, long maximum,
+	int *rate)
+{
+	short *head, *tail;
+	int channels = 0, frames = 0, tail_frames = 0, index;
+
+	*rate = 0;
+	if (!data || !size || size > 0x7fffffff || maximum <= 0)
+		return 0;
+	/* (the tail: ce_vorbis_edges keeps a stream's last frames as it goes,
+	until the head is full) */
+	head = malloc((size_t)HIT_SOUND_MAXIMUM_SOURCE_FRAMES * 2 * sizeof(short));
+	tail = malloc((size_t)HIT_SOUND_MAXIMUM_SOURCE_FRAMES * 2 * sizeof(short));
+	if (!head || !tail)
+	{
+		free(head);
+		free(tail);
+		return 0;
+	}
+	if (ce_vorbis_edges(data, (int)size, HIT_SOUND_MAXIMUM_SOURCE_FRAMES, 0, &channels, rate, head, &frames, tail,
+		&tail_frames) <= 0 || channels < 1 || channels > 2 || *rate < 8000 || *rate > HIT_SOUND_MAXIMUM_RATE)
+	{
+		free(head);
+		free(tail);
+		*rate = 0;
+		return 0;
+	}
+	if (frames > *rate * HIT_SOUND_MAXIMUM_SECONDS)
+		frames = *rate * HIT_SOUND_MAXIMUM_SECONDS;
+	if (frames > maximum)
+		frames = (int)maximum;
+	for (index = 0; index < frames; index++)
+		out[index] = (short)(channels == 2 ? (head[index * 2] + head[index * 2 + 1]) / 2 : head[index]);
+	free(head);
+	free(tail);
+	return frames;
+}
+#endif
 
 #endif
