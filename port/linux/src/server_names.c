@@ -396,9 +396,51 @@ static int rule_space(unsigned int character)
 		character == 0x202F || character == 0x205F || character == 0x3000;
 }
 
+/* a code point as UTF-8, appended to text */
+static void append_utf8(unsigned int character, char *text, size_t *length, size_t size)
+{
+	unsigned char bytes[4];
+	size_t count, index;
+
+	if (character > 0x10FFFF)
+		character = 0xFFFD;
+	if (character < 0x80)
+	{
+		bytes[0] = (unsigned char)character;
+		count = 1;
+	}
+	else if (character < 0x800)
+	{
+		bytes[0] = (unsigned char)(0xC0 | character >> 6);
+		bytes[1] = (unsigned char)(0x80 | (character & 0x3F));
+		count = 2;
+	}
+	else if (character < 0x10000)
+	{
+		bytes[0] = (unsigned char)(0xE0 | character >> 12);
+		bytes[1] = (unsigned char)(0x80 | ((character >> 6) & 0x3F));
+		bytes[2] = (unsigned char)(0x80 | (character & 0x3F));
+		count = 3;
+	}
+	else
+	{
+		bytes[0] = (unsigned char)(0xF0 | character >> 18);
+		bytes[1] = (unsigned char)(0x80 | ((character >> 12) & 0x3F));
+		bytes[2] = (unsigned char)(0x80 | ((character >> 6) & 0x3F));
+		bytes[3] = (unsigned char)(0x80 | (character & 0x3F));
+		count = 4;
+	}
+	/* (a character that does not fit whole is left out) */
+	if (*length + count >= size)
+		return;
+	for (index = 0; index < count; index++)
+		text[(*length)++] = (char)bytes[index];
+	text[*length] = 0;
+}
+
 int server_names_rule_key(const unsigned int *characters, int count, char *key, size_t size)
 {
-	char folded[NAMES_KEY_SIZE];
+	char folded[SERVER_NAMES_RULE_KEY_SIZE];
 	size_t length = 0;
 	int character;
 
@@ -414,6 +456,13 @@ int server_names_rule_key(const unsigned int *characters, int count, char *key, 
 	{
 		unsigned int one = characters[character];
 
+		/* (a UTF-16 pair, as a wide name may hold one: its code point) */
+		if (one >= 0xD800 && one <= 0xDBFF && character + 1 < count && characters[character + 1] >= 0xDC00 &&
+			characters[character + 1] <= 0xDFFF)
+		{
+			one = 0x10000 + ((one - 0xD800) << 10) + (characters[character + 1] - 0xDC00);
+			character++;
+		}
 		if (rule_left_out(one) || rule_space(one))
 			continue;
 		/* (a color code: "^" and a digit, both left out) */
@@ -422,7 +471,19 @@ int server_names_rule_key(const unsigned int *characters, int count, char *key, 
 			character++;
 			continue;
 		}
-		fold_character(one, folded, &length, sizeof(folded));
+		/* (a character the fold has no letter for, "~": itself, so that
+		names of other scripts differ as they do) */
+		{
+			size_t before = length;
+
+			fold_character(one, folded, &length, sizeof(folded));
+			if (one >= 0x80 && length == before + 1 && folded[before] == '~')
+			{
+				length = before;
+				folded[length] = 0;
+				append_utf8(one, folded, &length, sizeof(folded));
+			}
+		}
 	}
 	/* (a folded character may be a space: U+00A0's and its kind) */
 	{

@@ -1765,7 +1765,7 @@ static int name_rule_matches(const char *rule, const char *name)
 	while (*cursor && count < 64)
 	{
 		unsigned int character = *cursor++;
-		int more = character >= 0xE0 ? 2 : character >= 0xC0 ? 1 : 0;
+		int more = character >= 0xF0 ? 3 : character >= 0xE0 ? 2 : character >= 0xC0 ? 1 : 0;
 
 		if (more)
 			character &= 0x3F >> more;
@@ -1802,6 +1802,29 @@ static void test_name_rules(void)
 	CHECK(name_rule_matches("ifty", "\xc3\xae" "fty"));
 	CHECK(name_rule_matches("ifty", "\xef\xbc\xa9\xef\xbc\xa6\xef\xbc\xb4\xef\xbc\xb9"));
 	CHECK(name_rule_matches("ifty", "\xd1\x96" "fty"));
+	/* (other scripts: each character itself, so only the same name matches;
+	CJK, Arabic, Hangul, emoji, and a UTF-16 pair as a wide name has one) */
+	CHECK(name_rule_matches("\xe5\xb1\xb1\xe7\x94\xb0", "\xe5\xb1\xb1\xe7\x94\xb0"));
+	CHECK(!name_rule_matches("\xe5\xb1\xb1\xe7\x94\xb0", "\xe7\x94\xb0\xe4\xb8\xad"));
+	CHECK(!name_rule_matches("\xe5\xb1\xb1\xe7\x94\xb0", "\xe5\xb1\xb1"));
+	CHECK(name_rule_matches("\xe5\xb1\xb1 \xe7\x94\xb0", "\xe5\xb1\xb1\xe7\x94\xb0"));
+	CHECK(name_rule_matches("\xd8\xb9\xd9\x84\xd9\x8a", "\xd8\xb9\xd9\x84\xd9\x8a"));
+	CHECK(!name_rule_matches("\xd8\xb9\xd9\x84\xd9\x8a", "\xd8\xb3\xd9\x84\xd9\x8a"));
+	CHECK(!name_rule_matches("\xd8\xb9\xd9\x84\xd9\x8a", "\xe5\xb1\xb1\xe7\x94\xb0"));
+	CHECK(name_rule_matches("\xea\xb9\x80", "\xea\xb9\x80"));
+	CHECK(!name_rule_matches("\xea\xb9\x80", "\xeb\xb0\x95"));
+	CHECK(name_rule_matches("ab\xf0\x9f\x98\x80", "ab\xf0\x9f\x98\x80"));
+	CHECK(!name_rule_matches("ab\xf0\x9f\x98\x80", "ab\xf0\x9f\x98\x83"));
+	CHECK(!name_rule_matches("\xf0\x9f\x98\x80", "\xf0\x9f\x98\x83"));
+	CHECK(!name_rule_matches("\xf0\x9f\x98\x80", "\xe5\xb1\xb1"));
+	CHECK(!name_rule_matches("ab\xf0\x9f\x98\x80", "ab"));
+	{
+		static const unsigned int smile[] = { 'a', 'b', 0xD83D, 0xDE00 };
+		static const unsigned int other[] = { 'a', 'b', 0xD83D, 0xDE03 };
+
+		CHECK(server_names_rule_matches("ab\xf0\x9f\x98\x80", smile, 4));
+		CHECK(!server_names_rule_matches("ab\xf0\x9f\x98\x80", other, 4));
+	}
 	/* (other names: longer, shorter, a letter changed, digits kept as they
 	are) */
 	CHECK(!name_rule_matches("ifty", "nifty"));

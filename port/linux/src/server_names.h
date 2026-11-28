@@ -81,15 +81,16 @@ int server_names_blocked_text(const char *text);
 
 enum
 {
-	/* a rule's key, with its end */
-	SERVER_NAMES_RULE_KEY_SIZE = 64 * 3 + 1
+	/* a rule's key, with its end (a character is at most 4 of its bytes) */
+	SERVER_NAMES_RULE_KEY_SIZE = 64 * 4 + 1
 };
 
 /* a name's key for a name rule: what player_name_clean leaves out (control
 characters, ones that draw as nothing, "|") left out, color codes ("^" and
 a digit) and every space dropped, lower case, accents dropped, full-width
-forms and Cyrillic and Greek look-alikes read as their Latin letters.
-Unlike the blocked names' key, digits and signs stay as they are and
+forms and Cyrillic and Greek look-alikes read as their Latin letters,
+and any other character kept as itself (its UTF-8), so names in other
+scripts match only themselves. Unlike the blocked names' key, digits and signs stay as they are and
 nothing else is dropped, so a rule matches the name it names and its
 look-alikes, never a longer or shorter name. Into key (size bytes): its
 length, 0 for an empty one (which matches nothing) */
