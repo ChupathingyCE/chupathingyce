@@ -284,6 +284,15 @@ physical_memory_map.h) keep the Xbox's 4 MB and 512 sounds. A permutation's
 most samples stay the Xbox's 4 MB (tag_schema_effects.c, ce_resources.c's
 split): that decides which sounds are split, which is the content's. */
 
+/* the Xbox's cache, which every build that sizes none of its own keeps
+(physical_memory_map.h), and the most samples a permutation has on every
+build (tag_schema_effects.c, ce_resources.c's CE_SOUND_SPLIT_SIZE) */
+#define HALO_PORT_XBOX_SOUND_CACHE_SIZE 0x400000
+#define HALO_PORT_XBOX_SOUND_CACHE_SOUNDS 512
+/* a console above its memory baseline (HALO_CONSOLE_MEMORY_CLASS): at most
+twice the Xbox's, 8 MB, holding twice the sounds (xbox_sound_cache.c) */
+#define HALO_PORT_CONSOLE_SOUND_CACHE_MAXIMUM_SIZE 0x800000
+
 #if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_XBOX360_CONSOLE) && \
 	!defined(HALO_WIIU_CONSOLE) && !defined(HALO_SWITCH_CONSOLE) && !defined(HALO_CONSOLE_GL_LAYER) && \
 	!defined(HALO_CONSOLE_WINDOW_MAXIMUM) && !defined(HALO_CONSOLE_MEMORY_CLASS) && \

@@ -2299,7 +2299,7 @@ than the game's 256). A permutation is decoded to no more than
 CE_SOUND_STREAM_MOST bytes (an hour of 44.1 kHz stereo is 635 MB) */
 #define CE_SOUND_STREAM_OGG_BYTES 0x40000
 #define CE_SOUND_STREAM_PIECE_FRAMES 0x10000
-#define CE_SOUND_SPLIT_SIZE 0x400000
+#define CE_SOUND_SPLIT_SIZE HALO_PORT_XBOX_SOUND_CACHE_SIZE /* (halo_port_capacity.h) */
 #define CE_SOUND_CHUNK_SIZE 0x60000
 #define CE_SOUND_CHUNK_MOST 0x100000
 #define CE_SOUND_STREAM_MOST 0x10000000

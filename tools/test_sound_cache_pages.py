@@ -5,12 +5,23 @@ the Xbox's size and with smaller platform sizes: the pages must cover the
 cache exactly, never more.
 """
 import os
+import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def xbox_defines():
+	"""the Xbox's sizes from halo_port_capacity.h, which the builds' prefix
+	header gives every unit"""
+	capacity = (ROOT / "port/linux/include/halo_port_capacity.h").read_text()
+	names = ("HALO_PORT_XBOX_SOUND_CACHE_SIZE", "HALO_PORT_XBOX_SOUND_CACHE_SOUNDS",
+		"HALO_PORT_CONSOLE_SOUND_CACHE_MAXIMUM_SIZE")
+	values = [re.search(r"#define " + name + r" (\w+)", capacity).group(1) for name in names]
+	return [f"-D{name}={value}" for name, value in zip(names, values)]
 
 
 def page_enum():
@@ -40,7 +51,7 @@ int main(void)
 			# (a platform's own, halo_port_capacity.h's: its size and sounds)
 			defines = [f"-DHALO_PORT_SOUND_CACHE_SIZE={platform[0]:#x}", f"-DHALO_PORT_SOUND_CACHE_SOUNDS={platform[1]}"]
 		subprocess.run(
-			[os.environ.get("CC", "cc"), "-I", str(ROOT / "source"), *defines, c_path, "-o", exe_path],
+			[os.environ.get("CC", "cc"), "-I", str(ROOT / "source"), *xbox_defines(), *defines, c_path, "-o", exe_path],
 			check=True)
 		pages, covered, sounds = subprocess.run([exe_path], check=True, capture_output=True, text=True).stdout.split()
 		return int(pages), int(covered), int(sounds)
