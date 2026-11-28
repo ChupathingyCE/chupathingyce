@@ -191,6 +191,7 @@ area      tools/test_line_of_sight.py
 core      tools/test_linux_port.py
 security  tools/test_listen_address.py
 security  tools/test_lobby_budget.py
+area      tools/test_lobby_directions.py
 area      tools/test_lobby_host_crown.py
 area      tools/test_lobby_layout.py
 area      tools/test_lobby_switch_prompt.py
@@ -246,6 +247,7 @@ security  tools/test_mcc_validation.py
 area      tools/test_mcc_workshop.py
 area      tools/test_medal_rules.py
 area      tools/test_menu_key_caps.py
+area      tools/test_menu_patches.py port/assets/menus/ce tools/ce_menus.py
 area      tools/test_menu_text_fit.py
 core      tools/test_menu_unique_rows.py
 area      tools/test_metal_ask.py
@@ -293,6 +295,7 @@ security  tools/test_search_answer.py
 security  tools/test_server_accounts.py
 security  tools/test_server_badge.py
 security  tools/test_server_bans.py
+area      tools/test_server_changelog.py server/CHANGELOG.md docs/release-notes VERSION
 security  tools/test_server_control.py
 security  tools/test_server_deploy.py
 area      tools/test_server_mcc_playable.py

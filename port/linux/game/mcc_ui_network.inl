@@ -23,6 +23,12 @@ static char mcc_refused_reason[320];
 and a failed check leaves the lobby's gametype as it was (#1124); NONE for
 none */
 static short mcc_pending_cooperative_difficulty = NONE;
+/* the lobby's map when the server refused to put it on (it isn't installed
+on this machine, network_game_server_change_map_name): not asked again
+every tick (#1463), only after a new pick or a rescan of the MCC maps (a
+Workshop download finished: mcc_maps_rescan_count) */
+static char mcc_change_refused_map[64];
+static unsigned long mcc_change_refused_rescans;
 
 boolean mcc_ui_network_defer_map(struct network_game_server *server, char const *name)
 {
@@ -32,6 +38,7 @@ boolean mcc_ui_network_defer_map(struct network_game_server *server, char const 
     if (server == mcc_pending_map_server) mcc_pending_map_server = NULL;
     mcc_pending_cooperative_difficulty = NONE; /* (a new pick drops a held co-op pick) */
     mcc_pending_error_shown=0;
+    mcc_change_refused_map[0]=0;
     mcc_validation_cancel(); /* Explicit reselection may retry a transient read failure. */
     if (!mcc_level_name(name)) {mcc_validation_server=NULL;return FALSE;}
     if (strlen(name)>=sizeof(mcc_pending_map) || server!=global_network_game_server_get()) return FALSE;
@@ -79,6 +86,8 @@ void mcc_ui_network_update_map(struct network_game_server *server)
     }
     selected=server==mcc_pending_map_server ? mcc_pending_map : server->game.map.name;
     if (!mcc_level_name(selected)) return;
+    if (server!=mcc_pending_map_server && !strcmp(selected,mcc_change_refused_map) &&
+        mcc_change_refused_rescans==mcc_maps_rescan_count()) return;
     status=mcc_validation_request(selected,&checksum,NULL);
     if (!status) {mcc_validation_server=server;mcc_validation_update();return;}
     if (status<0) {
@@ -123,6 +132,10 @@ void mcc_ui_network_update_map(struct network_game_server *server)
         network_game_server_mcc_choosing_difficulty=difficulty;
         changed=network_game_server_change_map_name(server,name);
         network_game_server_mcc_choosing_difficulty=NONE;
+        if (!changed) {
+            snprintf(mcc_change_refused_map,sizeof(mcc_change_refused_map),"%s",name);
+            mcc_change_refused_rescans=mcc_maps_rescan_count();
+        }
         if (changed && difficulty!=NONE && !network_game_server_mcc_asking &&
             !mcc_ui_network_hold_cooperative(server,difficulty))
             network_game_server_port_cooperative_apply(server,difficulty);
@@ -143,6 +156,7 @@ void mcc_ui_network_server_dispose(struct network_game_server *server)
 {
     mcc_refused_map[0]=0;
     mcc_refused_reason[0]=0;
+    mcc_change_refused_map[0]=0;
     mcc_pending_cooperative_difficulty=NONE;
     if (server==global_network_game_server_get()) {
         mcc_validation_cancel();

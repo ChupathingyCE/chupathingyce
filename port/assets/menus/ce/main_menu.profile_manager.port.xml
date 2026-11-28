@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The port's widgets of the profile manager, in the PC version's style (tools/port_settings.py) -->
+<menus>
+	<widget name="main_menu/profile_manager/delta_line" type="text" controller="1" width="150" height="20" font="ui\small_ui" color="#FF2896FF" align="center">
+	</widget>
+	<widget name="main_menu/profile_manager/profile_manager_button_delta" type="text" width="116" height="24" bitmap="bitmaps/text_button_background" text="DELTA" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port delta profile open"/>
+		<on event="start" run="port delta profile open"/>
+		<on event="left_mouse" run="port delta profile open"/>
+	</widget>
+</menus>

@@ -227,6 +227,8 @@ long mcc_maps_find(void);
 long mcc_maps_find(void) { return -1; }
 long mcc_maps_name(void);
 long mcc_maps_name(void) { return 0; }
+unsigned long mcc_maps_rescan_count(void);
+unsigned long mcc_maps_rescan_count(void) { return 0; }
 long mcc_main_network_load_failed(void);
 long mcc_main_network_load_failed(void) { return 0; }
 long mcc_ui_team_request(void);
