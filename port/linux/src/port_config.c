@@ -191,6 +191,15 @@ anti-aliasing. The server draws nothing: the Xbox's. */
 #define DEFAULT_SHADOW_RESOLUTION "256"
 #endif
 
+/* display.look's default (config_look_apply): the Chupathingy look, which is
+the settings' own defaults, on the computers, Android and the Switch; the
+original game's look on the original Xbox, the Xbox 360 and the Wii U */
+#if defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_WIIU_CONSOLE)
+#define DEFAULT_LOOK "\"xbox\""
+#else
+#define DEFAULT_LOOK "\"chupathingy\""
+#endif
+
 /* Internet play's port when hosting (p2p_host_port.h): Halo's own, 2302,
 on the desktop and Android, so that a player can forward it on their router;
 a joiner keeps a random one. The consoles and the dedicated server keep a
@@ -416,6 +425,15 @@ static const struct config_setting config_settings[] =
 	{ "display.hdr_ui_nits", _config_integer, "0", "HALO_HDR_UI_NITS", _environment_value, _platform_desktop,
 		"With display.hdr_output: the HUD's and the menus' white, in nits, 80\n"
 		"to 500, no brighter than the peak. 0 is the paper white's." },
+	/* (config_look_apply: the look fills in the settings it names that the
+	player has not set) */
+	{ "display.look", _config_string, DEFAULT_LOOK, "HALO_LOOK", _environment_value, _platform_all | _platform_xbox,
+		"How the game looks. \"chupathingy\" is the best this port draws.\n"
+		"\"xbox\" is the original game's look: the settings below that\n"
+		"differ go back to the Xbox's (docs/settings.md lists them). A setting\n"
+		"you set yourself keeps your value. Drawing only. The original Xbox,\n"
+		"the Xbox 360 and the Wii U start at \"xbox\"; the others at\n"
+		"\"chupathingy\"." },
 	{ "display.shadow_resolution", _config_integer, DEFAULT_SHADOW_RESOLUTION, "HALO_SHADOW_RESOLUTION",
 		_environment_value, _platform_all,
 		"Shadow size in pixels: 128, 256, 512 or 1024. The Xbox used 128." },
@@ -4962,6 +4980,8 @@ static const struct
 	/* (two numbers, "24 18", are taken too: the log line for anything else
 	is hud_draw.c's hud_safe_zone_margins) */
 	{ "display.hud_safe_zone", { "xbox", "pc", "auto", NULL }, NULL },
+	/* (the log line for another word is config_look_apply's, which uses the default) */
+	{ "display.look", { "chupathingy", "xbox", NULL }, NULL },
 	/* (the log line for another word is config_tuning_apply's, which uses the default) */
 	{ "tuning.preset", { "retail", "lan-party", "potato", NULL }, NULL },
 	{ "tuning.present_mode", { "vblank", "adaptive", NULL }, NULL },
@@ -5130,12 +5150,15 @@ enum
 {
 	_tuning_default,
 	_tuning_preset,
+	/* the look's value (display.look, config_look_apply), which is the
+	knob's default under that look */
+	_tuning_look,
 	_tuning_hand,
 	_tuning_clamped,
 	_tuning_invalid,
 };
 
-static const char *const config_tuning_sources[] = { "", "(preset)", "(hand)", "(clamped)", "(invalid)" };
+static const char *const config_tuning_sources[] = { "", "(preset)", "(look)", "(hand)", "(clamped)", "(invalid)" };
 
 enum
 {
@@ -5359,6 +5382,237 @@ static size_t config_tuning_text(char *text, size_t size, int changed)
 	return length;
 }
 
+/* ---------- display.look
+
+The look presets: "chupathingy", the best this port draws (the settings'
+own defaults), and "xbox", the original game's look. Like a [tuning]
+preset, the look gives each setting below that config.toml, the
+environment and the menus leave unset its value; one the player set keeps
+theirs. They are a separate thing from [tuning]: a look is how the game
+looks, [tuning] what it costs to draw. Where both name a setting
+(display.shadow_resolution, display.light_effects), the [tuning] preset
+comes first and the look's value is the setting's default under it
+(config_tuning_apply). Every setting here changes only what is drawn for
+this player; none hides or shows anything about play that the other
+look doesn't (the scoreboard's panel is only its background).
+
+The log says the look and its settings at the start ("look: at=boot"), at
+each map's start ("look: at=map", config_look_log) and at each change
+("look: change"). */
+
+enum
+{
+	_look_chupathingy,
+	_look_xbox,
+	NUMBER_OF_LOOKS
+};
+
+static const char *const config_looks[NUMBER_OF_LOOKS] = { "chupathingy", "xbox" };
+
+/* The settings a look sets, in the log's order: each look's value, NULL
+for the setting's own default (the Chupathingy look's, for now, are all
+the defaults). A setting that is not this build's is left out, and so is
+one that draws nothing on a build that has it: the Light effects on the
+consoles (HALO_CONSOLE_NO_LIGHT_EFFECTS), the high-res text and HUD where
+the maps' own are drawn (HALO_CONSOLE_NO_HIRES), and the high-res HUD on
+the Xbox 360, whose build has only the fonts (warthog-360's
+embed_assets --no-hud). */
+static const struct
+{
+	const char *name;
+	/* the log's name for it */
+	const char *short_name;
+	const char *look[NUMBER_OF_LOOKS];
+} config_look_knobs[] =
+{
+	{ "display.shadow_resolution", "shadows", { NULL, "128" } },
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
+	{ "display.light_effects", "light_effects", { NULL, "off" } },
+#endif
+	{ "display.doors_block_light", "doors_block_light", { NULL, "false" } },
+	{ "display.scoreboard_background", "scoreboard_panel", { NULL, "false" } },
+#if !defined(HALO_CONSOLE_NO_HIRES) && !defined(HALO_XBOX360_CONSOLE)
+	{ "display.high_res_hud", "high_res_hud", { NULL, "false" } },
+#endif
+#ifndef HALO_CONSOLE_NO_HIRES
+	{ "display.high_res_text", "high_res_text", { NULL, "false" } },
+#endif
+	{ "display.hud_safe_zone", "safe_zone", { NULL, "xbox" } },
+};
+
+#define NUMBER_OF_LOOK_KNOBS (sizeof(config_look_knobs) / sizeof(config_look_knobs[0]))
+#define LOOK_SUMMARY_SIZE 384
+
+static int config_look_now = -1;
+static int config_look_said_look = -1;
+/* whether the player set it (1), else 0 */
+static unsigned char config_look_hand[NUMBER_OF_LOOK_KNOBS];
+static char config_look_said[NUMBER_OF_LOOK_KNOBS][TUNING_VALUE_SIZE];
+
+/* a look knob's setting, or -1 for one that is not this build's */
+static long config_look_setting(size_t knob)
+{
+	long index = config_setting_index(config_look_knobs[knob].name);
+
+	return index >= 0 && (config_settings[index].platforms & CONFIG_PLATFORM) ? index : -1;
+}
+
+/* the look's value for a setting (its index), NULL where the look leaves
+its default (or it is no look knob) */
+static const char *config_look_knob_value(long index)
+{
+	size_t knob;
+
+	if (config_look_now < 0)
+		return NULL;
+	for (knob = 0; knob < NUMBER_OF_LOOK_KNOBS; knob++)
+	{
+		if (config_look_setting(knob) == index)
+			return config_look_knobs[knob].look[config_look_now];
+	}
+	return NULL;
+}
+
+/* The look and its settings worked out again, with config_lock held, before
+config_tuning_apply: at the start (changed -1) and after a setting changed
+(its index). A setting the player did not set takes the look's value, else
+its default; another word than a look's is the default look, said once. */
+static void config_look_apply(long changed)
+{
+	long look_setting = config_setting_index("display.look");
+	int look, found = 0;
+	size_t knob;
+
+	(void)changed;
+#ifdef HALO_SERVER
+	/* (the dedicated server draws nothing) */
+	return;
+#endif
+	if (look_setting < 0 || !(config_settings[look_setting].platforms & CONFIG_PLATFORM))
+		return;
+	for (look = 0; look < NUMBER_OF_LOOKS && !found; look++)
+	{
+		found = !SDL_strncasecmp(config_values[look_setting].string, config_looks[look],
+			strlen(config_looks[look]) + 1);
+	}
+	if (found)
+	{
+		look--;
+	}
+	else
+	{
+		char fallback[TUNING_VALUE_SIZE];
+
+		config_default_as_text(look_setting, fallback, sizeof(fallback));
+		for (look = 0; look < NUMBER_OF_LOOKS - 1 && strcmp(config_looks[look], fallback); look++)
+		{
+		}
+		platform_log("look: display.look = \"%s\" is not \"chupathingy\" or \"xbox\"; using \"%s\"",
+			config_values[look_setting].string, config_looks[look]);
+	}
+	config_value_set_text(look_setting, config_looks[look]);
+	config_look_now = look;
+	for (knob = 0; knob < NUMBER_OF_LOOK_KNOBS; knob++)
+	{
+		long index = config_look_setting(knob);
+		int given;
+
+		if (index < 0)
+			continue;
+		given = config_touched[index] > 0 || (!config_touched[index] && config_given[index]);
+		config_look_hand[knob] = (unsigned char)(given != 0);
+		/* (until the player answers about the new defaults, an older
+		default stays: config_find_new_defaults) */
+		if (given || config_pending[index])
+			continue;
+		{
+			const char *value = config_look_knobs[knob].look[look];
+			char fallback[TUNING_VALUE_SIZE * 2];
+
+			config_default_as_text(index, fallback, sizeof(fallback));
+			config_value_set_text(index, value ? value : fallback);
+		}
+	}
+}
+
+/* the look's line: "look=NAME" and each knob's "short=value", the value
+followed by where it came from when that is not the default: (look),
+(hand), or (tuning) for a [tuning] preset's; its length */
+static size_t config_look_text(char *text, size_t size)
+{
+	size_t length, knob;
+
+	if (!size)
+		return 0;
+	text[0] = 0;
+	if (config_look_now < 0)
+		return 0;
+	length = (size_t)snprintf(text, size, "look=%s", config_looks[config_look_now]);
+	for (knob = 0; knob < NUMBER_OF_LOOK_KNOBS && length < size; knob++)
+	{
+		long index = config_look_setting(knob);
+		const char *look_value, *source = "";
+		char value[TUNING_VALUE_SIZE], fallback[TUNING_VALUE_SIZE];
+
+		if (index < 0)
+			continue;
+		config_value_as_text(index, value, sizeof(value));
+		config_default_as_text(index, fallback, sizeof(fallback));
+		look_value = config_look_knobs[knob].look[config_look_now];
+		if (config_look_hand[knob])
+			source = "(hand)";
+		else if (look_value && !strcmp(value, look_value) && strcmp(value, fallback))
+			source = "(look)";
+		else if (strcmp(value, fallback))
+			source = "(tuning)";
+		length += (size_t)snprintf(text + length, size - length, " %s=%s%s", config_look_knobs[knob].short_name,
+			value[0] ? value : "\"\"", source);
+	}
+	if (length >= size)
+		length = size - 1;
+	return length;
+}
+
+/* after config_tuning_apply: the log's lines, at the start every knob, then
+what changed */
+static void config_look_say(long changed)
+{
+	size_t knob;
+
+	if (config_look_now < 0)
+		return;
+	if (changed < 0)
+	{
+		char summary[LOOK_SUMMARY_SIZE];
+
+		config_look_text(summary, sizeof(summary));
+		platform_log("look: at=boot %s", summary);
+	}
+	else if (config_look_said_look != config_look_now)
+	{
+		platform_log("look: change look=%s->%s", config_looks[config_look_said_look < 0 ? _look_chupathingy :
+			config_look_said_look], config_looks[config_look_now]);
+	}
+	for (knob = 0; knob < NUMBER_OF_LOOK_KNOBS; knob++)
+	{
+		long index = config_look_setting(knob);
+		char value[TUNING_VALUE_SIZE];
+
+		if (index < 0)
+			continue;
+		config_value_as_text(index, value, sizeof(value));
+		if (changed >= 0 && strcmp(value, config_look_said[knob]))
+		{
+			const char *look_value = config_look_knobs[knob].look[config_look_now];
+
+			platform_log("look: change %s=%s->%s%s", config_look_knobs[knob].short_name, config_look_said[knob], value,
+				config_look_hand[knob] ? "(hand)" : look_value && !strcmp(value, look_value) ? "(look)" : "");
+		}
+		snprintf(config_look_said[knob], sizeof(config_look_said[knob]), "%s", value);
+	}
+	config_look_said_look = config_look_now;
+}
+
 /* The preset and the knobs worked out again, with config_lock held: at
 the start (changed -1), and after a setting changed (its index). A knob
 the player did not set takes the preset's value, else its default; a value
@@ -5394,11 +5648,16 @@ static void config_tuning_apply(long changed)
 		long index = config_tuning_setting(knob);
 		unsigned flags = config_tuning_knobs[knob].flags;
 		int given, source = _tuning_hand;
+		const char *look_value;
 		char value[TUNING_VALUE_SIZE * 2], fallback[TUNING_VALUE_SIZE * 2];
 
 		if (index < 0)
 			continue;
 		config_default_as_text(index, fallback, sizeof(fallback));
+		/* (under a look, its value is the knob's default: config_look_apply) */
+		look_value = config_look_knob_value(index);
+		if (look_value)
+			snprintf(fallback, sizeof(fallback), "%s", look_value);
 		given = config_touched[index] > 0 || (!config_touched[index] && config_given[index]);
 		if (config_pending[index])
 		{
@@ -5420,7 +5679,7 @@ static void config_tuning_apply(long changed)
 			if (preset_value && !strcmp(preset_value, fallback))
 				preset_value = NULL;
 			config_value_set_text(index, preset_value ? preset_value : fallback);
-			source = preset_value ? _tuning_preset : _tuning_default;
+			source = preset_value ? _tuning_preset : look_value ? _tuning_look : _tuning_default;
 		}
 		else if (!start && index != changed && config_tuning_source[knob] >= _tuning_hand)
 		{
@@ -5532,6 +5791,15 @@ static void config_tuning_apply(long changed)
 		}
 		snprintf(config_tuning_said[knob], sizeof(config_tuning_said[knob]), "%s", value);
 	}
+}
+
+/* display.look, then [tuning], worked out again, with config_lock held (at
+the start, changed -1; after a change, its setting's index) */
+static void config_presets_apply(long changed)
+{
+	config_look_apply(changed);
+	config_tuning_apply(changed);
+	config_look_say(changed);
 }
 
 /* the most lines of a file that cannot be read that are skipped to read
@@ -5971,8 +6239,8 @@ static void config_load(void)
 	}
 #endif
 	config_check_words();
-	/* (the [tuning] preset filled in, and every knob said once) */
-	config_tuning_apply(-1);
+	/* (the look and the [tuning] preset filled in, and every knob said once) */
+	config_presets_apply(-1);
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	{
 		long mode = config_setting_index("display.mode");
@@ -6085,7 +6353,7 @@ int config_set(const char *name, const char *value)
 	config_set_from_text(&config_values[index], config_settings[index].type, value);
 	config_given[index] = 1;
 	config_touched[index] = 1;
-	config_tuning_apply(index);
+	config_presets_apply(index);
 	config_change_count++;
 	pthread_mutex_unlock(&config_lock);
 	return 1;
@@ -6174,7 +6442,7 @@ int config_write(const char *name, const char *value)
 		config_text_with_line(text ? text : "", name, line_text);
 	succeeded = changed && config_write_file(path, changed);
 	config_touched[index] = 1;
-	config_tuning_apply(index);
+	config_presets_apply(index);
 	config_change_count++;
 	pthread_mutex_unlock(&config_lock);
 	free(changed);
@@ -6723,14 +6991,54 @@ int config_reset(const char *name)
 		changed = config_text_with_line(text, name, line_text);
 		succeeded = changed && config_write_file(path, changed);
 	}
-	/* (a [tuning] knob follows the preset again) */
+	/* (a [tuning] or look knob follows its preset again) */
 	config_touched[index] = -1;
-	config_tuning_apply(index);
+	config_presets_apply(index);
 	config_change_count++;
 	pthread_mutex_unlock(&config_lock);
 	free(changed);
 	free(text);
 	return succeeded;
+}
+
+/* ---------- display.look (config_look_apply) */
+
+int config_look_summary(char *text, size_t size)
+{
+	size_t length;
+
+	/* (the file read first) */
+	config_value("display.look", _config_string);
+	pthread_mutex_lock(&config_lock);
+	length = config_look_text(text, size);
+	pthread_mutex_unlock(&config_lock);
+	return (int)length;
+}
+
+void config_look_log(const char *where)
+{
+#ifndef HALO_SERVER
+	char summary[LOOK_SUMMARY_SIZE];
+
+	if (config_look_summary(summary, sizeof(summary)))
+		platform_log("look: at=%s %s", where, summary);
+#else
+	(void)where;
+#endif
+}
+
+const char *config_look_value(const char *name)
+{
+	long index = config_setting_index(name);
+	const char *value;
+
+	if (index < 0)
+		return NULL;
+	config_value("display.look", _config_string);
+	pthread_mutex_lock(&config_lock);
+	value = config_look_knob_value(index);
+	pthread_mutex_unlock(&config_lock);
+	return value;
 }
 
 /* ---------- [tuning] (config_tuning_apply) */

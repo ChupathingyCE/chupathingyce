@@ -131,6 +131,8 @@ static const char *const theme_choices[] = { "blue", "green", "orange", "live", 
 the cellwall with Dashboard Green, the shade with the others) */
 static const char *const background_choices[] = { "auto", "plain", "cellwall", NULL };
 static const char *const background_names[] = { "AUTO", "PLAIN", "CELLWALL", NULL };
+/* display.look's (port_config.c's config_look_apply) */
+static const char *const look_choices[] = { "chupathingy", "xbox", NULL };
 /* display.light_effects' (port/linux/game/lighting_config.c) */
 static const char *const light_effects_choices[] = { "auto", "high", "low", "off", NULL };
 /* display.hdr's (d3d8_gl.c, xgpu_tone_map.h): the paper white and the UI's
@@ -197,6 +199,7 @@ static const struct settings_row settings_rows[] =
 #endif
 	{ _in_display | _in_guide, "SCOREBOARD ICONS", "display.scoreboard_icons", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "PING METER", "display.ping_meter", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display | _in_guide, "LOOK", "display.look", _kind_choices, look_choices, NULL, 0, 0 },
 	{ _in_display, "PERFORMANCE", "display.particle_limit", _kind_preset, NULL, NULL, 0, 0 },
 	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
 	{ _in_display | _in_guide, "CAMO WEAPON FIX", "display.camo_weapon_fix", _kind_toggle, NULL, NULL, 0, 0 },
@@ -428,7 +431,7 @@ static int preset_now(void)
 {
 	char value[VALUE_SIZE], fallback[VALUE_SIZE];
 	int index, potato_all = 1, defaults_all = 1;
-	const char *key, *potato;
+	const char *key, *potato, *look;
 
 	for (index = 0; config_tuning_knob(index); index++)
 	{
@@ -437,7 +440,14 @@ static int preset_now(void)
 		current(key, value, sizeof(value));
 		if (!same(value, potato))
 			potato_all = 0;
-		if (!config_default(key, fallback, sizeof(fallback)) || !same(value, fallback))
+		/* (a knob the look sets has the look's value as its default:
+		display.look's Xbox shadows are not a preset of their own) */
+		look = config_look_value(key);
+		if (look)
+			snprintf(fallback, sizeof(fallback), "%s", look);
+		else if (!config_default(key, fallback, sizeof(fallback)))
+			fallback[0] = '\0';
+		if (!same(value, fallback))
 			defaults_all = 0;
 	}
 	return defaults_all ? _preset_default : potato_all ? _preset_potato : _preset_custom;

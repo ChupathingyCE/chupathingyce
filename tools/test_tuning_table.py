@@ -19,7 +19,8 @@ def test_settings_doc_is_the_code():
 
 def test_every_knob_has_a_row():
     source = tuning_table.read(tuning_table.PORT_CONFIG)
-    names = re.findall(r'^\t\{ "([a-z_.]+)", "[a-z_]+", ', source[source.index("} config_tuning_knobs[] ="):], re.M)
+    table = source[source.index("} config_tuning_knobs[] ="):]
+    names = re.findall(r'^\t\{ "([a-z_.]+)", "[a-z_]+", ', table[:table.index("};")], re.M)
     assert names, "no knobs read"
     made = tuning_table.table()
     for name in names:

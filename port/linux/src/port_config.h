@@ -105,6 +105,20 @@ const char *config_tuning_knob(int index);
 for none (it keeps its default) */
 const char *config_tuning_preset_value(const char *preset, const char *name);
 
+/* ---------- display.look: the look presets ("chupathingy", "xbox"),
+port_config.c's config_look_apply */
+
+/* the look and its settings, as the log says them: "look=xbox
+shadows=128(look) doors_block_light=false(look) ...", a value followed by
+where it came from when that is not the default: (look), (hand) or
+(tuning). Its length (0 on a build without display.look) */
+int config_look_summary(char *text, size_t size);
+/* the log's "look: at=<where> <summary>" line (at=map at each map's start) */
+void config_look_log(const char *where);
+/* the look's value for a setting now, as text: NULL where the look leaves
+the setting's own default */
+const char *config_look_value(const char *name);
+
 /* ---------- every setting, for the setup screen's Settings (launcher.c) */
 
 enum

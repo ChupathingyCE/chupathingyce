@@ -3312,6 +3312,9 @@ static void cycle(const struct row *row, int step)
 			if (!strcmp(now, "POTATO"))
 				set_status(COLOR_WHITE, "Lower shadows, particles and lights, no anti-aliasing, drawn at 640x480.");
 		}
+		/* (display.look: port_config.c's config_look_apply) */
+		if (!strcmp(settings_row_key(row->setting), "display.look") && !strcmp(config_string("display.look"), "xbox"))
+			set_status(COLOR_WHITE, "The original Xbox's shadows, lighting, HUD and scoreboard. Your own changes stay.");
 		return;
 	}
 	if (row->action == _action_setting_key)

@@ -205,6 +205,24 @@ int main(int argc, char **argv)
 		}
 		return 0;
 	}
+	else if (argc >= 2 && !strcmp(argv[1], "look"))
+	{
+		char summary[600];
+		const char *names[] = { "display.shadow_resolution", "display.doors_block_light", "display.scoreboard_background",
+			"display.particle_limit" };
+		size_t name;
+
+		config_look_summary(summary, sizeof(summary));
+		printf("look_summary=%s\n", summary);
+		config_look_log("map");
+		for (name = 0; name < sizeof(names) / sizeof(names[0]); name++)
+		{
+			const char *value = config_look_value(names[name]);
+
+			printf("look_value.%s=%s\n", names[name], value ? value : "(none)");
+		}
+		return 0;
+	}
 	else if (argc >= 2 && !strcmp(argv[1], "pending"))
 	{
 		char changes[1024];
@@ -290,7 +308,7 @@ int main(int argc, char **argv)
 	}
 	else if (argc < 2 || strcmp(argv[1], "get"))
 	{
-		fprintf(stderr, "usage: port_config_test get <setting>... | write <setting> <value> | reset <setting> | tuning | pending | answer <new|keep> | menus_retired | menus_retired_seen\n");
+		fprintf(stderr, "usage: port_config_test get <setting>... | write <setting> <value> | reset <setting> | tuning | look | pending | answer <new|keep> | menus_retired | menus_retired_seen\n");
 		return 2;
 	}
 	for (; index < argc; index++)

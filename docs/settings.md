@@ -146,6 +146,64 @@ overrides the file.
 
 Every setting, with its environment variable and default, is in [port/linux/README.md](../port/linux/README.md#settings).
 
+## Look
+
+`display.look` picks how the game looks: `"chupathingy"` (the default) or
+`"xbox"`. Video Setup's LOOK row, the setup screen and the Delta Guide's
+settings change it.
+
+- `"chupathingy"` is the best this port draws: every setting below at its
+  own default.
+- `"xbox"` is the original game's look: the settings below that differ go
+  back to the Xbox's.
+
+A look fills in only the settings you haven't set yourself, so you can
+still turn any of them on or off on top of it, and yours wins. It changes
+only what you see, never how the game plays, and neither look hides
+anything about play. It's separate from `[tuning]`, which is about
+frame rate; where a `[tuning]` preset sets one of the same settings (Potato
+sets 128 shadows), the preset's value wins.
+
+The original Xbox, the Xbox 360 and the Wii U start at `"xbox"`; the
+computers, Android and the Switch start at `"chupathingy"`. The log says the look and its settings when the game
+starts and at each map (`look: at=boot`, `look: at=map`), and each change
+(`look: change`). The table is made from the code by `tools/look_table.py`
+(`tools/test_look_table.py` checks it).
+
+<!-- look table: made by tools/look_table.py, don't edit by hand -->
+
+| Setting | Builds | Default | Chupathingy sets | Xbox sets | What the Xbox look shows |
+| --- | --- | --- | --- | --- | --- |
+| `display.shadow_resolution` | desktop, Android | `256` | the default | `128` | Objects' shadows drawn into the Xbox's 128-pixel maps, with their soft, stepped edges. |
+| `display.light_effects` | desktop | `auto` | the default | `off` | No light from shots, muzzle flashes and glowing things: the Xbox's own lighting. |
+| `display.doors_block_light` | desktop, Android | `true` | the default | `false` | A light in the next room shines through a closed door, as on the Xbox. |
+| `display.scoreboard_background` | desktop, Android, original Xbox | `true` | the default | `false` | No panel behind the scoreboard's text, as on the Xbox. |
+| `display.high_res_hud` | desktop, Android | `true` | the default | `false` | The HUD drawn from the maps' own pictures. |
+| `display.high_res_text` | desktop, Android | `true` | the default | `false` | The menus' and the HUD's text in the maps' own bitmap fonts. |
+| `display.hud_safe_zone` | desktop, Android, original Xbox | `auto` | the default | `xbox` | The HUD 48 and 36 in from the screen's edges in split screen too. |
+
+<!-- end of look table -->
+
+A look only sets what a build has and draws. On the consoles that start at
+`"xbox"`, that is:
+
+- Original Xbox: no panel behind the scoreboard. Its shadows, lighting and
+  text are the Xbox's already, and its HUD margins are the Xbox's by
+  default.
+- Xbox 360: shadows at 128 (256 before), light through closed doors, no
+  panel behind the scoreboard, and the maps' own fonts for the text. It has
+  no Light effects and no high-res HUD pictures, so those stay as they are,
+  and its HUD margins are the Xbox's by default.
+- Wii U: shadows at 128 (256 before), light through closed doors and no
+  panel behind the scoreboard. It draws the maps' own text and HUD and has
+  no Light effects, so those stay as they are, and its HUD margins are the
+  Xbox's by default.
+
+Left out on purpose: the resolution, anti-aliasing, filtering, the frame
+rate and smooth motion change how sharp and smooth the picture is, not
+what it looks like, and the menus have their own setting
+(`display.menus`).
+
 ## Tuning
 
 The `[tuning]` section is for players who want more frames and don't mind

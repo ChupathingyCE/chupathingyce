@@ -1431,6 +1431,153 @@ def test_tuning_drawing_knobs(program, directory, defaults, kind):
 		"tuning.object_cull_pixels": "4"}, f"tuning/drawing/environment: {values}")
 
 
+def look_lines(output):
+	"""The log's look: lines, without the test's "log: "."""
+	return [line[len("log: "):] for line in output.splitlines() if line.startswith("log: look:")]
+
+
+def look_knobs(line):
+	"""A look line's knobs: {short name: (value, source)}."""
+	line = line[line.index("look="):]
+	return {name: (value, source) for name, value, source in
+		re.findall(r"(?:^| )([a-z_]+)=([^ ()]+)(\([a-z]+\))?", line)}
+
+
+def set_look_file(case, kind, values):
+	"""A new file with values written in place of their commented lines."""
+	text = fresh_file(case, kind)
+	for name, value in values.items():
+		key = name.split(".", 1)[1]
+		text, count = re.subn(rf"^# {key} = .*$", f"{key} = {value}", text, count=1, flags=re.M)
+		check(count == 1, f"look: no {name} line to set")
+	case.path.write_text(text)
+
+
+LOOK_SETTINGS = ("display.look", "display.shadow_resolution", "display.doors_block_light",
+	"display.scoreboard_background", "display.high_res_hud", "display.high_res_text", "display.hud_safe_zone")
+
+
+def test_look(program, directory, defaults, kind):
+	"""display.look: "chupathingy" by default, every setting at its own
+	default and nothing marked; "xbox" gives the settings it names the
+	original game's values, but one the player set keeps theirs; a change in
+	the menus is said in change lines, and a reset follows the default look
+	again; a [tuning] preset's value comes first and the look's is the
+	default under it; another word is the default look, said once; the
+	environment is the player's; and the dedicated server has no look."""
+	case = Case(program, directory / "look")
+	values, output = case.get(*LOOK_SETTINGS)
+	lines = look_lines(output)
+	if kind == "server":
+		check(not lines, f"look/server: lines {lines}")
+		check("\n# look = " not in case.text(), "look/server: display.look in its file")
+		return
+	check('\n# look = "chupathingy"\n' in case.text(), "look: not in a new file")
+	check(values["display.look"] == "chupathingy", f"look: {values}")
+	check(values["display.shadow_resolution"] == defaults["display.shadow_resolution"] and
+		values["display.doors_block_light"] == "true" and values["display.scoreboard_background"] == "true",
+		f"look: the defaults changed: {values}")
+	check(len(lines) == 1 and lines[0].startswith("look: at=boot look=chupathingy "), f"look: boot {lines}")
+	check("(" not in lines[0], f"look: the default look marks a knob: {lines[0]}")
+	check({"shadows", "doors_block_light", "scoreboard_panel"} <= set(look_knobs(lines[0])), f"look: {lines[0]}")
+	_, output = case.run("look")
+	summary = re.search(r"^look_summary=(.*)$", output, re.M).group(1)
+	check(f"log: look: at=map {summary}" in output and summary == lines[0][len("look: at=boot "):],
+		f"look: map line {output}")
+	check("look_value.display.shadow_resolution=(none)" in output, f"look: values {output}")
+
+	# xbox, with the doors set by hand
+	case = Case(program, directory / "look_xbox")
+	set_look_file(case, kind, {"display.look": '"xbox"', "display.doors_block_light": "true"})
+	values, output = case.get(*LOOK_SETTINGS, "display.light_effects", "display.particle_limit")
+	# (a console that draws the maps' own text and HUD, HALO_CONSOLE_NO_HIRES,
+	# and has no Light effects: the look leaves those as they are)
+	hires = "true" if kind == "console" else "false"
+	check(values["display.look"] == "xbox" and values["display.shadow_resolution"] == "128" and
+		values["display.scoreboard_background"] == "false" and values["display.high_res_hud"] == hires and
+		values["display.high_res_text"] == hires and values["display.hud_safe_zone"] == "xbox", f"look/xbox: {values}")
+	check(values["display.doors_block_light"] == "true", f"look/xbox: the player's doors lost: {values}")
+	check(values["display.particle_limit"] == defaults.get("display.particle_limit", "4096"), f"look/xbox: {values}")
+	# (Light effects are the desktop's alone)
+	if kind not in ("android", "console"):
+		check(values["display.light_effects"] == "off", f"look/xbox: {values}")
+	knobs = look_knobs(look_lines(output)[0])
+	check(knobs["look"] == ("xbox", "") and knobs["shadows"] == ("128", "(look)") and
+		knobs["doors_block_light"] == ("true", "(hand)") and knobs["scoreboard_panel"] == ("false", "(look)"),
+		f"look/xbox: {knobs}")
+	tuning = tuning_knobs(next(line for line in tuning_lines(output) if line.startswith("tuning: at=boot")))
+	check(tuning["shadows"] == ("128", "(look)"), f"look/xbox: tuning says {tuning}")
+	_, output = case.run("look")
+	check("look_value.display.shadow_resolution=128" in output and "look_value.display.particle_limit=(none)" in output,
+		f"look/xbox: values {output}")
+	# (the file is left as the player wrote it)
+	check("\nshadow_resolution" not in case.text(), "look/xbox: the look's value written to the file")
+
+	# changed in the menus, then reset: change lines, the hand value kept
+	case = Case(program, directory / "look_change")
+	_, output = case.run("write", "display.look", "xbox")
+	lines = look_lines(output)
+	check("look: change look=chupathingy->xbox" in lines, f"look/change: {lines}")
+	check("look: change scoreboard_panel=true->false(look)" in lines, f"look/change: {lines}")
+	check(f"look: change shadows={defaults['display.shadow_resolution']}->128(look)" in lines, f"look/change: {lines}")
+	_, output = case.run("write", "display.scoreboard_background", "true")
+	check("look: change scoreboard_panel=false->true(hand)" in look_lines(output), f"look/hand: {look_lines(output)}")
+	_, output = case.run("reset", "display.look")
+	lines = look_lines(output)
+	check("look: change look=xbox->chupathingy" in lines, f"look/reset: {lines}")
+	values, _ = case.get(*LOOK_SETTINGS)
+	check(values["display.look"] == "chupathingy" and values["display.scoreboard_background"] == "true" and
+		values["display.shadow_resolution"] == defaults["display.shadow_resolution"], f"look/reset: {values}")
+	# (the hand value, reset, follows the look again)
+	case.run("write", "display.look", "xbox")
+	_, output = case.run("reset", "display.scoreboard_background")
+	check("look: change scoreboard_panel=true->false(look)" in look_lines(output), f"look/reset: {look_lines(output)}")
+
+	# a [tuning] preset comes first: potato's shadows under the Chupathingy look
+	case = Case(program, directory / "look_potato")
+	set_look_file(case, kind, {"tuning.preset": '"potato"'})
+	values, output = case.get("display.shadow_resolution")
+	check(values["display.shadow_resolution"] == "128", f"look/potato: {values}")
+	check(look_knobs(look_lines(output)[0])["shadows"] == ("128", "(tuning)"), f"look/potato: {look_lines(output)}")
+
+	# not a look: the default, said once; the file kept
+	case = Case(program, directory / "look_bad")
+	set_look_file(case, kind, {"display.look": '"retro"'})
+	values, output = case.get("display.look", "display.scoreboard_background")
+	check(values["display.look"] == "chupathingy" and values["display.scoreboard_background"] == "true",
+		f"look/bad: {values}")
+	check(sum('display.look = "retro"' in line for line in look_lines(output)) == 1, f"look/bad: {look_lines(output)}")
+	check('look = "retro"' in case.text(), "look/bad: the file was changed")
+
+	# the environment
+	case = Case(program, directory / "look_environment")
+	values, _ = case.run("get", "display.look", "display.shadow_resolution", "display.scoreboard_background",
+		environment_extra={"HALO_LOOK": "xbox", "HALO_SCOREBOARD_BACKGROUND": "true"})
+	check(values["display.look"] == "xbox" and values["display.shadow_resolution"] == "128" and
+		values["display.scoreboard_background"] == "true", f"look/environment: {values}")
+
+
+def test_xbox_look(program, directory):
+	"""The original Xbox starts at the Xbox look: the scoreboard's panel off
+	(its other look setting, the HUD's margins, the Xbox's own already); "chupathingy" turns it on, and a hand value
+	wins either way."""
+	case = Case(program, directory / "xbox_look")
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	check('# look = "xbox"' in text, "xbox/look: not in its file")
+	values, output = case.get("display.look", "display.scoreboard_background")
+	check(values == {"display.look": "xbox", "display.scoreboard_background": "false"}, f"xbox/look: {values}")
+	lines = look_lines(output)
+	# (its HUD's margins are the Xbox's own already: unmarked)
+	check(lines == ["look: at=boot look=xbox scoreboard_panel=false(look) safe_zone=xbox"], f"xbox/look: {lines}")
+	case.path.write_text(re.sub(r'^# look = .*$', 'look = "chupathingy"', text, flags=re.M))
+	values, _ = case.get("display.scoreboard_background")
+	check(values["display.scoreboard_background"] == "true", f"xbox/look: chupathingy {values}")
+	case.path.write_text(re.sub(r'^# scoreboard_background = .*$', 'scoreboard_background = true', text, flags=re.M))
+	values, _ = case.get("display.scoreboard_background")
+	check(values["display.scoreboard_background"] == "true", f"xbox/look: hand {values}")
+
+
 DRAWING_KNOBS = ("tuning.particle_thinning", "tuning.effects", "tuning.shadow_pixels", "tuning.object_cull_pixels")
 
 
@@ -1576,7 +1723,7 @@ def main():
 	with tempfile.TemporaryDirectory() as directory:
 		directory = Path(directory)
 		program = build(arguments.cc, "xbox", directory / "xbox")
-		for test in (test_xbox_follows_new_defaults, test_xbox_tuning, test_xbox_retired_console_settings):
+		for test in (test_xbox_follows_new_defaults, test_xbox_tuning, test_xbox_retired_console_settings, test_xbox_look):
 			try:
 				test(program, directory / "xbox" / "cases")
 				print(f"ok   xbox: {test.__name__}")
@@ -1592,7 +1739,7 @@ def main():
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
 				test_retired_setting, test_delta_renamed, test_interrupted_write, test_long_string_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
-				test_server_file, test_follow_file, test_tuning, test_tuning_drawing_knobs, test_renderer_round_trip):
+				test_server_file, test_follow_file, test_tuning, test_tuning_drawing_knobs, test_renderer_round_trip, test_look):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")
