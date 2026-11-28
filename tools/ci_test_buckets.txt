@@ -191,6 +191,7 @@ area      tools/test_line_of_sight.py
 core      tools/test_linux_port.py
 security  tools/test_listen_address.py
 security  tools/test_lobby_budget.py
+area      tools/test_lobby_directions.py
 area      tools/test_lobby_host_crown.py
 area      tools/test_lobby_layout.py
 area      tools/test_lobby_switch_prompt.py
