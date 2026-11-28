@@ -29,6 +29,7 @@ seconds (game.c), the menus' accept skips the rest of the wait
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* sdl_platform.c */
 void platform_menus_set_active(int active);
@@ -49,13 +50,44 @@ texture coordinates 3 to 637 across and 0 to 480 down (draw_fade_layer) */
 
 /* ---------- globals */
 
+/* (the two frames' bytes, 1.2 MB each) */
+#define LOADING_SCREEN_FRAME_BYTES ((size_t)LOADING_SCREEN_HEIGHT * LOADING_SCREEN_WIDTH * 4)
+
+/* the frames are taken from the heap the first time the CPU draws the
+screen: only the renderers without the Xbox's own drawing do (bgfx, Vulkan,
+the consoles': progress_bar.c's halo_loading_screen_on_gpu), and static
+frames were 2.3 MB of every build's image, which outgrew the 64 MB the
+Android app keeps for its game */
 static struct
 {
-	unsigned char frame[LOADING_SCREEN_HEIGHT][LOADING_SCREEN_WIDTH][4];
-	unsigned char last[LOADING_SCREEN_HEIGHT][LOADING_SCREEN_WIDTH][4];
+	unsigned char (*frame)[LOADING_SCREEN_WIDTH][4];
+	unsigned char (*last)[LOADING_SCREEN_WIDTH][4];
+	boolean failed;
 	unsigned long stepped_at;
 	boolean stepped;
 } loading_screen;
+
+/* the frames, black, made the first time; FALSE without the memory */
+static boolean loading_screen_frames(
+	void)
+{
+	if (loading_screen.frame)
+		return TRUE;
+	if (loading_screen.failed)
+		return FALSE;
+	loading_screen.frame = calloc(1, LOADING_SCREEN_FRAME_BYTES);
+	loading_screen.last = calloc(1, LOADING_SCREEN_FRAME_BYTES);
+	if (!loading_screen.frame || !loading_screen.last)
+	{
+		free(loading_screen.frame);
+		free(loading_screen.last);
+		loading_screen.frame = NULL;
+		loading_screen.last = NULL;
+		loading_screen.failed = TRUE;
+		return FALSE;
+	}
+	return TRUE;
+}
 
 /* ---------- private code */
 
@@ -139,7 +171,8 @@ static float loading_screen_last(
 void loading_screen_reset(
 	void)
 {
-	csmemset(loading_screen.frame, 0, sizeof(loading_screen.frame));
+	if (loading_screen.frame)
+		csmemset(loading_screen.frame, 0, LOADING_SCREEN_FRAME_BYTES);
 	loading_screen.stepped = FALSE;
 }
 
@@ -148,6 +181,8 @@ boolean loading_screen_step_due(
 {
 	unsigned long now = system_milliseconds();
 
+	if (!loading_screen_frames())
+		return FALSE;
 	if (loading_screen.stepped && now - loading_screen.stepped_at < LOADING_SCREEN_STEP_MILLISECONDS)
 	{
 		/* (the same picture again) */
@@ -183,6 +218,8 @@ void loading_screen_draw(
 	long mask_width,
 	long mask_height)
 {
+	if (!loading_screen_frames())
+		return;
 	loading_screen_compute(progress, brightness, fade_alpha, picture, picture_width, picture_height, mask, mask_width,
 		mask_height);
 	halo_draw_picture(&loading_screen.frame[0][0][0], LOADING_SCREEN_WIDTH, LOADING_SCREEN_HEIGHT);
@@ -204,7 +241,7 @@ static void loading_screen_compute(
 	float mask_position = progress * 768.0f - 64.0f - 64.0f;
 	long x, y;
 
-	csmemcpy(loading_screen.last, loading_screen.frame, sizeof(loading_screen.last));
+	csmemcpy(loading_screen.last, loading_screen.frame, LOADING_SCREEN_FRAME_BYTES);
 	if (fade_alpha < 0.0f)
 		fade_alpha = 0.0f;
 	for (y = 0; y < LOADING_SCREEN_HEIGHT; y++)
@@ -323,6 +360,9 @@ unsigned char const *loading_screen_join_frame(
 {
 	unsigned long now = system_milliseconds();
 
+	/* (no memory for it: none, and the join screen is drawn without it) */
+	if (!loading_screen_frames())
+		return NULL;
 	if (!loading_screen_join.ready || loading_screen_join.read_at != config_changes())
 	{
 		loading_screen_join.read_at = config_changes();
@@ -330,7 +370,7 @@ unsigned char const *loading_screen_join_frame(
 	}
 	if (restart)
 	{
-		csmemset(loading_screen.frame, 0, sizeof(loading_screen.frame));
+		csmemset(loading_screen.frame, 0, LOADING_SCREEN_FRAME_BYTES);
 		loading_screen_join.started_at = now;
 		loading_screen_join.stepped_at = now - LOADING_SCREEN_STEP_MILLISECONDS;
 	}

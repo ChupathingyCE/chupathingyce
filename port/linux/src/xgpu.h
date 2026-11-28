@@ -179,6 +179,9 @@ convert D3D's clip space themselves (nv2a_vsh.c) */
 
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
 	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting, BOOL plasma_model);
+/* the fixed-function pipeline's vertex shader (the loading screen's draws):
+positions already in clip space. Returns a malloc'd string. */
+char *nv2a_fixed_function_glsl(void);
 
 /* ---------- pixel shaders */
 

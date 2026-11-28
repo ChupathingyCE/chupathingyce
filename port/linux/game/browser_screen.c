@@ -5436,7 +5436,9 @@ static void draw_join_screen(
 	game's own is drawn */
 	ui_overlay_rect(-margin, 0, 640 + 2 * margin, 480, 0, 0x000000FF);
 	serial = serial == 0x7FFFFFFF ? 2 : serial + 1;
-	ui_overlay_picture(serial, picture, 640, 480, 0, 0, 640, 480, 0xFFFFFFFF);
+	/* (none without the memory for it: loading_screen.c) */
+	if (picture)
+		ui_overlay_picture(serial, picture, 640, 480, 0, 0, 640, 480, 0xFFFFFFFF);
 
 	/* what is going on, low on it, and B to cancel under that */
 	if (mode == _join_screen_downloading && browser_screen.join_preview)

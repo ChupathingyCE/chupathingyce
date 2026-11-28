@@ -118,6 +118,15 @@ bolt's) */
 /* the loading screen's picture, RGBA bytes with its top row first, over the
 whole back buffer (port/linux/src/d3d8_gl.c, port/linux/game/loading_screen.c) */
 void halo_draw_picture(const unsigned char *rgba, long width, long height);
+/* whether the loading screen draws as the Xbox did, on the GPU, OpenGL's
+(port/linux/src/d3d8_gl.c): else halo_draw_picture with the CPU's picture.
+(the ports without d3d8_gl.c, the original Xbox's and the Switch's own
+renderers, draw the CPU's) */
+#if defined(HALO_LINUX_PLATFORM_LAYER) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_SWITCH_CONSOLE)
+int halo_loading_screen_on_gpu(void);
+#else
+#define halo_loading_screen_on_gpu() 0
+#endif
 #ifdef HALO_SWITCH_CONSOLE
 /* whether the zoom's blur is drawn on a small copy of the screen and blended
 over it once (source/rasterizer/xbox/rasterizer_xbox_screen_effect.c), and

@@ -320,6 +320,11 @@ extern struct pixel_shader_definition blur_shader;
 extern struct pixel_shader_definition regular_shader;
 extern unsigned long current_time;
 
+/* port: rasterizer_xbox.c's (rasterizer_xbox_internal.h, which this file
+does not include) */
+void rasterizer_forget_hardware_state(
+	void);
+
 static boolean progress_bar_rendering_enabled= TRUE;
 
 /* the compressed monk chant played behind the loading screen */
@@ -2016,12 +2021,19 @@ static void progress_bar_render(
 	real t;
 	long sound_index;
 	long stage;
+	/* port: OpenGL draws the screen as the Xbox did, its front buffer (the
+	light's trails) and fixed-function draws made by d3d8_gl.c; bgfx, Vulkan
+	and the consoles' renderers draw the CPU's picture of it
+	(halo_loading_screen_on_gpu, port/linux/game/loading_screen.c) */
+	boolean on_gpu= halo_loading_screen_on_gpu();
 
+	/* (unread in the original Xbox's build, which draws as the Xbox did) */
+	(void)on_gpu;
 #ifndef HALO_XBOX_CONSOLE
 	/* port: a step each refresh, as the Xbox's (loading_screen.c); the
-	original Xbox's own build draws as the Xbox did, below, each step
-	waiting for the vertical blank */
-	if (!loading_screen_step_due())
+	Xbox's drawing paces itself (its BlockUntilVerticalBlank), on OpenGL and
+	in the original Xbox's own build, below */
+	if (!on_gpu && !loading_screen_step_due())
 		return;
 #endif
 	wobble_phase+= 0.01f;
@@ -2046,13 +2058,15 @@ static void progress_bar_render(
 	}
 
 #ifndef HALO_XBOX_CONSOLE
-	/* port: the Xbox's drawing below reads its front buffer through a
-	texture made from its address (this_is_awful) and draws with no vertex
-	shader, neither of which the port's Direct3D has: the CPU makes the same
-	picture from the same textures (port/linux/game/loading_screen.c). The
-	original Xbox's build has the Xbox's Direct3D, and draws it so (its
-	loading_screen_draw is an empty one) */
-	if (progress_bar_mode.texture0 && progress_bar_mode.texture1)
+	/* port: without OpenGL's front buffer (GetBackBuffer with -1, read
+	through a texture made from its address: this_is_awful) and
+	fixed-function draws, the CPU makes the same picture from the same
+	textures (port/linux/game/loading_screen.c). The original Xbox's build
+	has the Xbox's Direct3D, and draws it so (its loading_screen_draw is an
+	empty one) */
+	if (on_gpu)
+		;
+	else if (progress_bar_mode.texture0 && progress_bar_mode.texture1)
 	{
 		D3DLOCKED_RECT picture;
 		D3DLOCKED_RECT mask;
@@ -2064,7 +2078,8 @@ static void progress_bar_render(
 		IDirect3DTexture8_UnlockRect(progress_bar_mode.texture1, 0);
 		IDirect3DTexture8_UnlockRect(progress_bar_mode.texture0, 0);
 	}
-	return;
+	if (!on_gpu)
+		return;
 #endif
 
 	current_time= GetTickCount();
@@ -2073,7 +2088,14 @@ static void progress_bar_render(
 	IDirect3DDevice8_GetTransform(global_d3d_device, D3DTS_PROJECTION, &progress_bar_globals.saved_projection);
 	IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_WORLD, &progress_bar_globals.world);
 	IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_VIEW, &progress_bar_globals.view);
-	IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_PROJECTION, &progress_bar_globals.projection);
+	/* port: the screen's middle 640 columns on a wide screen, as the menus
+	are drawn, and as the front buffer takes them (d3d8_gl.c) */
+	{
+		D3DXMATRIX projection= progress_bar_globals.projection;
+
+		projection._11*= 640.f/(real)halo_screen_width();
+		IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_PROJECTION, &projection);
+	}
 	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_ALPHABLENDENABLE, TRUE);
 	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
 	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_DESTBLEND, D3DBLEND_ONE);
@@ -2110,6 +2132,9 @@ static void progress_bar_render(
 		IDirect3DDevice8_SetTextureStageState(global_d3d_device, stage, D3DTSS_ADDRESSV, D3DTADDRESS_CLAMP);
 		IDirect3DDevice8_SetTexture(global_d3d_device, stage, &back_buffer_texture);
 	}
+	/* port: (back_buffer_texture has what it needs of the surface; the
+	reference IDirect3DDevice8_GetBackBuffer gave is given back) */
+	IDirect3DSurface8_Release(back_buffer);
 
 	if (progress<0.9f)
 		draw_fade_layer(0.f, 0.f, 0.9f);
@@ -2128,6 +2153,9 @@ static void progress_bar_render(
 	IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_VIEW, &progress_bar_globals.saved_view);
 	IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_PROJECTION, &progress_bar_globals.saved_projection);
 	IDirect3DDevice8_BlockUntilVerticalBlank(global_d3d_device);
+	/* port: the rasterizer's caches of the device's states learn what was
+	set here */
+	rasterizer_forget_hardware_state();
 
 	return;
 }
