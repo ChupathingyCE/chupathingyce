@@ -27,6 +27,10 @@ that went around a corner hits what its explosion sees.
 
 Every test is counted against a budget: one the budget runs out on is
 taken (a report the host cannot decide stays dealt).
+
+What the host does with a blocked one is line_of_sight_verdict's: by
+default it only logs the hit it would have refused and deals it; with
+network.hit_line_of_sight on, it refuses it.
 */
 
 #ifndef __LINE_OF_SIGHT_H
@@ -44,6 +48,17 @@ may pass, and how far to the side or above its point a shooter is tried */
 #define LINE_OF_SIGHT_MAXIMUM_PASSES 4
 /* the segment tests a decision makes at most */
 #define LINE_OF_SIGHT_DEFAULT_BUDGET 256
+
+/* what the host does with a report it judged (line_of_sight_verdict) */
+enum line_of_sight_verdict
+{
+	/* a clear line, or one it could not decide: dealt */
+	_line_of_sight_take,
+	/* blocked, and the check only logs: dealt, and the hit logged */
+	_line_of_sight_take_and_log,
+	/* blocked, and the check is enforced: refused (and logged) */
+	_line_of_sight_refuse,
+};
 
 /* ---------- structures */
 
@@ -119,5 +134,10 @@ int line_of_sight_shot(struct line_of_sight_query *query, struct line_of_sight_p
 line to the target, as for line_of_sight_shot */
 int line_of_sight_explosion(struct line_of_sight_query *query, struct line_of_sight_point const *epicenter,
 	float core_radius, struct line_of_sight_target const *target);
+
+/* what the host does with a report whose line came out as clear (1),
+blocked (0) or undecided (-1), as line_of_sight_shot returns: enforce is
+network.hit_line_of_sight (off by default: a blocked hit is only logged) */
+enum line_of_sight_verdict line_of_sight_verdict(int clear, int enforce);
 
 #endif /* __LINE_OF_SIGHT_H */

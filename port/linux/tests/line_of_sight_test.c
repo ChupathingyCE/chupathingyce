@@ -314,6 +314,42 @@ static void test_budget(void)
 	CHECK(line_of_sight_shot(&query, eyes, 0, &target, NULL) == 1);
 }
 
+/* what the host does with the line it found (network.hit_line_of_sight):
+by default (not enforced) a shot through a wall is dealt and logged, never
+refused; enforced, it is refused; a clear or undecided line is dealt either
+way */
+static void test_verdict(void)
+{
+	static struct box const wall[] = { { { 4.8f, -5.0f, -1.0f }, { 5.2f, 5.0f, 5.0f }, 0 } };
+	struct world blocked = { wall, 1, 0 };
+	struct world open = { wall, 0, 0 };
+	struct line_of_sight_point eye = at(0.0f, 0.0f, 0.6f);
+	struct line_of_sight_target target = target_at(10.0f, 0.0f, 0.4f);
+	struct line_of_sight_query query;
+	int clear;
+
+	query = query_of(&blocked);
+	clear = line_of_sight_shot(&query, &eye, 1, &target, NULL);
+	CHECK(clear == 0);
+	/* (the default: logged, dealt) */
+	CHECK(line_of_sight_verdict(clear, 0) == _line_of_sight_take_and_log);
+	CHECK(line_of_sight_verdict(clear, 0) != _line_of_sight_refuse);
+	/* (enforced: refused) */
+	CHECK(line_of_sight_verdict(clear, 1) == _line_of_sight_refuse);
+	query = query_of(&open);
+	clear = line_of_sight_shot(&query, &eye, 1, &target, NULL);
+	CHECK(clear == 1);
+	CHECK(line_of_sight_verdict(clear, 0) == _line_of_sight_take);
+	CHECK(line_of_sight_verdict(clear, 1) == _line_of_sight_take);
+	/* (the budget run out: undecided, dealt, nothing logged) */
+	query = query_of(&blocked);
+	query.budget = 0;
+	clear = line_of_sight_shot(&query, &eye, 1, &target, NULL);
+	CHECK(clear == -1);
+	CHECK(line_of_sight_verdict(clear, 0) == _line_of_sight_take);
+	CHECK(line_of_sight_verdict(clear, 1) == _line_of_sight_take);
+}
+
 int main(void)
 {
 	test_wall_and_clear();
@@ -324,6 +360,7 @@ int main(void)
 	test_explosion_core();
 	test_bend();
 	test_budget();
+	test_verdict();
 	if (failures)
 	{
 		printf("line_of_sight_test: %d failed\n", failures);

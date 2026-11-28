@@ -1205,11 +1205,12 @@ def test_host_protections_are_honest():
     assert protections, "delta.h's DELTA_HOST_PROTECTIONS has no names"
     assert all(re.fullmatch(r"[a-z0-9_]{1,31}", name) for name in protections)
     assert protections["hit_report_checks"] is True
-    # 0.9.0's hosts and dedicated servers refuse hits with no line of sight
-    # by default (network.hit_line_of_sight)
+    # hosts and dedicated servers check hits for a line of sight; since
+    # 0.9.3 the check only logs by default while it is rewritten (#2022),
+    # and network.hit_line_of_sight = true enforces it
     assert protections["hit_line_of_sight"] is True
     config = (ROOT / "port/linux/src/port_config.c").read_text(encoding="utf-8")
-    assert re.search(r'"network\.hit_line_of_sight", _config_boolean, "true"', config)
+    assert re.search(r'"network\.hit_line_of_sight", _config_boolean, "false"', config)
     # the address limit is off by default on a player's host
     assert re.search(r'"network\.max_machines_per_address", _config_integer, "0"', config)
     for name in ("address_machine_limit", "map_votes"):

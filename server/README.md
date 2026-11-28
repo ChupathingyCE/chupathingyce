@@ -105,8 +105,8 @@ ready image, `ghcr.io/chupathingyce/server`: see
   file, or through its control API (on this machine only by default) and the control
   panel on the same port. See [docs/admin.md](docs/admin.md).
 - Checks what players' games tell it, for OpenCE players too: it refuses
-  moves and hits that don't add up, hits through walls
-  (`HALO_NET_HIT_LINE_OF_SIGHT`), lobby requests past a burst of 32 and 16
+  moves and hits that don't add up, hits through walls (logged only by
+  default, `HALO_NET_HIT_LINE_OF_SIGHT`), lobby requests past a burst of 32 and 16
   a second from one machine, and more than 8 machines from one internet
   address (`HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS`). Moderators see the
   refusals with `sv_evidence`. Betrayal and AFK kicks are there too, off

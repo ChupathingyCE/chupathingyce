@@ -345,3 +345,12 @@ int line_of_sight_explosion(
 	}
 	return 0;
 }
+
+enum line_of_sight_verdict line_of_sight_verdict(
+	int clear,
+	int enforce)
+{
+	if (clear != 0)
+		return _line_of_sight_take;
+	return enforce ? _line_of_sight_refuse : _line_of_sight_take_and_log;
+}

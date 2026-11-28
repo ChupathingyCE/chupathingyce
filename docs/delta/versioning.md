@@ -917,8 +917,9 @@ So a row can say what hosting it takes:
   `hit_report_checks` (the host checks each client's hit report: its own
   player, a weapon of theirs, the target where the host had it, within
   reach, no faster than the weapon fires; `network_damage.c`) and
-  `hit_line_of_sight` (the host refuses hits with no line of sight,
-  `network.hit_line_of_sight`, on by default). `address_machine_limit` and
+  `hit_line_of_sight` (the host checks hits for a line of sight,
+  `network.hit_line_of_sight`; from 0.9.3 the check logs by default and
+  refuses only with the setting on, while it is reworked). `address_machine_limit` and
   `map_votes` are named so a row can require them, and no build marks them
   as had yet. 0.9.0 can limit the machines from one address,
 but that is off by default on a
