@@ -567,6 +567,18 @@ static int zip_name_allowed(const char *name)
 	return 1;
 }
 
+/* whether an entry's name is the player's own file, never a release's:
+config.toml and its kin (config.toml.old, .new, ...), in any case. An
+update never puts one in place, whatever the zip holds (v0.9.2a's 64-bit
+Windows and Linux zips had a config.toml by mistake, #2029) */
+static int zip_name_players(const char *name)
+{
+	static const char config[] = "config.toml";
+
+	return !SDL_strncasecmp(name, config, sizeof(config) - 1) &&
+		(!name[sizeof(config) - 1] || name[sizeof(config) - 1] == '.');
+}
+
 /* whether name is the game's executable by one of its names */
 static int updater_executable_name(const char *name)
 {
@@ -641,7 +653,9 @@ static int zip_extract(SDL_IOStream *zip, char names[][256], int *executable, in
 		out: the release's files are all at its top) */
 		if (memchr(name, 0, name_length))
 			goto done;
-		if (!zip_name_allowed(name))
+		if (zip_name_players(name))
+			platform_log("update: left out %s (the player's own file)", name);
+		else if (!zip_name_allowed(name))
 		{
 			if (name_length && name[name_length - 1] != '/')
 				platform_log("update: left out %s (not one of a release's names)", name);

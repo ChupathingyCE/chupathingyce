@@ -19,7 +19,8 @@ window:
 - Metal (macOS): SPIRV-Cross's Metal source compiled by the Metal device.
 
 It needs no maps and no GPU but a Mac's Metal device. The run has its own
-home, save and data folders and is off the network. The report and each
+home, save and data folders and is off the network, and runs a copy of the
+build, so nothing it writes ends up beside the build (#2029). The report and each
 failing shader's GLSL and error are in --out (report.txt, <backend>/).
 Exits 1 if any shader fails.
 """
@@ -32,12 +33,25 @@ import tempfile
 from pathlib import Path
 
 
+def game_copy(binary, scratch):
+	"""a copy of the build (the folder binary is in, or the macOS application
+	it is in) in scratch, and the copy's binary. The game writes config.toml
+	beside itself on Windows and Linux: run in the dist/ folder, it left the
+	settings template in the release's zips (#2029)"""
+	bundle = next((parent for parent in binary.parents if parent.suffix == ".app"), None)
+	top = bundle or binary.parent
+	copy = scratch / "game" / top.name
+	shutil.copytree(top, copy, symlinks=True)
+	return copy / binary.relative_to(top)
+
+
 def run_check(binary, out, timeout):
 	"""the build's check into out: its exit status and output"""
 	scratch = Path(tempfile.mkdtemp(prefix="bgfx-shader-check-"))
 	try:
 		for name in ("home", "saves", "data"):
 			(scratch / name).mkdir()
+		binary = game_copy(binary, scratch)
 		environment = {
 			"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
 			"HOME": str(scratch / "home"),
