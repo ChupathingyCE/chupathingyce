@@ -2165,7 +2165,15 @@ void hud_messaging_update(
 									{
 										short string_index = state_message->info[custom_index].text.string_index;
 
-										if (string_index != NONE)
+										if (string_index == HUD_STATE_TEXT_GENERIC_VEHICLE)
+										{
+											render_state_text(
+												&line_bounds,
+												&line_cursor,
+												L"vehicle",
+												FALSE);
+										}
+										else if (string_index != NONE)
 										{
 											if (state_message->info[custom_index].text.uses_scenario_names)
 											{
