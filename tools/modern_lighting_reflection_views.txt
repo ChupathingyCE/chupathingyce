@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 BirchWoodGod
+# SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Spots with shiny surfaces (the game's own
+# shine and cube-map reflections), for tools/modern_lighting_lab.py
+a10 @fast 40
+a10 reflect_bay_floor rel 0 0 0.6 20 -25
+a10 reflect_cryo_floor rel 0 0 0.6 90 -20
+hangemhigh reflect_metal rel 0 0 0.4 179 -20
+c10 @fast 35
+c10 reflect_swamp_water rel 0 0 0.6 90 -20

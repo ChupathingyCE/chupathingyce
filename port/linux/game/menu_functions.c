@@ -121,6 +121,10 @@ their handlers open opens.
 #include "../../../server/src/server_gametype_variant.h"
 #include "../src/gametype_folder.h"
 #include "gametype_files.h"
+#include "halo_port_features.h"
+#ifdef HALO_PORT_MODERN_LIGHTING
+#include "../src/modern_lighting.h"
+#endif
 #endif
 
 #include <stdlib.h>
@@ -171,6 +175,8 @@ int config_boolean(char const *name);
 boolean ui_widget_port_dispatch_event(struct widget_instance *widget, short event_type, short controller_index,
 	boolean *deleted);
 void ui_widget_port_go_back(struct widget_instance *widget);
+/* (ui_widget.c: a text box in the port's words, settings_help) */
+void ui_widget_port_text_override_set(struct widget_instance *box, wchar_t const *text);
 short ui_widget_port_list_index(struct widget_instance *list_widget);
 boolean ui_widget_port_saved_game(char const **map_name, short *level, short *difficulty);
 short main_get_solo_level_from_name(char const *name);
@@ -1910,6 +1916,41 @@ static void install_update_show(struct widget_instance *list, char const *view)
 	text_set(named(row, "install_update_value", 0), text);
 }
 
+#ifdef HALO_PORT_MODERN_LIGHTING
+/* a spinner's value shown now (a choice not saved yet), by its setting's
+key; NULL if the list has none */
+static char const *spinner_value_now(struct widget_instance *list, char const *spinner_name)
+{
+	struct widget_instance *spinner = named(list, spinner_name, 0);
+	struct pc_menu_setting *setting = spinner ? pc_menu_setting_get(spinner->definition_tag_index) : NULL;
+	short selected = spinner ? spinner->parameters.list.selected_index : NONE;
+
+	if (!setting || selected < 0 || selected >= setting->value_count)
+		return NULL;
+	return setting->values[selected];
+}
+
+/* Video Setup's MODERN LIGHTING row: what
+its list has on (the ray tracing's mode, else GLOW, else OFF), as its
+spinners show it now */
+static void lighting_link_show(struct widget_instance *list)
+{
+	struct widget_instance *row = named(list, "op_link_lighting", 0);
+	char const *ray_tracing, *glow;
+	char value[32];
+	wchar_t text[32];
+
+	if (!row)
+		return;
+	ray_tracing = spinner_value_now(list, "ray_tracing_spinner");
+	glow = spinner_value_now(list, "glow_spinner");
+	halo_ml_settings_summary_of(ray_tracing ? ray_tracing : config_string("display.ray_tracing"),
+		glow ? glow : config_string("display.glow"), value, sizeof(value));
+	help_wrapped(text, value, NUMBEROF(text));
+	text_set(named(row, "link_lighting_value", 0), text);
+}
+#endif
+
 /* (network_game_globals.c's, as declared below for the lobby) */
 void *global_network_game_server_get(void);
 void *global_network_game_client_get(void);
@@ -1982,6 +2023,29 @@ static void settings_help(struct widget_instance *list)
 		return;
 	}
 	help->parameters.text_box.string_list_index = index;
+#ifdef HALO_PORT_MODERN_LIGHTING
+	/* (MODERN LIGHTING's rows: why one can't be on here, in place of its
+	help, RAY TRACING: NO RAY TRACING ON THIS GPU and so on) */
+	{
+		static wchar_t lighting_help[NETWORK_HELP_LENGTH];
+		char const *note = NULL;
+
+		if (row && (!strcmp(row->name, "op_ray_tracing") || !strcmp(row->name, "op_rt_quality") ||
+			!strcmp(row->name, "op_glow") || !strcmp(row->name, "op_glow_intensity")))
+		{
+			note = halo_ml_setting_note(!strcmp(row->name, "op_ray_tracing") || !strcmp(row->name, "op_rt_quality") ?
+				"display.ray_tracing" :
+				!strcmp(row->name, "op_glow") ? "display.glow" : "display.glow_intensity");
+		}
+		if (note)
+		{
+			help_wrapped(lighting_help, note, NUMBEROF(lighting_help));
+			ui_widget_port_text_override_set(help, lighting_help);
+		}
+		else
+			ui_widget_port_text_override_set(help, NULL);
+	}
+#endif
 }
 
 /* Video Setup's Resolution and Window Size, in the one row's place
@@ -2261,6 +2325,19 @@ static void views_show(struct widget_instance *list, char const *view)
 		if (!strcmp(child->name, "op_ragdolls"))
 			child->visible = FALSE;
 #endif
+#ifdef HALO_PORT_MODERN_LIGHTING
+		/* (RAY TRACING and RT QUALITY where ray tracing can't run at all:
+		the last rows of their view, so no gap) */
+		if ((!strcmp(child->name, "op_ray_tracing") || !strcmp(child->name, "op_rt_quality")) &&
+			!halo_ml_ray_tracing_shown())
+		{
+			child->visible = FALSE;
+		}
+#else
+		/* (MODERN LIGHTING, in a build without it: 32-bit, macOS) */
+		if (!strncmp(child->name, "op_link_lighting", 16))
+			child->visible = FALSE;
+#endif
 	}
 	views_scroll(list, view);
 	if (list->focused_child && !list->focused_child->visible)
@@ -2276,6 +2353,9 @@ static void views_show(struct widget_instance *list, char const *view)
 		visible_set(named(screen, "cancel", 0), !strcmp(view, "main"));
 		visible_set(named(screen, "back", 0), strcmp(view, "main") != 0);
 	}
+#ifdef HALO_PORT_MODERN_LIGHTING
+	lighting_link_show(list);
+#endif
 #ifdef MENU_INSTALL_UPDATE
 	/* (INSTALL UPDATE, in UPDATES, only with a version to install) */
 	install_update_show(list, view);

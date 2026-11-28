@@ -524,6 +524,22 @@
       "covers": []
     },
     {
+      "name": "Vulkan headers (ray tracing)",
+      "use": "display.ray_tracing's Vulkan side path (64-bit Linux): the Khronos Vulkan headers, compiled in.",
+      "source": "https://github.com/KhronosGroup/Vulkan-Headers (header version 361)",
+      "copyright": [
+        "Copyright 2015-2026 The Khronos Group Inc."
+      ],
+      "license": "Apache-2.0 (the headers are offered under Apache-2.0 or MIT; this build takes Apache-2.0)",
+      "shared": "Apache-2.0",
+      "packages": [
+        "game"
+      ],
+      "covers": [
+        "port/third_party/vulkan-headers"
+      ]
+    },
+    {
       "name": "SPIR-V headers",
       "use": "Part of SPIRV-Cross in the bgfx renderer (macOS and 64-bit Windows): the Khronos SPIR-V headers it carries. glslang's copies are under its own license above.",
       "source": "https://github.com/KhronosGroup/SPIRV-Headers (as SPIRV-Cross carries them)",

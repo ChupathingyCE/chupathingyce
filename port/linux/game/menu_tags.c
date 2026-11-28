@@ -49,6 +49,10 @@ or Custom Edition map has (MCC's or Halo PC's own, a keyboard and a mouse).
 #include "halo_map_packs.h"
 #ifdef HALO_GAME_BROWSER
 #include "../src/ui_overlay.h"
+#include "halo_port_features.h"
+#ifdef HALO_PORT_MODERN_LIGHTING
+#include "../src/modern_lighting.h"
+#endif
 #ifdef HALO_GAME_BROWSER
 #include "gametype_files.h"
 #endif
@@ -894,6 +898,22 @@ static long spinner_split(struct halo_menu_widget const *widget, boolean values,
 	long widths[MAXIMUM_STRINGS], heights[MAXIMUM_STRINGS];
 	long added, index;
 
+#ifdef HALO_PORT_MODERN_LIGHTING
+	/* (Video Setup's MODERN LIGHTING rows while bgfx draws: one choice,
+	UNAVAILABLE, whose value is the setting's own, so that it keeps it for
+	OpenGL; the help line says why, modern_lighting.c) */
+	if (widget->setting && halo_ml_setting_is_lighting(widget->setting) && halo_ml_unavailable())
+	{
+		char const *own = values ? config_string(widget->setting) : "UNAVAILABLE";
+		char *piece = allocate((long)strlen(own) + 1);
+
+		if (!piece)
+			return count;
+		strcpy(piece, own);
+		pieces[0] = piece;
+		return 1;
+	}
+#endif
 	if (widget->setting && !strcmp(widget->setting, "audio.device"))
 	{
 		char const *names[MAXIMUM_STRINGS];

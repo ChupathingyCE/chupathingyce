@@ -48,6 +48,7 @@ from .linux_build import (
     PLATFORM_FLAGS as LINUX_PLATFORM_FLAGS,
     QRCODEGEN_DIR,
     STB_DIR,
+    VULKAN_HEADERS_DIR,
     TOML_DIR,
     VOICE_SOURCE,
     XDK_INCLUDE,
@@ -358,6 +359,8 @@ class Lp64Build:
                 add(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB", native=True)
             elif source.name == "posix_ui_font.c":
                 add(source, f"{posix_cflags} -I{STB_DIR}", native=True)
+            elif source.name == "posix_modern_lighting_rt.c":
+                add(source, f"{posix_cflags} -I{VULKAN_HEADERS_DIR}", native=True)
             elif source.name.startswith("posix_"):
                 add(source, posix_cflags, native=True)
             elif source.name in VERSION_SOURCES:

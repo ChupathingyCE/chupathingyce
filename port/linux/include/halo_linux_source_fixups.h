@@ -92,6 +92,26 @@ HALO_LINUX_PLATFORM_LAYER), so that define can't be the test here) */
 	!defined(HALO_SERVER)
 #define HALO_PORT_HDR 1
 #endif
+/* Port/linux/game/modern_lighting_scene.c,
+in the 64-bit desktop builds (HALO_PORT_HDR is the platform layer's alone:
+the game's units, render.c among them, do not have it): the builds of
+halo_port_features.h's HALO_PORT_MODERN_LIGHTING, its gate word for word
+(the Switch's build defines HALO_SWITCH_CONSOLE alone, and the Mac's
+OpenGL draws none of it) */
+#if defined(HALO_64BIT) && !defined(HALO_SERVER) && !defined(HALO_ANDROID) && !defined(__APPLE__) && \
+	!(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER))
+struct render_camera;
+void modern_lighting_opaque(const struct render_camera *camera);
+void modern_lighting_shine(const struct render_camera *camera);
+void modern_lighting_reflections(const struct render_camera *camera);
+unsigned char modern_lighting_replaces_object_shadows(void);
+#else
+#define modern_lighting_opaque(camera) ((void)(camera))
+#define modern_lighting_shine(camera) ((void)(camera))
+#define modern_lighting_reflections(camera) ((void)(camera))
+#define modern_lighting_replaces_object_shadows() 0
+#endif
 #ifdef HALO_PORT_HDR
 void halo_screen_tone_map(short x0, short y0, short x1, short y1);
 void halo_hdr_draw_kind(int kind);

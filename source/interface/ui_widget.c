@@ -1692,6 +1692,17 @@ the text waiting for its dialog, then the dialog's text box showing it */
 static wchar_t const *ui_widget_port_error_pending_text = NULL;
 static wchar_t const *ui_widget_port_error_text = NULL;
 static struct widget_instance *ui_widget_port_error_text_box = NULL;
+/* port: a text box shown in the port's words for now in place of its string
+list's (a settings list's help line: port/linux/game/menu_functions.c,
+ui_widget_port_text_override_set) */
+static wchar_t const *ui_widget_port_override_text = NULL;
+static struct widget_instance *ui_widget_port_override_box = NULL;
+
+void ui_widget_port_text_override_set(struct widget_instance *box, wchar_t const *text)
+{
+	ui_widget_port_override_box = text ? box : NULL;
+	ui_widget_port_override_text = box ? text : NULL;
+}
 
 static struct ui_widget_bss_prefix ui_widget_globals_storage;
 
@@ -2922,6 +2933,11 @@ void ui_widget_delete(
 		{
 			ui_widget_port_error_text_box = NULL;
 			ui_widget_port_error_text = NULL;
+		}
+		if (widget == ui_widget_port_override_box)
+		{
+			ui_widget_port_override_box = NULL;
+			ui_widget_port_override_text = NULL;
 		}
 		break;
 	case _ui_widget_type_spinner_list:
@@ -7033,6 +7049,8 @@ static void widget_instance_render_text_box(
 			if (item < spinner_extras[extra].count)
 				string = (wchar_t *)spinner_extras[extra].descriptions[item];
 		}
+		if (widget == ui_widget_port_override_box && ui_widget_port_override_text)
+			string = (wchar_t *)ui_widget_port_override_text;
 		length = ustrlen(string);
 		widget_instance_text_box_text_set(widget, string, length);
 	}

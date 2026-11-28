@@ -167,6 +167,10 @@ LZMA_DIR = Path("port/third_party/lzma")
 # the self-updater's TLS (port/linux/src/posix_update.c)
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
 STB_DIR = Path("port/third_party/stb")
+# the Khronos Vulkan headers (port/third_party/vulkan-headers): display.ray_tracing's
+# Vulkan side path, port/linux/src/posix_modern_lighting_rt.c, which loads
+# libvulkan at run time and needs only the headers to build
+VULKAN_HEADERS_DIR = Path("port/third_party/vulkan-headers/include")
 # the ragdolls' physics (port/linux/game/ragdolls.c, display.ragdolls): Jolt
 # Physics (port/third_party/jolt, MIT, C++17) and its C face
 # (port/linux/game/physics_jolt.cpp), native objects with the host's own C++
@@ -788,6 +792,8 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         elif source.name == "posix_ui_font.c":
             # (the overlay's fonts: stb_truetype; their data, tools/embed_assets.py --fonts)
             add_object(source, f"{posix_cflags} -I{STB_DIR}", posix=True)
+        elif source.name == "posix_modern_lighting_rt.c":
+            add_object(source, f"{posix_cflags} -I{VULKAN_HEADERS_DIR}", posix=True)
         elif source.name.startswith("posix_"):
             add_object(source, posix_cflags, posix=True)
         elif source.name in VERSION_SOURCES:

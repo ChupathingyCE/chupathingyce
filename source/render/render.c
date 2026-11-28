@@ -801,7 +801,10 @@ static void render_window(
 		HALO_PERF_RENDER_PART(_halo_perf_render_lens_flares);
 		rasterizer_lens_flares_submit_occlusion_tests();
 		HALO_PERF_RENDER_PART(_halo_perf_render_objects);
-		render_object_shadows();
+		/* port: display.ray_tracing's
+		traced shadows take the projected ones' place */
+		if (!modern_lighting_replaces_object_shadows())
+			render_object_shadows();
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
 		lights_render_diffuse();
 
@@ -855,19 +858,30 @@ static void render_window(
 			rasterizer_decals_end();
 		}
 
+		/* port: the lighting passes over
+		the opaque surfaces (port/linux/game/modern_lighting_scene.c) */
+		if (rasterizer_target == _render_target_primary)
+			modern_lighting_opaque(rasterizer_camera);
+
 		/* port: (tuning.effects = "reduced" leaves the shine and the
 		reflections out) */
 		if (render_tuning_draws(_render_tuning_specular_bit))
-		{
 			lights_render_specular();
+		/* port: the view before the
+		level's shine, for the traced reflections (the dynamic lights' shine,
+		a muzzle flash's, is not a surface's) */
+		if (rasterizer_target == _render_target_primary)
+			modern_lighting_shine(rasterizer_camera);
+		if (render_tuning_draws(_render_tuning_specular_bit))
 			structure_render_specular_lightmaps();
-		}
 		if (render_tuning_draws(_render_tuning_reflections_bit))
 		{
 			structure_render_reflection_lightmap_masks();
 			structure_render_reflection_mirrors();
 			structure_render_reflections();
 		}
+		if (rasterizer_target == _render_target_primary)
+			modern_lighting_reflections(rasterizer_camera);
 		HALO_PERF_RENDER_PART(_halo_perf_render_transparent);
 		structure_render_transparent_geometry();
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);

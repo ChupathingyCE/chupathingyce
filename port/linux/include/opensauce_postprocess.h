@@ -149,6 +149,11 @@ void opensauce_postprocess_bloom_set_exposure(float exposure, float time);
 /* whether a map's post-processing is drawn (for the script functions'
 logging) */
 int opensauce_postprocess_active(void);
+/* whether the map carries post-processing and it is drawn here
+(display.opensauce_post_processing, and a renderer that draws it):
+display.glow steps aside then (modern_lighting.c), so that the map's own
+bloom is not doubled */
+int opensauce_postprocess_drawn(void);
 
 #else
 
@@ -159,6 +164,7 @@ static __inline void opensauce_postprocess_tags_loaded(void *tag_instances, long
 }
 static __inline void opensauce_postprocess_map_unloaded(void) { }
 #define opensauce_postprocess_render_stage(stage, frustum, x0, y0, x1, y1) ((void)0)
+static __inline int opensauce_postprocess_drawn(void) { return 0; }
 
 #endif
 

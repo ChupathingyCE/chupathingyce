@@ -1321,6 +1321,15 @@ static GLuint texture_name_new(void)
 #ifndef HALO_CONSOLE_NO_GUIDE
 unsigned char *xgpu_texture_rgba(const DWORD *resource, unsigned long *width, unsigned long *height)
 {
+	return xgpu_texture_rgba_palette(resource, NULL, width, height);
+}
+
+/* (a P8 texture's colors from the palette given: the game's vector palette
+for its P8 bump maps, which hold an alpha-tested surface's alpha; none, not
+read) */
+unsigned char *xgpu_texture_rgba_palette(const DWORD *resource, const D3DCOLOR *palette, unsigned long *width,
+	unsigned long *height)
+{
 	struct xgpu_texture_description description;
 	struct format_information information;
 	const unsigned char *source;
@@ -1338,7 +1347,7 @@ unsigned char *xgpu_texture_rgba(const DWORD *resource, unsigned long *width, un
 	information = format_information(description.format);
 	/* (a plain picture: no cube, volume or palette, and not a huge one) */
 	if (description.cube_map || description.depth > 1 || !description.width || !description.height ||
-		description.width > 1024 || description.height > 1024 || information.kind == _texel_p8 ||
+		description.width > 1024 || description.height > 1024 || (information.kind == _texel_p8 && !palette) ||
 		information.kind == _texel_unknown || resource[0] & (D3DCOMMON_PORT_PC_METER | D3DCOMMON_PORT_PC_MULTIPURPOSE))
 	{
 		return NULL;
@@ -1364,7 +1373,7 @@ unsigned char *xgpu_texture_rgba(const DWORD *resource, unsigned long *width, un
 		bc7_decode_level(source, description.width, description.height, 1, texels);
 	else if (description.compressed)
 		dxt_decode_level(information.kind, source, description.width, description.height, 1, texels);
-	else if (!decode_level(&description, 0, source, NULL, texels))
+	else if (!decode_level(&description, 0, source, palette, texels))
 	{
 		free(texels);
 		free(rgba);

@@ -4866,8 +4866,11 @@ static void render_settings(void)
 			char value[96];
 
 			settings_row_value(row, value, sizeof(value));
-			/* (STEAM ACCOUNT and WORKSHOP FOLDER open something: a chevron) */
-			if (!settings_row_arrows(row))
+			/* (STEAM ACCOUNT and WORKSHOP FOLDER open something: a chevron;
+			one that can't be changed now, UNAVAILABLE: no arrows) */
+			if (settings_row_unavailable(row))
+				ui_style_setting_plain();
+			else if (!settings_row_arrows(row))
 				ui_style_setting_opens();
 			/* (a change that shows after a restart says so, as the setup
 			screen's rows do) */
@@ -4909,6 +4912,11 @@ static void render_settings(void)
 	}
 	if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
 		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + 12, y + 4, UI_ALIGN_LEFT, guide.message);
+	/* (a row that can't be on here: why, RAY TRACING's NO RAY TRACING ON
+	THIS GPU and so on) */
+	else if (settings_row_at(SETTINGS_GROUP_GUIDE, chosen) && settings_row_note(settings_row_at(SETTINGS_GROUP_GUIDE, chosen)))
+		ui_style_text(UI_TEXT_WARNING, CONTENT_LEFT, BODY_BOTTOM - 14, UI_ALIGN_LEFT,
+			settings_row_note(settings_row_at(SETTINGS_GROUP_GUIDE, chosen)));
 	/* (STEAM ACCOUNT's: where its sign-in is kept, when that's worth saying) */
 	else if (settings_row_at(SETTINGS_GROUP_GUIDE, chosen) &&
 		!strcmp(settings_row_key(settings_row_at(SETTINGS_GROUP_GUIDE, chosen)), "game.workshop_steam") &&

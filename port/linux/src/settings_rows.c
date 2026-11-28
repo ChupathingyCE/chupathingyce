@@ -11,6 +11,7 @@ Default puts them back.
 */
 
 #include "halo_console_features.h"
+#include "halo_port_features.h"
 #include "launcher.h"
 
 #if defined(HALO_GUIDE) || defined(HALO_LAUNCHER)
@@ -19,6 +20,9 @@ Default puts them back.
 #include "steam_client_bridge.h"
 #include "workshop_decisions.h"
 #include "port_config.h"
+#ifdef HALO_PORT_MODERN_LIGHTING
+#include "modern_lighting.h"
+#endif
 
 #include <ctype.h>
 #include <stdio.h>
@@ -55,6 +59,9 @@ enum
 	_kind_steam_link,
 	/* a folder: shown, changed in config.toml ("" the data folder's own) */
 	_kind_folder,
+	/* a page of rows of its own (page_action opens it): its value what they
+	are set to (the Guide's MODERN LIGHTING) */
+	_kind_page,
 };
 
 enum
@@ -65,6 +72,7 @@ enum
 	_in_network = 1 << SETTINGS_GROUP_NETWORK,
 	_in_updates = 1 << SETTINGS_GROUP_UPDATES,
 	_in_guide = 1 << SETTINGS_GROUP_GUIDE,
+	_in_lighting = 1 << SETTINGS_GROUP_LIGHTING,
 };
 
 enum
@@ -158,6 +166,18 @@ static const char *const crosshair_position_names[] = { "XBOX", "LOWERED", NULL 
 static const char *const clip_length_choices[] = { "10", "15", "30", "60", "90", "120", NULL };
 static const char *const clip_length_names[] = { "10 SECONDS", "15 SECONDS", "30 SECONDS", "60 SECONDS", "90 SECONDS",
 	"120 SECONDS", NULL };
+#ifdef HALO_PORT_MODERN_LIGHTING
+/* Display.ray_tracing's ("gi" is "ao"'s:
+modern_lighting.c), display.glow's ("shafts" is on, with the sun's shafts:
+config.toml alone) and display.glow_intensity's, as Video Setup's Advanced
+shows them (tools/port_settings.py) */
+static const char *const ray_tracing_choices[] = { "off", "shadows", "ao", NULL };
+static const char *const ray_tracing_names[] = { "OFF", "SHADOWS", "SHADOWS + AO", NULL };
+static const char *const rt_quality_choices[] = { "auto", "low", "medium", "high", NULL };
+static const char *const glow_choices[] = { "off", "on", NULL };
+static const char *const glow_strength_choices[] = { "0.225", "0.34", "0.45", "0.56", "0.68", "0.9", NULL };
+static const char *const glow_strength_names[] = { "50%", "75%", "100%", "125%", "150%", "200%", NULL };
+#endif
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -202,6 +222,19 @@ static const struct settings_row settings_rows[] =
 	{ _in_display | _in_guide, "CAMO WEAPON FIX", "display.camo_weapon_fix", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "PLASMA SPARKS", "display.plasma_sparks", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "DEVELOPER FLAMES", "display.developer_flames", _kind_toggle, NULL, NULL, 0, 0 },
+#ifdef HALO_PORT_MODERN_LIGHTING
+	/* (Video Setup's MODERN LIGHTING list; in the Guide's
+	SETTINGS, its DISPLAY page's MODERN LIGHTING block: rows that change
+	the settings live, as Video Setup's do. The Guide once had one row that
+	was to open a page of its own, which nothing opened) */
+	{ _in_lighting | _in_guide, "GLOW", "display.glow", _kind_choices, glow_choices, NULL, 0, 0 },
+	{ _in_lighting | _in_guide, "GLOW STRENGTH", "display.glow_intensity", _kind_choices, glow_strength_choices,
+	  glow_strength_names, 0, 0 },
+	{ _in_lighting | _in_guide, "RAY TRACING", "display.ray_tracing", _kind_choices, ray_tracing_choices,
+	  ray_tracing_names, 0, 0 },
+	{ _in_lighting | _in_guide, "RT QUALITY", "display.ray_tracing_quality", _kind_choices, rt_quality_choices, NULL,
+	  0, 0 },
+#endif
 #ifdef HALO_PORT_RAGDOLLS
 	{ _in_display | _in_guide, "RAGDOLLS", "display.ragdolls", _kind_toggle, NULL, NULL, 0, 0 },
 #endif
@@ -303,6 +336,15 @@ static int same(const char *a, const char *b)
 			return 0;
 	}
 	return *a == *b;
+}
+
+/* the same number written two ways ("2" and "2.00") */
+static int same_number(const char *a, const char *b)
+{
+	char *a_end, *b_end;
+	double x = strtod(a, &a_end), y = strtod(b, &b_end);
+
+	return a_end != a && !*a_end && b_end != b && !*b_end && x - y < 0.0001 && y - x < 0.0001;
 }
 
 static void current(const char *key, char *text, int size)
@@ -510,6 +552,15 @@ static int row_shown(int row)
 	{
 		return 0;
 	}
+#ifdef HALO_PORT_MODERN_LIGHTING
+	/* (ray tracing where it can't run at all: no rows. While bgfx draws
+	they show, UNAVAILABLE) */
+	if ((!strcmp(settings_rows[row].key, "display.ray_tracing") ||
+		!strcmp(settings_rows[row].key, "display.ray_tracing_quality")) && !halo_ml_ray_tracing_shown())
+	{
+		return 0;
+	}
+#endif
 	return 1;
 }
 
@@ -553,6 +604,9 @@ static const char *const display_lines[] =
 	"#HUD", "display.reticle_scale", "display.crosshair_position", "display.ping_meter", "display.scoreboard_icons",
 	"#EFFECTS", "display.first_person_weapon", "display.camo_weapon_fix", "display.plasma_sparks", "display.ragdolls",
 	"display.developer_flames",
+	/* (Video Setup's MODERN LIGHTING list;
+	a build without has no such rows, and no caption) */
+	"#MODERN LIGHTING", "display.glow", "display.glow_intensity", "display.ray_tracing", "display.ray_tracing_quality",
 	NULL
 };
 static const char *const sound_lines[] =
@@ -624,13 +678,34 @@ const char *settings_row_label(const struct settings_row *row)
 	return row->label;
 }
 
+int settings_row_unavailable(const struct settings_row *row)
+{
+#ifdef HALO_PORT_MODERN_LIGHTING
+	return halo_ml_setting_is_lighting(row->key) && halo_ml_unavailable();
+#else
+	(void)row;
+	return 0;
+#endif
+}
+
 int settings_row_arrows(const struct settings_row *row)
 {
-	/* (STEAM ACCOUNT and WORKSHOP FOLDER open something: no values to step through) */
-	return row->kind != _kind_steam_link && row->kind != _kind_folder;
+	/* (STEAM ACCOUNT, WORKSHOP FOLDER and a page open something: no values to step through) */
+	return row->kind != _kind_steam_link && row->kind != _kind_folder && row->kind != _kind_page;
 }
 
 static void (*folder_action)(void);
+static void (*page_action)(void);
+
+void settings_rows_set_page_action(void (*action)(void))
+{
+	page_action = action;
+}
+
+int settings_row_is_page(const struct settings_row *row)
+{
+	return row->kind == _kind_page;
+}
 
 void settings_rows_set_folder_action(void (*action)(void))
 {
@@ -690,7 +765,31 @@ void settings_row_value(const struct settings_row *row, char *text, int size)
 		snprintf(text, (size_t)size, "%s", folder && folder[0] ? folder : "DATA FOLDER");
 		return;
 	}
+#ifdef HALO_PORT_MODERN_LIGHTING
+	/* (MODERN LIGHTING: what its page has on, OFF when nothing) */
+	if (row->kind == _kind_page)
+	{
+		halo_ml_settings_summary(text, size);
+		return;
+	}
+#endif
+#ifdef HALO_PORT_MODERN_LIGHTING
+	/* (bgfx draws: UNAVAILABLE, settings_row_note says why; the setting
+	keeps its value for OpenGL) */
+	if (halo_ml_setting_is_lighting(row->key) && halo_ml_unavailable())
+	{
+		snprintf(text, (size_t)size, "UNAVAILABLE");
+		return;
+	}
+#endif
 	current(row->key, value, sizeof(value));
+#ifdef HALO_PORT_MODERN_LIGHTING
+	/* (the values config.toml alone has: shown as the row's own) */
+	if (!strcmp(row->key, "display.ray_tracing") && same(value, "gi"))
+		snprintf(value, sizeof(value), "ao");
+	if (!strcmp(row->key, "display.glow") && same(value, "shafts"))
+		snprintf(value, sizeof(value), "on");
+#endif
 	/* (empty: what the setting does without a value) */
 	if (!value[0] && !strcmp(row->key, "display.mode"))
 		snprintf(value, sizeof(value), "%s", config_boolean("display.fullscreen") ? "borderless" : "windowed");
@@ -704,7 +803,7 @@ void settings_row_value(const struct settings_row *row, char *text, int size)
 	values_of(row, &values);
 	for (index = 0; index < values.count; index++)
 	{
-		if (same(values.value[index], value))
+		if (same(values.value[index], value) || same_number(values.value[index], value))
 		{
 			snprintf(text, (size_t)size, "%s", values.name[index]);
 			return;
@@ -717,6 +816,16 @@ void settings_row_value(const struct settings_row *row, char *text, int size)
 		return;
 	}
 	shown(value, text, size);
+}
+
+const char *settings_row_note(const struct settings_row *row)
+{
+#ifdef HALO_PORT_MODERN_LIGHTING
+	return halo_ml_setting_note(row->key);
+#else
+	(void)row;
+	return NULL;
+#endif
 }
 
 void settings_row_change(const struct settings_row *row, int step)
@@ -737,6 +846,12 @@ void settings_row_change(const struct settings_row *row, int step)
 			folder_action();
 		return;
 	}
+	if (row->kind == _kind_page)
+	{
+		if (page_action)
+			page_action();
+		return;
+	}
 	if (row->kind == _kind_preset)
 	{
 		/* (Default and Potato: from Custom, a step goes to one of them) */
@@ -745,15 +860,26 @@ void settings_row_change(const struct settings_row *row, int step)
 		preset_set(preset == _preset_potato ? _preset_default : _preset_potato);
 		return;
 	}
+#ifdef HALO_PORT_MODERN_LIGHTING
+	/* (UNAVAILABLE: nothing to change, settings_row_note says why) */
+	if (halo_ml_setting_is_lighting(row->key) && halo_ml_unavailable())
+		return;
+#endif
 	values_of(row, &values);
 	if (!values.count)
 		return;
 	current(row->key, value, sizeof(value));
 	if (!strcmp(row->key, "display.menus") && (same(value, "gearbox") || same(value, "pc")))
 		snprintf(value, sizeof(value), "xbox");
+#ifdef HALO_PORT_MODERN_LIGHTING
+	if (!strcmp(row->key, "display.ray_tracing") && same(value, "gi"))
+		snprintf(value, sizeof(value), "ao");
+	if (!strcmp(row->key, "display.glow") && same(value, "shafts"))
+		snprintf(value, sizeof(value), "on");
+#endif
 	for (index = 0; index < values.count; index++)
 	{
-		if (same(values.value[index], value))
+		if (same(values.value[index], value) || same_number(values.value[index], value))
 			found = index;
 	}
 	if (found < 0)
@@ -768,7 +894,7 @@ void settings_row_change(const struct settings_row *row, int step)
 
 void settings_row_reset(const struct settings_row *row)
 {
-	if (row->kind == _kind_steam_link)
+	if (row->kind == _kind_steam_link || row->kind == _kind_page)
 		return;
 	if (row->kind == _kind_preset)
 		preset_set(_preset_default);

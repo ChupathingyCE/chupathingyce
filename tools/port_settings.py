@@ -266,6 +266,25 @@ SCREENS = {
                  [("SAME", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
                  "The HUD's and menus' white on an HDR display,\nin nits.", "desktop"),
             ]),
+            # (port/linux/src/modern_lighting.c,
+            # live, no restart. Its row shows what is on (VALUED_LINKS,
+            # menu_functions.c's lighting_link_show); a GPU without ray
+            # tracing, or a renderer not OpenGL, shows NOT SUPPORTED:
+            # menu_tags.c's spinner_split)
+            ("lighting", "MODERN LIGHTING", "Ray tracing and glow. Off looks like the Xbox.", [
+                ("GLOW:", "display.glow", [("OFF", "off"), ("ON", "on")],
+                 "A soft glow around lights and bright things.\nOff looks like the Xbox.", "desktop"),
+                ("GLOW STRENGTH:", "display.glow_intensity",
+                 [("50%", "0.225"), ("75%", "0.34"), ("100%", "0.45"), ("125%", "0.56"), ("150%", "0.68"), ("200%", "0.9")],
+                 "How strong the glow is.", "desktop"),
+                ("RAY TRACING:", "display.ray_tracing",
+                 [("OFF", "off"), ("SHADOWS", "shadows"), ("SHADOWS + AO", "ao")],
+                 "Ray-traced sun shadows of characters and vehicles,\nand AO. Off looks like the Xbox.", "desktop"),
+                ("RT QUALITY:", "display.ray_tracing_quality",
+                 [("AUTO", "auto"), ("LOW", "low"), ("MEDIUM", "medium"), ("HIGH", "high")],
+                 "How much ray tracing costs. Lower is faster and softer.\nAuto is Medium on laptops and handhelds, High elsewhere.",
+                 "desktop", "rt_quality"),
+            ]),
         ],
     },
     "audio_settings": {
@@ -614,13 +633,26 @@ def _action_row(base: str, row: Action, key: str, label_index: int) -> list:
     return lines
 
 
-def _link_row(base: str, key: str, label_index: int) -> list:
-    """a row that opens a nested list (VIEWS): its label alone"""
+# the nested lists whose row shows a value beside its label, what is set in
+# it (a text menu_functions.c sets: MODERN LIGHTING's, lighting_link_show)
+VALUED_LINKS = {"lighting"}
+
+
+def _link_row(base: str, key: str, label_index: int, valued: bool = False) -> list:
+    """a row that opens a nested list (VIEWS): its label alone, or with
+    valued its value too"""
+    children = [f'<child{attributes([("widget", f"{base}/{key}_label")])}/>']
+    if valued:
+        children.append(f'<child{attributes([("widget", f"{base}/{key}_value"), ("x", 320), ("y", 1)])}/>')
     lines = _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                          ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                     ['<on event="a" run="port settings view"/>', '<on event="start" run="port settings view"/>',
-                     '<on event="left_mouse" run="mouse emit accept event"/>',
-                     f'<child{attributes([("widget", f"{base}/{key}_label")])}/>'])
+                     '<on event="left_mouse" run="mouse emit accept event"/>'] + children)
+    if valued:
+        lines += _widget(f"{base}/{key}_value",
+                         [("type", "text"), ("controller", 1), ("width", 170), ("height", 22), ("font", "ui\\large_ui"),
+                          ("color", "#FF2896FF"), ("align", "center"), ("text_y", 3), ("text_flags", "no_focus_test")],
+                         [])
     lines += _widget(f"{base}/{key}_label",
                      [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
                       ("string_list", f"{base}/labels"), ("string_index", label_index), ("font", "ui\\large_ui"),
@@ -709,7 +741,7 @@ def _setting_rows(base: str, spec: dict) -> tuple:
                 names = {name for names in platforms for name in names.split()}
                 platform = " ".join(name for name in [*NOT_CONSOLE.split(), CONSOLE] if name in names)
             rows.append((f"{base}/op_{key}", platform, place))
-            extra += _link_row(base, key, label_index)
+            extra += _link_row(base, key, label_index, view in VALUED_LINKS)
         else:
             _, row, key, place, label_index = entry
             if row[1] not in spec.get("unplaced", ()):

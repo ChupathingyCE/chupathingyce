@@ -21,6 +21,9 @@ enum
 	SETTINGS_GROUP_NETWORK,
 	SETTINGS_GROUP_UPDATES,
 	SETTINGS_GROUP_GUIDE,
+	/* (the Guide's MODERN LIGHTING page,
+	which its SETTINGS row of that name opens) */
+	SETTINGS_GROUP_LIGHTING,
 
 	NUMBER_OF_SETTINGS_GROUPS
 };
@@ -44,6 +47,9 @@ void settings_row_value(const struct settings_row *row, char *text, int size);
 /* the next value (step 1) or the one before (-1), written to config.toml;
 what shows at once (the window's mode and size) is applied */
 void settings_row_change(const struct settings_row *row, int step);
+/* a line to show under the rows while this one is chosen (why it can't be
+on here: RAY TRACING: NO RAY TRACING ON THIS GPU), or NULL */
+const char *settings_row_note(const struct settings_row *row);
 /* back to the default (the Performance row: every setting it sets) */
 void settings_row_reset(const struct settings_row *row);
 
@@ -53,7 +59,15 @@ or down; text that takes any value is not changed: 0) */
 void settings_key_value(const char *key, char *text, int size);
 /* whether the row shows its value between arrows (0: a row that opens
 something, STEAM ACCOUNT and WORKSHOP FOLDER) */
+/* whether a row can't be changed now (its value says UNAVAILABLE, and
+settings_row_note why): shown without its arrows */
+int settings_row_unavailable(const struct settings_row *row);
 int settings_row_arrows(const struct settings_row *row);
+/* what a row that opens a page does when changed (the Guide's MODERN
+LIGHTING: its page, SETTINGS_GROUP_LIGHTING's rows) */
+void settings_rows_set_page_action(void (*action)(void));
+/* whether the row opens a page (its value shows what is set there) */
+int settings_row_is_page(const struct settings_row *row);
 /* what WORKSHOP FOLDER does when changed (the Guide: the folder picker) */
 void settings_rows_set_folder_action(void (*action)(void));
 /* what the STEAM row does when changed (the Guide: its Workshop's link row); unset, the row is hidden */

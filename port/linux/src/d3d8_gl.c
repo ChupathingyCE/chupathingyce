@@ -32,6 +32,7 @@ Conventions carried over from the Xbox:
 #include "port_config.h"
 #include "thread_stop.h"
 #include "xgpu_tone_map.h"
+#include "modern_lighting.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -6598,6 +6599,10 @@ void halo_screen_tone_map(short x0, short y0, short x1, short y1)
 		return;
 	}
 #endif
+	/* Display.glow's bloom over an 8-bit
+	view */
+	if (device.gl_ready && !hdr.active)
+		halo_ml_glow_sdr(x0, y0, x1, y1);
 	if (!device.gl_ready || !hdr.active)
 		return;
 	target = render_target_get(&device.back_buffer);
@@ -6611,6 +6616,14 @@ void halo_screen_tone_map(short x0, short y0, short x1, short y1)
 	/* (both found first: making a framebuffer binds it) */
 	source = framebuffer_get(target->target.texture, 0);
 	destination = target->target.samples ? framebuffer_find(target->target.multisample, 0, TRUE) : source;
+	/* display.glow's bloom (modern_lighting.c) over the light past white,
+	into the resolved texture the tone mapping reads */
+	{
+		int ml_corners[4] = { corners[0], corners[1], corners[2], corners[3] };
+
+		halo_ml_bloom(target->target.texture, source, (int)target->target.gl_width, (int)target->target.gl_height,
+			ml_corners);
+	}
 	if (xgpu_post_tone_map(source, destination, target->target.gl_width, target->target.gl_height, corners,
 		&hdr.tone_mapping) && target->target.samples)
 	{
@@ -6620,6 +6633,84 @@ void halo_screen_tone_map(short x0, short y0, short x1, short y1)
 	xgpu_gl_state_invalidate();
 }
 #endif
+
+/* ---------- the back buffer's GL objects
+for modern_lighting.c's passes over a window's 3D view, in the middle of the
+frame (source/render/render.c): the depth buffer resolved into its texture,
+the color too if asked, the framebuffer to draw over the view in (color
+and depth-stencil, multisampled with multisampling, so that a stencil test
+can leave out the first-person weapon), and the view's rectangle in the
+target's pixels */
+/* (modern_lighting.c: ray tracing is OpenGL's alone) whether OpenGL draws,
+and whether bgfx does */
+int halo_ml_renderer_ready(void)
+{
+#ifdef HALO_BGFX
+	if (bg_active())
+		return FALSE;
+#endif
+	return device.gl_ready ? TRUE : FALSE;
+}
+
+int halo_ml_renderer_bgfx(void)
+{
+#ifdef HALO_BGFX
+	return bg_active() ? TRUE : FALSE;
+#else
+	return FALSE;
+#endif
+}
+
+int halo_ml_targets_get(short x0, short y0, short x1, short y1, int resolve_color, struct halo_ml_targets *out)
+{
+	struct render_target_entry *color, *depth;
+
+	memset(out, 0, sizeof(*out));
+#ifdef HALO_BGFX
+	if (bg_active())
+		return FALSE;
+#endif
+	if (!device.gl_ready || !device.depth_stencil)
+		return FALSE;
+	color = render_target_get(&device.back_buffer);
+	depth = render_target_get(device.depth_stencil);
+	if (!color || !depth || color->target.gl_width != depth->target.gl_width ||
+		color->target.gl_height != depth->target.gl_height)
+	{
+		return FALSE;
+	}
+	out->corners[0] = scaled_pixel(x0, color->target.scale[0]);
+	out->corners[1] = scaled_pixel(y0, color->target.scale[1]);
+	out->corners[2] = scaled_pixel(x1, color->target.scale[0]);
+	out->corners[3] = scaled_pixel(y1, color->target.scale[1]);
+	render_target_resolve(&depth->target);
+	if (resolve_color)
+		render_target_resolve(&color->target);
+	out->color_texture = color->target.texture;
+	out->depth_texture = depth->target.texture;
+	out->width = (int)color->target.gl_width;
+	out->height = (int)color->target.gl_height;
+	out->samples = color->target.samples;
+	out->hdr = color->target.format == GL_RGBA16F;
+	/* (both found first: making a framebuffer binds it) */
+	out->read_framebuffer = framebuffer_get(color->target.texture, 0);
+	out->draw_framebuffer = color->target.samples ?
+		framebuffer_find(color->target.multisample, depth->target.multisample, TRUE) :
+		framebuffer_get(color->target.texture, depth->target.texture);
+	return TRUE;
+}
+
+/* after a pass drew into draw_framebuffer: its texture's pixels are old
+again with multisampling, and the game's state is the cache's no longer */
+void halo_ml_targets_drawn(int drew)
+{
+	struct render_target_entry *color = render_target_get(&device.back_buffer);
+
+	if (drew && color && color->target.samples)
+		color->target.unresolved = TRUE;
+	glBindVertexArray(device.vertex_array);
+	xgpu_gl_state_invalidate();
+}
 
 /* ---------- display.hdr's settings, and its present */
 
@@ -6644,7 +6735,7 @@ static void hdr_read(void)
 #endif
 	if (!device.gl_ready)
 		return;
-	if (hdr.read && hdr.read_at == config_changes())
+	if (hdr.read && hdr.read_at == config_changes() + halo_ml_lab_generation())
 	{
 		/* (the display's numbers matter only while the picture is HDR, or
 		the window is: not every frame of an SDR game) */
@@ -6661,12 +6752,12 @@ static void hdr_read(void)
 		hdr.tone_mapping.ui = 1.0f;
 	}
 	hdr.read = TRUE;
-	hdr.read_at = config_changes();
+	hdr.read_at = config_changes() + halo_ml_lab_generation();
 	curve = config_string("display.hdr_tone_mapping");
 	exposure = config_real("display.hdr_exposure");
 	wanted = FALSE;
 #if !defined(HALO_GL_ES) && !defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_CONSOLE_GLES2)
-	wanted = config_boolean("display.hdr");
+	wanted = halo_ml_lab_hdr(config_boolean("display.hdr"));
 #endif
 	for (value = NUMBER_OF_XGPU_TONE_MAPPINGS - 1; value > 0 && strcmp(curve, tone_mapping_names[value]); value--)
 	{

@@ -384,6 +384,42 @@ static const struct config_setting config_settings[] =
 		"instead of clipping it. The glows the game draws (teleporters, light\n"
 		"fixtures, energy shields, plasma bolts, the weapon's displays) go\n"
 		"past white. false draws into 8 bits a channel, as the Xbox does." },
+	{ "display.ray_tracing", _config_string, "\"off\"", "HALO_RAY_TRACING", _environment_value,
+		_platform_desktop,
+		"Ray-traced lighting (the OpenGL renderer, 64-bit Linux, a GPU with\n"
+		"VK_KHR_ray_query: Vulkan beside OpenGL), traced against the level's\n"
+		"and the objects' render geometry. \"off\" (the default) draws as the\n"
+		"Xbox does. \"shadows\": the sun's shadows of characters, vehicles and\n"
+		"props, in place of their projected ones. \"ao\": and ambient occlusion\n"
+		"and reflections. Video Setup's MODERN LIGHTING page and the Guide;\n"
+		"UNAVAILABLE while bgfx draws, and not shown where it can't run. Live,\n"
+		"drawing only." },
+	{ "display.ray_tracing_quality", _config_string, "\"auto\"", "HALO_RAY_TRACING_QUALITY", _environment_value,
+		_platform_desktop,
+		"What display.ray_tracing costs. \"high\": every pixel traced, four\n"
+		"rays toward the sun and four of occlusion. \"medium\": one pixel of\n"
+		"each 2x2 block a frame at 1280x800 (a different one each frame,\n"
+		"brought up to full size by depth), two and two; the blocks wider in a\n"
+		"larger view (3x3 at 1920x1080), so that the cost does not grow with\n"
+		"the pixels. \"low\": one of each 3x3 block (4x4 at 1920x1080), one\n"
+		"and one. \"auto\" (the default): medium on an integrated GPU (an\n"
+		"APU), high on others. Live, drawing only." },
+	{ "display.glow", _config_string, "\"off\"", "HALO_GLOW", _environment_value, _platform_desktop,
+		"A bloom (the OpenGL renderer). \"off\" (the default) draws as the Xbox\n"
+		"does. \"on\": the lights, the self-lit surfaces, plasma and muzzle\n"
+		"flashes glow, seven levels wide (past white with display.hdr, from\n"
+		"display.glow_threshold without it); \"shafts\": and the sky's light\n"
+		"streaked toward the sun. Live, drawing only." },
+	{ "display.glow_intensity", _config_real, "0.45", "HALO_GLOW_INTENSITY", _environment_value, _platform_desktop,
+		"display.glow's strength, 0 to 4 (0.45, the default, is GLOW STRENGTH's\n"
+		"100%: subtle)." },
+	{ "display.glow_threshold", _config_real, "0.6", "HALO_GLOW_THRESHOLD", _environment_value, _platform_desktop,
+		"The brightness (linear, 1 is white) display.glow starts from." },
+	{ "display.lighting_unit_floor", _config_real, "0.8", "HALO_LIGHTING_UNIT_FLOOR", _environment_value,
+		_platform_desktop,
+		"In a network game, the darkest display.ray_tracing may make a player,\n"
+		"a vehicle or a projectile (0.5 to 1.0): the online brightness floor,\n"
+		"so that nobody hides in a shadow only some machines draw." },
 	{ "display.opensauce_post_processing", _config_boolean, "true", "HALO_OPENSAUCE_POST_PROCESSING",
 		_environment_value, _platform_desktop,
 		"Draw the post-processing an OpenSauce map carries (SPV3's look: its\n"
@@ -4941,6 +4977,9 @@ static const struct
 	{ "display.vrr", { "off", "on", "auto", NULL }, "\"off\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
 	{ "display.hdr_tone_mapping", { "neutral", "aces", "reinhard", NULL }, "\"neutral\"" },
+	{ "display.ray_tracing", { "off", "shadows", "ao", "gi", NULL }, "\"off\"" },
+	{ "display.ray_tracing_quality", { "auto", "low", "medium", "high", NULL }, "\"auto\"" },
+	{ "display.glow", { "off", "on", "shafts", NULL }, "\"off\"" },
 	/* ("gearbox" and the older "pc", Gearbox's retired menus, are read as
 	"xbox", and the player told once: config_menus_retired_pending) */
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },

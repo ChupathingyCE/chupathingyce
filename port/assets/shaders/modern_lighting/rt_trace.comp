@@ -1,0 +1,483 @@
+#version 460
+/*
+Display.ray_tracing's trace
+(port/linux/src/posix_modern_lighting_rt.c), one thread a pixel.
+
+In: each traced pixel's position from the camera (w: its distance, 0 for
+none) and normal (w: 1 where the surface shines), written by OpenGL
+(modern_lighting.c's prepass) at the pixel's place, or on a grid of blocks
+at its block's. Out: r the ambient
+occlusion, g the sun's visibility, b 1 on an object, a 1 on a unit (the
+fairness floor's).
+
+The scene (more.z 1): the level's render geometry (instance mask 1, custom
+index 0xffff) and each object's render model as it is drawn, skinned
+(posix_modern_lighting_rt.c's rt_skin.comp; mask 2, or 8 for those that
+cast no shadow; mask 4 too for units, vehicles and projectiles; custom index
+their ultimate parent's slot; bit 16 a unit, bit 17 an object the game
+lights as in the level's shadow already: no sky where it stands, or the
+level hides the sun from its middle). Or
+(more.z 0, the round-1 prototype's, for comparing) the level's collision BSP
+and the objects' collision models.
+
+Each geometry's record (binding 6, at its instance's shader binding table
+offset plus its geometry's index): where its triangles and vertices are, and
+for an alpha-tested surface (foliage, grates: not opaque in its structure)
+the texture whose alpha is tested at its texture coordinate, as the game
+tests it (more than 127 of 255 passes: D3DRS_ALPHAREF 0x7F).
+
+- A pixel is an object's when the ray from the camera meets an object at
+  the pixel's distance (a miss counts as the level).
+- The level's pixels have the BSP's own shadows in their lightmaps: one is
+  shadowed only by an object, and only where the BSP lets the sun through.
+- An object's pixels are shadowed by the level and the other objects; with
+  the render meshes by its own parts too, farther than SELF_REACH (an arm
+  over the chest, a Pelican's wing over its hull), never by the triangles
+  around the point itself (a low-poly surface's facets near the sun's edge).
+  With the collision models not by itself (they are not its shape).
+- Where a surface turns from the sun the shadow fades out (TERMINATOR): the
+  game's own shading darkens it there, and a hard line would show the facets.
+- The occlusion: rays over the hemisphere, up to ao_radius.
+
+The cost (display.ray_tracing_quality, posix_modern_lighting_rt.c): the
+view traced at full resolution, or one pixel of each 2x2 block (grid.x 2:
+the pixel grid.yz of its block, a different one each frame), its result
+written at the block's place in the low-resolution corner of the result
+images (modern_lighting.c's passes take it up to the view's size, by
+depth, after the accumulation over frames); the sun's and the occlusion's
+rays each a count of their own, their directions from a low-discrepancy
+noise that changes each frame (more.w 1) where there are few. What costs
+nothing to leave out is left out: the level's own test toward the sun only
+where an object shades the point (it only ever undoes an object's shade),
+the occlusion past where it has faded out, the level's rays in an
+object's own (the level is opaque but its alpha-tested surfaces: the
+hardware's fast path, not a candidate test for each of its triangles), and
+the classifying ray from the camera only around the pixel's own distance.
+
+SPDX-FileCopyrightText: 2026 BirchWoodGod
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-or-later
+*/
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT scene;
+layout(set = 0, binding = 1, rgba32f) uniform readonly image2D positions;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D normals;
+layout(set = 0, binding = 3, rgba8) uniform writeonly image2D result;
+/* the reflected ray's hit: its world point from the camera (xyz) and 1, or
+0 for none (a ray that leaves the level) */
+layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D reflection;
+/* the alpha-tested surfaces' alpha (R8), by a record's texture */
+layout(set = 0, binding = 5) uniform sampler2D alphas[512];
+
+struct Record
+{
+	uvec2 indices;   /* 3 uints a triangle */
+	uvec2 vertices;  /* the vertices as the map keeps them (kind) */
+	int kind;        /* 0 opaque; 1 model compressed, 2 model uncompressed, 3 environment compressed */
+	int texture;     /* alphas[], -1 none */
+	vec2 scale;      /* the texture coordinate's scale */
+};
+layout(set = 0, binding = 6, std430) readonly buffer Records { Record records[]; };
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer Words { uint w[]; };
+
+layout(push_constant) uniform Trace
+{
+	vec4 camera;   /* w: the occlusion's radius */
+	vec4 sun;      /* toward the sun; w: the cone's half angle (radians), 0 no sun */
+	ivec4 rect;    /* x0, y0, x1, y1 */
+	ivec4 misc;    /* x: mode (1 shadows, 2 ao, 3 gi), y: frame, z: the viewer's instance, w: occlusion rays */
+	ivec4 more;    /* x: shadow rays, y: debug (1: the level's own shadows on every pixel, to check the sun),
+	                  z: 1 the render meshes (0 the collision models), w: 1 the low-discrepancy noise */
+	ivec4 grid;    /* x: 1 every pixel, 2 one of each 2x2 block; yz: this frame's pixel in its block;
+	                  w: the lab's parts left out (1 reflections, 2 occlusion, 4 sun); 8 the
+	                  reflections' own pass (reflections_pass) */
+	vec4 fade;     /* xy: the distances over which the occlusion fades out (none traced past y) */
+} trace;
+
+const uint LEVEL = 0x01u;
+const uint OBJECT = 0x02u;
+const uint UNIT = 0x04u;
+const uint SHADOWLESS = 0x08u;
+/* how far an object's shade reaches over what is near it (world units) */
+const float OBJECT_REACH = 1.2;
+/* an object's own parts shade it past this (world units, about 15 cm) */
+const float SELF_REACH = 0.05;
+/* the shadow fades over this much of the turn from the sun (cosine) */
+const float TERMINATOR = 0.2;
+
+uint seed;
+/* the low-discrepancy noise: the pixel's interleaved gradient noise, moved
+on by the golden ratio each frame (and for each sample) */
+vec2 noise_pixel;
+int noise_index = 0;
+
+float noise01()
+{
+	vec2 p = noise_pixel + float(noise_index) * vec2(5.588238, 5.588238);
+	float value = fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+
+	noise_index++;
+	return fract(value + float(trace.misc.y & 1023) * 0.61803399);
+}
+
+float random01_white()
+{
+	seed = seed * 747796405u + 2891336453u;
+	uint word = ((seed >> ((seed >> 28u) + 4u)) ^ seed) * 277803737u;
+	word = (word >> 22u) ^ word;
+	return float(word) / 4294967296.0;
+}
+
+/* a vertex's texture coordinate, by its record's kind */
+vec2 texcoord(Record record, uint vertex)
+{
+	Words words = Words(record.vertices);
+
+	if (record.kind == 1)
+	{
+		uint packed = words.w[vertex * 8u + 6u];
+		float u = float(int(packed << 16) >> 16), v = float(int(packed) >> 16);
+
+		return (vec2(u, v) * 2.0 + 1.0) * (1.0 / 65535.0);
+	}
+	if (record.kind == 2)
+		return vec2(uintBitsToFloat(words.w[vertex * 17u + 12u]), uintBitsToFloat(words.w[vertex * 17u + 13u]));
+	return vec2(uintBitsToFloat(words.w[vertex * 8u + 6u]), uintBitsToFloat(words.w[vertex * 8u + 7u]));
+}
+
+/* whether a candidate triangle is solid where the ray meets it: an opaque
+one always, an alpha-tested one where its alpha passes */
+bool solid(uint record_index, uint primitive, vec2 barycentrics, bool alpha)
+{
+	Record record = records[record_index];
+
+	if (record.texture < 0 || record.kind == 0)
+		return true;
+	/* (the occlusion's and the reflections' rays: an alpha-tested surface,
+	foliage, a grate, is let through untested: its texels cost the most, and
+	what they add is a speck of shade) */
+	if (!alpha)
+		return false;
+	Words indices = Words(record.indices);
+	uint i0 = indices.w[primitive * 3u], i1 = indices.w[primitive * 3u + 1u], i2 = indices.w[primitive * 3u + 2u];
+	vec2 uv = texcoord(record, i0) * (1.0 - barycentrics.x - barycentrics.y) + texcoord(record, i1) * barycentrics.x +
+		texcoord(record, i2) * barycentrics.y;
+
+	return textureLod(alphas[nonuniformEXT(record.texture)], uv * record.scale, 0.0).r > 0.498;
+}
+
+/* a candidate: not the instance left out (or, with the render meshes and
+self_reach > 0, that instance's own farther than self_reach), and solid
+(alpha: alpha-tested surfaces tested, else let through) */
+bool candidate_counts(rayQueryEXT query, int skip, float self_reach, bool alpha)
+{
+	int custom = rayQueryGetIntersectionInstanceCustomIndexEXT(query, false) & 0xffff;
+
+	if (custom == skip && (self_reach <= 0.0 || rayQueryGetIntersectionTEXT(query, false) < self_reach))
+		return false;
+	return solid(uint(rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(query, false) +
+		rayQueryGetIntersectionGeometryIndexEXT(query, false)), uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)),
+		rayQueryGetIntersectionBarycentricsEXT(query, false), alpha);
+}
+
+/* any hit, leaving out one instance number (-1 none) */
+bool occluded_self(vec3 origin, vec3 direction, float t_min, float t_max, uint mask, int skip, float self_reach)
+{
+	rayQueryEXT query;
+
+	rayQueryInitializeEXT(query, scene, gl_RayFlagsTerminateOnFirstHitEXT | (skip >= 0 ? gl_RayFlagsNoOpaqueEXT : 0u),
+		mask, origin, t_min, direction, t_max);
+	while (rayQueryProceedEXT(query))
+	{
+		if (rayQueryGetIntersectionTypeEXT(query, false) == gl_RayQueryCandidateIntersectionTriangleEXT &&
+			candidate_counts(query, skip, self_reach, true))
+		{
+			rayQueryConfirmIntersectionEXT(query);
+		}
+	}
+	return rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+}
+
+bool occluded(vec3 origin, vec3 direction, float t_min, float t_max, uint mask, int skip)
+{
+	return occluded_self(origin, direction, t_min, t_max, mask, skip, 0.0);
+}
+
+/* the nearest hit: its distance (or -1) and instance number */
+float nearest(vec3 origin, vec3 direction, float t_min, float t_max, uint mask, int skip, bool alpha, out int custom)
+{
+	rayQueryEXT query;
+
+	custom = -1;
+	rayQueryInitializeEXT(query, scene, skip >= 0 ? gl_RayFlagsNoOpaqueEXT : 0u, mask, origin, t_min, direction, t_max);
+	while (rayQueryProceedEXT(query))
+	{
+		if (rayQueryGetIntersectionTypeEXT(query, false) == gl_RayQueryCandidateIntersectionTriangleEXT &&
+			candidate_counts(query, skip, 0.0, alpha))
+		{
+			rayQueryConfirmIntersectionEXT(query);
+		}
+	}
+	if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT)
+		return -1.0;
+	custom = rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
+	return rayQueryGetIntersectionTEXT(query, true);
+}
+
+float random01()
+{
+	return trace.more.w != 0 ? noise01() : random01_white();
+}
+
+/* the nearest of the level (its alpha-tested surfaces let through, as for
+alpha false: culled, the opaque rest on the hardware's fast path) and the
+objects (leaving out one instance), as nearest() with LEVEL in the mask */
+float nearest_split(vec3 origin, vec3 direction, float t_min, float t_max, uint objects, int skip)
+{
+	rayQueryEXT query;
+	float level = -1.0;
+	int custom;
+
+	rayQueryInitializeEXT(query, scene, gl_RayFlagsCullNoOpaqueEXT, LEVEL, origin, t_min, direction, t_max);
+	while (rayQueryProceedEXT(query))
+	{
+	}
+	if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+	{
+		level = rayQueryGetIntersectionTEXT(query, true);
+		t_max = level;
+	}
+	float object = nearest(origin, direction, t_min, t_max, objects, skip, false, custom);
+
+	return object >= 0.0 ? object : level;
+}
+
+vec3 cone_direction(vec3 axis, float half_angle)
+{
+	vec3 t = normalize(abs(axis.z) < 0.9 ? cross(axis, vec3(0.0, 0.0, 1.0)) : cross(axis, vec3(1.0, 0.0, 0.0)));
+	vec3 b = cross(axis, t);
+	float r = sqrt(random01()) * tan(half_angle);
+	float phi = random01() * 6.2831853;
+	return normalize(axis + (t * cos(phi) + b * sin(phi)) * r);
+}
+
+/* the reflected ray from a pixel's point (n its normal, origin and t_min
+as main's): its hit's world point from the camera and 1, or 0 for none */
+vec4 reflected_hit(vec4 P, vec3 n, vec3 origin, float t_min, int skip)
+{
+	vec3 r = reflect(P.xyz / P.w, n);
+	float hit = nearest_split(origin, r, t_min, 60.0, OBJECT | SHADOWLESS, skip);
+
+	return hit >= 0.0 ? vec4(origin + r * hit - trace.camera.xyz, 1.0) : vec4(0.0);
+}
+
+/* (grid.w 8) the reflections' own pass, on a grid of blocks: one texel of
+each two of the grid's, in a checkerboard that turns each frame (each thread
+its texel: no thread idle in a wave), the hit at that texel. Only where the
+surface shines (the normal's w, the prepass's: where the game's shine was
+drawn there the frame before, or not known): elsewhere no ray, and a wave
+with no shiny pixel skips it all. The other half's texels keep last frame's
+hit, which modern_lighting.c's reflections never read: they fill each pixel
+from this frame's texels around it */
+void reflections_pass()
+{
+	int scale = max(trace.grid.x, 1);
+	ivec2 thread = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 block = ivec2(thread.x * 2 + ((thread.y + trace.misc.y) & 1), thread.y);
+	ivec2 at = trace.rect.xy + block;
+
+	if (at.x >= trace.rect.x + (trace.rect.z - trace.rect.x + scale - 1) / scale ||
+		at.y >= trace.rect.y + (trace.rect.w - trace.rect.y + scale - 1) / scale)
+	{
+		return;
+	}
+	/* (the prepass wrote the traced pixel's at its block's texel) */
+	vec4 P = imageLoad(positions, at);
+	vec4 N = imageLoad(normals, at);
+	vec4 reflected = vec4(0.0);
+
+	if (P.w > 0.0 && N.w > 0.5)
+	{
+		vec3 n = normalize(N.xyz);
+		vec3 origin = trace.camera.xyz + P.xyz + n * (0.006 + P.w * 0.0012);
+		float t_min = trace.more.z != 0 ? 0.01 + P.w * 0.0008 : 0.04 + P.w * 0.002;
+
+		/* (the game's shine is the level's: no object's own pixel is here) */
+		reflected = reflected_hit(P, n, origin, t_min, trace.misc.z);
+	}
+	imageStore(reflection, at, reflected);
+}
+
+void main()
+{
+	if ((trace.grid.w & 8) != 0)
+	{
+		reflections_pass();
+		return;
+	}
+	int scale = max(trace.grid.x, 1);
+	ivec2 block = ivec2(gl_GlobalInvocationID.xy);
+	/* (the result at the block's place: with every pixel traced, the pixel's) */
+	ivec2 at = trace.rect.xy + block;
+	ivec2 pixel = min(trace.rect.xy + block * scale + trace.grid.yz, trace.rect.zw - 1);
+
+	if (at.x >= trace.rect.x + (trace.rect.z - trace.rect.x + scale - 1) / scale ||
+		at.y >= trace.rect.y + (trace.rect.w - trace.rect.y + scale - 1) / scale)
+	{
+		return;
+	}
+	/* (the prepass wrote the traced pixel's point and normal at its block's
+	texel: with every pixel traced, the pixel's own) */
+	vec4 P = imageLoad(positions, at);
+	if (P.w <= 0.0)
+	{
+		imageStore(result, at, vec4(1.0, 1.0, 0.0, 0.0));
+		if (scale <= 1)
+			imageStore(reflection, at, vec4(0.0));
+		return;
+	}
+	seed = uint(pixel.x) * 1973u + uint(pixel.y) * 9277u + uint(trace.misc.y) * 26699u;
+	noise_pixel = vec2(pixel);
+	vec4 N = imageLoad(normals, at);
+	vec3 n = normalize(N.xyz);
+	vec3 p = trace.camera.xyz + P.xyz;
+	float distance = P.w;
+	int viewer = trace.misc.z;
+
+	/* the object the pixel is on, if any */
+	int self = -1;
+	bool unit = false;
+	/* (an object the game lights as in the level's shadow already: no sky
+	where it stands, or the level hides the sun from its middle) */
+	bool level_shaded = false;
+	{
+		int custom;
+		vec3 view = P.xyz / distance;
+		/* (only what is within the pixel's distance's tolerance counts: the
+		ray is traced over that much of its length alone) */
+		float tolerance = 0.06 + distance * 0.01;
+		/* (the objects alone: the level's structure, the largest, is not
+		walked for it; a miss is the level's pixel either way) */
+		float t = nearest(trace.camera.xyz, view, max(distance - tolerance - 0.02, 0.0), distance + tolerance,
+			OBJECT | SHADOWLESS, viewer, true, custom);
+
+		if (t >= 0.0 && (custom & 0xffff) != 0xffff && abs(t - distance) < tolerance)
+		{
+			self = custom & 0xffff;
+			unit = ((custom >> 16) & 1) != 0;
+			level_shaded = ((custom >> 17) & 1) != 0;
+		}
+	}
+	bool meshes = trace.more.z != 0;
+	vec3 origin = p + n * (0.006 + distance * 0.0012);
+	/* (the collision BSP is not the drawn surface: a non-planar quad split
+	along the other diagonal, a cliff's face a little off. Rays start past
+	the gap, so that a surface does not occlude itself. The render meshes
+	are the drawn surface: only the depth buffer's own error) */
+	float t_min = meshes ? 0.01 + distance * 0.0008 : 0.04 + distance * 0.002;
+	float n_dot_sun = dot(n, trace.sun.xyz);
+
+	/* the sun: several rays over its disc (jittered each frame; the blur and
+	the accumulation over frames in modern_lighting.c make the penumbra) */
+	float visible = 1.0;
+	if (trace.more.y == 1 && trace.sun.w > 0.0)
+	{
+		/* (debug: the level's own shadow everywhere, to hold against the
+		lightmap's baked one: the sun's direction checked) */
+		visible = dot(n, trace.sun.xyz) <= 0.0 ? 0.0 :
+			(occluded(origin, trace.sun.xyz, t_min, 400.0, LEVEL, -1) ? 0.0 : 1.0);
+	}
+	else if (trace.misc.x >= 1 && trace.sun.w > 0.0 && dot(n, trace.sun.xyz) > 0.0 && (trace.grid.w & 4) == 0)
+	{
+		int rays = max(trace.more.x, 1);
+		float lit = 0.0;
+
+		for (int i = 0; i < rays; i++)
+		{
+			vec3 direction = cone_direction(trace.sun.xyz, trace.sun.w);
+
+			if (self < 0)
+				lit += occluded(origin, direction, 0.0, 400.0, OBJECT, -1) ? 0.0 : 1.0;
+			/* (an object's: its own parts and the other objects, then the
+			level on the fast path: the same hit as one ray of both. Not the
+			level for an object the game lights as in its shadow already:
+			that shadow would be laid over it twice) */
+			else
+			{
+				lit += occluded_self(origin, direction, t_min, 400.0, OBJECT, self,
+					meshes ? SELF_REACH + distance * 0.002 : 0.0) ||
+					(!level_shaded && occluded(origin, direction, t_min, 400.0, LEVEL, -1)) ? 0.0 : 1.0;
+			}
+		}
+		visible = lit / float(rays);
+		/* (a level pixel the BSP itself shades toward the sun has that
+		shadow in its lightmap already: the objects' shadows are not added
+		over it. Asked only where an object shades it: elsewhere it is lit
+		either way) */
+		if (self < 0 && lit < float(rays) && occluded(origin, trace.sun.xyz, t_min, 400.0, LEVEL, -1))
+			visible = 1.0;
+		/* (turning from the sun: the game's shading has it; no hard line
+		along the facets) */
+		if (meshes)
+			visible = mix(1.0, visible, smoothstep(0.0, TERMINATOR, n_dot_sun));
+	}
+
+	float ao = 1.0;
+	/* (past fade.y the occlusion has faded out: not traced) */
+	if (trace.misc.x >= 2 && distance < trace.fade.y && (trace.grid.w & 2) == 0)
+	{
+		vec3 t = normalize(abs(n.z) < 0.9 ? cross(n, vec3(0.0, 0.0, 1.0)) : cross(n, vec3(1.0, 0.0, 0.0)));
+		vec3 b = cross(n, t);
+		float radius = trace.camera.w;
+		float occlusion = 0.0;
+		int rays = max(trace.misc.w, 1);
+		int skip = self >= 0 ? self : viewer;
+
+		for (int i = 0; i < rays; i++)
+		{
+			float u = random01(), v = random01();
+			float r = sqrt(u);
+			float phi = v * 6.2831853;
+			vec3 direction = normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(1.0 - u, 0.0)));
+			int custom;
+			float hit = nearest_split(origin, direction, t_min, radius, OBJECT | SHADOWLESS, skip);
+
+			if (hit >= 0.0)
+				occlusion += 1.0 - (hit - t_min) / (radius - t_min);
+			else
+			{
+				/* (an object's wider shade over the ground: what grounds a
+				vehicle standing in the level's own shadow, where its sun
+				shadow is the lightmap's) */
+				float wide = nearest(origin, direction, radius, OBJECT_REACH, OBJECT | SHADOWLESS, skip, false, custom);
+
+				if (wide >= 0.0)
+					occlusion += 0.6 * (1.0 - wide / OBJECT_REACH);
+			}
+		}
+		ao = clamp(1.0 - occlusion / float(rays), 0.0, 1.0);
+		/* (fading into the distance, where the lightmaps' own is, and
+		where the radius is too few of the grid's samples across to show
+		without flickering: modern_lighting.c's ao_fade) */
+		ao = mix(ao, 1.0, smoothstep(trace.fade.x, trace.fade.y, distance));
+	}
+	/* the reflected ray: where it meets the scene (OpenGL shades the hit
+	from the view before the reflections, where the hit is on screen), where
+	the surface shines (the normal's w). On a grid of blocks the
+	reflections' own pass traces them (reflections_pass) */
+	if (scale <= 1)
+	{
+		vec4 reflected = vec4(0.0);
+
+		if (trace.misc.x >= 2 && (trace.grid.w & 1) == 0 && N.w > 0.5)
+			reflected = reflected_hit(P, n, origin, t_min, self >= 0 ? self : viewer);
+		imageStore(reflection, at, reflected);
+	}
+	imageStore(result, at, vec4(ao, visible, self >= 0 ? 1.0 : 0.0, unit ? 1.0 : 0.0));
+}
