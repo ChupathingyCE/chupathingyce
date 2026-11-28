@@ -64,6 +64,19 @@ static void check_file(const char *folder, const char *value, const char *expect
 	}
 }
 
+static void check_whole(const char *working, const char *value, const char *expected)
+{
+	char path[64];
+	int found = port_folder_whole(working, value, path, sizeof(path));
+
+	if (expected ? !found || strcmp(path, expected) : found)
+	{
+		printf("FAIL whole \"%s\" in \"%s\": got %d \"%s\", expected \"%s\"\n", value ? value : "(none)",
+			working ? working : "(none)", found, path, expected ? expected : "(none)");
+		failures++;
+	}
+}
+
 int main(void)
 {
 	char small[8];
@@ -151,6 +164,23 @@ int main(void)
 	CHECK(!port_folder_absolute("fonts/a.ttf"));
 	CHECK(!port_folder_absolute(""));
 	CHECK(!port_folder_absolute(NULL));
+
+	/* a path whole (#1663: the data root . made the logs folder ./logs,
+	and file:///./logs opens nothing on Windows) */
+	check_whole("C:\\Games\\Chupathingy", "./logs", "C:\\Games\\Chupathingy/logs");
+	check_whole("C:\\Games\\Chupathingy\\", ".\\logs", "C:\\Games\\Chupathingy\\logs");
+	check_whole("/home/p/halo", "logs", "/home/p/halo/logs");
+	check_whole("/home/p/halo", "././/logs", "/home/p/halo/logs");
+	check_whole("/home/p/halo", ".", "/home/p/halo");
+	check_whole("/home/p/halo", "", "/home/p/halo");
+	check_whole("/", "logs", "/logs");
+	check_whole("/home/p/halo", "/tmp/run1/logs", "/tmp/run1/logs");
+	check_whole("/home/p/halo", "D:/logs", "D:/logs");
+	check_whole(NULL, "/tmp/run1/logs", "/tmp/run1/logs");
+	check_whole(NULL, "./logs", NULL);
+	check_whole("", "./logs", NULL);
+	check_whole("/home/p/halo", NULL, NULL);
+	check_whole("/a/working/folder/that/is/long/enough/to/not/fit/here", "logs/and/more", NULL);
 
 	/* a setting's file: relative in the folder, absolute as it is */
 	check_file("/data/data/fonts", "MyFont.ttf", "/data/data/fonts/MyFont.ttf");

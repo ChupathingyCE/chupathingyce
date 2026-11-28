@@ -53,7 +53,7 @@ game ticks on every machine):
 | end_of_game | both machines reach the end (scores shown), then both play the next game (CTF) |
 | rejoin | the client leaves; a new copy joins the game in progress, plays with both players and sees a death |
 | stability | no copy stops by itself (assertions a release build logs and goes on from are warnings) |
-| line_of_sight | (control-ours only, where the first client's test shots also go through walls, `debug.network_test_shoot_walls`) the host refuses some of the shots through walls for want of a line of sight, and no more refusals than shots through walls (`network.hit_line_of_sight`); counted even though it is a baseline |
+| line_of_sight | (control-ours only, where the first client's test shots also go through walls, `debug.network_test_shoot_walls`) the host logs (or, with `network.hit_line_of_sight` on, refuses) some of the shots through walls for want of a line of sight, and no more of them than shots through walls; counted even though it is a baseline |
 
 A Grifball direction (grifball; docs/bomb.md) has our host play Grifball, a
 game type only machines with Delta Peer's bomb capability play, with an
@@ -494,7 +494,7 @@ def check_direction(host, client, late, back, variants):
     steps["client_damage"] = step(dealt > 0, f"the clients reported {sent} hits; the host dealt {dealt}, refused {rejected}")
 
     # hits through walls (our clients' test shots with debug.network_test_shoot_walls)
-    # refused for want of a line of sight, and no more than them (network.hit_line_of_sight)
+    # logged (refused with network.hit_line_of_sight on) for want of a line of sight, and no more than them
     if host.kind == "ours" and all(copy.kind == "ours" for copy, _ in clients):
         counts = [int(match.group(1)) for line in host.out() for match in [SIGHT_COUNTER.search(line)] if match]
         shots = [line for copy, _ in clients for line in copy.out() if "network test: player" in line and "shoots player" in line]
@@ -502,7 +502,7 @@ def check_direction(host, client, late, back, variants):
         if counts and walled:
             sight = max(counts)
             steps["line_of_sight"] = step(0 < sight <= walled,
-                f"the clients' test shots: {len(shots) - walled} in sight, {walled} through walls; the host refused "
+                f"the clients' test shots: {len(shots) - walled} in sight, {walled} through walls; the host logged or refused "
                 f"{sight} for want of a line of sight")
 
     # the first game's end, on the host and the client there then

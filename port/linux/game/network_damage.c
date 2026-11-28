@@ -507,8 +507,18 @@ static long damage_malformed_reports;
 /* ... of which for want of a line of sight (network.hit_line_of_sight) */
 static long damage_line_of_sight_reports;
 static boolean damage_report_refused_line_of_sight;
-/* ... whether the host looks for one, this tick's reports */
-static boolean damage_line_of_sight = TRUE;
+/* ... whether the host refuses a hit with none, this tick's reports (off,
+the default: it deals it and logs it, network.hit_line_of_sight) */
+static boolean damage_line_of_sight_enforced = FALSE;
+/* hits dealt that had no line of sight, logged (the check not enforced) */
+static long damage_line_of_sight_logged;
+/* How often the host logs how many client hits it accepted, refused and
+logged only (when it refused or logged some). Tells "my shots don't
+register" apart from "I missed". The lines for each hit with no line of
+sight are as many as LINE_OF_SIGHT_LOG_LINES_PER_WINDOW in each of these
+windows; the rest are counted in the summary. */
+#define REPORT_LOG_TICKS (30 * TICKS_PER_SECOND)
+static struct line_of_sight_log_limit damage_line_of_sight_log_limit = { -1, 0, 0 };
 static long damage_dealt_reports;
 static long damage_sent_reports;
 static long damage_replayed_events;
@@ -2093,6 +2103,18 @@ static void distributed_sight_test(
 	}
 }
 
+/* how far apart two of the line's points are (for the log) */
+static real distributed_sight_distance(
+	struct line_of_sight_point const *a,
+	struct line_of_sight_point const *b)
+{
+	real dx = a->x - b->x;
+	real dy = a->y - b->y;
+	real dz = a->z - b->z;
+
+	return (real)sqrt(dx * dx + dy * dy + dz * dz);
+}
+
 /* where the player could see and fire from at the tick: the history's, or
 the trail's nearest point at or before it (NULL for none) */
 static struct damage_sight const *distributed_sight_at(
@@ -2185,14 +2207,18 @@ through; an explosion's from its epicenter (whoever threw it, wherever
 from: a grenade around a corner hits what it sees). What does not come from
 the shooter's gun (a grenade's hit, what an explosion fires, a detonation
 on what it stuck to) has no line to look for, nor a hit on the map's
-scenery or devices. */
-static boolean distributed_report_in_sight(
+scenery or devices. 1 for clear (or nothing to look for), 0 for
+blocked, -1 for undecided (line_of_sight_shot's); and the distance the line
+was looked for over: from where the host had the shooter at the report's
+tick (or the explosion's epicenter) to the target, -1 for none. */
+static int distributed_report_in_sight(
 	short player_index,
 	struct distributed_hit_report const *report,
 	struct object_datum const *target,
 	struct damage_effect_definition const *definition,
 	struct damage_reach const *fired_reach,
-	boolean explosion)
+	boolean explosion,
+	real *distance)
 {
 	struct distributed_sight_context context;
 	struct line_of_sight_query query;
@@ -2200,12 +2226,13 @@ static boolean distributed_report_in_sight(
 	real_point3d origin;
 	int clear;
 
+	*distance = -1.0f;
 	/* (nor the map's scenery and devices: a light set in a wall has its
 	center in it) */
 	if ((!explosion && fired_reach->indirect) || TEST_FLAG(STATIC_TARGET_TYPES, target->object.type))
-		return TRUE;
+		return 1;
 	if (global_current_collision_user_depth >= MAXIMUM_COLLISION_USER_STACK_DEPTH)
-		return TRUE;
+		return 1;
 	/* (the target's sphere where the shooter saw it: its center as far
 	from its origin as the host has it now) */
 	object_get_origin(report->object_index, &origin);
@@ -2234,6 +2261,7 @@ static boolean distributed_report_in_sight(
 		epicenter.z = report->damage.epicenter.z;
 		clear = line_of_sight_explosion(&query, &epicenter, definition->damage.area_of_effect_core_radius,
 			&sight_target);
+		*distance = distributed_sight_distance(&epicenter, &sight_target.center);
 	}
 	else
 	{
@@ -2248,9 +2276,23 @@ static boolean distributed_report_in_sight(
 		bend.slowest_speed = 1.0f;
 		clear = line_of_sight_shot(&query, starts, start_count, &sight_target,
 			bend.turn_radius > 0.0f || bend.gravity > 0.0f ? &bend : NULL);
+		if (start_count > 0)
+			*distance = distributed_sight_distance(&starts[0], &sight_target.center);
 	}
 	--global_current_collision_user_depth;
-	return clear != 0;
+	return clear;
+}
+
+/* the player slot a target is, for the log (-1: no player's) */
+static long distributed_target_player_slot(
+	struct object_datum const *target)
+{
+	struct unit_datum const *unit;
+
+	if (!TEST_FLAG(_object_mask_unit, target->object.type))
+		return -1;
+	unit = (struct unit_datum const *)target;
+	return unit->unit.player_index != NONE ? (long)DATUM_INDEX_TO_ABSOLUTE_INDEX(unit->unit.player_index) : -1;
 }
 
 /* whether the host takes the report, which it makes the damage as the
@@ -2444,12 +2486,31 @@ static boolean distributed_report_valid(
 	}
 	/* a line of sight to the target where the shooter saw it: a shot's
 	from the shooter, an explosion's from its epicenter (not a melee blow's
-	or a collision's, which are at hand) */
-	if (damage_line_of_sight && !melee && !collision &&
-		!distributed_report_in_sight(player_index, report, target, definition, &fired_reach, area))
+	or a collision's, which are at hand). Blocked, the hit is logged in one
+	line (slots and the distance only), and dealt unless the check is
+	enforced (network.hit_line_of_sight, off by default: it misjudges some
+	clear shots) */
+	if (!melee && !collision)
 	{
-		damage_report_refused_line_of_sight = TRUE;
-		return FALSE;
+		real sight_distance;
+		int clear = distributed_report_in_sight(player_index, report, target, definition, &fired_reach, area,
+			&sight_distance);
+		enum line_of_sight_verdict verdict = line_of_sight_verdict(clear, damage_line_of_sight_enforced);
+
+		if (verdict != _line_of_sight_take &&
+			line_of_sight_log_allowed(&damage_line_of_sight_log_limit, now, REPORT_LOG_TICKS))
+		{
+			error(_error_silent, "damage: no line of sight: shooter %d target %ld %s %.1f %s",
+				(int)player_index, distributed_target_player_slot(target), area ? "explosion" : "shot",
+				(double)sight_distance, verdict == _line_of_sight_refuse ? "refused" : "logged");
+		}
+		if (verdict == _line_of_sight_refuse)
+		{
+			damage_report_refused_line_of_sight = TRUE;
+			return FALSE;
+		}
+		if (verdict == _line_of_sight_take_and_log)
+			damage_line_of_sight_logged++;
 	}
 	/* the damage as the host deals it: what a client's hit can be, from the
 	player's own */
@@ -2506,8 +2567,9 @@ void network_damage_handle_reports(
 	struct distributed_hit_report const *reports = (struct distributed_hit_report const *)entries;
 	short index;
 
-	/* (network.hit_line_of_sight, off if it misfires) */
-	damage_line_of_sight = config_boolean("network.hit_line_of_sight") != 0;
+	/* (network.hit_line_of_sight: on refuses hits with no line of sight;
+	off, the default, only logs them) */
+	damage_line_of_sight_enforced = config_boolean("network.hit_line_of_sight") != 0;
 	/* (no tables, which hosting allocates: none of the reports can be
 	checked, so none is dealt) */
 	if (!damage_host)
@@ -2674,26 +2736,29 @@ static boolean distributed_event_goes_to(
 	return FALSE;
 }
 
-/* How often the host logs how many client hits it accepted and refused
-(only when it refused some). Tells "my shots don't register" apart from
-"I missed". */
-#define REPORT_LOG_TICKS (30 * TICKS_PER_SECOND)
-
 static void distributed_log_reports(
 	void)
 {
 	static long logged_dealt;
 	static long logged_rejected;
 	static long logged_line_of_sight;
+	static long logged_line_of_sight_only;
 
-	if (game_time_get() % REPORT_LOG_TICKS != 0 || damage_rejected_reports == logged_rejected)
+	if (!line_of_sight_summary_due(game_time_get(), REPORT_LOG_TICKS, damage_rejected_reports - logged_rejected,
+		damage_line_of_sight_logged - logged_line_of_sight_only))
+	{
 		return;
-	error(_error_silent, "damage: clients' hits in the last %d seconds: %ld dealt, %ld refused (%ld with no line of sight)",
+	}
+	error(_error_silent, "damage: clients' hits in the last %d seconds: %ld dealt, %ld refused (%ld with no line of sight), "
+		"%ld with no line of sight logged only, %ld lines held back",
 		REPORT_LOG_TICKS / TICKS_PER_SECOND, damage_dealt_reports - logged_dealt,
-		damage_rejected_reports - logged_rejected, damage_line_of_sight_reports - logged_line_of_sight);
+		damage_rejected_reports - logged_rejected, damage_line_of_sight_reports - logged_line_of_sight,
+		damage_line_of_sight_logged - logged_line_of_sight_only, damage_line_of_sight_log_limit.held);
 	logged_dealt = damage_dealt_reports;
 	logged_rejected = damage_rejected_reports;
 	logged_line_of_sight = damage_line_of_sight_reports;
+	logged_line_of_sight_only = damage_line_of_sight_logged;
+	damage_line_of_sight_log_limit.held = 0;
 }
 
 /* the tick's killing blows once more, reliably, to every client: sent with
@@ -2924,11 +2989,12 @@ void network_damage_statistics(
 }
 
 /* the reports refused for want of a line of sight (network.hit_line_of_sight),
-of the rejected */
+of the rejected; with the check not enforced, the ones it would have
+refused, which were dealt and logged */
 long network_damage_line_of_sight_refusals(
 	void)
 {
-	return damage_line_of_sight_reports;
+	return damage_line_of_sight_reports + damage_line_of_sight_logged;
 }
 
 /* the host: a grenade a player's unit threw (units.c), as the host's own
