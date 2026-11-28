@@ -179,6 +179,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "game/players.h"
 #include "input/input.h"
 #include "interface/hud_messaging.h"
+#include "interface/hud.h"
+#include "interface/hud_definitions.h"
 #include "items/equipment_definitions.h"
 #include "items/item_definitions.h"
 #include "items/items.h"
@@ -205,6 +207,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "tag_files/tag_groups.h"
 #include "text/draw_string.h"
 #include "text/font_group.h"
+#include "text/text_group.h"
 #include "units/unit_control_data.h"
 #include "units/bipeds.h"
 #include "units/units.h"
@@ -1036,6 +1039,8 @@ static boolean forge_placed_dead(struct forge_placed const *placed);
 static short forge_packs_of(short pack_category);
 static void forge_campaign_seats_tune(void);
 static void forge_flyable_tune(void);
+static void forge_flyable_map_loaded(void);
+static void forge_flyable_mission_update(void);
 static void forge_ai_count(void);
 static short forge_ai_alive(void);
 static short forge_ai_dead_only(void);
@@ -4749,6 +4754,9 @@ void forge_map_loaded(
 		forge_maps[forge_map_of_level(scenario_name)].campaign;
 	if (forge_globals.campaign)
 		platform_log("forge: %s is a campaign mission: its scripts and encounters are left out", scenario_name);
+	/* (the Pelican and dropship a player flies: none of the last map's,
+	forge_flyable.inc) */
+	forge_flyable_map_loaded();
 	/* (the layout's markers: the layout's, before anyone spawns -
 	forge_spawns.inc; none of another map's, nor in another game) */
 	forge_spawns_clear();
@@ -5220,6 +5228,8 @@ void forge_update(
 		forge_campaign_seats_tune();
 		forge_flyable_tune();
 	}
+	/* (a campaign mission's own Pelican and dropship: forge_flyable.inc) */
+	forge_flyable_mission_update();
 	forge_session_update();
 	/* (the layout's teleporters and flags the engine's, before the tick) */
 	forge_netgame_update();
