@@ -9,7 +9,7 @@ settings back (mcc_ui_network_hold_cooperative): they go on with the map
 when the check passes, and a failed check leaves the lobby on its map and
 gametype (#1124). A lobby map the server refuses to put on (not installed
 on this machine) is not asked for again every tick (#1463), only after a new
-pick. The functions are compiled from the game's source with
+pick or a rescan of the MCC maps (a Workshop download finished). The functions are compiled from the game's source with
 stand-ins."""
 import re
 import shutil
@@ -65,6 +65,8 @@ static char menu_map[64], override_map[64];
 static void main_set_multiplayer_map_name(char const *name) { snprintf(menu_map, sizeof(menu_map), "%s", name); }
 static void game_engine_override_map_name(char const *name) { snprintf(override_map, sizeof(override_map), "%s", name); }
 static int map_changes, refuse_changes;
+static unsigned long rescans;
+static unsigned long mcc_maps_rescan_count(void) { return rescans; }
 static boolean network_game_server_change_map_name(struct network_game_server *server, char const *name)
 { map_changes++; if (refuse_changes) return FALSE; snprintf(server->game.map.name, sizeof(server->game.map.name), "%s", name); server->game.map.version = 0x1234; return TRUE; }
 /* (network_server_manager.c's: the co-op settings, and the MCC question) */
@@ -139,6 +141,28 @@ int main(void)
 		for (tick = 0; tick < 33; tick++)
 			mcc_ui_network_update_map(&the_server);
 	}
+	CHECK(map_changes == 1);
+	/* a rescan (a Workshop download finished): asked once more */
+	rescans++;
+	{
+		int tick;
+
+		for (tick = 0; tick < 33; tick++)
+			mcc_ui_network_update_map(&the_server);
+	}
+	CHECK(map_changes == 2);
+	/* installed by the next rescan: the lobby goes on to it with no new pick */
+	refuse_changes = 0;
+	rescans++;
+	mcc_ui_network_update_map(&the_server);
+	CHECK(map_changes == 3 && the_server.game.map.version == 0x1234);
+	/* refused again, then a new pick asks again */
+	reset();
+	check_status = 1;
+	strcpy(the_server.game.map.name, "mcc_maps\\123\\a10");
+	refuse_changes = 1;
+	mcc_ui_network_update_map(&the_server);
+	mcc_ui_network_update_map(&the_server);
 	CHECK(map_changes == 1);
 	refuse_changes = 0;
 	(void)mcc_ui_network_defer_map(&the_server, "mcc_maps\\123\\a10"); /* (a new pick) */
@@ -219,7 +243,16 @@ def test_negative_control(tmp_path):
 def test_negative_control_refused_every_tick(tmp_path):
     """a refused lobby map asked for again every tick (the bug): caught"""
     functions = "\n".join(function(SOURCE, name) for name in FUNCTIONS)
-    functions = mutated(functions, "    if (server!=mcc_pending_map_server && !strcmp(selected,mcc_change_refused_map)) return;\n", "")
+    functions = mutated(functions, "    if (server!=mcc_pending_map_server && !strcmp(selected,mcc_change_refused_map) &&\n"
+                        "        mcc_change_refused_rescans==mcc_maps_rescan_count()) return;\n", "")
+    result = compile_and_run(tmp_path, functions)
+    assert result.returncode != 0
+
+
+def test_negative_control_refused_for_good(tmp_path):
+    """a refused lobby map never asked for again, even after a rescan (stuck): caught"""
+    functions = "\n".join(function(SOURCE, name) for name in FUNCTIONS)
+    functions = mutated(functions, " &&\n        mcc_change_refused_rescans==mcc_maps_rescan_count()) return;", ") return;")
     result = compile_and_run(tmp_path, functions)
     assert result.returncode != 0
 
