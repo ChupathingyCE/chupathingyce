@@ -80,6 +80,11 @@ long ui_map_list_count(void);
 Xbox's map list (builds with HALO_GAME_BROWSER; the maps alone on others) */
 long ui_map_list_count_with_campaign(void);
 boolean ui_map_list_row_is_campaign(long row);
+/* a co-op game's Select Map (ONLINE CO-OP's): the campaign's levels alone,
+no multiplayer map (ui_map_list_count then 0, the levels from row 0), on
+only while that list is up (ui_widget_port_level_list_deleted turns it
+off); every other Select Map has the maps too (#1736) */
+void ui_map_list_coop_only(boolean only);
 /* the campaign maps that aren't the Xbox's levels (the maps folder's own,
 the map packs', then Custom Edition's, HaloMD's and Halo PC's), found with
 the list, and the map name of each, in that order (NULL past them); their

@@ -3071,9 +3071,6 @@ Multiplayer go back to one player (main_menu_initialize,
 multiplayer_type_menu_initialize).
 With one gamepad, it is player 2's (pc_menu_split_players) */
 
-/* (ONLINE's: Select Map opens on the campaign's first level: coop_online) */
-static boolean pc_menus_coop_first;
-
 /* "port coop begin": two players, player 1 on its profile (campaign_profile)
 and the controller that chose co-op */
 static boolean coop_begin(short controller)
@@ -3082,8 +3079,6 @@ static boolean coop_begin(short controller)
 
 	player_spawn_count = 1;
 	player_ui_reset_single_player_local_player_controllers();
-	/* (a level preselected by ONLINE that Select Map never took) */
-	pc_menus_coop_first = FALSE;
 	if (!campaign_profile(controller, &profile))
 		return campaign_fail();
 	player_spawn_count = 2;
@@ -3140,16 +3135,9 @@ static boolean coop_player2_choose(short controller)
 
 /* the Multiplayer menu's ONLINE CO-OP (ui_widget.c): network co-op, through
 the host flow Online Games' CREATE GAME opens (Select Map, GAME SETUP, the
-lobby), with Select Map on the campaign's first level
-(pc_menus_coop_first_take). #1252 */
-boolean pc_menus_coop_first_take(void)
-{
-	boolean first = pc_menus_coop_first;
-
-	pc_menus_coop_first = FALSE;
-	return first;
-}
-
+lobby), with Select Map on the campaign's levels alone, the first chosen
+(ui_widget_port_map_select_over_coop: the Multiplayer menu on ONLINE CO-OP
+under it). #1252 */
 boolean pc_menus_coop_online(void)
 {
 	/* (not on the original Xbox, which hosts no network co-op: Delta's
@@ -3157,10 +3145,8 @@ boolean pc_menus_coop_online(void)
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_XBOX_CONSOLE)
 	boolean browser_screen_create_coop_game(void);
 
-	pc_menus_coop_first = TRUE;
 	if (browser_screen_create_coop_game())
 		return TRUE;
-	pc_menus_coop_first = FALSE;
 #endif
 	return campaign_fail();
 }

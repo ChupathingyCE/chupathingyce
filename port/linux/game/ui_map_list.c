@@ -1458,6 +1458,8 @@ static struct
 	char search[48];
 	unsigned long serial;
 	boolean present[NUMBER_OF_UI_MAP_LIST_SOURCES];
+	/* (ui_map_list_coop_only) the campaign's levels alone */
+	boolean coop_only;
 	long package_text_count;
 	struct
 	{
@@ -1731,7 +1733,7 @@ static void view_apply(void)
 	{
 		view.present[_ui_map_list_source_all] = TRUE;
 		view.present[ui_map_list[entry].source] = TRUE;
-		if (view_matches(&ui_map_list[entry]))
+		if (!view.coop_only && view_matches(&ui_map_list[entry]))
 			ui_map_list_view[rows++] = (short)entry;
 	}
 	shown = rows;
@@ -1794,6 +1796,16 @@ static void view_refresh(
 	{
 		view_apply();
 	}
+}
+
+void ui_map_list_coop_only(
+	boolean only)
+{
+	if (!only == !view.coop_only)
+		return;
+	view.coop_only = only ? TRUE : FALSE;
+	if (ui_map_list_count_value)
+		view_apply();
 }
 
 void ui_map_list_view_set(

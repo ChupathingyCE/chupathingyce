@@ -2943,6 +2943,15 @@ void ui_widget_delete(
 	/* port: the pointer's targets must not keep it (#1498) */
 	ui_mouse_forget_widget(widget);
 #endif
+#if defined(HALO_MAP_LIST) && defined(HALO_GAME_BROWSER)
+	/* port: a co-op game's Select Map list closing takes its view, the
+	campaign's levels alone, with it (ui_widget_event_handler_functions.c) */
+	{
+		extern void ui_widget_port_level_list_deleted(struct widget_instance *widget);
+
+		ui_widget_port_level_list_deleted(widget);
+	}
+#endif
 	dispose_pointer(widget_memory_pool, widget);
 	for (widget_index = 0;
 		widget_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS;
@@ -4504,6 +4513,19 @@ boolean ui_widget_online_games_create_coop_game(
 	void)
 {
 	return ui_widget_online_games_create_game_at(online_games.coop ? COOP_ITEM_POSITION : ONLINE_GAMES_POSITION);
+}
+
+/* whether the map select opening is ONLINE CO-OP's: the screen under it in
+the first player's history is the Multiplayer menu on ONLINE CO-OP, as on
+the way in and back from GAME SETUP */
+boolean ui_widget_port_map_select_over_coop(
+	void)
+{
+	struct widget_stack_node *under = widget_globals.widget_stack[0];
+
+	return online_games.coop && under && under->data.previous_widget_tag != NONE &&
+		under->data.previous_widget_tag == tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN) &&
+		under->data.focused_child_index == COOP_ITEM_POSITION;
 }
 #endif
 

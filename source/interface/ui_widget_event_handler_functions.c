@@ -951,7 +951,8 @@ boolean playlist_profile_get_mode_options(long playlist_profile_index, byte *mod
 /* port: network co-op from the Chupathingy menus' Select Map
 (port/linux/game/menu_functions.c) */
 boolean pc_menus_host_cooperative_shown(void);
-boolean pc_menus_coop_first_take(void);
+/* (ui_widget.c: ONLINE CO-OP's map select) */
+boolean ui_widget_port_map_select_over_coop(void);
 boolean pc_menus_host_cooperative_choose(struct widget_instance *widget, char const *map_name,
 	boolean *widget_deleted);
 #endif
@@ -3174,6 +3175,25 @@ static boolean create_and_begin_editing_new_player_profile(
 	return result;
 }
 
+#if defined(HALO_MAP_LIST) && defined(HALO_GAME_BROWSER)
+/* port: the co-op game's Select Map list up (NULL for none), whose view is
+the campaign's levels alone (ui_map_list_coop_only) */
+static struct widget_instance *coop_level_list;
+
+/* a widget deleted (ui_widget_delete): with the co-op list, the list's view
+as every other has it, the maps and the levels after them. Whatever closes
+it (B, the level chosen, the game started or left, a disconnect), the
+lobby and the other menus' map lists count the maps again */
+void ui_widget_port_level_list_deleted(
+	struct widget_instance *widget)
+{
+	if (!widget || widget != coop_level_list)
+		return;
+	coop_level_list = NULL;
+	ui_map_list_coop_only(FALSE);
+}
+#endif
+
 static boolean multiplayer_level_list_initialize(
 	struct widget_instance *widget,
 	struct event_record *event,
@@ -3186,7 +3206,17 @@ static boolean multiplayer_level_list_initialize(
 	Edition maps */
 	short level_count;
 	char **level_names;
+#ifdef HALO_GAME_BROWSER
+	/* (ONLINE CO-OP's: a co-op game's, menu_functions.c) */
+	boolean coop = ui_widget_port_map_select_over_coop() && pc_menus_host_cooperative_shown();
+#endif
 
+#ifdef HALO_GAME_BROWSER
+	/* (a co-op game's list has the campaign's levels alone while it's up,
+	#1736; any other the maps and, when hosting, the levels after them) */
+	coop_level_list = coop ? widget : NULL;
+	ui_map_list_coop_only(coop);
+#endif
 #ifndef HALO_XBOX_CONSOLE
 	/* (all the maps, in the list's order: the Xbox menus' search starts
 	empty, ui_widget.c) */
@@ -3238,9 +3268,9 @@ static boolean multiplayer_level_list_initialize(
 		widget->parameters.list.selected_index = 0;
 #endif
 #ifdef HALO_GAME_BROWSER
-	/* port: from the co-op screen's ONLINE: on the campaign's first level,
-	after the multiplayer maps (menu_functions.c's coop_online) */
-	if (pc_menus_coop_first_take() && pc_menus_host_cooperative_shown())
+	/* port: ONLINE CO-OP's: on the campaign's first level (menu_functions.c's
+	pc_menus_coop_online), the list the levels alone */
+	if (coop)
 	{
 		char const *first_level = main_get_solo_level_name(0);
 		short row;
