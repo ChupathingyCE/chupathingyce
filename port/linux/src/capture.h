@@ -22,6 +22,11 @@ desktop builds' only (HALO_CAPTURE: halo_console_features.h).
 
 /* the input's: asks for a screenshot of the next frame (any thread) */
 void capture_request_screenshot(void);
+/* the console's "screenshot <name>": the same, saved as <name>.png (only
+letters, digits, - and _ kept) for the tools that compare pictures
+(tools/renderer_gate.py), with no toast; an empty name takes the usual
+one */
+void capture_request_screenshot_named(const char *name);
 
 /* whether a screenshot has been asked for and not yet taken (the game's,
 as it draws: the frame it draws then is the one the shot is of) */

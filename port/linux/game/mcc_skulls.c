@@ -78,11 +78,6 @@ struct hs_external_global_definition mcc_skull_definitions[MCC_SKULL_COUNT] = {
     { "debug_ice_cream_flavor_force_coop", _hs_type_boolean, 0, &mcc_skull_values[MCC_SKULL_FORCE_COOP] }
 };
 
-char const *mcc_skull_name(short skull)
-{
-    return skull >= 0 && skull < MCC_SKULL_COUNT ? mcc_skull_names[skull] : "";
-}
-
 boolean mcc_skull_global(char const *name)
 {
     short i;

@@ -65,6 +65,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <math.h>
 #include <string.h>
+#include "content_bytes.h"
 
 /* (cache_files.c) */
 boolean tag_index_is_group(long tag_index, long group_tag);
@@ -138,33 +139,6 @@ static real image_effect_time(
 	return (real)game_time_get() / (real)TICKS_PER_SECOND;
 }
 
-static long image_effect_read32(
-	byte const *address)
-{
-	int value;
-
-	memcpy(&value, address, 4);
-	return value;
-}
-
-static real image_effect_read_real(
-	byte const *address)
-{
-	real value;
-
-	memcpy(&value, address, 4);
-	return value;
-}
-
-static short image_effect_read16(
-	byte const *address)
-{
-	short value;
-
-	memcpy(&value, address, 2);
-	return value;
-}
-
 static long image_effect_find(
 	char const *name)
 {
@@ -186,7 +160,7 @@ static byte const *image_effect_definition(
 static struct bitmap_data const *image_effect_bitmap(
 	byte const *reference)
 {
-	long index = image_effect_read32(reference + TAG_REFERENCE_INDEX_OFFSET);
+	long index = content_s32(reference + TAG_REFERENCE_INDEX_OFFSET);
 	struct bitmap_group *group;
 
 	if (index == NONE || !tag_index_is_group(index, BITMAP_GROUP_TAG))
@@ -216,10 +190,10 @@ static real image_effect_animation(
 	real time,
 	unsigned int salt)
 {
-	short function = image_effect_read16(animation + 2);
-	real period = image_effect_read_real(animation + 4);
-	real phase = image_effect_read_real(animation + 8);
-	real scale = image_effect_read_real(animation + 12);
+	short function = content_s16(animation + 2);
+	real period = content_f32(animation + 4);
+	real phase = content_f32(animation + 8);
+	real scale = content_f32(animation + 12);
 	real x;
 	real value;
 
@@ -366,27 +340,27 @@ static void image_effect_draw_stage(
 	real time,
 	short stage_index)
 {
-	short type = (short)image_effect_read32(stage + STAGE_TYPE_OFFSET);
+	short type = (short)content_s32(stage + STAGE_TYPE_OFFSET);
 	/* (head's blob, dark in its middle, 2 at 0x24: read as its inverse, the
 	view kept in the middle and dark around it) */
-	boolean inverted = image_effect_read32(stage + STAGE_MODE_OFFSET) == _stage_mode_inverted;
+	boolean inverted = content_s32(stage + STAGE_MODE_OFFSET) == _stage_mode_inverted;
 	struct bitmap_data const *bitmap;
 	real u_scale, v_scale, u_offset, v_offset;
 	short width, height;
 
 	if (type != _stage_type_multiply && type != _stage_type_overlay)
 		return;
-	strength *= image_effect_read_real(stage + STAGE_INTENSITY_OFFSET);
+	strength *= content_f32(stage + STAGE_INTENSITY_OFFSET);
 	if (strength <= 0.0f)
 		return;
 	bitmap = image_effect_bitmap(stage + STAGE_BITMAP_OFFSET);
 	if (!bitmap)
 		return;
-	u_scale = image_effect_read_real(stage + STAGE_SCALE_OFFSET);
-	v_scale = image_effect_read_real(stage + STAGE_SCALE_OFFSET + 4);
-	u_offset = image_effect_read_real(stage + STAGE_OFFSET_OFFSET) +
+	u_scale = content_f32(stage + STAGE_SCALE_OFFSET);
+	v_scale = content_f32(stage + STAGE_SCALE_OFFSET + 4);
+	u_offset = content_f32(stage + STAGE_OFFSET_OFFSET) +
 		image_effect_animation(stage + STAGE_U_ANIMATION_OFFSET, time, 0x1000u * (stage_index + 1));
-	v_offset = image_effect_read_real(stage + STAGE_OFFSET_OFFSET + 4) +
+	v_offset = content_f32(stage + STAGE_OFFSET_OFFSET + 4) +
 		image_effect_animation(stage + STAGE_V_ANIMATION_OFFSET, time, 0x2000u * (stage_index + 1) + 7);
 	if (u_scale == 0.0f)
 		u_scale = 1.0f;
@@ -450,12 +424,12 @@ static void image_effect_draw(
 	strength = PIN(strength, 0.0f, 1.0f);
 
 	/* the grey and its tint: Halo's desaturation */
-	grey_weight = image_effect_read_real(definition + IMAGE_EFFECT_WEIGHTS_OFFSET + 4);
+	grey_weight = content_f32(definition + IMAGE_EFFECT_WEIGHTS_OFFSET + 4);
 	/* (a second pair at 0x94 that boosts the colour back, zombie_color's 2
 	and -1: the picture's weight times it is what colour is left) */
 	{
-		real picture_weight = image_effect_read_real(definition + IMAGE_EFFECT_WEIGHTS_OFFSET);
-		real boost = image_effect_read_real(definition + IMAGE_EFFECT_SECOND_WEIGHTS_OFFSET);
+		real picture_weight = content_f32(definition + IMAGE_EFFECT_WEIGHTS_OFFSET);
+		real boost = content_f32(definition + IMAGE_EFFECT_SECOND_WEIGHTS_OFFSET);
 
 		if (grey_weight > 0.0f && boost > 1.0f && boost <= 4.0f && picture_weight >= 0.0f)
 			grey_weight = 1.0f - MIN(picture_weight * boost, 1.0f);
@@ -476,7 +450,7 @@ static void image_effect_draw(
 	{
 		real amount = strength;
 
-		if (image_effect_read32(definition + IMAGE_EFFECT_MODE_OFFSET) == _image_effect_mode_grade)
+		if (content_s32(definition + IMAGE_EFFECT_MODE_OFFSET) == _image_effect_mode_grade)
 			amount *= 1.0f / 3.0f;
 		multiply.red = 1.0f + (multiply.red - 1.0f) * amount;
 		multiply.green = 1.0f + (multiply.green - 1.0f) * amount;
@@ -486,11 +460,11 @@ static void image_effect_draw(
 		image_effect_multiply_color(&multiply);
 
 	/* its stages */
-	stage_count = image_effect_read32(definition + IMAGE_EFFECT_STAGES_OFFSET);
+	stage_count = content_s32(definition + IMAGE_EFFECT_STAGES_OFFSET);
 	if (stage_count <= 0 || stage_count > MAXIMUM_STAGES)
 		return;
 	stages = (byte const *)xbox_pointer(
-		(unsigned int)image_effect_read32(definition + IMAGE_EFFECT_STAGES_OFFSET + TAG_BLOCK_ADDRESS_OFFSET));
+		(unsigned int)content_s32(definition + IMAGE_EFFECT_STAGES_OFFSET + TAG_BLOCK_ADDRESS_OFFSET));
 	if (!stages)
 		return;
 	for (stage_index = 0; stage_index < (short)stage_count; stage_index++)

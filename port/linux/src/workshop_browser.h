@@ -61,7 +61,12 @@ enum
 	WORKSHOP_BROWSER_TITLE_SIZE = 160,
 	WORKSHOP_BROWSER_AUTHOR_SIZE = 48,
 	WORKSHOP_BROWSER_KIND_SIZE = 32,
+	/* an item's description in its row: its start, for search */
 	WORKSHOP_BROWSER_DESCRIPTION_SIZE = 400,
+	/* the whole description, for its page (workshop_browser_description):
+	Steam takes at most 8000 characters, kept whole with the markup out;
+	longer, cut ending "..." */
+	WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE = 8192,
 	/* the largest list document read */
 	WORKSHOP_BROWSER_MAXIMUM_DOCUMENT = 128 * 1024,
 	WORKSHOP_BROWSER_PREVIEW_WIDTH = 768,
@@ -198,6 +203,11 @@ were written, with their title, kind (campaign, multiplayer or, tagged both,
 campaign+multiplayer), size when Steam
 gives one, update time, creator's id and a plain description; -1 if it is not one */
 int workshop_browser_read_details(const char *text, int length, struct workshop_browser_item *items, int maximum);
+/* the same, with each item's whole plain description in full[index] (up to
+WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE; NULL when it has none): the
+caller frees each; all NULL when it returns -1 */
+int workshop_browser_read_details_full(const char *text, int length, struct workshop_browser_item *items,
+	int maximum, char **full);
 /* the item ids on a page of Steam's public Workshop browse page, each once,
 in the page's order: its list's items (the page carries the list as data),
 or, on a page without it, the digits after each "filedetails/?id=": how many */
@@ -229,10 +239,6 @@ void workshop_browser_size_text(long long size, char *text, int size_of_text);
 
 #ifndef WORKSHOP_LIST_ONLY
 
-/* whether this computer has Halo: MCC from Steam (a library with its
-appmanifest_976730.acf), looked at again at most every few seconds: the
-WORKSHOP section shows only then */
-int workshop_browser_mcc_present(void);
 /* whether the section shows: on every desktop (its setup rows say what's missing) */
 int workshop_browser_offered(void);
 /* the section came into view: the list asked for (once a run unless it
@@ -245,6 +251,10 @@ int workshop_browser_poll(void);
 int workshop_browser_status(void);
 int workshop_browser_count(void);
 const struct workshop_browser_item *workshop_browser_item(int index);
+/* an item's whole description (Steam's details, plain), copied into out
+(WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE holds any): 1, or 0 when it isn't
+known this run (the item's own, its start, is all there is) */
+int workshop_browser_description(const char *id, char *out, int size);
 /* SUBSCRIBE: through the Steam bridge when it is on and ready, else the
 item's Steam page opened (platform_open_url); 0 for a bad index. For the
 MCC row, steamcmd asked to install MCC's Halo CE files */
@@ -286,8 +296,6 @@ list has none of the last one's */
 int workshop_browser_filter(void);
 int workshop_browser_sort(void);
 const char *workshop_browser_search(void);
-/* whether a filter's chip shows: some item has it (All always) */
-int workshop_browser_filter_offered(int filter);
 void workshop_browser_set_filter(int filter);
 void workshop_browser_set_sort(int sort);
 void workshop_browser_set_search(const char *text);
@@ -369,15 +377,10 @@ first map's thumbnail), else Steam's (its CDN), fetched only when asked for
 here, on a thread, kept in the cache folder by item and update time. NULL
 while there is none (yet); serial changes with the picture */
 const unsigned char *workshop_browser_preview(int index, int *width, int *height, int *serial);
-/* 1 when the item's picture can't be had this run (none kept, Steam's
-wouldn't come; debug.txt says why): its page says "No picture" */
-int workshop_browser_preview_missing(int index);
 /* the section went out of view: the Steam bridge stopped */
 void workshop_browser_close(void);
-/* the Steam bridge for this computer: its backend (STEAM_BRIDGE_BACKEND_*,
-NONE where it isn't offered), and its status (STEAM_BRIDGE_OFF when the
+/* the Steam bridge's status for this computer (STEAM_BRIDGE_OFF when the
 setting is off) */
-int workshop_browser_bridge_backend(void);
 int workshop_browser_bridge_status(void);
 
 #if defined(HALO_MCC) && !HALO_MCC

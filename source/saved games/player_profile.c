@@ -613,15 +613,24 @@ void player_profile_save_last_level_played(
 void player_profile_save_level_completed(
 	short local_player_index)
 {
+	player_profile_save_level_completed_at(local_player_index, main_get_current_solo_level(),
+		game_difficulty_level_get());
+
+	return;
+}
+
+/* port: player_profile_save_level_completed's work for a level and a
+difficulty given, not the solo game's: network co-op's
+(port/linux/game/coop_progress.c), whose level is the network game's map */
+void player_profile_save_level_completed_at(
+	short local_player_index,
+	short level,
+	short difficulty)
+{
 	struct player_profile profile;
-	short level;
-	short difficulty;
 	long player_profile_index;
 
 	match_assert("c:\\halo\\SOURCE\\saved games\\player_profile.c", 0x197, (local_player_index>=0) && (local_player_index<MAXIMUM_NUMBER_OF_LOCAL_PLAYERS));
-
-	level = main_get_current_solo_level();
-	difficulty = game_difficulty_level_get();
 
 	/* port: a level not in the campaign (a Halo PC map's, whose scripts may
 	end it with game_won, or Stubbs's eleventh and twelfth, past Halo's ten)

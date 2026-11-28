@@ -63,6 +63,9 @@ being hit looks and feels like on the clients).
 #include "network_rules.h"
 #include "line_of_sight.h"
 #include "mcc_grenades.h"
+#if defined(HALO_STUBBS_LIMITS) && defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+#include "stubbs_mode.h"
+#endif
 
 #include <math.h>
 
@@ -547,6 +550,18 @@ static void distributed_damage_from_data(
 	result->material_type = damage->material_type;
 }
 
+/* how many material types a damage message's may be one of: Halo's own,
+or, in Stubbs mode, the game's (HALO_STUBBS_LIMITS: Stubbs's two more) */
+static short network_damage_material_types(
+	void)
+{
+#if defined(HALO_STUBBS_LIMITS) && defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	if (stubbs_mode_active())
+		return NUMBER_OF_MATERIAL_TYPES;
+#endif
+	return NUMBER_OF_HALO_MATERIAL_TYPES;
+}
+
 /* the damage as this machine has it, FALSE if it cannot be */
 static boolean distributed_damage_to_data(
 	struct distributed_damage const *damage,
@@ -568,8 +583,9 @@ static boolean distributed_damage_to_data(
 	result->multiplier = damage->multiplier;
 	result->material_effect_scale = damage->material_effect_scale;
 	/* (a material the game has, else none, damage_data_new's: it indexes
-	the materials' modifiers) */
-	if (damage->material_type >= 0 && damage->material_type < NUMBER_OF_MATERIAL_TYPES)
+	the materials' modifiers; Halo's own unless Stubbs mode, so a Halo game
+	takes what it took before) */
+	if (damage->material_type >= 0 && damage->material_type < network_damage_material_types())
 		result->material_type = damage->material_type;
 	scenario_location_from_point(&result->location, &result->epicenter);
 	return TRUE;
@@ -3089,7 +3105,7 @@ boolean network_damage_wire_entries(
 }
 #endif
 
-#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+#ifdef HALO_NETWORK_WIRE_SAMPLES
 /* (network_distributed.h) this module's sample entries */
 static void distributed_damage_sample(
 	struct distributed_damage *damage)

@@ -125,6 +125,12 @@ that passes nothing over, port/xbox/game/xbox_desktop_stubs.c) */
 #else
 boolean object_bounds_cache_missed_by_vector(long object_index, real_point3d const *point, real_vector3d const *vector);
 #endif
+#ifdef HALO_PORT_CLUSTER_OBJECT_LISTS
+long const *object_bounds_cache_cluster_objects(short cluster_index, unsigned long flags, long *count);
+#else
+/* (a console walks the cluster's list) */
+#define object_bounds_cache_cluster_objects(cluster_index, flags, count) ((long const *)NULL)
+#endif
 
 #undef REAL_MATH_EXTERNAL_POINT_FROM_LINE3D
 
@@ -485,12 +491,132 @@ collision:
 	return TRUE;
 }
 
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+/* port: the structure tests of the sound obstruction rays, kept. A sound's
+ray from the camera is cast again every so often, and while the player and
+the sound stand still it is the same ray, bit for bit. collision_bsp_test_vector's
+answer depends on the bsp, the test's flags, the breakable surfaces' state,
+the point and the vector alone. So a ray asked again (the same values) is
+answered as it was (a surface met, or none and the leaves it passed through,
+32 at most kept) while the bsp (scenario_structure_bsp_generation) and the
+breakable surfaces' flags (compared each time) are as they were. Its objects
+are tested again as before: they move. The sound manager's thread only.
+Its cost: 164 bytes an entry, 21 KB of statics with 128 entries (counted
+in the Xbox's 64 MB). The rays asked again are the ones of the sounds
+playing near the player; the table is direct-mapped, so 256 entries (43 KB)
+would mostly make two of them sharing an entry rarer */
+enum
+{
+	OBSTRUCTION_MEMO_ENTRIES = 128,
+	OBSTRUCTION_MEMO_LEAVES = 32
+};
+
+static struct
+{
+	unsigned long generation;
+	unsigned long structure_bsp_generation;
+	byte breakable_surface_flags[MAXIMUM_BREAKABLE_SURFACES_PER_MAP / 8];
+	struct
+	{
+		unsigned long generation;
+		unsigned long bsp_flags;
+		unsigned long point_vector[6];
+		boolean surface_met;
+		short leaf_count;
+		long leaf_indices[OBSTRUCTION_MEMO_LEAVES];
+	} entries[OBSTRUCTION_MEMO_ENTRIES];
+} obstruction_memo = { 1 };
+
+/* the entry for the ray's values (a stale one when none is kept for them),
+and whether it holds their answer */
+static boolean obstruction_memo_find(
+	unsigned long bsp_flags,
+	real_point3d const *point,
+	real_vector3d const *vector,
+	long *entry_index)
+{
+	unsigned long words[6];
+	unsigned long hash;
+	byte const *flags = breakable_surface_flags_get();
+	long index;
+
+	if (obstruction_memo.structure_bsp_generation != scenario_structure_bsp_generation ||
+		csmemcmp(obstruction_memo.breakable_surface_flags, flags, sizeof(obstruction_memo.breakable_surface_flags)))
+	{
+		obstruction_memo.generation++;
+		obstruction_memo.structure_bsp_generation = scenario_structure_bsp_generation;
+		csmemcpy(obstruction_memo.breakable_surface_flags, flags, sizeof(obstruction_memo.breakable_surface_flags));
+	}
+	csmemcpy(&words[0], point, sizeof(real_point3d));
+	csmemcpy(&words[3], vector, sizeof(real_vector3d));
+	hash = bsp_flags;
+	for (index = 0; index < 6; index++)
+	{
+		hash = (hash ^ words[index]) * 16777619UL;
+	}
+	index = (long)((hash >> 8) % OBSTRUCTION_MEMO_ENTRIES);
+	*entry_index = index;
+
+	return obstruction_memo.entries[index].generation == obstruction_memo.generation &&
+		obstruction_memo.entries[index].bsp_flags == bsp_flags &&
+		!csmemcmp(obstruction_memo.entries[index].point_vector, words, sizeof(words));
+}
+
+static void obstruction_memo_store(
+	long entry_index,
+	unsigned long bsp_flags,
+	real_point3d const *point,
+	real_vector3d const *vector,
+	boolean surface_met,
+	struct collision_bsp_test_vector_result const *bsp_result)
+{
+	if (!surface_met && (bsp_result->leaf_count < 0 || bsp_result->leaf_count > OBSTRUCTION_MEMO_LEAVES))
+	{
+		obstruction_memo.entries[entry_index].generation = 0;
+		return;
+	}
+	obstruction_memo.entries[entry_index].generation = obstruction_memo.generation;
+	obstruction_memo.entries[entry_index].bsp_flags = bsp_flags;
+	csmemcpy(&obstruction_memo.entries[entry_index].point_vector[0], point, sizeof(real_point3d));
+	csmemcpy(&obstruction_memo.entries[entry_index].point_vector[3], vector, sizeof(real_vector3d));
+	obstruction_memo.entries[entry_index].surface_met = surface_met;
+	obstruction_memo.entries[entry_index].leaf_count = surface_met ? 0 : (short)bsp_result->leaf_count;
+	if (!surface_met)
+	{
+		csmemcpy(obstruction_memo.entries[entry_index].leaf_indices, bsp_result->leaf_indices,
+			bsp_result->leaf_count * sizeof(long));
+	}
+}
+
+#ifdef _MSC_VER
+#define COLLISION_TEST_VECTOR_INLINE static __forceinline
+#else
+#define COLLISION_TEST_VECTOR_INLINE static __inline__ __attribute__((always_inline))
+#endif
+
+/* port: collision_test_vector's body, made two ways (each call passes a
+constant): as itself, and for the sound obstruction rays, whose caller asks
+only whether anything is hit (any_hit). Those are left as soon as the answer
+is known: a structure or water hit, or the first object hit, where the full
+test goes on to find the nearest. The answer is the same: before the first
+hit the objects are tested against the whole vector (t 1) in both, and any
+later test could only find a nearer hit. And their structure test is kept
+(obstruction_memo, above) */
+COLLISION_TEST_VECTOR_INLINE boolean collision_test_vector_internal(
+	unsigned long flags,
+	real_point3d const *point,
+	real_vector3d const *vector,
+	long ignore_object_index,
+	struct collision_result *collision,
+	boolean any_hit)
+#else
 boolean collision_test_vector(
 	unsigned long flags,
 	real_point3d const *point,
 	real_vector3d const *vector,
 	long ignore_object_index,
 	struct collision_result *collision)
+#endif
 {
 	boolean hit = FALSE;
 	boolean test_environment = TEST_FLAG(flags, _collision_test_structure_bit) ||
@@ -539,6 +665,49 @@ boolean collision_test_vector(
 
 		collision_log_usage(_collision_function_vector_structure);
 		collision_log_start_time(&collision_usage_times.vector_structure);
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+		/* port: a sound obstruction ray asked again: its structure test's
+		answer as it was (obstruction_memo; a surface met answers the ray) */
+		if (any_hit && TEST_FLAG(flags, _collision_test_structure_bit))
+		{
+			long entry_index;
+			boolean surface_met;
+
+			if (obstruction_memo_find(bsp_flags, point, vector, &entry_index))
+			{
+				surface_met = obstruction_memo.entries[entry_index].surface_met;
+				if (!surface_met)
+				{
+					bsp_result.t = REAL_MAX;
+					bsp_result.leaf_count = obstruction_memo.entries[entry_index].leaf_count;
+					csmemcpy(bsp_result.leaf_indices, obstruction_memo.entries[entry_index].leaf_indices,
+						bsp_result.leaf_count * sizeof(long));
+				}
+			}
+			else
+			{
+				surface_met = collision_bsp_test_vector(
+					bsp_flags,
+					global_collision_bsp_get(),
+					MAXIMUM_BREAKABLE_SURFACES_PER_MAP,
+					breakable_surface_flags_get(),
+					point,
+					vector,
+					REAL_MAX,
+					&bsp_result);
+				obstruction_memo_store(entry_index, bsp_flags, point, vector, surface_met, &bsp_result);
+			}
+			if (surface_met)
+			{
+				collision_log_end_time(
+					_collision_function_vector_structure,
+					collision_usage_times.vector_structure.QuadPart);
+				hit = TRUE;
+				goto answered;
+			}
+		}
+		else
+#endif
 		if (collision_bsp_test_vector(
 			bsp_flags,
 			global_collision_bsp_get(),
@@ -592,6 +761,12 @@ boolean collision_test_vector(
 		collision_log_end_time(
 			_collision_function_vector_structure,
 			collision_usage_times.vector_structure.QuadPart);
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+		if (any_hit && hit)
+		{
+			goto answered;
+		}
+#endif
 
 		if (TEST_FLAG(flags, _collision_test_media_bit) &&
 			collision->location.cluster_index != NONE)
@@ -653,6 +828,12 @@ boolean collision_test_vector(
 			}
 		}
 
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+		if (any_hit && hit)
+		{
+			goto answered;
+		}
+#endif
 		if (test_objects && bsp_result.leaf_count > 0)
 		{
 			long leaf_index;
@@ -676,10 +857,21 @@ boolean collision_test_vector(
 				{
 					long reference_index;
 					long object_index;
+					/* port: a vector that tests for no bipeds goes through
+					the cluster's other objects of the types it tests for, in
+					the list's order, from a list of them (object_bounds_cache.c;
+					from GulchCE by chestahh, granted 2026-11-26) */
+					long cached_count = 0;
+					long cached_next = 0;
+					long const *cached = object_bounds_cache_cluster_objects((short)cluster_index, flags, &cached_count);
 
-					for (object_index = cluster_get_first_collideable_object(&reference_index, cluster_index);
+					for (object_index = cached ?
+							(cached_count > 0 ? cached[0] : NONE) :
+							cluster_get_first_collideable_object(&reference_index, cluster_index);
 						object_index != NONE;
-						object_index = cluster_get_next_collideable_object(&reference_index))
+						object_index = cached ?
+							(++cached_next < cached_count ? cached[cached_next] : NONE) :
+							cluster_get_next_collideable_object(&reference_index))
 					{
 						/* port: (the ones the vector misses passed over on a
 						packed copy of their bounding spheres, before they
@@ -696,8 +888,20 @@ boolean collision_test_vector(
 								collision))
 						{
 							hit = TRUE;
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+							if (any_hit)
+							{
+								break;
+							}
+#endif
 						}
 					}
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+					if (any_hit && hit)
+					{
+						break;
+					}
+#endif
 				}
 			}
 			object_marker_end();
@@ -706,6 +910,12 @@ boolean collision_test_vector(
 				_collision_function_vector_objects,
 				collision_usage_times.vector_objects.QuadPart);
 		}
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+		if (any_hit)
+		{
+			goto answered;
+		}
+#endif
 
 		if (!hit)
 		{
@@ -749,10 +959,36 @@ boolean collision_test_vector(
 		scenario_location_from_point(&collision->location, &collision->point);
 	}
 
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+answered:
+#endif
 	HALO_PERF_END(_halo_perf_bipeds_collision);
 	HALO_PERF_END(_halo_perf_tick_collision);
 	return hit;
 }
+
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+boolean collision_test_vector(
+	unsigned long flags,
+	real_point3d const *point,
+	real_vector3d const *vector,
+	long ignore_object_index,
+	struct collision_result *collision)
+{
+	return collision_test_vector_internal(flags, point, vector, ignore_object_index, collision, FALSE);
+}
+
+boolean collision_test_vector_obstructed(
+	unsigned long flags,
+	real_point3d const *point,
+	real_vector3d const *vector,
+	long ignore_object_index)
+{
+	struct collision_result collision;
+
+	return collision_test_vector_internal(flags, point, vector, ignore_object_index, &collision, TRUE);
+}
+#endif
 
 boolean collision_test_pill(
 	unsigned long flags,

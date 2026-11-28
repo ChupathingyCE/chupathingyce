@@ -19,15 +19,15 @@ def page_enum():
 	return source[source.rindex("enum", 0, start):source.index("};", start) + 2]
 
 
-def run(size):
+def run(size, platform=None):
 	program = f'''
 #include <stdio.h>
 #include "cache/physical_memory_map.h"
 {page_enum()}
 int main(void)
 {{
-	printf("%lu %lu\\n", (unsigned long)SOUND_CACHE_PAGE_COUNT,
-		(unsigned long)SOUND_CACHE_PAGE_COUNT << SOUND_CACHE_PAGE_SIZE_BITS);
+	printf("%lu %lu %lu\\n", (unsigned long)SOUND_CACHE_PAGE_COUNT,
+		(unsigned long)SOUND_CACHE_PAGE_COUNT << SOUND_CACHE_PAGE_SIZE_BITS, (unsigned long)SOUND_CACHE_SOUND_COUNT);
 	return 0;
 }}
 '''
@@ -36,20 +36,29 @@ int main(void)
 		exe_path = os.path.join(directory, "pages")
 		Path(c_path).write_text(program)
 		defines = [] if size is None else [f"-DSOUND_CACHE_SIZE={size:#x}"]
+		if platform:
+			# (a platform's own, halo_port_capacity.h's: its size and sounds)
+			defines = [f"-DHALO_PORT_SOUND_CACHE_SIZE={platform[0]:#x}", f"-DHALO_PORT_SOUND_CACHE_SOUNDS={platform[1]}"]
 		subprocess.run(
 			[os.environ.get("CC", "cc"), "-I", str(ROOT / "source"), *defines, c_path, "-o", exe_path],
 			check=True)
-		pages, covered = subprocess.run([exe_path], check=True, capture_output=True, text=True).stdout.split()
-		return int(pages), int(covered)
+		pages, covered, sounds = subprocess.run([exe_path], check=True, capture_output=True, text=True).stdout.split()
+		return int(pages), int(covered), int(sounds)
 
 
 def main():
 	failures = 0
 	for size, expected_pages in ((None, 1024), (0x200000, 512), (0x100000, 256)):
-		pages, covered = run(size)
+		pages, covered, sounds = run(size)
 		expected_size = 0x400000 if size is None else size
-		ok = pages == expected_pages and covered == expected_size
-		print(f"{'ok  ' if ok else 'FAIL'} size {expected_size:#x}: {pages} pages, {covered:#x} bytes")
+		ok = pages == expected_pages and covered == expected_size and sounds == 512
+		print(f"{'ok  ' if ok else 'FAIL'} size {expected_size:#x}: {pages} pages, {covered:#x} bytes, {sounds} sounds")
+		failures += not ok
+	# the desktop's and Android's guest build's (halo_port_capacity.h)
+	for size, count in ((0x2000000, 2048), (0x1000000, 1024)):
+		pages, covered, sounds = run(None, (size, count))
+		ok = pages == size >> 12 and covered == size and sounds == count
+		print(f"{'ok  ' if ok else 'FAIL'} platform {size:#x}: {pages} pages, {covered:#x} bytes, {sounds} sounds")
 		failures += not ok
 	return 1 if failures else 0
 

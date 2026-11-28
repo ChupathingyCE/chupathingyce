@@ -37,7 +37,14 @@ int _stricmp(const char *a, const char *b) { return strcasecmp(a, b); }
 void *csmemcpy(void *d, const void *s, unsigned int n) { return memcpy(d, s, n); }
 void *csmemmove(void *d, const void *s, unsigned int n) { return memmove(d, s, n); }
 void *csmemset(void *d, int c, unsigned int n) { return memset(d, c, n); }
-void *system_calloc(int count, int size) { return calloc((size_t)count, (size_t)size); }
+/* (a negative size is a sum that wrapped: the game's allocator would take it
+as some 4 GB) */
+void *system_calloc(int count, int size)
+{
+	if (count < 0 || size < 0)
+		abort();
+	return calloc((size_t)count, (size_t)size);
+}
 void system_free(void *p) { free(p); }
 void error(short priority, const char *format, ...) { (void)priority; (void)format; }
 int halo_linux_vsnprintf(char *buffer, size_t count, const char *format, va_list arguments)
@@ -81,18 +88,36 @@ static unsigned char *tags_at(unsigned char *tags, size_t size, uint32_t address
 	return tags + offset;
 }
 
+/* a tag's data at address: in the tags and clear of their header (0x24
+bytes) and of the index (index bytes at index_offset), as the conversion
+reads it; NULL otherwise */
+static unsigned char *tag_data_at(unsigned char *tags, size_t size, uint32_t address, size_t length,
+	size_t index_offset, size_t index)
+{
+	unsigned char *data = tags_at(tags, size, address, length);
+	size_t offset = (size_t)(address - 0x8038B000U);
+
+	if (!data || offset < 0x24 || (offset < index_offset + index && offset + length > index_offset))
+		return NULL;
+	return data;
+}
+
 /* an animation that shares another's frame data and has a data size left
 must have its owner's data: one with a size and no data refuses the whole
 map (tag_validate.c), where the game plays no data. Here nothing is read
-from a file, so no share finds data and every such size must be 0 */
+from a file, so no share finds data and every such size must be 0. (Tags
+that overlap the header or the index are not converted: the conversion
+would be rewriting the index it reads) */
 static void check_shared_animations(unsigned char *tags, size_t size)
 {
 	uint32_t instances, count, index;
+	size_t index_offset;
 
 	memcpy(&instances, tags, 4);
 	memcpy(&count, tags + 0x0C, 4);
 	if (count > 0xFFFF || !tags_at(tags, size, instances, (size_t)count * 0x20))
 		return;
+	index_offset = (size_t)(instances - 0x8038B000U);
 	for (index = 0; index < count; index++)
 	{
 		unsigned char *instance = tags_at(tags, size, instances, (size_t)count * 0x20) + index * 0x20;
@@ -101,12 +126,16 @@ static void check_shared_animations(unsigned char *tags, size_t size)
 
 		memcpy(&group, instance, 4);
 		memcpy(&address, instance + 0x14, 4);
-		if (group != 0x616E7472U || !(graph = tags_at(tags, size, address, 0x80)))
+		if (group != 0x616E7472U ||
+			!(graph = tag_data_at(tags, size, address, 0x80, index_offset, (size_t)count * 0x20)))
+		{
 			continue;
+		}
 		memcpy(&animation_count, graph + 0x74, 4);
 		memcpy(&animations_address, graph + 0x78, 4);
 		if (!animation_count || animation_count > 0x1000 ||
-			!(animations = tags_at(tags, size, animations_address, (size_t)animation_count * 0xB4)))
+			!(animations = tag_data_at(tags, size, animations_address, (size_t)animation_count * 0xB4,
+				index_offset, (size_t)count * 0x20)))
 		{
 			continue;
 		}

@@ -24,14 +24,6 @@ port/linux/include/stdio.h).
 #include <sys/stat.h>
 #include <unistd.h>
 
-#ifdef __APPLE__
-#include <malloc/malloc.h>
-#define malloc_usable_size malloc_size
-#elif !defined(__ANDROID__)
-/* (bionic's <malloc.h>, which its <stdlib.h> includes, declares it) */
-size_t malloc_usable_size(void *pointer);
-#endif
-
 /* the shim stdio.h maps these onto the MSVC names defined below */
 #undef fdopen
 #undef fileno
@@ -71,24 +63,6 @@ char *_strdup(const char *string)
 	if (copy)
 		memcpy(copy, string, length);
 	return copy;
-}
-
-char *_strlwr(char *string)
-{
-	char *cursor;
-
-	for (cursor = string; *cursor; cursor++)
-		*cursor = (char)tolower((unsigned char)*cursor);
-	return string;
-}
-
-char *_strupr(char *string)
-{
-	char *cursor;
-
-	for (cursor = string; *cursor; cursor++)
-		*cursor = (char)toupper((unsigned char)*cursor);
-	return string;
 }
 
 static char *unsigned_to_string(unsigned long value, char *string, int radix, int negative)
@@ -136,110 +110,6 @@ char *_ultoa(unsigned long value, char *string, int radix)
 }
 
 /* _rotl, _rotr, _lrotl and _lrotr are clang builtins under -fms-extensions */
-
-/* ---------- paths */
-
-void _splitpath(const char *path, char *drive, char *directory, char *name, char *extension)
-{
-	const char *cursor = path;
-	const char *last_separator = NULL;
-	const char *last_dot = NULL;
-	const char *scan;
-
-	if (path[0] && path[1] == ':')
-	{
-		if (drive)
-		{
-			drive[0] = path[0];
-			drive[1] = ':';
-			drive[2] = '\0';
-		}
-		cursor += 2;
-	}
-	else if (drive)
-	{
-		drive[0] = '\0';
-	}
-	for (scan = cursor; *scan; scan++)
-	{
-		if (*scan == '\\' || *scan == '/')
-			last_separator = scan;
-		else if (*scan == '.')
-			last_dot = scan;
-	}
-	if (last_dot && last_separator && last_dot < last_separator)
-		last_dot = NULL;
-	if (directory)
-	{
-		size_t length = last_separator ? (size_t)(last_separator - cursor + 1) : 0;
-
-		if (length >= _MAX_DIR)
-			length = _MAX_DIR - 1;
-		memcpy(directory, cursor, length);
-		directory[length] = '\0';
-	}
-	cursor = last_separator ? last_separator + 1 : cursor;
-	if (name)
-	{
-		size_t length = last_dot ? (size_t)(last_dot - cursor) : strlen(cursor);
-
-		if (length >= _MAX_FNAME)
-			length = _MAX_FNAME - 1;
-		memcpy(name, cursor, length);
-		name[length] = '\0';
-	}
-	if (extension)
-	{
-		strncpy(extension, last_dot ? last_dot : "", _MAX_EXT - 1);
-		extension[_MAX_EXT - 1] = '\0';
-	}
-}
-
-void _makepath(char *path, const char *drive, const char *directory, const char *name, const char *extension)
-{
-	path[0] = '\0';
-	if (drive && *drive)
-	{
-		strncat(path, drive, 1);
-		strcat(path, ":");
-	}
-	if (directory && *directory)
-	{
-		size_t length;
-
-		strcat(path, directory);
-		length = strlen(path);
-		if (path[length - 1] != '\\' && path[length - 1] != '/')
-			strcat(path, "\\");
-	}
-	if (name)
-		strcat(path, name);
-	if (extension && *extension)
-	{
-		if (*extension != '.')
-			strcat(path, ".");
-		strcat(path, extension);
-	}
-}
-
-char *_fullpath(char *absolute_path, const char *relative_path, size_t maximum_length)
-{
-	/* Xbox paths are already absolute */
-	if (!absolute_path)
-	{
-		maximum_length = _MAX_PATH;
-		absolute_path = malloc(maximum_length);
-		if (!absolute_path)
-			return NULL;
-	}
-	if (strlen(relative_path) + 1 > maximum_length)
-	{
-		errno = ERANGE;
-		return NULL;
-	}
-	strcpy(absolute_path, relative_path);
-	return absolute_path;
-}
 
 /* ---------- x87 floating point control */
 
@@ -303,22 +173,17 @@ static unsigned short msvc_to_control_word(unsigned int value, unsigned short wo
 }
 
 #if defined(HALO_ANDROID) || defined(__aarch64__) || defined(__arm__)
-/* AArch64: the rounding mode lives in FPCR.RMode, the sticky exception
-flags in FPSR. Precision control and exception unmasking have no
+/* AArch64: the rounding mode lives in FPCR.RMode. Precision control and exception unmasking have no
 equivalent; the rest of the MSVC control word is only remembered. 32-bit
-ARM (VFP) has both in FPSCR, at the same bits */
+ARM (VFP) has it in FPSCR, at the same bits */
 static unsigned int msvc_control_word = CW_DEFAULT;
 
 #if defined(__arm__)
 #define ARM_FP_CONTROL_READ() ((unsigned long long)__builtin_arm_get_fpscr())
 #define ARM_FP_CONTROL_WRITE(value) __builtin_arm_set_fpscr((unsigned int)(value))
-#define ARM_FP_STATUS_READ() ARM_FP_CONTROL_READ()
-#define ARM_FP_STATUS_WRITE(value) ARM_FP_CONTROL_WRITE(value)
 #else
 #define ARM_FP_CONTROL_READ() __builtin_arm_rsr64("fpcr")
 #define ARM_FP_CONTROL_WRITE(value) __builtin_arm_wsr64("fpcr", (value))
-#define ARM_FP_STATUS_READ() __builtin_arm_rsr64("fpsr")
-#define ARM_FP_STATUS_WRITE(value) __builtin_arm_wsr64("fpsr", (value))
 #endif
 
 unsigned int _control87(unsigned int new_value, unsigned int mask)
@@ -340,36 +205,6 @@ unsigned int _control87(unsigned int new_value, unsigned int mask)
 		ARM_FP_CONTROL_WRITE(fpcr);
 	}
 	return msvc_control_word;
-}
-
-unsigned int _controlfp(unsigned int new_value, unsigned int mask)
-{
-	/* _controlfp ignores the denormal mask */
-	return _control87(new_value, mask & ~_EM_DENORMAL);
-}
-
-unsigned int _statusfp(void)
-{
-	unsigned long long fpsr = ARM_FP_STATUS_READ();
-	unsigned int result = 0;
-
-	/* as the x87 status word's low bits: invalid, denormal, zero divide,
-	overflow, underflow, precision */
-	if (fpsr & 0x01) result |= 0x01;
-	if (fpsr & 0x80) result |= 0x02;
-	if (fpsr & 0x02) result |= 0x04;
-	if (fpsr & 0x04) result |= 0x08;
-	if (fpsr & 0x08) result |= 0x10;
-	if (fpsr & 0x10) result |= 0x20;
-	return result;
-}
-
-unsigned int _clearfp(void)
-{
-	unsigned int status = _statusfp();
-
-	ARM_FP_STATUS_WRITE(ARM_FP_STATUS_READ() & ~0x9fULL);
-	return status;
 }
 
 #if defined(__arm__)
@@ -426,67 +261,28 @@ unsigned int _control87(unsigned int new_value, unsigned int mask)
 	return msvc_control_word;
 }
 
-unsigned int _controlfp(unsigned int new_value, unsigned int mask)
-{
-	/* _controlfp ignores the denormal mask */
-	return _control87(new_value, mask & ~_EM_DENORMAL);
-}
-
-unsigned int _statusfp(void)
-{
-	unsigned int fpscr = fpscr_read();
-	unsigned int result = 0;
-
-	/* as the x87 status word's low bits: invalid (VX), zero divide (ZX),
-	overflow (OX), underflow (UX), precision (XX); no denormal flag */
-	if (fpscr & 0x20000000u) result |= 0x01;
-	if (fpscr & 0x04000000u) result |= 0x04;
-	if (fpscr & 0x10000000u) result |= 0x08;
-	if (fpscr & 0x08000000u) result |= 0x10;
-	if (fpscr & 0x02000000u) result |= 0x20;
-	return result;
-}
-
-unsigned int _clearfp(void)
-{
-	unsigned int status = _statusfp();
-
-	/* FX, OX, UX, ZX, XX and the invalid operation flags (VX, FEX are their
-	summaries) */
-	fpscr_write(fpscr_read() & ~0x9ff80700u);
-	return status;
-}
 #else
-/* x87: glibc's floating-point environment holds the control and status
-words (fegetenv and fesetenv save and load the whole x87 environment, and
-keep the SSE unit's rounding and masks in step). macOS's (the universal
-application's Intel half) names them __control and __status, and keeps the
-SSE unit's register apart (__mxcsr): it is kept in step here, its rounding
-and exception masks with the control word's, and its exception flags read
-and cleared with the status word's (64-bit code computes with the SSE unit) */
+/* x87: glibc's floating-point environment holds the control word
+(fegetenv and fesetenv save and load the whole x87 environment, and keep
+the SSE unit's rounding and masks in step). macOS's (the universal
+application's Intel half) names it __control, and keeps the SSE unit's
+register apart (__mxcsr): it is kept in step here, its rounding and
+exception masks with the control word's (64-bit code computes with the
+SSE unit) */
 #ifdef __APPLE__
 #define FENV_CONTROL_WORD(environment) ((environment).__control)
-#define FENV_STATUS_WORD(environment) ((environment).__status)
-#define FENV_SSE_STATUS(environment) ((environment).__mxcsr & 0x3f)
 #define FENV_SSE_FOLLOW_CONTROL(environment) \
 	((environment).__mxcsr = ((environment).__mxcsr & ~0x7f80u) | (((environment).__control & 0x0c00u) << 3) | \
 		(((environment).__control & 0x3fu) << 7))
-#define FENV_SSE_CLEAR_STATUS(environment) ((environment).__mxcsr &= ~0x3fu)
 #elif defined(__x86_64__)
 /* (64-bit glibc's fesetenv loads __mxcsr as given: kept in step the same way) */
 #define FENV_CONTROL_WORD(environment) ((environment).__control_word)
-#define FENV_STATUS_WORD(environment) ((environment).__status_word)
-#define FENV_SSE_STATUS(environment) ((environment).__mxcsr & 0x3f)
 #define FENV_SSE_FOLLOW_CONTROL(environment) \
 	((environment).__mxcsr = ((environment).__mxcsr & ~0x7f80u) | (((environment).__control_word & 0x0c00u) << 3) | \
 		(((environment).__control_word & 0x3fu) << 7))
-#define FENV_SSE_CLEAR_STATUS(environment) ((environment).__mxcsr &= ~0x3fu)
 #else
 #define FENV_CONTROL_WORD(environment) ((environment).__control_word)
-#define FENV_STATUS_WORD(environment) ((environment).__status_word)
-#define FENV_SSE_STATUS(environment) 0
 #define FENV_SSE_FOLLOW_CONTROL(environment) ((void)0)
-#define FENV_SSE_CLEAR_STATUS(environment) ((void)0)
 #endif
 
 unsigned int _control87(unsigned int new_value, unsigned int mask)
@@ -506,34 +302,6 @@ unsigned int _control87(unsigned int new_value, unsigned int mask)
 	return current;
 }
 
-unsigned int _controlfp(unsigned int new_value, unsigned int mask)
-{
-	/* _controlfp ignores the denormal mask */
-	return _control87(new_value, mask & ~_EM_DENORMAL);
-}
-
-unsigned int _statusfp(void)
-{
-	fenv_t environment;
-
-	fegetenv(&environment);
-	return (FENV_STATUS_WORD(environment) | FENV_SSE_STATUS(environment)) & 0x3f;
-}
-
-unsigned int _clearfp(void)
-{
-	fenv_t environment;
-	unsigned int status;
-
-	fegetenv(&environment);
-	status = (FENV_STATUS_WORD(environment) | FENV_SSE_STATUS(environment)) & 0x3f;
-	/* the exception flags, and the summary and stack fault bits with them */
-	FENV_STATUS_WORD(environment) &= (unsigned short)~0xff;
-	FENV_SSE_CLEAR_STATUS(environment);
-	fesetenv(&environment);
-	return status;
-}
-
 #endif
 
 int _isnan(double value)
@@ -544,23 +312,6 @@ int _isnan(double value)
 int _finite(double value)
 {
 	return isfinite(value);
-}
-
-double _hypot(double x, double y)
-{
-	return hypot(x, y);
-}
-
-double _copysign(double x, double y)
-{
-	return copysign(x, y);
-}
-
-/* ---------- memory */
-
-size_t _msize(void *pointer)
-{
-	return malloc_usable_size(pointer);
 }
 
 int *_errno(void)
@@ -788,20 +539,6 @@ int _fstat(int handle, struct _stat *buffer)
 		return -1;
 	stat_from_information(&information, buffer);
 	return 0;
-}
-
-long _filelength(int handle)
-{
-	struct posix_file_information information;
-
-	if (posix_fstat(handle, &information) != 0)
-		return -1;
-	return information.size_high ? LONG_MAX : (long)information.size_low;
-}
-
-int _chsize(int handle, long size)
-{
-	return posix_truncate(handle, (unsigned long)size, 0);
 }
 
 FILE *_fdopen(int handle, const char *mode)

@@ -196,6 +196,7 @@ struct game_options;
 #include "game_modes.h" /* port: the game modes layer (docs/modes.md) */
 #include "lua_scripting.h" /* port: mods' Lua scripts (port/linux/game/lua_scripting.c) */
 #include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
+#include "opensauce_transforms.h" /* port: port/linux/game/opensauce_transforms.c */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -379,6 +380,16 @@ void game_tick(
 	seconds_per_tick = game_globals->players_are_double_speed
 		? 1.0f / (2 * TICKS_PER_SECOND)
 		: 1.0f / TICKS_PER_SECOND;
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge game's or a layout's effects started when due and its
+	decals laid (port/linux/game/forge_effects.inc); nothing in any other
+	game */
+	{
+		extern void forge_effects_tick(void);
+
+		forge_effects_tick();
+	}
+#endif
 	HALO_PERF_BEGIN(_halo_perf_tick_effects);
 	effects_update(seconds_per_tick);
 	HALO_PERF_END(_halo_perf_tick_effects);
@@ -401,7 +412,20 @@ void game_tick(
 	decisions that belong to the host. */
 	if (!(network_game_distributed_client() && network_coop_active()))
 		hs_update();
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge game's or a layout's volumes act on what is in them
+	(port/linux/game/forge_volumes.inc); nothing in any other game */
+	{
+		extern void forge_volumes_tick(void);
+
+		forge_volumes_tick();
+	}
+#endif
 	recorded_animations_update();
+	/* port: an OpenSauce map's actor variant transforms step on, before the
+	objects, as OpenSauce's do (port/linux/game/opensauce_transforms.c); any
+	other map, nothing */
+	opensauce_transforms_update();
 	HALO_PERF_BEGIN(_halo_perf_tick_objects);
 	objects_update();
 	HALO_PERF_END(_halo_perf_tick_objects);

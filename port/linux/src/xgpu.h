@@ -354,15 +354,27 @@ struct xgpu_render_target
 struct xgpu_render_target *xgpu_render_target_find(unsigned long data);
 
 #if defined(HALO_BGFX) || defined(HALO_CONSOLE_NATIVE_RENDERER) || defined(HALO_VULKAN)
-/* a level of a texture that is not compressed, as 32-bit ARGB words in the
-processor's order (B, G, R, A in memory on a little-endian one); FALSE
-without the memory for it */
+/* a level of a texture that is not compressed (or is BC7), as 32-bit ARGB
+words in the processor's order (B, G, R, A in memory on a little-endian
+one); FALSE without the memory for it */
 BOOL xgpu_texture_decode_level(const struct xgpu_texture_description *description, unsigned long level,
 	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination);
 /* a compressed texture's DXT kind (1, 3 or 5; 0 for any other), and the
 bytes of one of its levels */
 int xgpu_texture_dxt(const struct xgpu_texture_description *description);
+/* whether a compressed texture is BC7 (D3DFMT_PORT_BC7: a Custom Edition
+map's bitmap in MCC's high-quality compression) */
+BOOL xgpu_texture_bc7(const struct xgpu_texture_description *description);
 unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *description, unsigned long level);
+#endif
+
+#ifdef HALO_BGFX
+/* a DXT texture's level as 32-bit ARGB words, as xgpu_texture_decode_level
+gives the others: for bgfx, which has no channel swizzle of its own, to move
+a Halo PC texture's channels itself (d3d8_bgfx.inl's bg_texture_upload);
+FALSE if it is not DXT */
+BOOL xgpu_texture_dxt_decode_level(const struct xgpu_texture_description *description, unsigned long level,
+	const unsigned char *source, unsigned long *destination);
 #endif
 
 #ifdef HALO_VULKAN
@@ -395,6 +407,12 @@ started, the window cleared to color (0xRRGGBBAA), the overlay over it in
 the picture's place (x, y its lower left corner) and the window saved to
 screenshot (a .bmp's path, or NULL); FALSE if bgfx does not start */
 BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot);
+/* the setup screen starts the game again for a setting: a Vulkan start's
+note goes (d3d8_bgfx.inl) */
+void xgpu_bgfx_start_note_clear(void);
+/* the player closes the game: a Vulkan start's note goes once the game has
+drawn enough frames (d3d8_bgfx.inl) */
+void xgpu_bgfx_closing(void);
 /* the overlay's quads (ui_overlay.c) over the window's picture at Present
 (plasma_shift: the plasma's second map's place, then its threads' color;
 cellwall: the cellwall's motion, side and front tints, ui_overlay_cellwall;
@@ -424,6 +442,23 @@ target's framebuffer, width by height, of that internal format (GL_RGBA8, or
 GL_RGBA16F with display.hdr); FALSE if its programs do not build */
 BOOL xgpu_post_anti_alias(BOOL smaa, GLuint framebuffer, GLenum format, unsigned long width,
 	unsigned long height, const GLint corners[4]);
+
+/* a pass's pixel shader, without its #version line (malloc'd; NULL where
+the build has no SMAA): FXAA (0), or SMAA's edge detection, blending
+weights and neighborhood blending (1 to 3). Its samplers are
+color_texture, edges_texture, area_texture, search_texture and
+weights_texture, at the units xgpu_post.c gives them; its uniforms metrics
+(1 / width, 1 / height, width, height) and FXAA's bounds. SMAA's shading
+language is smaa_language's defines (SMAA.hlsl's SMAA_CUSTOM_SL), or
+SMAA_GLSL_4 where it is NULL. bgfx's passes are made from the same text
+(d3d8_bgfx.inl) */
+char *xgpu_post_anti_alias_source(int pass, const char *smaa_language);
+
+/* SMAA's area (search FALSE: 160x560, two channels) or search (64x16, one
+channel) lookup texture's texels, rows from the top (malloc'd; NULL where
+the build has no SMAA or it does not inflate) */
+unsigned char *xgpu_post_smaa_lookup(BOOL search, unsigned long *width, unsigned long *height,
+	unsigned long *texel_size);
 
 /* ---------- high dynamic range (xgpu_tone_map.h)
 

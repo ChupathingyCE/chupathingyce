@@ -73,6 +73,46 @@ boolean spv3_mode_active(void) { return FALSE; }
 boolean spv3_mode_pack_present(char const *pack) { (void)pack; return FALSE; }
 boolean spv3_mode_map_path(char const *file, char *path, long size) { (void)file; (void)path; (void)size; return FALSE; }
 void spv3_mode_log(char const *format, ...) { (void)format; }
+/* (SPV3's own ui.yelo open: HARNESS_SPV3_UI) */
+boolean spv3_mode_own_ui_open(char const *map_name) { return getenv("HARNESS_SPV3_UI") && !strcmp(map_name, "ui"); }
+#ifdef HALO_CUSTOM_EDITION
+/* (OpenSauce's module, opensauce_map.c and the rest, not in the harness:
+opensauce_maps.c alone, for an OpenSauce mod's folder) */
+#include "opensauce.h"
+#include "opensauce_survey.h"
+boolean opensauce_header_read(void const *cache_header, struct opensauce_header *header)
+{
+	(void)cache_header;
+	(void)header;
+	return FALSE;
+}
+char const *opensauce_header_flag_name(short bit) { (void)bit; return "?"; }
+struct opensauce_header const *opensauce_map_header(void) { return NULL; }
+void opensauce_survey_log(char const *format, ...) { (void)format; }
+void error(int priority, char const *format, ...) { (void)priority; (void)format; }
+void opensauce_maps_session_now(struct opensauce_maps_session *session) { memset(session, 0, sizeof(*session)); }
+/* (map_families.c's Custom Edition half's helpers: none of it asked here) */
+void platform_log(const char *format, ...) { (void)format; }
+void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size)
+{
+	snprintf(host_path, (size_t)host_path_size, "%s", xbox_path);
+}
+unsigned int map_archive_header_checksum(const unsigned char *header) { (void)header; return 0; }
+int map_archive_stock_name(const char *name) { (void)name; return 0; }
+int map_archive_hashed_name(const char *name, char *base, int base_size, unsigned int *prefix)
+{
+	(void)name; (void)base; (void)base_size; (void)prefix;
+	return 0;
+}
+void map_archive_display_name(const char *name, char *display, int size) { snprintf(display, (size_t)size, "%s", name); }
+int map_archive_version_matches(unsigned int version, unsigned int checksum, unsigned int hash_version)
+{
+	(void)version; (void)checksum; (void)hash_version;
+	return 1;
+}
+int map_file_hash_prefix(const char *path, unsigned int *prefix) { (void)path; (void)prefix; return 0; }
+int map_file_hash_version(const char *path, unsigned int *version) { (void)path; (void)version; return 0; }
+#endif
 /* (a pattern of one '*', any case: "*.map", "maps_*") */
 static int harness_match(const char *pattern, const char *name)
 {
@@ -205,6 +245,7 @@ HARNESS = r"""
 #include "cseries/cseries_windows.h"
 #include "halo_map_families.h"
 #include "halo_map_packs.h"
+#include "opensauce_maps.h"
 char const *config_string(char const *name) { (void)name; return getenv("HARNESS_PACK_MENUS") ? getenv("HARNESS_PACK_MENUS") : ""; }
 char const *cache_files_map_directory(void) { return "d:\\maps\\"; }
 static void listed(char const *pack, char const *file, void *context) { (void)context; printf("%s %s\n", pack, file); }
@@ -249,6 +290,8 @@ int main(int argc, char **argv)
 		map_pack_title(argv[2], title, sizeof(title));
 		printf("%s|%s\n", name, title);
 	}
+	else if (!strcmp(argv[1], "rule"))
+		printf("rule %d\n", (int)opensauce_maps_menus_level_rule(argv[2]));
 	else if (!strcmp(argv[1], "menus"))
 	{
 		printf("%s %d\n", map_pack_menus() ? map_pack_menus() : "-", map_pack_menus_known());
@@ -274,8 +317,10 @@ def xbox_header(map_type: int) -> bytes:
     return bytes(header)
 
 
-def build(tmp_path_factory, library_header=None):
-    """the harness, compiled with the game's library header (or another)"""
+def build(tmp_path_factory, library_header=None, opensauce=False):
+    """the harness, compiled with the game's library header (or another);
+    with opensauce, as a 64-bit desktop build with OpenSauce's maps
+    (opensauce_maps.c)"""
     cc = shutil.which("clang") or shutil.which("cc") or shutil.which("gcc")
     if not cc:
         pytest.skip("no C compiler")
@@ -285,7 +330,7 @@ def build(tmp_path_factory, library_header=None):
     (work / "cseries" / "cseries_windows.h").write_text(STUB_WINDOWS)
     (work / "harness.c").write_text(HARNESS + STUBS)
     for header in ("halo_map_families.h", "halo_map_packs.h", "halo_join_reasons.h", "spv3_mode.h",
-                   "stubbs_mode.h"):
+                   "opensauce_maps.h", "opensauce.h", "opensauce_survey.h", "stubbs_mode.h"):
         shutil.copy(ROOT / "port/linux/include" / header, work / header)
     if library_header is None:
         shutil.copy(ROOT / "port/linux/game/xbox_mod_maps.h", work / "xbox_mod_maps.h")
@@ -295,9 +340,12 @@ def build(tmp_path_factory, library_header=None):
     # where the game's own library header is)
     shutil.copy(ROOT / "port/linux/game/map_packs.c", work / "map_packs.c")
     binary = work / "packs"
+    extra = ["-DHALO_CUSTOM_EDITION", "-DHALO_64BIT", "-Wno-unused-variable", "-Wno-format",
+             str(ROOT / "port/linux/game/opensauce_maps.c")] if opensauce else []
+    (work / "errors.h").write_text("enum { _error_silent };\nvoid error(int priority, char const *format, ...);\n")
     subprocess.run([cc, "-std=gnu99", "-Wall", "-Werror", "-Wno-unused-function", "-DHALO_MAP_LIST", "-I", str(work),
                     str(work / "harness.c"), str(work / "map_packs.c"),
-                    str(ROOT / "port/linux/game/map_families.c"), "-o", str(binary)], check=True)
+                    str(ROOT / "port/linux/game/map_families.c"), *extra, "-o", str(binary)], check=True)
     return work, binary
 
 
@@ -471,6 +519,7 @@ def renamed(tmp_path_factory):
                       for value, name in entries) + "};\n")
     work, binary = build(tmp_path_factory, header)
     run = runner(binary, root)
+    run.work = work
     run.fingerprints = dict((name, value) for value, name in entries)
     return run
 
@@ -507,3 +556,39 @@ def test_pack_menus_found_by_alias_and_fingerprint(renamed):
     assert renamed("menus", menus="tstplus") == ["tst 1"]
     assert renamed("menus", menus="other") == ["- 0"]
     assert renamed("path", "ui", menus="tstplus") == ["d:\\maps_weird\\ui.map"]
+
+
+@pytest.fixture(scope="module")
+def renamed_os(tmp_path_factory, renamed):
+    """renamed's folders and library, built as a 64-bit desktop build with
+    OpenSauce's maps, and a ui.yelo in the pack's own folder, which has no
+    ui.map (the known ui.map is in maps_weird)"""
+    header = (renamed.work / "xbox_mod_maps.h").read_text()
+    work, binary = build(tmp_path_factory, header, opensauce=True)
+    root = work / "d"
+    shutil.copytree(renamed.root, root)
+    run = runner(binary, root)
+    return run
+
+
+def test_menus_level_rule(renamed, renamed_os):
+    # (the known pack's ui.map is the menus: map_name allowed; any other
+    # map's scripts, none)
+    assert renamed("rule", "ui", menus="tst") == ["rule 1"]
+    assert renamed("rule", "a", menus="tst") == ["rule 0"]
+    assert renamed("rule", "ui", menus="other") == ["rule 0"]
+    assert renamed_os("rule", "ui", menus="tst") == ["rule 1"]
+    # (an OpenSauce mod's ui.yelo in the pack's folder is the menus played,
+    # the known ui.map in another folder: map_name refused)
+    (renamed_os.root / "maps_tst" / "ui.yelo").write_bytes(b"\0" * 0x800)
+    try:
+        assert renamed_os("rule", "ui", menus="tst") == ["rule 0"]
+    finally:
+        (renamed_os.root / "maps_tst" / "ui.yelo").unlink()
+
+
+def test_menus_level_rule_spv3(renamed, monkeypatch):
+    # (SPV3's own ui.yelo: map_name for its levels, spv3_mode.c)
+    monkeypatch.setenv("HARNESS_SPV3_UI", "1")
+    assert renamed("rule", "ui", menus="other") == ["rule 2"]
+    assert renamed("rule", "a", menus="other") == ["rule 0"]

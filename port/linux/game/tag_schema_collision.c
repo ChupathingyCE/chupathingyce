@@ -465,7 +465,7 @@ static struct tag_schema_definition const structure_collision_bsp_schema =
 
 static struct tag_schema_field const damage_resistance_material_fields[] =
 {
-	TAG_SCHEMA_ENUM(struct damage_resistance_material, material_type, NUMBER_OF_MATERIAL_TYPES, 0),
+	TAG_SCHEMA_ENUM(struct damage_resistance_material, material_type, NUMBER_OF_HALO_MATERIAL_TYPES, 0),
 	TAG_SCHEMA_END
 };
 
@@ -496,7 +496,7 @@ static struct tag_schema_field const damage_resistance_fields[] =
 	TAG_SCHEMA_REFERENCE(struct damage_resistance, body_damaged_effect, TAG_SCHEMA_GROUPS('effe')),
 	TAG_SCHEMA_REFERENCE(struct damage_resistance, body_depleted_effect, TAG_SCHEMA_GROUPS('effe')),
 	TAG_SCHEMA_REFERENCE(struct damage_resistance, body_destroyed_effect, TAG_SCHEMA_GROUPS('effe')),
-	TAG_SCHEMA_ENUM(struct damage_resistance, shield_material_type, NUMBER_OF_MATERIAL_TYPES, 0),
+	TAG_SCHEMA_ENUM(struct damage_resistance, shield_material_type, NUMBER_OF_HALO_MATERIAL_TYPES, 0),
 	TAG_SCHEMA_ENUM(struct damage_resistance, shield_failure_function, NUMBER_OF_TRANSITION_FUNCTIONS, 0),
 	TAG_SCHEMA_REFERENCE(struct damage_resistance, shield_damaged_effect, TAG_SCHEMA_GROUPS('effe')),
 	TAG_SCHEMA_REFERENCE(struct damage_resistance, shield_depleted_effect, TAG_SCHEMA_GROUPS('effe')),
@@ -604,7 +604,7 @@ static struct tag_schema_definition const render_lighting_schema =
 static struct tag_schema_field const structure_collision_material_fields[] =
 {
 	TAG_SCHEMA_REFERENCE(struct structure_collision_material, shader, TAG_SCHEMA_GROUPS('shdr')),
-	TAG_SCHEMA_ENUM(struct structure_collision_material, runtime_physics_material_type, NUMBER_OF_MATERIAL_TYPES,
+	TAG_SCHEMA_ENUM(struct structure_collision_material, runtime_physics_material_type, NUMBER_OF_HALO_MATERIAL_TYPES,
 		FLAG(_tag_schema_none_bit)),
 	TAG_SCHEMA_END
 };
@@ -781,7 +781,7 @@ static struct tag_schema_field const structure_fog_plane_fields[] =
 {
 	TAG_SCHEMA_BLOCK_INDEX(struct structure_fog_plane_schema, region_index, TAG_SCHEMA_ROOT,
 		offsetof(struct structure_bsp, fog_regions), FLAG(_tag_schema_none_bit)),
-	TAG_SCHEMA_ENUM(struct structure_fog_plane_schema, runtime_material_type, NUMBER_OF_MATERIAL_TYPES,
+	TAG_SCHEMA_ENUM(struct structure_fog_plane_schema, runtime_material_type, NUMBER_OF_HALO_MATERIAL_TYPES,
 		FLAG(_tag_schema_none_bit)),
 	TAG_SCHEMA_BLOCK(struct structure_fog_plane_schema, vertices, real_point3d_schema, MAXIMUM_VERTICES_PER_FOG_PLANE),
 	TAG_SCHEMA_END

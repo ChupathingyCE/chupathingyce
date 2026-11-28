@@ -5,7 +5,7 @@ Keeping a party on one team (docs/delta/peer.md, Party teams): the host's plan,
 one change at a time, from its players' teams and parties
 (port/linux/game/party_teams.c gathers them and makes the change). No game
 here, so its tests build anywhere (port/linux/tests/party_teams_test.c,
-tools/test_party_teams.py).
+tools/test_c_units.py).
 
 The rule: a party's members go to the team most of them are on (a tie: the
 team with fewer players), one at a time, only where the teams then stay

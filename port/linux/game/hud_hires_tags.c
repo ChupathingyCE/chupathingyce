@@ -69,7 +69,31 @@ static struct
 } mcc_bitmaps[MAXIMUM_HIRES_BITMAPS];
 static long mcc_bitmap_count = 0;
 
+/* the stock unit HUD's sheets: its panels' backgrounds and their meters,
+drawn over each other (a vehicle's health panel's outlined wrench over its
+meter's filled one), so an MCC map has them whole, every one of them the
+high-res HUD's or every one the map's own */
+static char const *const mcc_unit_sheet_tags[] =
+{
+	"ui\\hud\\bitmaps\\combined\\hud_unit_backgrounds",
+	"ui\\hud\\bitmaps\\combined\\hud_unit_meters",
+};
+
 /* ---------- private code */
+
+/* whether a tag is one of the unit HUD's sheets (mcc_unit_sheet_tags) */
+static int hud_hires_mcc_unit_sheet(
+	char const *tag)
+{
+	long index;
+
+	for (index = 0; tag && index < (long)NUMBEROF(mcc_unit_sheet_tags); index++)
+	{
+		if (!strcmp(tag, mcc_unit_sheet_tags[index]))
+			return 1;
+	}
+	return 0;
+}
 
 /* whether the embedded texture stands for the MCC map's bitmap of this tag,
 index, size and first mip level's checksum (as the map stores it): an MCC
@@ -225,6 +249,10 @@ void hud_hires_mcc_tags_loaded(
 	long asset;
 	long assets[MAXIMUM_HIRES_BITMAPS];
 
+	/* (a unit HUD sheet of the map's that is not the stock one) */
+	int unit_sheet_own = 0;
+	long index, kept;
+
 	mcc_bitmap_count = 0;
 	for (asset = 0; asset < asset_count && mcc_bitmap_count < MAXIMUM_HIRES_BITMAPS; asset++)
 	{
@@ -241,6 +269,8 @@ void hud_hires_mcc_tags_loaded(
 		if (!bitmap || !mcc_cache_bitmap_source_crc(bitmap, &crc) ||
 			!hud_hires_mcc_match(embedded, embedded->tag, embedded->bitmap, bitmap->width, bitmap->height, crc))
 		{
+			if (bitmap && hud_hires_mcc_unit_sheet(embedded->tag))
+				unit_sheet_own = 1;
 			continue;
 		}
 		/* (its kept cells are copied from the map's texels: a sheet whose
@@ -258,6 +288,23 @@ void hud_hires_mcc_tags_loaded(
 		mcc_bitmaps[mcc_bitmap_count].asset = asset;
 		assets[mcc_bitmap_count] = asset;
 		mcc_bitmap_count++;
+	}
+	/* (a map with a unit HUD sheet of its own, as an MCC campaign mod's
+	bitmaps.map can have, keeps all of them its own: one of its backgrounds
+	with the high-res HUD's meter drew two wrenches, apart) */
+	if (unit_sheet_own)
+	{
+		for (index = kept = 0; index < mcc_bitmap_count; index++)
+		{
+			if (hud_hires_mcc_unit_sheet(hud_hires_embedded[mcc_bitmaps[index].asset].tag))
+				continue;
+			mcc_bitmaps[kept] = mcc_bitmaps[index];
+			assets[kept] = assets[index];
+			kept++;
+		}
+		platform_log("high-res hud: this MCC map's unit HUD sheets are its own (%ld of its stock bitmaps left so)",
+			mcc_bitmap_count - kept);
+		mcc_bitmap_count = kept;
 	}
 	platform_log("high-res hud: %ld of this MCC map's bitmaps are the stock HUD's", mcc_bitmap_count);
 	mcc_texture_bridge_hud_refresh();

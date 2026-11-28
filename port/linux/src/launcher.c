@@ -42,6 +42,8 @@ upload, which have threads of their own.
 #include "map_download.h"
 #include "update.h"
 #include "log_send.h"
+#include "map_pack_folders.h"
+#include "../game/content_map_header.h"
 
 #include <SDL3/SDL.h>
 #ifdef __APPLE__
@@ -172,6 +174,7 @@ enum
 	_action_move_old_folders,
 	_action_add_file,
 	_action_add_halo_pc,
+	_action_add_spv3,
 	_action_make_folders,
 	_action_open_game_folder,
 	_action_open_family_folder,
@@ -573,13 +576,10 @@ static void set_status(unsigned int color, const char *format, ...)
 
 enum
 {
-	MAP_HEADER_SIGNATURE = 0x68656164,
-	MAP_VERSION_XBOX = 5,
-	MAP_VERSION_HALO_PC = 7,
-	MAP_VERSION_MCC = 13,
-	MAP_VERSION_CUSTOM_EDITION = 609,
-	/* (a Chimera-compressed map's version: the real one in the low half) */
-	MAP_VERSION_COMPRESSED = 0x861A0000,
+	MAP_VERSION_XBOX = CONTENT_MAP_VERSION_XBOX,
+	MAP_VERSION_HALO_PC = CONTENT_MAP_VERSION_HALO_PC,
+	MAP_VERSION_MCC = CONTENT_MAP_VERSION_MCC,
+	MAP_VERSION_CUSTOM_EDITION = CONTENT_MAP_VERSION_CUSTOM_EDITION,
 };
 
 /* where Halo MCC's maps go, said when they are in another family's folder:
@@ -602,19 +602,15 @@ static long map_version(const char *path)
 {
 	unsigned char header[8];
 	FILE *file = fopen(path, "rb");
-	unsigned long version = 0;
+	struct content_map_info map;
+	long version = 0;
 
 	if (!file)
 		return 0;
-	if (fread(header, 1, sizeof(header), file) == sizeof(header) &&
-		(header[0] | header[1] << 8 | header[2] << 16 | (unsigned long)header[3] << 24) == MAP_HEADER_SIGNATURE)
-	{
-		version = header[4] | header[5] << 8 | header[6] << 16 | (unsigned long)header[7] << 24;
-		if ((version & 0xFFFF0000UL) == MAP_VERSION_COMPRESSED)
-			version &= 0xFFFF;
-	}
+	if (fread(header, 1, sizeof(header), file) == sizeof(header) && content_map_probe(header, sizeof(header), &map))
+		version = (long)map.cache_version;
 	fclose(file);
-	return (long)version;
+	return version;
 }
 
 /* whether an Xbox map's data is still compressed, as the game reads it: a
@@ -659,6 +655,8 @@ struct xbox_mod_map
 };
 
 #include "../game/xbox_mod_maps.h"
+#include "ark_files.h"
+#include "ark_names.h"
 
 /* the known pack whose folder (maps_<name>) this is, by its id or one of
 its aliases; NULL for none */
@@ -962,6 +960,16 @@ static struct family *family_add(int kind, const char *folder, const char *name,
 
 /* every family's folder read again: the four of the families, then each
 pack's folder (maps_<pack>) */
+/* whether a folder is an OpenSauce mod's: its menus a ui.yelo, and no
+ui.map (port/linux/game/opensauce_maps.c) */
+static int opensauce_mod_folder(const char *path)
+{
+	char on_disk[256];
+
+	return posix_find_entry_case_insensitive(path, "ui.yelo", on_disk, sizeof(on_disk)) &&
+		!posix_find_entry_case_insensitive(path, "ui.map", on_disk, sizeof(on_disk));
+}
+
 static void scan(void)
 {
 	void *directory;
@@ -990,8 +998,16 @@ static void scan(void)
 			valid = isalnum((unsigned char)id[character]) || id[character] == '+';
 		if (!valid || !SDL_strcasecmp(id, "ce") || !SDL_strcasecmp(id, "pc") || !SDL_strcasecmp(id, "md"))
 			continue;
+		/* (not Xbox map packs: Halo MCC's maps (maps_mcc), SPV3's (maps_spv3,
+		a mode in Play once it is there) and OpenSauce's (maps_os), whose
+		files these checks don't count; Make the folders makes them) */
+		if (!SDL_strcasecmp(id, "mcc") || !SDL_strcasecmp(id, "spv3") || !SDL_strcasecmp(id, "os"))
+			continue;
 		snprintf(path, sizeof(path), "%s/%s", launcher.root, name);
 		if (!is_directory(path))
+			continue;
+		/* (nor an OpenSauce mod's, its menus a ui.yelo: a mode in Play) */
+		if (opensauce_mod_folder(path))
 			continue;
 		pack = known_pack(id);
 		if (pack)
@@ -1178,6 +1194,11 @@ static void modes_find(void)
 			valid = isalnum((unsigned char)suffix[character]) || suffix[character] == '+';
 		if (!valid || !SDL_strcasecmp(suffix, "ce") || !SDL_strcasecmp(suffix, "pc") || !SDL_strcasecmp(suffix, "md"))
 			continue;
+#ifdef HALO_ARK
+		/* (maps_ark is Project Ark's, below, never a pack) */
+		if (!SDL_strcasecmp(suffix, "ark"))
+			continue;
+#endif
 		snprintf(path, sizeof(path), "%s/%s", launcher.root, name);
 		/* (SPV3, early: its menus are its ui.yelo, a Custom Edition map read
 		with OpenSauce's larger tag window, port/linux/game/spv3_mode.c; only
@@ -1191,6 +1212,27 @@ static void modes_find(void)
 			/* (only the 64-bit desktop builds map the larger tag window its
 			maps need: port/linux/src/xbox_heap.c) */
 			platform_log("launcher: %s is here, but SPV3 needs a 64-bit desktop build", name);
+#endif
+			continue;
+		}
+		/* (maps_os holds OpenSauce maps, no one's menus: no mode) */
+		if (!SDL_strcasecmp(suffix, "os"))
+			continue;
+		/* (an OpenSauce mod with its own menus, its ui.yelo: a mode as any
+		map pack is, read as SPV3's is, port/linux/game/opensauce_maps.c) */
+		if (opensauce_mod_folder(path))
+		{
+#if defined(HALO_64BIT) && defined(HALO_CUSTOM_EDITION) && !defined(HALO_WINDOW_TRANSLATED)
+			char tag[8];
+
+			snprintf(id, sizeof(id), "%s", suffix);
+			for (character = 0; id[character]; character++)
+				id[character] = (char)tolower((unsigned char)id[character]);
+			snprintf(tag, sizeof(tag), "%.4s", suffix);
+			upper(tag);
+			mode_add(id, suffix, tag, name, 1);
+#else
+			platform_log("launcher: %s is here, but OpenSauce mods need a 64-bit desktop build", name);
 #endif
 			continue;
 		}
@@ -1222,6 +1264,14 @@ static void modes_find(void)
 	}
 	if (directory)
 		posix_directory_close(directory);
+#ifdef HALO_ARK
+	/* (Project Ark, early: port/linux/game/ark_mode.c. No ui.map: the menus
+	stay the game's own. Listed only with the player's own files here, in
+	maps_ark or MCC's install, never a download, and only once the mode
+	plays: ark_names.h) */
+	if (ARK_MODE_PLAYABLE && ark_files_folder(NULL, 1024))
+		mode_add(ARK_FILES_MODE_ID, ARK_MODE_DISPLAY_NAME, ARK_MODE_DISPLAY_TAG, ARK_FILES_FOLDER, 1);
+#endif
 	for (index = 0; index < sizeof(xbox_mod_packs) / sizeof(*xbox_mod_packs); index++)
 	{
 		char folder[64];
@@ -1738,6 +1788,11 @@ static void build_rows(void)
 		}
 		row = row_add(_action_add_file, "ADD MAPS FROM A FILE");
 		row->gap = !launcher.old_folders;
+#if defined(HALO_64BIT) && defined(HALO_CUSTOM_EDITION) && !defined(HALO_WINDOW_TRANSLATED)
+		/* (SPV3 from the player's own copy of its release: spv3_installer.c) */
+		row = row_add(_action_add_spv3, "ADD SPV3");
+		snprintf(row->help, sizeof(row->help), "Pick SPV3's release zip. Bring your own copy.");
+#endif
 		row_add(_action_make_folders, "MAKE THE FOLDERS");
 		row = row_add(_action_open_game_folder, "OPEN GAME FOLDER");
 		shown_path(launcher.root, row->help, sizeof(row->help));
@@ -2388,6 +2443,12 @@ static void draw_prompts(void)
 		prompt_add(UI_BUTTON_B, "CANCEL", 1, _button_b);
 		return;
 	}
+	/* (SPV3's install stops part way; the rest run to their end) */
+	if (launcher.dialog == _dialog_import && launcher.import_kind == PLATFORM_IMPORT_SPV3)
+	{
+		prompt_add(UI_BUTTON_B, "CANCEL", 1, _button_b);
+		return;
+	}
 	if (launcher.dialog)
 		return;
 	switch (launcher.screen)
@@ -2647,6 +2708,8 @@ static void make_folders(void)
 			}
 		}
 	}
+	/* (and the map packs' folders, each with its README.txt) */
+	map_pack_folders_make(launcher.root);
 	platform_log("launcher: made the maps folders");
 	scan();
 	open_folder(launcher.root);
@@ -2686,6 +2749,12 @@ static void choose(int purpose)
 		{ "Xbox disc images", "iso;xiso" },
 		{ "All files", "*" },
 	};
+	static const SDL_DialogFileFilter spv3_filters[] =
+	{
+		{ "SPV3's release", "zip" },
+		{ "SPV3's manifest (in its data folder)", "bin" },
+		{ "All files", "*" },
+	};
 
 	/* (no file dialog under gamescope, the Steam Deck's Game Mode: it would
 	never show, and the screen would wait for it) */
@@ -2712,11 +2781,13 @@ static void choose(int purpose)
 	snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "PICK A FILE");
 	snprintf(launcher.dialog_text, sizeof(launcher.dialog_text), "%s",
 		purpose == _action_add_halo_pc ? "Pick a Halo PC CD image or the Custom Edition installer." :
+		purpose == _action_add_spv3 ? "Pick SPV3's release zip, or manifest.bin in the data folder it unpacked to." :
 		"Pick your Xbox disc image, a Halo PC CD image or the Custom Edition installer.");
 	if (!launcher.script[0])
 	{
 		SDL_ShowOpenFileDialog(chosen, current_chooser(), platform_sdl_window(),
-			purpose == _action_add_halo_pc ? halo_pc_filters : xbox_filters, 3, NULL, false);
+			purpose == _action_add_halo_pc ? halo_pc_filters : purpose == _action_add_spv3 ? spv3_filters :
+			xbox_filters, 3, NULL, false);
 	}
 }
 
@@ -2788,6 +2859,7 @@ static void import_file(const char *path)
 	{
 		platform_log("launcher: the file picked is no disc image or installer this reads");
 		message("THAT FILE DIDN'T WORK", COLOR_WHITE,
+			launcher.chooser_purpose == _action_add_spv3 ? "That isn't SPV3's release zip or the folder it unpacked to." :
 			"That isn't an Xbox disc image, a Halo PC CD image or the Custom Edition installer.");
 		return;
 	}
@@ -2811,14 +2883,16 @@ static void import_file(const char *path)
 		return;
 	}
 	platform_log("launcher: importing maps (%s)", kind == PLATFORM_IMPORT_XBOX_DISC ? "Xbox disc image" :
-		kind == PLATFORM_IMPORT_HALO_PC_DISC ? "Halo PC CD image" : "Custom Edition installer");
+		kind == PLATFORM_IMPORT_HALO_PC_DISC ? "Halo PC CD image" : kind == PLATFORM_IMPORT_SPV3 ? "SPV3's release" :
+		"Custom Edition installer");
 	launcher.import_kind = kind;
 	launcher.import_file[0] = '\0';
 	launcher.import_done = launcher.import_total = 0;
 	launcher.dialog = _dialog_import;
 	snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "%s",
 		kind == PLATFORM_IMPORT_XBOX_DISC ? "COPYING YOUR XBOX MAPS" :
-		kind == PLATFORM_IMPORT_HALO_PC_DISC ? "COPYING YOUR HALO PC MAPS" : "COPYING THE CE MAPS");
+		kind == PLATFORM_IMPORT_HALO_PC_DISC ? "COPYING YOUR HALO PC MAPS" :
+		kind == PLATFORM_IMPORT_SPV3 ? "INSTALLING SPV3" : "COPYING THE CE MAPS");
 }
 
 static void import_finished(int succeeded, const char *error)
@@ -2843,6 +2917,11 @@ static void import_finished(int succeeded, const char *error)
 			go_home();
 			set_status(COLOR_GREEN, "%s", status);
 		}
+		return;
+	}
+	if (launcher.import_kind == PLATFORM_IMPORT_SPV3)
+	{
+		set_status(COLOR_GREEN, "SPV3 is in. Pick it in Play.");
 		return;
 	}
 	if (!launcher.import_done)
@@ -2937,6 +3016,20 @@ static int executable_path(char *path, size_t size)
 #endif
 }
 
+/* this screen starts the game again for a setting that needs it (#1665):
+a bgfx Vulkan start it closes that way isn't taken for one that didn't get
+going. Only these restarts clear it: Quit, Welcome's QUIT (B, Escape) and
+the window closed leave the note, since a Vulkan window that never shows a
+picture is left those ways too, and its next start must still go to OpenGL
+(#1046) */
+static void closing_on_purpose(void)
+{
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+		xgpu_bgfx_start_note_clear();
+#endif
+}
+
 /* Chupathingy started again, in mode (its id) and past this screen, for
 the settings that show only after a restart; 0 if it could not be */
 static int restart_with(const char *mode)
@@ -2948,6 +3041,8 @@ static int restart_with(const char *mode)
 		platform_log("launcher: could not find the game's executable to start it again");
 		return 0;
 	}
+	/* (before the start in this same process too, which never returns) */
+	closing_on_purpose();
 	snprintf(argument, sizeof(argument), "--mode=%s", mode);
 #ifdef __linux__
 	/* (this same process, as an update's restart: Steam and gamescope keep
@@ -2996,6 +3091,7 @@ int launcher_restart_to_setup(void)
 		platform_log("launcher: could not start again on the setup screen");
 		return 0;
 	}
+	closing_on_purpose();
 #ifdef __linux__
 	/* (this same process: see restart_with) */
 	if (update_start_in_place_with(path, "--setup"))
@@ -3077,6 +3173,7 @@ static void act(const struct row *row)
 	}
 	case _action_add_file:
 	case _action_add_halo_pc:
+	case _action_add_spv3:
 	case _action_pick_folder:
 		choose(row->action);
 		break;
@@ -3316,6 +3413,17 @@ static void dialog_input(int button)
 	{
 		if (button == _button_a || button == _button_b)
 			launcher.dialog = _dialog_none;
+		return;
+	}
+	if (launcher.dialog == _dialog_import)
+	{
+		/* (SPV3's install: it stops at its next chunk, that file's .part
+		removed, and says so when it has) */
+		if (button == _button_b && launcher.import_kind == PLATFORM_IMPORT_SPV3)
+		{
+			platform_log("launcher: SPV3's install cancelled");
+			platform_import_cancel();
+		}
 		return;
 	}
 	if (launcher.dialog == _dialog_sent)

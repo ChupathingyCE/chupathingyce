@@ -226,9 +226,11 @@ static struct
 	/* PLAY couldn't open its screen: the item and when */
 	char play_failed_id[WORKSHOP_BROWSER_ID_SIZE];
 	unsigned long play_failed_time;
-	/* the chosen item's description as plain text, and whose it is */
+	/* the chosen item's description as plain text, whose it is, and
+	whether it is the whole of it (workshop_browser_description's) */
 	char plain_id[WORKSHOP_BROWSER_ID_SIZE];
-	char plain[WORKSHOP_BROWSER_DESCRIPTION_SIZE];
+	char plain[WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE];
+	boolean plain_whole;
 	/* SEARCH's text box: typing into it (enter keeps, escape drops) */
 	boolean searching;
 	char search[64];
@@ -1410,6 +1412,9 @@ void guide_workshop_update(boolean showing)
 	settings_rows_set_workshop_offered(workshop_browser_offered());
 	workshop_browser_folder_follow();
 	link_follow();
+	/* (a cancelled download's part deleted once it lets go, with the Guide
+	shut too: a join's CANCEL) */
+	steam_link_discard_follow();
 	/* (the on-screen keyboard done: its words searched, the Guide back on WORKSHOP) */
 #if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
 	if (workshop_view.keyboard && !virtual_keyboard_active())
@@ -1810,15 +1815,27 @@ boolean guide_workshop_in_page(void)
 
 /* ---------- drawing */
 
-/* the chosen item's description as plain text (Steam's markup stripped),
-made once an item */
+/* the chosen item's description as plain text (Steam's markup stripped):
+the whole of it from Steam's details, else the item's own start of it;
+made once an item, again once the whole of it comes */
 static char const *plain_description(struct workshop_browser_item const *item)
 {
-	if (strcmp(workshop_view.plain_id, item->id) || !workshop_view.plain[0])
+	static char whole[WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE];
+	boolean same = !strcmp(workshop_view.plain_id, item->id) && workshop_view.plain[0];
+
+	if (same && workshop_view.plain_whole)
+		return workshop_view.plain;
+	if (!item->setup && workshop_browser_description(item->id, whole, (int)sizeof(whole)))
 	{
-		snprintf(workshop_view.plain_id, sizeof(workshop_view.plain_id), "%s", item->id);
+		workshop_view.plain_whole = TRUE;
+		guide_layout_plain(whole, workshop_view.plain, sizeof(workshop_view.plain));
+	}
+	else if (!same)
+	{
+		workshop_view.plain_whole = FALSE;
 		guide_layout_plain(item->description, workshop_view.plain, sizeof(workshop_view.plain));
 	}
+	snprintf(workshop_view.plain_id, sizeof(workshop_view.plain_id), "%s", item->id);
 	return workshop_view.plain;
 }
 
@@ -1871,7 +1888,7 @@ their place), then, for a pack, the maps in it (the installed item's, from
 the map catalog: mcc_maps\<id>\...) */
 static char const *page_text(struct workshop_browser_item const *item)
 {
-	static char text[WORKSHOP_BROWSER_DESCRIPTION_SIZE + 1024];
+	static char text[WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE + 1024];
 	char prefix[WORKSHOP_BROWSER_ID_SIZE + 16];
 	short index, count, maps = 0;
 	size_t length;
@@ -1915,16 +1932,24 @@ static char const *page_text(struct workshop_browser_item const *item)
 /* the description's box: its lines from the first scrolled to, a bar at its
 right when they don't all show (the words kept clear of it), its edge lit
 while it has the focus */
-#define DESCRIPTION_MAXIMUM_LINES 160
+#define DESCRIPTION_MAXIMUM_LINES 640
 #define DESCRIPTION_BAR 3.0f
 #define DESCRIPTION_BAR_ROOM 10.0f
 
 static void description_render(struct workshop_browser_item const *item, struct guide_rect box, short lines)
 {
 	static char wrapped[DESCRIPTION_MAXIMUM_LINES][GUIDE_LAYOUT_LINE_SIZE];
+	/* (wrapped again only when the words, the width or the font's measure
+	change: a whole description is thousands of measures) */
+	static unsigned long wrapped_hash;
+	static float wrapped_width = -1.0f, wrapped_probe = -1.0f;
+	static int wrapped_count;
 	struct guide_rect track, thumb;
 	int count, index;
 	float y = box.y, width = box.width - DESCRIPTION_BAR_ROOM;
+	char const *text;
+	unsigned long hash = 5381;
+	float probe = measure_font((void *)(intptr_t)UI_FONT_MENU, DESCRIPTION_SIZE, "Halo");
 
 	if (strcmp(workshop_view.description_id, item->id))
 	{
@@ -1932,8 +1957,18 @@ static void description_render(struct workshop_browser_item const *item, struct 
 		workshop_view.description_scroll = 0;
 		workshop_view.description_on = FALSE;
 	}
-	count = guide_layout_wrap(page_text(item), width, DESCRIPTION_SIZE, measure_font, (void *)(intptr_t)UI_FONT_MENU,
-		DESCRIPTION_MAXIMUM_LINES, wrapped, NULL);
+	text = page_text(item);
+	for (index = 0; text[index]; index++)
+		hash = hash * 33 + (unsigned char)text[index];
+	if (hash != wrapped_hash || width != wrapped_width || probe != wrapped_probe)
+	{
+		wrapped_count = guide_layout_wrap(text, width, DESCRIPTION_SIZE, measure_font, (void *)(intptr_t)UI_FONT_MENU,
+			DESCRIPTION_MAXIMUM_LINES, wrapped, NULL);
+		wrapped_hash = hash;
+		wrapped_width = width;
+		wrapped_probe = probe;
+	}
+	count = wrapped_count;
 	workshop_view.description_count = (short)count;
 	workshop_view.description_shown = lines;
 	workshop_view.description_scroll = (short)guide_layout_scroll_clamp(workshop_view.description_scroll, count, lines);

@@ -1646,12 +1646,6 @@ static void vk_present(void)
 	}
 }
 
-static void vk_frame_account(char *text, size_t size)
-{
-	if (size)
-		text[0] = 0;
-}
-
 static BOOL vk_active(void)
 {
 	return vk.ready;

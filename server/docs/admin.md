@@ -121,6 +121,30 @@ command ever shows.
 A machine that tells no hardware id (macOS builds have none today) is
 banned by its address alone; `sv_ban` says so.
 
+#### Name rules
+
+For a player you only know by name (an OpenCE player with no Delta
+account, say), add a line with `name=` and their name:
+
+```
+name=ifty	reason=cheating
+```
+
+A player who joins under that name, or changes to it, is banned as
+`sv_ban` bans: told (Chupathingy players see the ban), and their machine
+dropped with the game's own ban refusal, which every client, OpenCE's
+too, already knows. The server then adds that machine's own line below a
+comment naming the rule (`# ... name rule name=ifty matched "..."`), with
+its hardware id and address, so it stays out under any name after that.
+
+The name is compared the way the game cleans names, then without case,
+accents, color codes (`^` and a digit) or spaces: `IFTY`, `^1ifty` and
+`i f t y` all match `name=ifty`. Only the whole name matches: `nifty`,
+`fifty`, `ifty2` and `1fty` don't. `until=` works on a name rule too, and
+`sv_banlist` lists it (as `name=ifty`), so `sv_unban` can take it out. A
+rule is only for this server: player hosts and the shared ban lists
+ignore it. The address goes in `bans.txt` alone, never in the log.
+
 ### Why there is no `sv_password`
 
 A join password needs the player's game to send one. A join request in the

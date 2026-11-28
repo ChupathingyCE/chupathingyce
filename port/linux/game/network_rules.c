@@ -9,6 +9,7 @@ The rules of network_rules.h.
 #include "../include/delta.h"
 
 #include <string.h>
+#include "content_bytes.h"
 
 typedef char network_rules_layout_kinds_fit[sizeof(((struct network_rules_layout *)0)->dropped) ==
 	DELTA_LAYOUT_KIND_BYTES ? 1 : -1];
@@ -79,16 +80,6 @@ static void put32(uint8_t *at, uint32_t value)
 	put16(at + 2, value >> 16);
 }
 
-static unsigned get16(uint8_t const *at)
-{
-	return (unsigned)at[0] | ((unsigned)at[1] << 8);
-}
-
-static uint32_t get32(uint8_t const *at)
-{
-	return (uint32_t)get16(at) | ((uint32_t)get16(at + 2) << 16);
-}
-
 void network_rules_aim_assist_write(uint8_t *message, int block, int32_t game_time)
 {
 	put16(message, (NETWORK_RULES_AIM_ASSIST_SIZE << 4) | (NETWORK_RULES_MESSAGE_TYPE_DATA << 2));
@@ -105,15 +96,15 @@ int network_rules_aim_assist_read(uint8_t const *message, int size, int from_dat
 
 	if (from_datagram || size != NETWORK_RULES_AIM_ASSIST_SIZE)
 		return 0;
-	header = get16(message);
+	header = content_u16le(message);
 	if ((header >> 4) != NETWORK_RULES_AIM_ASSIST_SIZE || ((header >> 2) & 3) != NETWORK_RULES_MESSAGE_TYPE_DATA ||
 		message[2] != NETWORK_RULES_AIM_ASSIST_KIND || message[3] != 1)
 	{
 		return 0;
 	}
-	if (get16(message + 8) > 1 || get16(message + 10) != 0)
+	if (content_u16le(message + 8) > 1 || content_u16le(message + 10) != 0)
 		return 0;
-	*block = (int)get16(message + 8);
+	*block = (int)content_u16le(message + 8);
 	return 1;
 }
 
@@ -134,8 +125,8 @@ void network_rules_input_head_read(uint8_t const *head, int *player, int *struct
 	*player = head[0];
 	*structure_bsp = head[1];
 	*no_friendly_fire = head[2] != 0;
-	*tick = (int32_t)get32(head + 4);
-	*host_time = (int32_t)get32(head + 8);
+	*tick = (int32_t)content_u32le(head + 4);
+	*host_time = (int32_t)content_u32le(head + 8);
 }
 
 int network_rules_mouse_is_aim_device(uint64_t mouse_ms, uint64_t stick_ms, uint64_t touch_ms,
@@ -469,7 +460,7 @@ int network_rules_shield_effects_read(uint8_t const *message, int size, int from
 
 	if (from_datagram || size != NETWORK_RULES_SHIELD_EFFECTS_SIZE)
 		return 0;
-	header = get16(message);
+	header = content_u16le(message);
 	if ((header >> 4) != NETWORK_RULES_SHIELD_EFFECTS_SIZE || ((header >> 2) & 3) != NETWORK_RULES_MESSAGE_TYPE_DATA ||
 		message[2] != NETWORK_RULES_SHIELD_EFFECTS_KIND || message[3] != 1)
 	{
@@ -477,9 +468,9 @@ int network_rules_shield_effects_read(uint8_t const *message, int size, int from
 	}
 	if (maximum > NETWORK_RULES_SHIELD_EFFECTS_LIMIT)
 		maximum = NETWORK_RULES_SHIELD_EFFECTS_LIMIT;
-	if (get16(message + 8) > (unsigned)maximum || get16(message + 10) != 0)
+	if (content_u16le(message + 8) > (unsigned)maximum || content_u16le(message + 10) != 0)
 		return 0;
-	*effects = (int)get16(message + 8);
+	*effects = (int)content_u16le(message + 8);
 	return 1;
 }
 
@@ -863,6 +854,157 @@ int network_rules_settings_options_size(unsigned version, unsigned total_size)
 		NETWORK_RULES_OPTIONS_SIZE;
 }
 
+/* (network_rules.h, "other projects' hosts") */
+static const struct network_rules_fork network_rules_forks[NUMBER_OF_NETWORK_RULES_FORKS] =
+{
+	{
+		"Content Evolved",
+		0xFF00, 0xFF00, 24,
+		44, 0x58,
+		160, 167,
+		{ { 6, "Firefight", 0 }, { 0, NULL, 0 } },
+		{ { 0x40, "Tag Injector profiles", 1 }, { 0x20, "randomizer", 0 }, { 0x08, "skulls", 1 },
+			{ 0x10, "skulls", 1 }, { 0, NULL, 0 } },
+		0x2B,
+		{ { 1, "Floodfection", 0 }, { 2, "Tag Gun Game", 0 }, { 0, NULL, 0 } },
+		"modded games"
+	}
+};
+
+struct network_rules_fork const *network_rules_fork_get(int fork)
+{
+	return fork >= 0 && fork < NUMBER_OF_NETWORK_RULES_FORKS ? &network_rules_forks[fork] : NULL;
+}
+
+char const *network_rules_fork_name(int fork)
+{
+	struct network_rules_fork const *row = network_rules_fork_get(fork);
+
+	return row ? row->name : "";
+}
+
+int network_rules_fork_advertised(uint8_t const *reserved, int size, unsigned *base_version)
+{
+	int fork;
+
+	if (!reserved || size < 2)
+		return NETWORK_RULES_FORK_NONE;
+	for (fork = 0; fork < NUMBER_OF_NETWORK_RULES_FORKS; fork++)
+	{
+		struct network_rules_fork const *row = &network_rules_forks[fork];
+
+		if ((content_u16le(reserved) & row->modded_mask) == row->modded_mark)
+		{
+			if (base_version)
+				*base_version = row->base_version_at + 2 <= size ? content_u16le(reserved + row->base_version_at) : 0;
+			return fork;
+		}
+	}
+	return NETWORK_RULES_FORK_NONE;
+}
+
+int network_rules_fork_settings(unsigned version, unsigned total_size)
+{
+	struct network_rules_layout layout;
+	int fork;
+
+	if (version == NETWORK_RULES_VERSION_UNKNOWN)
+		return NETWORK_RULES_FORK_NONE;
+	network_rules_layout(version, &layout);
+	if (!layout.settings_size || total_size == (unsigned)layout.settings_size)
+		return NETWORK_RULES_FORK_NONE;
+	for (fork = 0; fork < NUMBER_OF_NETWORK_RULES_FORKS; fork++)
+	{
+		struct network_rules_fork const *row = &network_rules_forks[fork];
+		/* (its options grow in front of the local data, the record with them) */
+		int size = layout.settings_size + row->options_size - layout.options_size;
+
+		if (version == row->version && row->options_size > layout.options_size &&
+			size <= NETWORK_RULES_SETTINGS_MAXIMUM && total_size == (unsigned)size)
+		{
+			return fork;
+		}
+	}
+	return NETWORK_RULES_FORK_NONE;
+}
+
+int network_rules_fork_options_size(int fork)
+{
+	struct network_rules_fork const *row = network_rules_fork_get(fork);
+
+	return row ? row->options_size : 0;
+}
+
+int network_rules_fork_option_at(int fork)
+{
+	struct network_rules_fork const *row = network_rules_fork_get(fork);
+
+	return row && row->option_values[0].name ? row->option_at : -1;
+}
+
+int network_rules_fork_drops(int fork, unsigned kind)
+{
+	struct network_rules_fork const *row = network_rules_fork_get(fork);
+
+	return row && kind >= row->dropped_first && kind <= row->dropped_last;
+}
+
+/* text + what, no further than size bytes (ended) */
+static void fork_append(char *text, int size, int *length, char const *what)
+{
+	while (*what && *length < size - 1)
+		text[(*length)++] = *what++;
+	text[*length] = 0;
+}
+
+char const *network_rules_fork_refusal(int fork, long engine, int modded, unsigned flags, int option_value,
+	char *text, int size)
+{
+	struct network_rules_fork const *row = network_rules_fork_get(fork);
+	struct network_rules_fork_mark const *found = NULL;
+	char const *name = NULL;
+	int plural = 1;
+	int length = 0;
+	int index;
+
+	if (!row || !text || size <= 0)
+		return NULL;
+	for (index = 0; !found && index < (int)(sizeof(row->engines) / sizeof(row->engines[0])) && row->engines[index].name;
+		index++)
+	{
+		if (engine >= 0 && (unsigned long)engine == row->engines[index].value)
+			found = &row->engines[index];
+	}
+	for (index = 0; !found && modded && index < (int)(sizeof(row->flags) / sizeof(row->flags[0])) &&
+		row->flags[index].name; index++)
+	{
+		if (flags & row->flags[index].value)
+			found = &row->flags[index];
+	}
+	for (index = 0; !found && option_value > 0 &&
+		index < (int)(sizeof(row->option_values) / sizeof(row->option_values[0])) && row->option_values[index].name;
+		index++)
+	{
+		if ((unsigned)option_value == row->option_values[index].value)
+			found = &row->option_values[index];
+	}
+	if (found)
+	{
+		name = found->name;
+		plural = found->plural;
+	}
+	else if (modded)
+		name = row->modded_name;
+	else
+		return NULL;
+	text[0] = 0;
+	fork_append(text, size, &length, row->name);
+	fork_append(text, size, &length, "'s ");
+	fork_append(text, size, &length, name);
+	fork_append(text, size, &length, plural ? " aren't playable here yet." : " isn't playable here yet.");
+	return text;
+}
+
 void network_rules_lobby_budget_reset(struct network_rules_lobby_budget *budget)
 {
 	memset(budget, 0, sizeof(*budget));
@@ -977,11 +1119,6 @@ int network_rules_search_answered(uint32_t address, int direct_ip_host, uint32_t
 
 /* ---------- chupa-43a's facts */
 
-static unsigned rules_word(uint8_t const *bytes)
-{
-	return (unsigned)bytes[0] | ((unsigned)bytes[1] << 8);
-}
-
 static void rules_put_word(uint8_t *bytes, unsigned value)
 {
 	bytes[0] = (uint8_t)value;
@@ -989,20 +1126,10 @@ static void rules_put_word(uint8_t *bytes, unsigned value)
 }
 
 /* (the join request's version word: the packet codec's order, big-endian) */
-static unsigned rules_codec_word(uint8_t const *bytes)
-{
-	return ((unsigned)bytes[0] << 8) | (unsigned)bytes[1];
-}
-
 static void rules_put_codec_word(uint8_t *bytes, unsigned value)
 {
 	bytes[0] = (uint8_t)(value >> 8);
 	bytes[1] = (uint8_t)value;
-}
-
-static uint32_t rules_long(uint8_t const *bytes)
-{
-	return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) | ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
 }
 
 static void rules_put_long(uint8_t *bytes, uint32_t value)
@@ -1157,7 +1284,7 @@ int network_rules_join_request_refused(unsigned version, uint8_t const *tail, in
 		return 0;
 	if (tail_size != layout.join_request_extra || layout.join_request_version_at + 2 > tail_size)
 		return 1;
-	return rules_codec_word(tail + layout.join_request_version_at) != version;
+	return content_u16be(tail + layout.join_request_version_at) != version;
 }
 
 int network_rules_header_expand(uint8_t const *message, int size, uint8_t *out, int room, int extra, int has_epoch,
@@ -1190,7 +1317,7 @@ int network_rules_header_expand(uint8_t const *message, int size, uint8_t *out, 
 
 			if (size - in < 2)
 				return 0;
-			length = rules_word(message + in);
+			length = content_u16le(message + in);
 			if (length < NETWORK_RULES_HEADER_SIZE - 2 || (int)length > size - in - 2 ||
 				at + 2 + (int)length + extra > room)
 			{
@@ -1222,7 +1349,7 @@ int network_rules_header_strip(uint8_t const *message, int size, uint8_t *out, i
 	if (size < NETWORK_RULES_HEADER_SIZE + extra || (has_epoch && extra < NETWORK_RULES_EPOCH_SIZE))
 		return 0;
 	if (has_epoch)
-		*epoch = rules_long(message + NETWORK_RULES_HEADER_SIZE);
+		*epoch = content_u32le(message + NETWORK_RULES_HEADER_SIZE);
 	memcpy(out, message, NETWORK_RULES_HEADER_SIZE);
 	in = NETWORK_RULES_HEADER_SIZE + extra;
 	if (message[2] != NETWORK_RULES_BATCH_KIND)
@@ -1241,11 +1368,11 @@ int network_rules_header_strip(uint8_t const *message, int size, uint8_t *out, i
 			message's header: the messages before it are kept) */
 			if (size - in < 2)
 				break;
-			length = rules_word(message + in);
+			length = content_u16le(message + in);
 			if ((int)length < NETWORK_RULES_HEADER_SIZE - 2 + extra || (int)length > size - in - 2)
 				break;
 			if (has_epoch)
-				inner = rules_long(message + in + NETWORK_RULES_HEADER_SIZE);
+				inner = content_u32le(message + in + NETWORK_RULES_HEADER_SIZE);
 			if (!has_epoch || inner == want || (keep_kind && message[in + 2] == keep_kind))
 			{
 				rules_put_word(out + at, length - (unsigned)extra);

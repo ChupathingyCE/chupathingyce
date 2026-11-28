@@ -1601,6 +1601,100 @@ static void test_join_paths(void)
 	CHECK(network_rules_join_retry_version(NETWORK_RULES_VERSION_UNKNOWN, 0, 60000) == 44);
 }
 
+/* another project's hosts (network_rules.h, "other projects' hosts"):
+Content Evolved's modded advertisement and plain record, and nothing of an
+OpenCE host's or ours read as either */
+static void test_forks(void)
+{
+	uint8_t reserved[0x1A];
+	unsigned base = 0;
+	char text[96];
+	int fork;
+
+	memset(reserved, 0, sizeof(reserved));
+	/* (OpenCE 44, and ours: no fork) */
+	reserved[0] = 44;
+	reserved[2] = 0x01 | 0x08;
+	CHECK(network_rules_fork_advertised(reserved, (int)sizeof(reserved), &base) == NETWORK_RULES_FORK_NONE);
+	reserved[0] = 0x70;
+	reserved[1] = 0xFE;
+	CHECK(network_rules_fork_advertised(reserved, (int)sizeof(reserved), NULL) == NETWORK_RULES_FORK_NONE);
+	/* (its modded game: mod version 112, network version 44 at 24) */
+	reserved[1] = 0xFF;
+	reserved[24] = 44;
+	fork = network_rules_fork_advertised(reserved, (int)sizeof(reserved), &base);
+	CHECK(fork == NETWORK_RULES_FORK_CONTENT_EVOLVED && base == 44);
+	CHECK(!strcmp(network_rules_fork_name(fork), "Content Evolved"));
+	CHECK(network_rules_fork_refusal(fork, 6, 1, 0x01 | 0x08, -1, text, (int)sizeof(text)) &&
+		!strcmp(text, "Content Evolved's Firefight isn't playable here yet."));
+	CHECK(network_rules_fork_refusal(fork, 0, 1, 0x01 | 0x08 | 0x20, -1, text, (int)sizeof(text)) &&
+		!strcmp(text, "Content Evolved's randomizer isn't playable here yet."));
+	CHECK(network_rules_fork_refusal(fork, 2, 1, 0x01 | 0x40, -1, text, (int)sizeof(text)) &&
+		!strcmp(text, "Content Evolved's Tag Injector profiles aren't playable here yet."));
+	CHECK(network_rules_fork_refusal(fork, 0, 1, 0x01 | 0x08, -1, text, (int)sizeof(text)) &&
+		!strcmp(text, "Content Evolved's skulls aren't playable here yet."));
+	CHECK(network_rules_fork_refusal(fork, 2, 1, 0x01, -1, text, (int)sizeof(text)) &&
+		!strcmp(text, "Content Evolved's modded games aren't playable here yet."));
+	/* (a short buffer: ended, never past it) */
+	CHECK(network_rules_fork_refusal(fork, 6, 1, 0, -1, text, 8) && strlen(text) == 7);
+	/* (its plain game: played, but its Firefight slot and modes) */
+	CHECK(!network_rules_fork_refusal(fork, 2, 0, 0, 0, text, (int)sizeof(text)));
+	CHECK(!network_rules_fork_refusal(fork, 1, 0, 0, -1, text, (int)sizeof(text)));
+	CHECK(network_rules_fork_refusal(fork, 6, 0, 0, 0, text, (int)sizeof(text)) != NULL);
+	CHECK(network_rules_fork_refusal(fork, 2, 0, 0, 1, text, (int)sizeof(text)) &&
+		!strcmp(text, "Content Evolved's Floodfection isn't playable here yet."));
+	CHECK(network_rules_fork_refusal(fork, 2, 0, 0, 2, text, (int)sizeof(text)) &&
+		!strcmp(text, "Content Evolved's Tag Gun Game isn't playable here yet."));
+	CHECK(!network_rules_fork_refusal(NETWORK_RULES_FORK_NONE, 6, 1, 0x08, 1, text, (int)sizeof(text)));
+	/* (its plain record at 44: 13,244 bytes, its options 0x58; OpenCE's
+	13,200 and ours no fork, nor a size of another version or none known) */
+	CHECK(network_rules_fork_settings(44, 13244) == NETWORK_RULES_FORK_CONTENT_EVOLVED);
+	CHECK(network_rules_fork_options_size(NETWORK_RULES_FORK_CONTENT_EVOLVED) == 0x58);
+	CHECK(network_rules_fork_option_at(NETWORK_RULES_FORK_CONTENT_EVOLVED) == 0x2B);
+	CHECK(network_rules_fork_settings(44, 13200) == NETWORK_RULES_FORK_NONE);
+	CHECK(network_rules_fork_settings(43, 13244) == NETWORK_RULES_FORK_NONE);
+	CHECK(network_rules_fork_settings(45, 13244) == NETWORK_RULES_FORK_NONE);
+	CHECK(network_rules_fork_settings(35, 13136 + 44) == NETWORK_RULES_FORK_NONE);
+	CHECK(network_rules_fork_settings(NETWORK_RULES_VERSION_UNKNOWN, 13244) == NETWORK_RULES_FORK_NONE);
+	CHECK(network_rules_fork_settings(44, 13245) == NETWORK_RULES_FORK_NONE);
+	CHECK(network_rules_fork_options_size(NETWORK_RULES_FORK_NONE) == 0);
+	/* (its own kinds, dropped quietly: from it alone) */
+	CHECK(network_rules_fork_drops(NETWORK_RULES_FORK_CONTENT_EVOLVED, 165) &&
+		network_rules_fork_drops(NETWORK_RULES_FORK_CONTENT_EVOLVED, 160) &&
+		network_rules_fork_drops(NETWORK_RULES_FORK_CONTENT_EVOLVED, 167));
+	CHECK(!network_rules_fork_drops(NETWORK_RULES_FORK_CONTENT_EVOLVED, 91) &&
+		!network_rules_fork_drops(NETWORK_RULES_FORK_CONTENT_EVOLVED, 168));
+	CHECK(!network_rules_fork_drops(NETWORK_RULES_FORK_NONE, 165));
+	CHECK(network_rules_fork_get(NUMBER_OF_NETWORK_RULES_FORKS) == NULL);
+	/* (the record folds to the older layout: the further options kept,
+	the local data after the first 0x1C, the rest zeros) */
+	{
+		static uint8_t record[NETWORK_RULES_SETTINGS_MAXIMUM];
+		uint8_t extended[NETWORK_RULES_EXTENDED_OPTIONS_SIZE];
+		int index;
+
+		memset(record, 0, sizeof(record));
+		for (index = 0; index < 0x58; index++)
+			record[NETWORK_RULES_SETTINGS_HEAD_SIZE + index] = (uint8_t)(index + 1);
+		for (index = 0; index < 4; index++)
+			record[NETWORK_RULES_SETTINGS_HEAD_SIZE + 0x58 + index] = (uint8_t)(0xA0 + index);
+		for (index = 0; index < 64; index++)
+			record[NETWORK_RULES_SETTINGS_HEAD_SIZE + 0x58 + 4 + index] = 0xEE;
+		CHECK(record[NETWORK_RULES_SETTINGS_HEAD_SIZE + 0x2B] == 0x2C);
+		network_rules_settings_fold(record, 13244, 0x58, extended);
+		CHECK(extended[0] == 0x1D && extended[15] == 0x2C);
+		CHECK(record[NETWORK_RULES_SETTINGS_HEAD_SIZE + 0x1B] == 0x1C &&
+			record[NETWORK_RULES_SETTINGS_HEAD_SIZE + 0x1C] == 0xA0 &&
+			record[NETWORK_RULES_SETTINGS_HEAD_SIZE + 0x1F] == 0xA3);
+		for (index = NETWORK_RULES_SETTINGS_SIZE; index < 13244; index++)
+		{
+			if (record[index])
+				break;
+		}
+		CHECK(index == 13244);
+	}
+}
+
 int main(void)
 {
 	test_aim_assist_message();
@@ -1636,6 +1730,7 @@ int main(void)
 	test_reliable_split();
 	test_unit_state_length();
 	test_join_paths();
+	test_forks();
 	if (failures)
 	{
 		printf("network_rules_test: %d failure(s)\n", failures);

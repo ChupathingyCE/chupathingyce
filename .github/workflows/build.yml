@@ -15,18 +15,26 @@ name: Build
 # unsigned) and publish the builds to this repository's Releases. Each run
 # also uploads chupathingyce-build-info: the commit and version it built.
 #
-# What runs when (docs/ci.md):
-# - a pull request gets the fast check: linux, linux-tests, linux-big-endian
-#   (the console gate tests are in tools/ci_tests.txt, so they run here),
-#   plus each platform job whose own files it changes (the plan job);
-# - the full matrix (every job) runs for a pull request labeled "ci: full",
-#   a pull request from a batch/* branch, one that changes the build's
-#   plumbing (configure.py, tools/ci_build.py and the like: the plan job),
-#   every push to main or a release branch, and every run started with
-#   workflow_dispatch (the nightly, test builds and releases);
-# - ci-ok sums the run up in one check: green when every job that had to
-#   run passed. It is not required to merge; a release's run is checked
-#   job by job before anything ships (ChupathingyCE/command).
+# What runs when (docs/ci.md), in tiers (the plan job):
+# - A, every push to a pull request: linux, linux-tests, linux-big-endian
+#   (the console gate tests are in tools/ci_tests.txt, so they run here)
+#   and server (x64), plus each platform job whose own files it changes;
+# - B, the merge queue (merge_group), on main with the pull request merged:
+#   A plus linux64, windows, windows64, macos, android64 and freebsd64, plus
+#   server-windows when the server's or Windows' files change. A pull
+#   request that changes documentation alone gets A's jobs only;
+# - C, every push to main or a release branch, a pull request from a
+#   batch/* branch or one that changes the build's plumbing (configure.py,
+#   tools/ci_build.py and the like): every job, the servers for x86 and
+#   arm64, server-windows and server-container among them;
+# - D, every run started with workflow_dispatch (ChupathingyCE/command's
+#   nightly, test builds and releases): every job, with debug builds and
+#   symbols;
+# - ci-ok sums the run up in one check: green when every job the plan job
+#   gave the run passed, and every other one was skipped. main requires it,
+#   from the pull request's run (A) and from the merge queue's (B); a
+#   release's run is checked job by job before anything ships
+#   (ChupathingyCE/command).
 #
 # Kept cheap:
 # - one job per platform builds both configurations, so its set-up (tools,
@@ -47,15 +55,17 @@ name: Build
 #   request;
 # - debug builds only in runs started with workflow_dispatch; pull requests
 #   and pushes build release only (BUILD_DEBUG);
-# - a newer commit to a pull request, main or a release branch cancels that
-#   ref's run still going: only the newest head matters. Runs started with
-#   workflow_dispatch are never canceled;
-# - changes that only touch documentation do not build (no check is
-#   required to merge, so a pull request without a Build is not blocked);
+# - a newer commit to a pull request or a release branch cancels that
+#   ref's run still going: only the newest head matters. main's runs are
+#   never canceled midway (a queue of one), nor are runs started with
+#   workflow_dispatch;
+# - a push to main or a release branch that changes only documentation
+#   does not build;
 # - the caches (compiles, downloads) are saved only by a run of main's own
 #   head that builds no version: each push to main, and a test build
-#   started on main without a commit. Pull requests and other branches
-#   restore main's newest and keep nothing of their own, so they do not
+#   started on main without a commit. Pull requests, the merge queue and
+#   other branches restore main's newest and keep nothing of their own
+#   (tiers A and B restore only), so they do not
 #   crowd main's out of the repository's 10 GB of caches. After a push to
 #   main, cache-prune deletes main's older generations of each cache (never
 #   the newest) and whatever pull requests left;
@@ -79,12 +89,13 @@ on:
     paths-ignore:
       - "**.md"
       - "docs/**"
-  # (adding the "ci: full" label re-runs a pull request's latest Build:
-  # full-build-label.yml)
+  # (no paths-ignore: ci-ok is the check main requires, so every pull
+  # request needs a run; one that changes documentation alone gets tier A,
+  # whose tests read docs/)
   pull_request:
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
+  # (tier B: the merge queue's candidate, main with the pull request merged)
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       commit:
@@ -109,10 +120,13 @@ on:
 run-name: ${{ inputs.version && format('Build {0} at {1} {2}', inputs.version, inputs.commit, inputs.request) || '' }}
 
 # (a run started by hand is never canceled by a push, and cancels none; a
-# pull request's, main's or a release branch's newer run cancels the last)
+# pull request's newer push cancels its run still going, and so does a
+# release branch's; main is a queue of one: the run in progress finishes,
+# and only the newest push waits behind it, so a merge is never built
+# halfway and dropped. A merge queue group has a ref of its own.)
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && format('build-dispatch-{0}', github.run_id) || format('build-{0}', github.ref) }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  group: ${{ github.event_name == 'workflow_dispatch' && format('build-dispatch-{0}', github.run_id) || github.event_name == 'pull_request' && format('build-pr-{0}', github.event.pull_request.number) || format('build-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || (github.event_name == 'push' && github.ref != 'refs/heads/main') }}
 
 permissions:
   contents: read
@@ -179,28 +193,22 @@ jobs:
 
   plan:
     needs: gate
-    # Which platform jobs this run has (README of this file, "What runs
-    # when"). Every one, except on a pull request that is not from a batch/*
-    # branch, has no "ci: full" label and changes none of the build's
-    # plumbing: then each platform job runs only when the pull request
-    # changes that platform's own files (the areas of .github/labeler.yml).
-    # linux, linux-tests and linux-big-endian always run. The labels and
-    # files are read from GitHub when the job runs, not from the event, so
-    # that a re-run after "ci: full" is added (full-build-label.yml) sees it.
+    # Which platform jobs this run has: its tier (README of this file, "What
+    # runs when"). The run output says, for each job that only some runs
+    # have, whether this one has it; ci-ok checks against it. linux,
+    # linux-tests, linux-big-endian and server (x64) always run. A pull
+    # request's files are read from GitHub, a merge queue group's from the
+    # comparison of its base and head.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
     outputs:
-      full: ${{ steps.plan.outputs.full }}
-      windows: ${{ steps.plan.outputs.windows }}
-      android: ${{ steps.plan.outputs.android }}
-      macos: ${{ steps.plan.outputs.macos }}
-      freebsd: ${{ steps.plan.outputs.freebsd }}
-      server: ${{ steps.plan.outputs.server }}
-      linux64: ${{ steps.plan.outputs.linux64 }}
+      tier: ${{ steps.plan.outputs.tier }}
+      run: ${{ steps.plan.outputs.run }}
       server_archs: ${{ steps.plan.outputs.server_archs }}
+      tests: ${{ steps.tests.outputs.tests }}
     steps:
       - name: Plan
         id: plan
@@ -209,39 +217,106 @@ jobs:
           EVENT: ${{ github.event_name }}
           HEAD_REF: ${{ github.head_ref }}
           NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -uo pipefail
           out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; echo "$1=$2"; }
-          everything() {
-            echo "the full matrix: $1"
-            for area in full windows android macos freebsd server linux64; do out "$area" true; done
-            out server_archs '["x86","x64","arm64"]'
+          # (tier B's platforms; tier C adds the servers' other jobs)
+          b_jobs=(linux64 freebsd64 windows windows64 macos android64)
+          c_jobs=(server_windows server_container)
+          # finish <tier> <why> <server archs> <job>...: the jobs given run
+          finish() {
+            local tier=$1 why=$2 archs=$3 run="" job
+            shift 3
+            echo "tier $tier: $why"
+            for job in "${b_jobs[@]}" "${c_jobs[@]}"; do
+              case " $* " in *" $job "*) run="$run,\"$job\":true" ;; *) run="$run,\"$job\":false" ;; esac
+            done
+            out tier "$tier"
+            out run "{${run#,}}"
+            out server_archs "$archs"
             exit 0
           }
-          [ "$EVENT" = pull_request ] || everything "$EVENT"
-          case "$HEAD_REF" in batch/*) everything "a batch ($HEAD_REF)" ;; esac
-          # (GitHub not answering is no reason to build less)
-          labels=$(gh api "repos/$REPOSITORY/pulls/$NUMBER" --jq '.labels[].name') \
-            || everything "the pull request's labels could not be read"
-          grep -qxF 'ci: full' <<< "$labels" && everything "labeled ci: full"
-          files=$(gh api --paginate "repos/$REPOSITORY/pulls/$NUMBER/files?per_page=100" \
-            --jq '.[] | .filename, (.previous_filename // empty)') \
-            || everything "the pull request's files could not be read"
+          all='["x86","x64","arm64"]'
+          case "$EVENT" in
+            pull_request|merge_group) ;;
+            workflow_dispatch) finish d "started by hand" "$all" "${b_jobs[@]}" "${c_jobs[@]}" ;;
+            *) finish c "$EVENT" "$all" "${b_jobs[@]}" "${c_jobs[@]}" ;;
+          esac
+          if [ "$EVENT" = pull_request ]; then
+            tier=a
+            case "$HEAD_REF" in batch/*) finish c "a batch ($HEAD_REF)" "$all" "${b_jobs[@]}" "${c_jobs[@]}" ;; esac
+            # (GitHub not answering is no reason to build less)
+            files=$(gh api --paginate "repos/$REPOSITORY/pulls/$NUMBER/files?per_page=100" \
+              --jq '.[] | .filename, (.previous_filename // empty)') \
+              || finish b "the pull request's files could not be read" '["x64"]' "${b_jobs[@]}"
+          else
+            tier=b
+            # (a comparison lists 300 files at most: more counts as code)
+            files=$(gh api "repos/$REPOSITORY/compare/$BASE_SHA...$HEAD_SHA" \
+              --jq 'if (.files | length) >= 300 then "(many files)" else (.files[] | .filename, (.previous_filename // empty)) end') \
+              || finish b "the merge group's files could not be read" '["x64"]' "${b_jobs[@]}"
+          fi
           echo "$files"
           has() { grep -qE "$1" <<< "$files" && echo true || echo false; }
           # (what changes how every platform builds)
           [ "$(has '^(configure\.py|VERSION|tools/(ci_build|version|download|ffmpeg_build|bgfx_build|third_party_notices)\.py)$')" = true ] \
-            && everything "the build's plumbing changed"
-          out full false
-          out windows "$(has '^(port/windows/|server/windows/|tools/windows_build\.py$)')"
-          out android "$(has '^(port/android/|tools/android)')"
-          out macos "$(has '^(port/macos/|port/ios/|tools/macos_build\.py$)')"
-          out freebsd "$(has '^(port/unix/|tools/unix64_build\.py$)')"
-          out server "$(has '^(server/|tools/server_build\.py$)')"
-          out linux64 "$(has '^(tools/linux64_build\.py$|tools/linux_sysroot\.py$|tools/bgfx-patches/|port/linux/src/(d3d8_bgfx|bgfx_))')"
-          # (a pull request of the server's alone builds x64)
-          out server_archs '["x64"]'
+            && finish c "the build's plumbing changed" "$all" "${b_jobs[@]}" "${c_jobs[@]}"
+          # (documentation alone: tier A's jobs, whose tests read docs/)
+          if [ -n "$files" ] && ! grep -qvE '(\.md$|^docs/)' <<< "$files"; then
+            finish "$tier" "documentation only" '["x64"]'
+          fi
+          windows=$(has '^(port/windows/|server/windows/|tools/windows_build\.py$)')
+          server=$(has '^(server/|tools/server_build\.py$)')
+          jobs=()
+          [ "$tier" = b ] && jobs=("${b_jobs[@]}")
+          [ "$windows" = true ] && jobs+=(windows windows64 server_windows)
+          # (the queue also builds the Windows server for a change to the server)
+          [ "$tier" = b ] && [ "$server" = true ] && jobs+=(server_windows)
+          [ "$(has '^(port/android/|tools/android)')" = true ] && jobs+=(android64)
+          [ "$(has '^(port/macos/|port/ios/|tools/macos_build\.py$)')" = true ] && jobs+=(macos)
+          [ "$(has '^(port/unix/|tools/unix64_build\.py$)')" = true ] && jobs+=(freebsd64)
+          [ "$(has '^(tools/linux64_build\.py$|tools/linux_sysroot\.py$|tools/bgfx-patches/|port/linux/src/(d3d8_bgfx|bgfx_))')" = true ] \
+            && jobs+=(linux64)
+          finish "$tier" "$([ "$tier" = a ] && echo "a pull request" || echo "the merge queue")" '["x64"]' ${jobs[@]+"${jobs[@]}"}
+
+      # (the workflow's own commit: the test lists, the buckets and the
+      # selector, and for a pull request the tree its files are looked up in)
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Which tests linux-tests runs, and on how many runners
+      # (tools/ci_select_tests.py, docs/ci.md): a pull request's own files
+      # choose the area tests beside the core ones; every other run, the
+      # merge queue's among them, runs them all. A pull request whose files
+      # cannot be read, or that has too many for GitHub to list, runs them all.
+      - name: Tests
+        id: tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          changed=()
+          if [ "$EVENT" = pull_request ] && [[ "$HEAD_REF" != batch/* ]]; then
+            list="$RUNNER_TEMP/changed.json"
+            if gh api --paginate "repos/$REPOSITORY/pulls/$NUMBER/files?per_page=100" \
+                --jq '.[] | {filename, previous_filename, patch}' > "$list" \
+              && [ "$(wc -l < "$list")" -lt 3000 ]; then
+              changed=(--changed "$list")
+            else
+              echo "::notice::the pull request's files could not be listed: every test runs"
+            fi
+          fi
+          python3 tools/ci_select_tests.py --event "$EVENT" ${changed[@]+"${changed[@]}"} --explain > "$RUNNER_TEMP/tests.json"
+          jq -r '"tests: \(.why)", (.parts[] | "\(.name): \(.pytest) \(.harness) \(.scripts)\(if .update_install then " tools/test_update_install.py" else "" end)")' "$RUNNER_TEMP/tests.json"
+          echo "tests=$(jq -c . "$RUNNER_TEMP/tests.json")" >> "$GITHUB_OUTPUT"
 
   info:
     needs: gate
@@ -524,23 +599,24 @@ jobs:
           key: ccache-linux-ubuntu-clang22-${{ github.sha }}
 
   linux-tests:
-    needs: [gate, linux]
+    needs: [gate, plan, linux]
     # The tests, against the linux job's build (its tree: build.ninja, ninja's
-    # log, build/), in parallel: the pytest files of tools/ci_tests.txt split
-    # into shards, each on its own runner with pytest-xdist's workers (one a
-    # processor); and one runner for the engine's harness (tools/harness),
-    # the tests written as scripts (tools/ci_test_scripts.txt) and the
-    # self-updater from end to end. The lists are read from this workflow's
-    # own commit, so that a release branch's commit built with main's
-    # workflow runs the tests it has (the others are left out with a notice).
-    # Same toolchain as the linux job.
+    # log, build/), in parallel, as the plan job chose and split them
+    # (tools/ci_select_tests.py): the pytest files of tools/ci_tests.txt in
+    # shards, each on its own runner with pytest-xdist's workers (one a
+    # processor), one to three by their weight; and one runner, "other", for
+    # the engine's harness (tools/harness), the tests written as scripts
+    # (tools/ci_test_scripts.txt) and the self-updater from end to end. The
+    # lists are read from this workflow's own commit, so that a release
+    # branch's commit built with main's workflow runs the tests it has (the
+    # others are left out with a notice). Same toolchain as the linux job.
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        part: ["pytest 1 3", "pytest 2 3", "pytest 3 3", "other"]
-    name: linux-tests (${{ matrix.part }})
+        part: ${{ fromJSON(needs.plan.outputs.tests).parts }}
+    name: linux-tests (${{ matrix.part.name }})
     env:
       LLVM_MAJOR: 22
       APT_PACKAGES: >-
@@ -577,7 +653,7 @@ jobs:
           echo "/usr/lib/llvm-$LLVM_MAJOR/bin" >> "$GITHUB_PATH"
 
       - uses: actions/cache/save@v4
-        if: ${{ env.CACHE_SAVE == 'true' && steps.apt-cache.outputs.cache-hit != 'true' && matrix.part == 'other' }}
+        if: ${{ env.CACHE_SAVE == 'true' && steps.apt-cache.outputs.cache-hit != 'true' && matrix.part.name == 'other' }}
         with:
           path: ${{ runner.temp }}/apt
           key: ${{ steps.apt.outputs.key }}
@@ -586,15 +662,13 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
 
-      # (the test lists, from this workflow's commit)
-      - uses: actions/checkout@v4
+      # (JDK 17 for the Android touch layout's checks, tools/test_touch_layout.py,
+      # one of the script tests: not left to the runner image)
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        if: matrix.part.name == 'other'
         with:
-          ref: ${{ github.workflow_sha }}
-          path: .ci-lists
-          sparse-checkout: |
-            tools/ci_tests.txt
-            tools/ci_test_scripts.txt
-          sparse-checkout-cone-mode: false
+          distribution: temurin
+          java-version: "17"
 
       - uses: actions/download-artifact@v4
         with:
@@ -628,75 +702,43 @@ jobs:
       - name: Test
         env:
           HALO_SANITIZERS_REQUIRED: "1"
-          PART: ${{ matrix.part }}
+          PYTEST_FILES: ${{ matrix.part.pytest }}
+          HARNESS_FILES: ${{ matrix.part.harness }}
+          SCRIPT_FILES: ${{ matrix.part.scripts }}
+          UPDATE_INSTALL: ${{ matrix.part.update_install }}
           HALO_UPDATE_TEST_SDL: build/linux
           UPDATE_INSTALL_REQUIRED: "1"
         run: |
-          # (a list's files that are in this commit: a release branch's commit,
-          # built with main's workflow, may not have every test main has yet)
+          # (the files this part was given that are in this commit: a release
+          # branch's commit, built with main's workflow, may not have every
+          # test main has yet)
           present() {
-            grep -v -e '^#' -e '^[[:space:]]*$' "$1" | while read -r test; do
+            for test in "$@"; do
               if [ -f "$test" ]; then echo "$test"; else echo "::notice::$test: not in this commit" >&2; fi
             done
           }
-          set -- $PART
-          case "$1" in
-            pytest)
-              # (shard $2 of $3: the files dealt out longest first to the
-              # shard with the least so far; the few long ones, the fuzzers,
-              # weighed by their seconds on a runner, every other file as 2)
-              tests=$(present .ci-lists/tools/ci_tests.txt | awk -v shard="$2" -v shards="$3" '
-                BEGIN {
-                  weight["tools/test_map_fuzz.py"] = 200; weight["tools/test_host_fuzz.py"] = 180
-                  weight["tools/test_steam_content.py"] = 160; weight["tools/test_server_control.py"] = 90
-                  weight["tools/test_delta_peer.py"] = 70; weight["tools/test_workshop_list.py"] = 25
-                  weight["tools/test_steam_bridge.py"] = 20
-                }
-                { files[NR] = $0; w[NR] = ($0 in weight) ? weight[$0] : 2 }
-                END {
-                  for (i = 1; i <= NR; i++) order[i] = i
-                  for (i = 1; i <= NR; i++) for (j = i + 1; j <= NR; j++)
-                    if (w[order[j]] > w[order[i]]) { t = order[i]; order[i] = order[j]; order[j] = t }
-                  for (i = 1; i <= NR; i++) {
-                    best = 1
-                    for (k = 2; k <= shards; k++) if (load[k] < load[best]) best = k
-                    load[best] += w[order[i]]
-                    if (best == shard) print files[order[i]]
-                  }
-                }')
-              echo "$tests"
-              # (a shard dealt no file runs nothing: a bare pytest would
-              # collect the whole tree; #1125)
-              if [ -z "$tests" ]; then
-                echo "::notice::shard $2 of $3: no test files in this commit"
-              else
-                python3 -m pytest -q -n auto --durations=15 $tests
-              fi
-              ;;
-            other)
-              # (the self-updater from end to end, against the 32-bit SDL 3 the
-              # linux job built in build/linux: tools/test_update_install.py;
-              # UPDATE_INSTALL_REQUIRED, so that a missing piece fails, never skips)
-              if [ -f tools/test_update_install.py ]; then
-                python3 -m pytest -q -rs tools/test_update_install.py
-              else
-                echo "::notice::tools/test_update_install.py: not in this commit"
-              fi
-              # (the asset-free tests of the engine's own functions, tools/harness;
-              # the three left out were written against code of ours that has
-              # changed since, and wait to be brought up to date)
-              if [ -f tools/harness/__init__.py ]; then
-                python3 -m pytest -q -n auto tools/harness \
-                  --ignore=tools/harness/tests/test_elevator_prediction.py \
-                  --ignore=tools/harness/tests/test_server_teardown.py \
-                  --ignore=tools/harness/tests/test_stale_player_damage.py
-              fi
-              for test in $(present .ci-lists/tools/ci_test_scripts.txt); do
-                echo "== $test"
-                python3 "$test"
-              done
-              ;;
-          esac
+          tests=$(present $PYTEST_FILES)
+          if [ -n "$tests" ]; then
+            python3 -m pytest -q -n auto --durations=15 $tests
+          fi
+          # (the self-updater from end to end, against the 32-bit SDL 3 the
+          # linux job built in build/linux: tools/test_update_install.py;
+          # UPDATE_INSTALL_REQUIRED, so that a missing piece fails, never skips)
+          if [ "$UPDATE_INSTALL" = true ]; then
+            tests=$(present tools/test_update_install.py)
+            if [ -n "$tests" ]; then python3 -m pytest -q -rs $tests; fi
+          fi
+          # (the asset-free tests of the engine's own functions, tools/harness;
+          # the ones not brought up to date with the code they test are in the
+          # local bucket, tools/ci_test_buckets.txt, and never given)
+          tests=$(present $HARNESS_FILES)
+          if [ -n "$tests" ] && [ -f tools/harness/__init__.py ]; then
+            python3 -m pytest -q -n auto $tests
+          fi
+          for test in $(present $SCRIPT_FILES); do
+            echo "== $test"
+            python3 "$test"
+          done
 
   linux-big-endian:
     needs: gate
@@ -764,7 +806,7 @@ jobs:
 
   linux64:
     needs: [gate, plan]
-    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.linux64 == 'true'
+    if: fromJSON(needs.plan.outputs.run).linux64
     # The native 64-bit Linux build (ninja linux64), on Ubuntu with clang 22
     # as the 32-bit one, and portable as it is: against Debian 11's amd64
     # glibc 2.31, with the SDL 3 it brings (tools/linux_sysroot.py --arch
@@ -774,7 +816,7 @@ jobs:
     env:
       LLVM_MAJOR: 22
       APT_PACKAGES: >-
-        clang-22 lld-22 llvm-22 gcc cmake pkg-config libwayland-bin ninja-build ccache zstd
+        clang-22 lld-22 llvm-22 gcc cmake pkg-config libwayland-bin ninja-build ccache zstd spirv-tools
     steps:
       # (the Ubuntu packages: CI_APT_INSTALL, in the linux job; the key
       # changes with the runner image, the packages and the script)
@@ -865,6 +907,24 @@ jobs:
       - name: glibc 2.31
         run: python3 tools/linux_glibc_check.py $([ "$BUILD_DEBUG" = true ] && echo dist/chupathingyce-linux64-debug) dist/chupathingyce-linux64-release
 
+      # every shader the bgfx renderer can be asked for, compiled for Vulkan
+      # and its SPIR-V checked by spirv-val (tools/bgfx_shader_check.py)
+      - name: bgfx shaders
+        run: python3 tools/bgfx_shader_check.py --binary dist/chupathingyce-linux64-release/chupathingy --out build/bgfx-shaders
+
+      # nothing of a player's (config.toml, logs, saves) in what an update
+      # puts over their install (#2029): tools/package_check.py
+      - name: Player files
+        run: python3 tools/package_check.py $([ "$BUILD_DEBUG" = true ] && echo dist/chupathingyce-linux64-debug) dist/chupathingyce-linux64-release
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: bgfx-shaders-linux64
+          path: build/bgfx-shaders
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Compile cache
         run: ccache --show-stats
 
@@ -922,7 +982,7 @@ jobs:
 
   freebsd64:
     needs: [gate, plan]
-    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.freebsd == 'true'
+    if: fromJSON(needs.plan.outputs.run).freebsd64
     # The native 64-bit FreeBSD build (ninja freebsd64, port/unix: Renkoto's
     # port), built on FreeBSD 15.1 itself, in a virtual machine on Ubuntu
     # (vmactions/freebsd-vm, pinned to a commit: QEMU with the runner's KVM;
@@ -1031,15 +1091,15 @@ jobs:
 
   server:
     needs: [gate, plan]
-    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.server == 'true'
     # The dedicated server (tools/server_build.py): one static program for
     # each architecture, built against musl in Alpine Linux's container of
     # that architecture (tools/ci_build.py --alpine; x86 on the x86-64
     # runner, arm64 on GitHub's arm64 one), then started on the runner's
     # Ubuntu, which it shares nothing with: it prints its version, refuses
     # to start without a playlist, and stops with a clear error without maps.
-    # (the three on a full run; x64 alone for a pull request of the
-    # server's: the plan job)
+    # (x64 on every run, so that every pull request checks -DHALO_SERVER;
+    # x86 and arm64 only on main, batches, plumbing changes and runs started
+    # by hand: the plan job)
     strategy:
       fail-fast: false
       matrix:
@@ -1134,7 +1194,7 @@ jobs:
     # release's and the nightly's, from their published servers.
     # (full runs only: it repackages the server job's three programs)
     needs: [gate, plan, server]
-    if: needs.plan.outputs.full == 'true'
+    if: fromJSON(needs.plan.outputs.run).server_container
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -1189,7 +1249,7 @@ jobs:
 
   server-windows:
     needs: [gate, plan]
-    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.windows == 'true'
+    if: fromJSON(needs.plan.outputs.run).server_windows
     # The dedicated server for 64-bit Windows (ninja server-windows64;
     # tools/windows_build.py), a console program with no SDL, packaged as
     # chupathingyce-server-windows-x64 with start-server.bat and its README
@@ -1350,7 +1410,7 @@ jobs:
 
   android64:
     needs: [gate, plan]
-    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.android == 'true'
+    if: fromJSON(needs.plan.outputs.run).android64
     # The native 64-bit Android app (ninja android64; tools/android64_build.py):
     # the Android download (the 32-bit-address app is no longer built here;
     # its code stays in port/android).
@@ -1483,7 +1543,7 @@ jobs:
 
   windows:
     needs: [gate, plan]
-    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.windows == 'true'
+    if: fromJSON(needs.plan.outputs.run).windows
     # The runner image has LLVM, Python, MSYS2 (the movies' FFmpeg builds
     # under its shell) and Visual Studio's x86 libraries and Windows SDK.
     runs-on: windows-2025
@@ -1581,6 +1641,11 @@ jobs:
           python tools/test_light_storage.py
           python tools/test_rendered_lights_storage.py
 
+      # (what the game removes beside itself as the old name, on Windows'
+      # compiler and C library: tools/test_rename_stub.py)
+      - name: Test the old name's clean-up
+        run: python tools/test_rename_stub.py
+
       - name: Compile cache
         run: ccache --show-stats
 
@@ -1639,7 +1704,7 @@ jobs:
 
   windows64:
     needs: [gate, plan]
-    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.windows == 'true'
+    if: fromJSON(needs.plan.outputs.run).windows64
     # The native 64-bit Windows build (ninja windows64), on the same runner
     # image as the 32-bit one, with Visual Studio's x64 libraries.
     runs-on: windows-2025
@@ -1735,6 +1800,25 @@ jobs:
       - name: Release
         run: python tools/ci_build.py windows64 release
 
+      # every shader the bgfx renderer can be asked for, compiled for Vulkan
+      # and for Direct3D 11 (d3dcompiler_47.dll): tools/bgfx_shader_check.py
+      - name: bgfx shaders
+        run: python tools/bgfx_shader_check.py --binary dist/chupathingyce-windows64-release/chupathingy.exe --out build/bgfx-shaders
+
+      # nothing of a player's (config.toml, logs, saves) in what an update
+      # puts over their install (#2029): tools/package_check.py
+      - name: Player files
+        shell: bash
+        run: python tools/package_check.py $([ "$BUILD_DEBUG" = true ] && echo dist/chupathingyce-windows64-debug) dist/chupathingyce-windows64-release
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: bgfx-shaders-windows64
+          path: build/bgfx-shaders
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Compile cache
         run: ccache --show-stats
 
@@ -1799,7 +1883,7 @@ jobs:
 
   macos:
     needs: [gate, plan]
-    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.macos == 'true'
+    if: fromJSON(needs.plan.outputs.run).macos
     # Apple silicon, with Xcode's clang: the universal application (Apple
     # silicon and Intel, self-contained: tools/macos_build.py, --portable),
     # with its own SDL3 and the movies' FFmpeg, built once and cached. The application goes up as
@@ -1865,10 +1949,28 @@ jobs:
       - name: Release
         run: python3 tools/ci_build.py macos release
 
+      # every shader the bgfx renderer can be asked for, compiled for Metal
+      # on the runner's Metal device (tools/bgfx_shader_check.py)
+      - name: bgfx shaders
+        run: python3 tools/bgfx_shader_check.py --binary dist/chupathingyce-macos-release/ChupathingyCE.app/Contents/MacOS/chupathingy --out build/bgfx-shaders
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: bgfx-shaders-macos
+          path: build/bgfx-shaders
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Package
         run: |
           if [ "$BUILD_DEBUG" = true ]; then tar -C dist -cf chupathingyce-macos-debug.tar chupathingyce-macos-debug; fi
           tar -C dist -cf chupathingyce-macos-release.tar chupathingyce-macos-release
+
+      # nothing of a player's (config.toml, logs, saves) in what an update
+      # puts over their install (#2029): tools/package_check.py
+      - name: Player files
+        run: python3 tools/package_check.py $([ "$BUILD_DEBUG" = true ] && echo chupathingyce-macos-debug.tar) chupathingyce-macos-release.tar
 
       - uses: actions/upload-artifact@v4
         if: env.BUILD_DEBUG == 'true'
@@ -1917,33 +2019,38 @@ jobs:
           key: ccache-macos-${{ github.sha }}
 
   ci-ok:
-    # The run in one check: green when every job that had to run passed. A
-    # platform job left out by the plan job counts as passed on a fast
-    # check, never on a full run; FreeBSD's may fail on a run started with
-    # workflow_dispatch, as its job allows (continue-on-error). Not required
-    # to merge: a release's run is checked job by job before anything ships
+    # The run in one check: green when every job the plan job gave this run
+    # passed, and every platform job it left out was skipped (a tier A run
+    # on a pull request, a tier B one in the merge queue: the same check,
+    # which main requires). FreeBSD's may fail on a run started with
+    # workflow_dispatch, as its job allows (continue-on-error). A release's
+    # run is also checked job by job before anything ships
     # (ChupathingyCE/command, tools/public_build.py).
+    # (always(), not !cancelled(): a canceled run must report ci-ok as
+    # failed, since a required check that is skipped counts as passed and
+    # would let the merge queue merge; a canceled job fails the jq below)
     needs: [gate, plan, info, linux, linux-tests, linux-big-endian, linux64, freebsd64, server, server-container,
             server-windows, android64, windows, windows64, macos]
-    if: ${{ !cancelled() }}
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Every job that had to run passed
         env:
           NEEDS: ${{ toJSON(needs) }}
-          FULL: ${{ needs.plan.outputs.full }}
+          TIER: ${{ needs.plan.outputs.tier }}
+          RUN: ${{ needs.plan.outputs.run || '{}' }}
           EVENT: ${{ github.event_name }}
         run: |
           jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$NEEDS"
-          echo "full matrix: ${FULL:-unknown}"
-          jq -e --arg full "$FULL" --arg event "$EVENT" '
-            ["linux64", "freebsd64", "server", "server-container", "server-windows", "android64",
-             "windows", "windows64", "macos"] as $platforms
-            | to_entries | all(
-                .value.result == "success"
+          echo "tier: ${TIER:-unknown}; $RUN"
+          jq -e --argjson run "$RUN" --arg event "$EVENT" '
+            to_entries | all(
+                ((.key | gsub("-"; "_")) as $job
+                 | if ($run | has($job)) and ($run[$job] | not)
+                   then .value.result == "skipped"
+                   else .value.result == "success" end)
                 or (.key == "info" and $event != "workflow_dispatch" and .value.result == "skipped")
-                or ($full == "false" and .value.result == "skipped" and (.key | IN($platforms[])))
                 or (.key == "freebsd64" and $event == "workflow_dispatch" and .value.result == "failure"))' \
             <<< "$NEEDS" > /dev/null
 

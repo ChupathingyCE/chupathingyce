@@ -14,9 +14,20 @@ the 32-bit build, and host pointers are converted at the edges.
 
 #include <windows.h>
 
-/* the Xbox memory window (port/linux/src/platform.h: the desktop builds') */
+/* the Xbox memory window (port/linux/src/platform.h: the desktop builds');
+with HALO_WINDOW_REBASE wherever port/linux/src/xbox_memory.c found room
+for it, pages named by host address as there */
+#ifdef HALO_WINDOW_REBASE
+extern unsigned long platform_contiguous_base;
+#define PLATFORM_CONTIGUOUS_BASE platform_contiguous_base
+#else
 #define PLATFORM_CONTIGUOUS_BASE 0x80000000UL
+#endif
+#if defined(HALO_64BIT) && !defined(HALO_SERVER)
+#define PLATFORM_CONTIGUOUS_SIZE 0x40000000UL
+#else
 #define PLATFORM_CONTIGUOUS_SIZE 0x20000000UL
+#endif
 
 #define WATCH_PAGE_SIZE 0x1000UL
 #define WATCH_PAGE_COUNT (PLATFORM_CONTIGUOUS_SIZE / WATCH_PAGE_SIZE)

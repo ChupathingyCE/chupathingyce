@@ -65,7 +65,8 @@ registry. */
 #define DELTA_PROJECT_OURS 1
 #define DELTA_PROJECTS(X) \
 	X(_delta_project_chupathingy, 1, "chupathingy", "Chupathingy") \
-	X(_delta_project_content_evolved, 2, "content_evolved", "Content Evolved")
+	X(_delta_project_content_evolved, 2, "content_evolved", "Content Evolved") \
+	X(_delta_project_gulchce, 3, "gulchce", "GulchCE")
 
 /* The old layout, which hosts before the tag wrote (0.7.5a to 0.8.0h, wires
 to chupa-38a) and which readers still take when there is no tag, so that a

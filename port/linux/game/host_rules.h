@@ -61,9 +61,6 @@ alone, its host's in a game it joined (FALSE if the host said nothing: the
 Xbox's shot) */
 boolean host_rules_air_turn_aim(void);
 
-/* (a client's) whether its host said its joins are locked */
-boolean host_rules_host_says_locked(void);
-
 /* (a client's) its host's team change rule as HOST_RULES said it
 (team_change.h's policy): FALSE if the host said none */
 boolean host_rules_team_change(int *policy);

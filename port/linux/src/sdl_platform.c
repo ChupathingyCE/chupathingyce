@@ -20,6 +20,7 @@ and the debug keyboard that the game's console reads.
 #include "xiso.h"
 #include "pc_disc.h"
 #include "ce_installer.h"
+#include "spv3_installer.h"
 #include "touch_input.h"
 #include "delta.h"
 #include "networks_game.h"
@@ -27,6 +28,7 @@ and the debug keyboard that the game's console reads.
 #include "crash_report.h"
 #include "launcher.h"
 #include "vrr.h"
+#include "map_pack_folders.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -364,6 +366,48 @@ static void new_defaults_offer(BOOL quiet)
 	config_new_defaults_answer(answer);
 }
 
+#ifdef HALO_METAL_ASK
+/* a Mac player on Metal asked once whether to go back to OpenGL (#2028:
+0.9.1's setup screen offered Metal with no testing mark). Asked before the
+window opens, so a yes draws with OpenGL from this start; either answer
+writes display.metal_asked, and it is never asked again. A player on
+OpenGL has the flag written without a question, so choosing Metal later
+(marked TESTING now) asks nothing. A run that cannot ask leaves both as they
+are and says so in the log */
+static void metal_testing_offer(BOOL quiet)
+{
+	static const SDL_MessageBoxButtonData buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No" },
+	};
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: renderer",
+		"Metal is still in testing. Switch back to OpenGL?", 2, buttons, NULL };
+	int answer = 0;
+
+	if (quiet)
+	{
+		if (config_metal_ask_pending())
+			platform_log("settings: the game draws with Metal, which is still in testing; whether to switch back "
+				"to OpenGL is asked when the game is run where it can ask");
+		return;
+	}
+	if (!config_metal_ask_pending())
+	{
+		if (!config_boolean("display.metal_asked"))
+			config_metal_ask_answer(0);
+		return;
+	}
+	if (!SDL_ShowMessageBox(&question, &answer))
+	{
+		platform_log("settings: the question about Metal could not be shown; display.renderer stays \"bgfx\"");
+		return;
+	}
+	config_metal_ask_answer(answer == 1);
+	platform_log("settings: the player %s", answer == 1 ? "switched from Metal back to OpenGL (display.renderer = \"gl\")" :
+		"kept Metal (display.renderer = \"bgfx\")");
+}
+#endif
+
 #ifndef HALO_ANDROID
 static BOOL data_has_xbox_maps(const char *destination);
 #ifdef HALO_CONSOLE_SETUP_SCREENS
@@ -387,6 +431,9 @@ static void data_check_maps(void)
 	BOOL quiet = platform_run_is_quiet();
 
 	new_defaults_offer(quiet);
+#ifdef HALO_METAL_ASK
+	metal_testing_offer(quiet);
+#endif
 	platform_maps_folder_check(&maps);
 	snprintf(where, sizeof(where),
 		"Put the Xbox maps from your Halo: Combat Evolved disc image in %s/maps. "
@@ -827,6 +874,7 @@ enum
 	_data_xbox_disc = PLATFORM_IMPORT_XBOX_DISC,
 	_data_halo_pc_disc = PLATFORM_IMPORT_HALO_PC_DISC,
 	_data_custom_edition_installer = PLATFORM_IMPORT_CE_INSTALLER,
+	_data_spv3 = PLATFORM_IMPORT_SPV3,
 };
 
 struct data_extraction
@@ -874,6 +922,10 @@ static void *data_extraction_thread(void *context)
 	case _data_custom_edition_installer:
 		succeeded = ce_installer_extract_maps(extraction->image, extraction->destination,
 			data_extraction_progress, extraction, extraction->error, sizeof(extraction->error)) != 0;
+		break;
+	case _data_spv3:
+		succeeded = spv3_installer_install(extraction->image, extraction->destination, data_extraction_progress,
+			extraction, extraction->error, sizeof(extraction->error)) != 0;
 		break;
 	default:
 		succeeded = xiso_extract_maps(extraction->image, extraction->destination, data_extraction_progress,
@@ -927,6 +979,15 @@ BOOL platform_import_start(int kind, const char *image, const char *destination,
 	pthread_detach(thread);
 	pthread_mutex_unlock(&extraction_start_lock);
 	return TRUE;
+}
+
+void platform_import_cancel(void)
+{
+	/* (only SPV3's install stops part way: spv3_installer.c) */
+	pthread_mutex_lock(&extraction.lock);
+	if (extraction.kind == _data_spv3 && extraction.running && !extraction.finished)
+		spv3_installer_cancel();
+	pthread_mutex_unlock(&extraction.lock);
 }
 
 BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, unsigned long long *total,
@@ -1096,6 +1157,13 @@ int platform_import_kind(const char *path)
 		return _data_custom_edition_installer;
 	if (pc_disc_is_image(path))
 		return _data_halo_pc_disc;
+#if defined(HALO_64BIT) && defined(HALO_CUSTOM_EDITION) && !defined(HALO_WINDOW_TRANSLATED)
+	/* (SPV3's release, its zip or the folder it was unpacked to:
+	spv3_installer.c; only where SPV3 mode runs, the 64-bit desktop builds,
+	as the setup screen's row) */
+	if (spv3_installer_is_release(path))
+		return _data_spv3;
+#endif
 	return _data_unknown;
 }
 
@@ -1131,13 +1199,17 @@ static BOOL data_make_folders(const char *destination)
 		snprintf(path, sizeof(path), "%s/%s", destination, folders[index]);
 		posix_make_directory(path);
 	}
+	/* (and the map packs' folders, each with its README.txt) */
+	map_pack_folders_make(destination);
 	platform_log("made the maps folders in %s", destination);
 	snprintf(message, sizeof(message),
 		"The folders are in %s:\n\n"
 		"maps: the Xbox maps, with ui.map. Required.\n"
 		"maps_ce: Custom Edition maps, with bitmaps.map, sounds.map and loc.map.\n"
 		"maps_pc: the maps from your Halo PC disc.\n"
-		"maps_md: HaloMD maps.\n\n"
+		"maps_md: HaloMD maps.\n"
+		"maps_cex, maps_spv3, maps_mcc, maps_os: Halo CE+ Xbox, SPV3, Halo MCC and OpenSauce maps. Each has a "
+		"README.txt.\n\n"
 		"Put the files in, then choose Check again.",
 		destination);
 	for (;;)
@@ -1947,6 +2019,18 @@ static void platform_vulkan_offer(void)
 #endif
 #ifdef HALO_BGFX
 
+/* the API bgfx draws with for display.renderer (d3d8_bgfx.inl, bg_initialize) */
+static const char *platform_bgfx_name(void)
+{
+#if defined(__APPLE__)
+	return "Metal";
+#elif defined(_WIN32)
+	return strcmp(config_string("display.renderer"), "d3d11") == 0 ? "Direct3D 11" : "Vulkan";
+#else
+	return "Vulkan";
+#endif
+}
+
 BOOL platform_bgfx_chosen(void)
 {
 	const char *renderer = config_string("display.renderer");
@@ -2590,7 +2674,10 @@ with an OpenGL context, for the OpenGL renderer, so that a computer whose
 Vulkan (or Metal) is missing or broken still shows the game */
 BOOL platform_video_reopen_for_gl(void)
 {
-	platform_log("renderer: bgfx did not start, so OpenGL");
+	/* (the one asked for and the one drawing, plainly: the reason is the
+	line before, bg_start's) */
+	platform_log("renderer: asked for %s (bgfx, display.renderer = \"%s\"), which did not start: drawing with OpenGL "
+		"for this start; the setting stays as it is", platform_bgfx_name(), config_string("display.renderer"));
 	platform_bgfx_refused = TRUE;
 	xgpu_bgfx = FALSE;
 	if (platform_window)
@@ -2886,6 +2973,10 @@ void platform_exit_window_closed(void)
 	quit_watchdog_stand_down();
 #endif
 	platform_log("window closed");
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+		xgpu_bgfx_closing();
+#endif
 	if (platform_gl_context)
 	{
 		SDL_GL_MakeCurrent(platform_window, NULL);
@@ -3327,7 +3418,9 @@ void platform_show_message(const char *title, const char *message)
 	pthread_mutex_unlock(&platform_message_lock);
 }
 
-#ifdef HALO_GAME_BROWSER
+/* a page to open in the web browser, from any thread: the main thread opens
+it (platform_url_requests). Every build has it: the Guide's and the
+Workshop list's links, not the game browser's alone */
 static pthread_mutex_t platform_url_lock = PTHREAD_MUTEX_INITIALIZER;
 static char platform_url[700];
 
@@ -3338,18 +3431,24 @@ void platform_open_url(const char *url)
 	pthread_mutex_unlock(&platform_url_lock);
 }
 
-/* (the main thread's: a page to open, a restored key to ask about) */
-static void platform_game_list_requests(void)
+/* (the main thread's: the page asked for opened) */
+static void platform_url_requests(void)
 {
 	char url[sizeof(platform_url)];
-	char new_id[64], old_id[64], message[512];
 
 	pthread_mutex_lock(&platform_url_lock);
 	snprintf(url, sizeof(url), "%s", platform_url);
 	platform_url[0] = 0;
 	pthread_mutex_unlock(&platform_url_lock);
 	if (url[0] && !SDL_OpenURL(url))
-		platform_log("Game list: could not open the web browser: %s", SDL_GetError());
+		platform_log("could not open the web browser: %s", SDL_GetError());
+}
+
+#ifdef HALO_GAME_BROWSER
+/* (the main thread's: a restored key to ask about) */
+static void platform_game_list_requests(void)
+{
+	char new_id[64], old_id[64], message[512];
 
 	if (browser_take_key_link(new_id, old_id, sizeof(new_id)))
 	{
@@ -3619,6 +3718,7 @@ void platform_pump_events(void)
 #endif
 	platform_show_pending_message();
 	platform_opengl_offer();
+	platform_url_requests();
 #ifdef HALO_GAME_BROWSER
 	platform_game_list_requests();
 #endif

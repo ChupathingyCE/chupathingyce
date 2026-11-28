@@ -1578,9 +1578,11 @@ static void validate_value(
 	{
 		long value = integer_get(address, field->size, is_unsigned);
 		long none = integer_none(field->size, is_unsigned);
-		long maximum = field->target_offset &&
+		/* (Halo PC's count, in its layout; or the layout's own where it has
+		one, field_maximum: OpenSauce's four grenade types) */
+		long maximum = field_maximum(field, field->target_offset &&
 			TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_pc_shader_types_bit) ?
-			field->target_offset : field->maximum;
+			field->target_offset : field->maximum);
 
 		if ((value >= 0 && value < maximum && value != none) || (none_allowed && value == none))
 			break;
@@ -1950,7 +1952,8 @@ boolean tag_validate_tags(
 	long file_length,
 	char const *map_name)
 {
-	return tag_validate_tags_layout(&tag_schema_xbox_layout, tag_header, tag_data_size, file_length, map_name);
+	return tag_validate_tags_layout(stubbs_mode_active() ? &tag_schema_stubbs_layout : &tag_schema_xbox_layout,
+		tag_header, tag_data_size, file_length, map_name);
 }
 
 static boolean validate_tags_once(
@@ -2076,7 +2079,8 @@ boolean tag_validate_other_tags(
 	memcpy(kept->claims, tag_validate_claims, sizeof(kept->claims));
 	memcpy(kept->shared_roots, tag_validate_shared_roots, sizeof(kept->shared_roots));
 	kept->copies = tag_validate_copies;
-	valid = tag_validate_tags_layout(&tag_schema_xbox_layout, tag_header, tag_data_size, file_length, map_name);
+	valid = tag_validate_tags_layout(stubbs_mode_active() ? &tag_schema_stubbs_layout : &tag_schema_xbox_layout,
+		tag_header, tag_data_size, file_length, map_name);
 	tag_validate_globals = kept->globals;
 	memcpy(tag_validate_shared_tags, kept->shared_tags, sizeof(kept->shared_tags));
 	memcpy(tag_validate_shared_bsp, kept->shared_bsp, sizeof(kept->shared_bsp));

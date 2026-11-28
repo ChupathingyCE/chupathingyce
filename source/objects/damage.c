@@ -146,6 +146,7 @@ symbols in this file:
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 #include "game/game_modes.h" /* port: SWAT's headshots (docs/modes.md) */
 #include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
+#include "opensauce_transforms.h" /* port: port/linux/game/opensauce_transforms.c */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -778,8 +779,11 @@ void object_can_take_damage(
 
 	while (object_index != NONE)
 	{
-		struct object_datum *object = object_get(object_index);
-		SET_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
+		/* port: a listed object deleted since is passed over (#1861) */
+		struct object_datum *object = object_try_and_get(object_index);
+
+		if (object)
+			SET_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
 		object_index = object_list_get_next(object_list_index, &reference_index);
 	}
 
@@ -794,8 +798,11 @@ void object_cannot_take_damage(
 
 	while (object_index != NONE)
 	{
-		struct object_datum *object = object_get(object_index);
-		SET_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit, TRUE);
+		/* port: a listed object deleted since is passed over (#1861) */
+		struct object_datum *object = object_try_and_get(object_index);
+
+		if (object)
+			SET_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit, TRUE);
 		object_index = object_list_get_next(object_list_index, &reference_index);
 	}
 
@@ -806,7 +813,8 @@ void object_set_ranged_attack_inhibited(
 	long object_index,
 	boolean inhibited)
 {
-	if (object_index != NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		struct object_datum *object = object_get(object_index);
 		SET_FLAG(object->object.damage_flags, _object_ranged_attack_inhibited_bit, inhibited);
@@ -819,7 +827,8 @@ void object_set_melee_attack_inhibited(
 	long object_index,
 	boolean inhibited)
 {
-	if (object_index != NONE)
+	/* port: an object deleted since the script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 	{
 		struct object_datum *object = object_get(object_index);
 		SET_FLAG(object->object.damage_flags, _object_melee_attack_inhibited_bit, inhibited);
@@ -1201,6 +1210,9 @@ static void object_damage_aftermath(
 			body_damage,
 			body_damage_multiplier,
 			body_part);
+		/* port: an OpenSauce map's actor may transform from the damage
+		(port/linux/game/opensauce_transforms.c); any other map, nothing */
+		opensauce_transforms_unit_damaged(object_index, damage);
 	}
 
 	return;

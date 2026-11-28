@@ -35,11 +35,15 @@ BGFX_REPOSITORIES = {
 # our changes to bgfx, applied to the fetched sources (tools/bgfx-patches)
 BGFX_PATCHES = sorted(Path("tools/bgfx-patches").glob("*.patch"))
 # its limits for the game: visibility tests (lens flares, The Library's
-# lights). Views are fixed at 4096 in bgfx now, and Metal's uniform space
-# grows as needed.
+# lights), and vertex and index buffers: the vertex cache keeps a buffer for
+# each range of a level it draws, and a draw past the frame's transient
+# buffers gets its own (d3d8_bgfx.inl); a level as large as SPV3's b30 used up
+# bgfx's 4096 (#1801). Views are fixed at 4096 in bgfx now, and Metal's
+# uniform space grows as needed.
 # (and not its NvOptimusEnablement and AmdPowerXpressRequestHighPerformance:
 # the Windows builds export their own, port/windows/src)
-BGFX_DEFINES = ["-DBGFX_CONFIG_MAX_OCCLUSION_QUERIES=4096", "-DBGFX_CONFIG_PREFER_DISCRETE_GPU=0"]
+BGFX_DEFINES = ["-DBGFX_CONFIG_MAX_OCCLUSION_QUERIES=4096", "-DBGFX_CONFIG_MAX_VERTEX_BUFFERS=16384",
+                "-DBGFX_CONFIG_MAX_INDEX_BUFFERS=16384", "-DBGFX_CONFIG_PREFER_DISCRETE_GPU=0"]
 # bgfx's renderers, all off but the platform's
 BGFX_RENDERERS = ["AGC", "DIRECT3D11", "DIRECT3D12", "GNM", "METAL", "NVN", "OPENGL", "OPENGLES", "VULKAN",
                   "WEBGPU"]

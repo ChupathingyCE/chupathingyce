@@ -262,17 +262,6 @@ boolean host_rules_air_turn_aim(void)
 	return FALSE;
 }
 
-boolean host_rules_host_says_locked(void)
-{
-#ifdef HOST_RULES_DELTA
-	struct delta_wire_host_rules rules;
-
-	if (host_rules_joined() && host_rules_heard(&rules))
-		return (rules.flags & DELTA_WIRE_HOST_JOINS_LOCKED) != 0;
-#endif
-	return host_rules_joined() ? FALSE : host_rules.joins_locked;
-}
-
 boolean host_rules_team_change(int *policy)
 {
 #ifdef HOST_RULES_DELTA

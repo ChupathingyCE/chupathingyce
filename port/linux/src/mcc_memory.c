@@ -55,7 +55,6 @@ void mcc_memory_release(void *allocation, uint32_t size)
  * pages; unloading decommits the pages while retaining our reservation. */
 static void *mcc_window;
 static int mcc_window_active;
-static int mcc_window_startup_error;
 
 static void *mcc_window_hold(uint32_t address)
 {
@@ -76,19 +75,6 @@ __attribute__((constructor(101)))
 static void mcc_window_initialize(void)
 {
     mcc_window = mcc_window_hold(0x50000000u);
-    if (!mcc_window)
-        mcc_window_startup_error = errno;
-}
-
-/* Called after Windows has connected stderr to the console, pipe or halo.log.
- * Remember the original error: intervening startup calls can change errno. */
-void mcc_memory_log_startup(void)
-{
-    if (mcc_window_startup_error) {
-        platform_log("mcc memory: early reservation at 50000000 (64 MiB) failed (%s); will retry at map load",
-            strerror(mcc_window_startup_error));
-        mcc_window_startup_error = 0;
-    }
 }
 
 __attribute__((destructor))

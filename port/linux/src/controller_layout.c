@@ -218,19 +218,9 @@ void controller_layout_format(const unsigned char layout[CONTROLLER_ACTION_COUNT
 	}
 }
 
-const char *controller_layout_action_key(int action)
-{
-	return action >= 0 && action < CONTROLLER_ACTION_COUNT ? action_keys[action] : "";
-}
-
 const char *controller_layout_action_title(int action)
 {
 	return action >= 0 && action < CONTROLLER_ACTION_COUNT ? action_titles[action] : "";
-}
-
-const char *controller_layout_button_key(int button)
-{
-	return button >= 0 && button < CONTROLLER_BUTTON_COUNT ? button_keys[button] : "";
 }
 
 const char *controller_layout_preset_title(int preset)

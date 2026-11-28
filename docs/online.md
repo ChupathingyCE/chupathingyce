@@ -36,7 +36,7 @@ Browser builds can't join our games, and we can't join theirs.
 | Join a game | **Multiplayer → Online Games**, pick a game, press **A**. **LB** and **RB** (**Q** and **C** on the keyboard) switch the list: ALL, CHUPATHINGY + PUBLIC (the default: our servers and everyone's public games, without OpenCE's dedicated servers), CHUPATHINGY, and OPENCE (OpenCE's dedicated servers, the empty ones in one row at the end that **A** opens). Or press **Join** on [stats.chupathingy.org](https://stats.chupathingy.org). Co-op games are listed too. A game with a lock has a password: **A** asks for it first. |
 | Host a game | **Multiplayer → Online Games → Y (Create Game)**, or host from System Link as usual. Your game is listed online by itself, on stats.chupathingy.org and in OpenCE's in-game Server Browser (`public_lobby`/`host_public` under `[network]` in `config.toml` turn that off). |
 | Invite a friend | When you host, the game copies an invite link (`halo://join/…`). Send it; opening it joins your game. |
-| Join by address | **Multiplayer → System Link**, press **X** (**DIRECT IP**), enter the host's address or name under **SERVER ADDRESS**, then **JOIN GAME**. Or type `connect <address>` in the console, or start the game with `--connect <address>`. See [Join by address](#join-by-address). |
+| Join by address | **Multiplayer → System Link**, pick **DIRECT IP** at the end of the list (or press **X**), enter the host's address or name under **SERVER ADDRESS**, then **JOIN GAME**. Or type `connect <address>` in the console, or start the game with `--connect <address>`. See [Join by address](#join-by-address). |
 | Make an account | On [stats.chupathingy.org/profile](https://stats.chupathingy.org/profile), or press **Start** (or **F2** on the keyboard) in Online Games to make one for the player you already are. |
 | Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **Start** (or **F2** on the keyboard), then pick **LINK PROFILE**. On your phone or computer, go to [stats.chupathingy.org/connect](https://stats.chupathingy.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
 | List a game from a build that can't list itself | Sign in on the site, open **Host a Game**, and paste your invite link. |
@@ -57,7 +57,9 @@ System Link finds the games on your own network. **DIRECT IP** joins one it
 can't see: a LAN party across two networks, a VPN, your own server, or a
 friend's game whose port is open.
 
-- **Multiplayer → System Link**, then **X** (**DIRECT IP**). Enter the
+- **Multiplayer → System Link**, then **DIRECT IP**, the last row of the
+  list (or press **X**). In the Xbox menus, which stay as the Xbox had them,
+  use the console's `connect` instead. Enter the
   host's IPv4 address or host name under **SERVER ADDRESS**, with
   `:port` after it if the host isn't on the game's port, 5150. A controller
   gets the on-screen keyboard. **JOIN GAME** joins.

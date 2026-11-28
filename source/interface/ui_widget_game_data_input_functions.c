@@ -1069,6 +1069,23 @@ static void server_list_menu_update(
 	static struct network_advertised_game *displayed_servers[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 	struct network_game_client *client = global_network_game_client_get();
 	long displayed_server_count = 0;
+	/* port: the Chupathingy menus' DIRECT IP, the list's last row
+	(menu_tags.c, pc_menus_direct_ip_list): no game behind it (NULL), so
+	one game fewer at most. Chosen, it stays chosen as games come and go;
+	with no games it is the one row, and chosen */
+	long displayed_server_limit = MAXIMUM_NETWORK_ADVERTISED_GAMES;
+	boolean direct_ip_row = FALSE;
+	boolean direct_ip_chosen = FALSE;
+
+#ifdef HALO_GAME_BROWSER
+	if (pc_menus_direct_ip_list() != NONE && widget->definition_tag_index == pc_menus_direct_ip_list())
+	{
+		direct_ip_row = TRUE;
+		displayed_server_limit--;
+		direct_ip_chosen = widget->parameters.list.number_of_items > 0 &&
+			widget->parameters.list.selected_list_item_index == widget->parameters.list.number_of_items - 1;
+	}
+#endif
 
 
 	csmemset(
@@ -1099,7 +1116,8 @@ static void server_list_menu_update(
 		{
 			if (network_game_client_advertised_game_is_valid(&available_games[game_index]) &&
 				available_games[game_index].platform == _network_game_platform_xbox &&
-				available_games[game_index].open)
+				available_games[game_index].open &&
+				displayed_server_count < displayed_server_limit)
 			{
 				displayed_servers[displayed_server_count] = &available_games[game_index];
 				displayed_server_count++;
@@ -1112,7 +1130,8 @@ static void server_list_menu_update(
 		{
 			if (network_game_client_advertised_game_is_valid(&available_games[game_index]) &&
 				available_games[game_index].platform == _network_game_platform_xbox &&
-				!available_games[game_index].open)
+				!available_games[game_index].open &&
+				displayed_server_count < displayed_server_limit)
 			{
 				displayed_servers[displayed_server_count] = &available_games[game_index];
 				displayed_server_count++;
@@ -1124,6 +1143,13 @@ static void server_list_menu_update(
 		widget->parameters.list.selected_list_item_index = (short)CEILING(
 			widget->parameters.list.selected_list_item_index,
 			displayed_server_count - 1);
+		if (direct_ip_row)
+		{
+			displayed_servers[displayed_server_count] = NULL;
+			widget->parameters.list.number_of_items = (word)(displayed_server_count + 1);
+			if (direct_ip_chosen || displayed_server_count == 0)
+				widget->parameters.list.selected_list_item_index = (short)displayed_server_count;
+		}
 
 		for (item = widget->child, item_index = 0;
 			item && item_index < displayed_server_count;
@@ -1160,6 +1186,17 @@ static void server_list_menu_update(
 				}
 				item->parameters.text_box.text[0x1F] = 0;
 			}
+		}
+		/* port: (the row after the games: DIRECT IP) */
+		if (direct_ip_row && item)
+		{
+			item->parameters.text_box.text = ui_widget_realloc(
+				item->parameters.text_box.text,
+				0x40,
+				"c:\\halo\\SOURCE\\interface\\ui_widget_game_data_input_functions.c",
+				0x2C5);
+			if (item->parameters.text_box.text)
+				ustrncpy(item->parameters.text_box.text, L"DIRECT IP", 0x1F);
 		}
 
 		if (displayed_server_count > 0 &&
@@ -1234,7 +1271,9 @@ static void server_list_menu_update(
 					score_limit_type_text->type == _ui_widget_type_text_box,
 				"expected 'score limit type' textbox");
 
-			if (widget->parameters.list.selected_list_item_index >= 0)
+			/* port: (not DIRECT IP's row, which has no game) */
+			if (widget->parameters.list.selected_list_item_index >= 0 &&
+				displayed_servers[widget->parameters.list.selected_list_item_index])
 			{
 				struct network_advertised_game *server = displayed_servers[
 					widget->parameters.list.selected_list_item_index];
@@ -1478,6 +1517,15 @@ static void server_list_menu_update(
 				message_text->parameters.text_box.string_list_index =
 					(milliseconds_since_creation >= 1000) ? 1 : 0;
 				message_text->visible = TRUE;
+				/* port: DIRECT IP's row chosen, whose A opens DIRECT IP: only
+				"Looking for games...", not "Press A or Y to start your own
+				game" (Y's is in the button bar); and with games listed, no
+				message, as for one of them */
+				if (direct_ip_row)
+				{
+					message_text->parameters.text_box.string_list_index = 0;
+					message_text->visible = displayed_server_count == 0;
+				}
 			}
 		}
 	}

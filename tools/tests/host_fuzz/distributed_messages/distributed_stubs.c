@@ -314,6 +314,8 @@ long network_distributed_server_send_to_machine_reliably(void);
 long network_distributed_server_send_to_machine_reliably(void) { return 0; }
 long network_game_client_host_network_version(void);
 long network_game_client_host_network_version(void) { return 0; }
+int network_game_client_host_fork_get(void);
+int network_game_client_host_fork_get(void) { return -1; }
 long network_game_server_kick_machine(void);
 long network_game_server_kick_machine(void) { return 0; }
 long network_game_server_machine_address(void);
@@ -583,3 +585,6 @@ long mcc_identity_host_admission(void);
 long mcc_identity_host_admission(void) { return 0; }
 long network_game_server_map_share_machine(void);
 long network_game_server_map_share_machine(void) { return 0; }
+/* (network_damage.c asks whether Stubbs mode is on: stubbs_mode.c) */
+unsigned char stubbs_mode_active(void);
+unsigned char stubbs_mode_active(void) { return 0; }

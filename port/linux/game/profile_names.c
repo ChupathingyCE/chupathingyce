@@ -35,6 +35,7 @@ without one it proves as the copy's own account.
 #include "../src/delta_peer.h"
 #include "../src/identity.h"
 #include "../src/networks.h"
+#include "../src/developer_flames_rules.h"
 #include "halo_profile_screen.h"
 
 #include <stdio.h>
@@ -438,6 +439,42 @@ boolean profile_names_verified(
 	return network_player_is_valid(player) &&
 		delta_peer_game_player_identity(player->machine_index, player->controller_index, &identity) &&
 		verified_name(&identity, text, (int)sizeof(text), clan, (int)sizeof(clan), &looks_like) && !looks_like;
+}
+
+boolean profile_names_developer(
+	long player_index)
+{
+	struct network_game *game;
+	struct network_player const *player;
+	struct delta_peer_identity identity;
+	struct developer_flames_card card;
+	char text[64], clan[16];
+	boolean looks_like = FALSE;
+
+	memset(&card, 0, sizeof(card));
+	card.option_on = config_boolean("display.developer_flames");
+	card.names_on = config_boolean("display.profile_names");
+	card.on_delta = profile_screen_available() && delta_peer_game_on_delta();
+	if (!card.option_on || !card.names_on || !card.on_delta)
+		return FALSE;
+	game = current_game();
+	if (!game || player_index < 0 || player_index >= (long)NUMBEROF(game->players))
+		return FALSE;
+	player = &game->players[player_index];
+	/* (a card this copy checked, its player shown by their verified name
+	exactly where the Delta mark would be: profile_names_verified) */
+	card.checked = network_player_is_valid(player) &&
+		delta_peer_game_player_identity(player->machine_index, player->controller_index, &identity);
+	if (!card.checked)
+		return FALSE;
+	card.name_shown = verified_name(&identity, text, (int)sizeof(text), clan, (int)sizeof(clan), &looks_like);
+	card.looks_like = looks_like;
+	card.other_network = identity.other_network;
+	/* (bound proofs only: an unbound card could be another game's, replayed
+	by the host) */
+	card.bound = identity.bound;
+	card.capabilities = (unsigned long)identity.capabilities;
+	return developer_flames_card_shows(&card) ? TRUE : FALSE;
 }
 
 /* (profile_names_player's) a verified name and its clan tag into name,

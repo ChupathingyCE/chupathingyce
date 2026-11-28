@@ -198,13 +198,24 @@ ones, and community maps draw many large ones at once: Portent's busiest
 frames draw 23 MB, Foundation's 66 MB.
 
 The desktop builds (Linux, macOS and Windows, 32-bit and 64-bit) are not
-held to the Xbox's memory: their window is 512 MB (port/linux/src/platform.h) and
+held to the Xbox's memory. The 32-bit ones' window, and that of the 64-bit
+dedicated server, iOS and tvOS, is 512 MB (port/linux/src/platform.h) and
 their cache 256 MB, about four times Foundation's busiest frame and more
 than bigass_v3's (over 64 MB, DamnationCE's measurement, as OpenCE's
-build-145 has it); with it the window still has about 170 MB free. A block's
-pages are taken only as the game writes them (xbox_memory.c), so a map
-that fills a fraction of the cache takes no more. Nothing of the cache's
-size reaches the network or the game state.
+build-145 has it). SPV3's maps draw their art in 32 bits a pixel at 2048
+texels and more: from Silent Cartographer's beach a frame draws up to 228
+MB, the cache filled ("YOU GOT STABBED") and the bitmaps of one frame
+pushed out those of the next, loaded again frame after frame. The 64-bit
+desktop clients' window (and the native 64-bit Android build's) is 1 GB
+and their cache 448 MB, twice that frame, with the rest the window holds
+there (the tag cache, the game state, the sound cache and Direct3D's
+resources: about 120 MB on that map) and room to spare; the cache's pages
+are counted in a short (data.c, lruv_cache.c), so it stays under 512 MB.
+A block's pages are taken only as the game writes them (xbox_memory.c), so
+a map that fills a fraction of the cache takes no more; on Windows the
+window is only reserved and each block is committed as it is allocated,
+so the commit charge follows the blocks, not the window. Nothing of the
+cache's size reaches the network or the game state.
 
 Android's guest build keeps the development kit's 128 MB window (its
 guest image is linked just above it), 82 MB of it above the game state. Besides the
@@ -236,6 +247,12 @@ extern unsigned long platform_contiguous_size;
 #define HALO_PORT_TEXTURE_CACHE_SIZE_VARIES
 #elif defined(HALO_ANDROID) && !defined(HALO_64BIT)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x2C00000 /* (0x1600000) */
+#elif defined(HALO_64BIT) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && \
+	!defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_IOS) && !defined(HALO_TVOS) && \
+	!defined(HALO_CONSOLE_XBOX_RENDER_SIZES) && !defined(HALO_WINDOW_REBASE) && !defined(HALO_WINDOW_TRANSLATED)
+/* (the 64-bit desktop clients and Android's, with platform.h's 1 GB window:
+the same test; tools/test_texture_cache_platforms.py) */
+#define HALO_PORT_TEXTURE_CACHE_SIZE 0x1C000000 /* (0x1600000) */
 #elif !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_XBOX_RENDER_SIZES)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x10000000 /* (0x1600000) */
 #else
@@ -246,6 +263,38 @@ extern unsigned long platform_contiguous_size;
 above that baseline takes more (port/xbox/src/xbox_memory.c: 44 MB on a 128
 MB console), up to this */
 #define HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE 0x4000000
+#endif
+
+/* ---------- sound cache
+
+The sound cache holds the samples of the sounds playing and recently
+played, in 4 KB pages (cache/xbox_sound_cache.c): the Xbox's 4 MB, 1024
+pages. A sound that finds no run of pages free of the ones playing isn't
+played (the log's "SOUND CACHE BLOWN"). Stock maps fit it; SPV3's levels
+don't: their decoded permutations reach 900 KB each and the ones playing
+filled the run, 9 of its 22 levels blowing it with 75 of the 512 sounds
+held. The desktop builds (and 64-bit Android) take 32 MB (8192 pages) and
+2048 sounds, its pages taken only as sounds are written (xbox_memory.c);
+Android's guest build, with less window (82 MB above the game state), 16 MB
+and 1024. Only which sounds stay loaded changes: nothing reaches the network
+or the game state. The dedicated server (no sound) and every console
+(the Xbox, the Xbox 360, the Wii U, the Switch's guest build and any
+HALO_CONSOLE port: their own repositories size theirs, or their memory class,
+physical_memory_map.h) keep the Xbox's 4 MB and 512 sounds. A permutation's
+most samples stay the Xbox's 4 MB (tag_schema_effects.c, ce_resources.c's
+split): that decides which sounds are split, which is the content's. */
+
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_XBOX360_CONSOLE) && \
+	!defined(HALO_WIIU_CONSOLE) && !defined(HALO_SWITCH_CONSOLE) && !defined(HALO_CONSOLE_GL_LAYER) && \
+	!defined(HALO_CONSOLE_WINDOW_MAXIMUM) && !defined(HALO_CONSOLE_MEMORY_CLASS) && \
+	!defined(HALO_CONSOLE_XBOX_RENDER_SIZES) && !defined(HALO_SERVER)
+#if defined(HALO_ANDROID) && !defined(HALO_64BIT)
+#define HALO_PORT_SOUND_CACHE_SIZE 0x1000000 /* (0x400000) */
+#define HALO_PORT_SOUND_CACHE_SOUNDS 1024 /* (512) */
+#else
+#define HALO_PORT_SOUND_CACHE_SIZE 0x2000000 /* (0x400000) */
+#define HALO_PORT_SOUND_CACHE_SOUNDS 2048 /* (512) */
+#endif
 #endif
 
 /* ---------- structure rendering

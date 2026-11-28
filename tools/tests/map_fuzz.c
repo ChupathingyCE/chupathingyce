@@ -28,7 +28,13 @@ compiled with the macOS build's flags, as the game's own units are):
                     that part is changed between the checks and the load
                     (a byte in its middle; the last byte of each resource
                     map), and the load must refuse it.
+                    With MAP_FUZZ_CE_RESOURCE (bitmaps, sounds, loc,
+                    pc_bitmaps or pc_sounds), the input is that resource map
+                    instead, and the map is the one MAP_FUZZ_CE_MAP names:
+                    ce_resources.c's reader of resource maps fuzzed through
+                    the same checks and load.
   MAP_FUZZ_VORBIS   an Ogg Vorbis stream through ce_vorbis_decode (stb_vorbis),
+                    and mcc_vorbis_decode where the build has MCC maps,
                     as a Custom Edition sound's permutation is decoded.
   MAP_FUZZ_FORGE_AI a campaign map as Forge's AI characters read one into a
                     multiplayer map (port/linux/game/forge_ai_tags.c): the
@@ -180,6 +186,9 @@ struct fuzz_file
 	unsigned long position;
 	boolean writable;
 	unsigned long written;
+	/* (a resource map's: its index in fuzz_resources, plus one, whose data
+	is read as it is now, as a file held open reads what is in it now) */
+	long resource;
 };
 
 /* ---------- prototypes */
@@ -239,6 +248,18 @@ int ce_vorbis_resample_piece(short **samples, int frames, int channels, int rate
 int ce_vorbis_edges(const unsigned char *data, int size, int count, int whole, int *channels, int *sample_rate,
 	short *head, int *head_frames, short *tail, int *tail_frames);
 void ce_vorbis_free(short *samples);
+#ifdef MAP_FUZZ_VORBIS
+#include "halo_port_features.h"
+/* (MCC's decoder, over the same stb_vorbis: content_vorbis.c, where the build
+has MCC maps) */
+int mcc_vorbis_decode(unsigned char const *bytes, uint32_t size, uint32_t frame_limit,
+	short **samples, uint32_t *frames, uint32_t *rate, int *channels);
+void mcc_vorbis_free(short *samples);
+void mcc_loading_pulse(void);
+void mcc_loading_pulse(void)
+{
+}
+#endif
 
 /* ---------- globals */
 
@@ -261,6 +282,11 @@ static struct
 /* (the first three Custom Edition's, MAP_FUZZ_CE_RESOURCES; the others Halo
 PC's own, MAP_FUZZ_PC_RESOURCES) */
 #define FUZZ_RESOURCE_COUNT ((long)(sizeof(fuzz_resources) / sizeof(fuzz_resources[0])))
+/* the resource map that is the input (MAP_FUZZ_CE_RESOURCE: an index in
+fuzz_resources, or -1), and the map read with it (MAP_FUZZ_CE_MAP) */
+static long fuzz_resource_input = -1;
+static unsigned char *fuzz_resource_map;
+static unsigned long fuzz_resource_map_size;
 /* the Xbox's ui.map (MAP_FUZZ_XBOX_UI) */
 static unsigned char *fuzz_xbox_ui;
 static unsigned long fuzz_xbox_ui_size;
@@ -439,6 +465,14 @@ char const *cache_files_map_directory(void)
 unsigned long system_milliseconds(void)
 {
 	return 0;
+}
+
+/* (sound_manager.c's, for ce_resources.c's decoded sounds: none plays here) */
+boolean sound_definition_playing(long definition_index);
+boolean sound_definition_playing(long definition_index)
+{
+	(void)definition_index;
+	return FALSE;
 }
 
 void system_exit(long code)
@@ -711,6 +745,7 @@ HANDLE CreateFileA(char const *path, DWORD access, DWORD share, LPSECURITY_ATTRI
 				{
 					file->data = fuzz_resources[resource].data;
 					file->size = fuzz_resources[resource].size;
+					file->resource = resource + 1;
 					return file;
 				}
 			}
@@ -739,10 +774,22 @@ DWORD GetLastError(void)
 	return 0;
 }
 
+/* a resource map's file as its data is now (MAP_FUZZ_CE_RESOURCE gives each
+input its own) */
+static void fuzz_file_refresh(struct fuzz_file *file)
+{
+	if (file->resource)
+	{
+		file->data = fuzz_resources[file->resource - 1].data;
+		file->size = fuzz_resources[file->resource - 1].size;
+	}
+}
+
 DWORD GetFileSize(HANDLE handle, LPDWORD high)
 {
 	struct fuzz_file *file = handle;
 
+	fuzz_file_refresh(file);
 	if (high)
 		*high = 0;
 	return file->writable ? file->written : file->size;
@@ -763,6 +810,7 @@ BOOL ReadFile(HANDLE handle, LPVOID buffer, DWORD size, LPDWORD read, LPOVERLAPP
 	struct fuzz_file *file = handle;
 	unsigned long available;
 
+	fuzz_file_refresh(file);
 	if (file->writable)
 	{
 		*read = 0;
@@ -1040,6 +1088,29 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 			fuzz_resources[index].data = fuzz_file_read(path, &fuzz_resources[index].size);
 		}
 	}
+#ifdef MAP_FUZZ_CE
+	{
+		char const *resource = getenv("MAP_FUZZ_CE_RESOURCE");
+		char const *map = getenv("MAP_FUZZ_CE_MAP");
+
+		if (resource && *resource)
+		{
+			long index;
+
+			for (index = 0; index < FUZZ_RESOURCE_COUNT; index++)
+			{
+				if (!strcmp(resource, fuzz_resources[index].name))
+					fuzz_resource_input = index;
+			}
+			if (fuzz_resource_input < 0 || !map || !*map ||
+				!(fuzz_resource_map = fuzz_file_read(map, &fuzz_resource_map_size)))
+			{
+				fprintf(stderr, "map_fuzz: MAP_FUZZ_CE_RESOURCE needs a resource map's name and MAP_FUZZ_CE_MAP a map\n");
+				abort();
+			}
+		}
+	}
+#endif
 	return 0;
 }
 
@@ -1726,8 +1797,48 @@ int LLVMFuzzerTestOneInput(unsigned char const *data, size_t size)
 			}
 		}
 		ce_vorbis_free(samples);
+#if HALO_MCC
+		/* (and through MCC's decoder, its pages checked first) */
+		{
+			short *pcm = NULL;
+			uint32_t mcc_frames = 0, mcc_rate = 0;
+			int mcc_channels = 0;
+
+			if (mcc_vorbis_decode(data, (uint32_t)size, 0x1000000u, &pcm, &mcc_frames, &mcc_rate, &mcc_channels) && pcm)
+			{
+				volatile short sink = pcm[(size_t)mcc_frames * (size_t)mcc_channels - 1];
+
+				(void)sink;
+			}
+			if (pcm)
+				mcc_vorbis_free(pcm);
+		}
+#endif
 	}
 #else
+#ifdef MAP_FUZZ_CE
+	/* (the input a resource map, read with the map named: MAP_FUZZ_CE_RESOURCE;
+	kept until the next input's, as a file the game holds open stays) */
+	if (fuzz_resource_input >= 0)
+	{
+		static unsigned char *resource;
+		unsigned char *map = malloc(fuzz_resource_map_size);
+
+		free(resource);
+		resource = malloc(size ? size : 1);
+		if (resource)
+			memcpy(resource, data, size);
+		fuzz_resources[fuzz_resource_input].data = resource;
+		fuzz_resources[fuzz_resource_input].size = resource ? (unsigned long)size : 0;
+		if (resource && map)
+		{
+			memcpy(map, fuzz_resource_map, fuzz_resource_map_size);
+			fuzz_ce(map, fuzz_resource_map_size);
+		}
+		free(map);
+		return 0;
+	}
+#endif
 	if (fuzz_base)
 		data = fuzz_patch(data, size, &size);
 	{
@@ -1906,18 +2017,43 @@ boolean pc_menu_owns(unsigned long address, long size)
 	return FALSE;
 }
 
-/* (SPV3 mode, spv3_mode.c, not in the harness: always off, so the checks
-see Custom Edition's own limits) */
+#include "opensauce_maps.h"
+/* (SPV3 mode, spv3_mode.c, and OpenSauce's larger tag window,
+opensauce_maps.c, not in the harness: always off, so the checks see Custom
+Edition's own limits) */
 boolean spv3_mode_active(void) { return FALSE; }
-unsigned long spv3_mode_tag_cache_size(unsigned long custom_edition_size) { return custom_edition_size; }
-boolean spv3_mode_accepts_opensauce(char const *map_name, unsigned short flags)
+unsigned long opensauce_maps_tag_cache_size(unsigned long custom_edition_size) { return custom_edition_size; }
+boolean opensauce_maps_accepts_header(char const *map_name, unsigned short flags)
 {
 	(void)map_name;
 	(void)flags;
 	return FALSE;
 }
-void spv3_mode_survey(char const *map_name, void const *cache_header, void const *tags, unsigned long tag_data_size,
-	unsigned long file_size)
+void opensauce_maps_check_started(void) { }
+void opensauce_maps_session_now(struct opensauce_maps_session *session)
+{
+	session->hosting = session->hosting_internet = session->joined = session->host_on_lan = FALSE;
+}
+boolean opensauce_maps_online_allows(char const *map_name, unsigned short flags,
+	struct opensauce_maps_session const *session)
+{
+	(void)map_name;
+	(void)flags;
+	(void)session;
+	return TRUE;
+}
+void opensauce_maps_check_done(void) { }
+void spv3_mode_log(char const *format, ...) { (void)format; }
+
+/* (an OpenSauce map's log, opensauce_survey.c, not in the harness: nothing
+logged) */
+boolean opensauce_survey_wanted(void const *cache_header)
+{
+	(void)cache_header;
+	return FALSE;
+}
+void opensauce_survey_map(char const *map_name, void const *cache_header, void const *tags,
+	unsigned long tag_data_size, unsigned long file_size)
 {
 	(void)map_name;
 	(void)cache_header;
@@ -1925,18 +2061,27 @@ void spv3_mode_survey(char const *map_name, void const *cache_header, void const
 	(void)tag_data_size;
 	(void)file_size;
 }
-void spv3_mode_log(char const *format, ...) { (void)format; }
-void spv3_mode_note_resource_miss(char const *kind, char const *tag_name)
+void opensauce_survey_checked(char const *map_name, char const *refusal)
+{
+	(void)map_name;
+	(void)refusal;
+}
+void opensauce_survey_note_resource_miss(char const *kind, char const *tag_name)
 {
 	(void)kind;
 	(void)tag_name;
 }
 
-/* (tag_validate.c asks whether tag data is Stubbs the Zombie's own:
-stubbs_mode.c, not in the harness) */
+/* (tag_validate.c asks whether tag data is Stubbs the Zombie's own, and
+whether Stubbs mode is on for its layout: stubbs_mode.c, not in the
+harness) */
 boolean stubbs_mode_owns_data(void const *address, long size)
 {
 	(void)address;
 	(void)size;
+	return FALSE;
+}
+boolean stubbs_mode_active(void)
+{
 	return FALSE;
 }

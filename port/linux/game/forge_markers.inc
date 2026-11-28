@@ -280,6 +280,12 @@ static void forge_marker_spawn_color(
 	struct forge_spawn const *spawn,
 	struct forge_marker *marker)
 {
+	/* (a volume's: its type's, forge_volumes.inc) */
+	if (forge_spawn_is_volume(spawn))
+	{
+		forge_volume_color(spawn, marker);
+		return;
+	}
 	/* (an AI route's point or patrol area: its route's color) */
 	if (spawn->kind == _forge_spawn_ai_route || spawn->kind == _forge_spawn_ai_area)
 	{
@@ -296,6 +302,14 @@ static void forge_marker_spawn_color(
 		marker->red = route_colors[route][0] * shade;
 		marker->green = route_colors[route][1] * shade;
 		marker->blue = route_colors[route][2] * shade;
+		return;
+	}
+	/* (an effect's: pale cyan; a decal's: tan) */
+	if (forge_spawn_is_effect(spawn))
+	{
+		marker->red = spawn->kind == _forge_spawn_effect ? 0.55f : 0.82f;
+		marker->green = spawn->kind == _forge_spawn_effect ? 0.95f : 0.66f;
+		marker->blue = spawn->kind == _forge_spawn_effect ? 1.00f : 0.42f;
 		return;
 	}
 	/* (a game type object's: a CTF flag its team's, a hill point yellow, an
@@ -521,6 +535,18 @@ static void forge_markers_render(
 		to_marker.j = marker.position.y - render.camera.position.y;
 		to_marker.k = marker.position.z - render.camera.position.z;
 		forge_marker_spawn_color(spawn, &marker);
+		marker.lit = spawn->id == under || spawn->id == forge_globals.held_marker_id;
+		/* (a volume: its wireframe, whenever any of it is in view; its
+		marker at its floor's middle, where the crosshair takes it) */
+		if (forge_spawn_is_volume(spawn))
+		{
+			real radius = forge_volume_bounding_radius(spawn);
+
+			if (!render_frustum_sphere_visible(&render.frustum, &marker.position, radius))
+				continue;
+			forge_volume_draw(spawn, &marker);
+			drawn++;
+		}
 		if (spawn->kind == _forge_spawn_ai_area)
 			marker.area_radius = forge_ai_area_radii[PIN(spawn->option, 0, FORGE_FILE_AI_AREA_SIZES - 1)];
 		if (dot_product3d(&to_marker, &render.camera.forward) < -FORGE_MARKER_INITIAL_HEIGHT ||
@@ -528,7 +554,6 @@ static void forge_markers_render(
 		{
 			continue;
 		}
-		marker.lit = spawn->id == under || spawn->id == forge_globals.held_marker_id;
 		forge_marker_draw(&marker);
 		drawn++;
 	}

@@ -105,9 +105,12 @@ struct details_entry
 	struct workshop_browser_item item;
 };
 
+/* (workshop's lock, apart from it: its initializer is not zeros, and
+would put the whole of it in the data segment instead of bss) */
+static pthread_mutex_t workshop_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static struct
 {
-	pthread_mutex_t lock;
 	/* the thread's: asking, and its answer waiting to be taken */
 	int fetching;
 	int answered;
@@ -213,7 +216,7 @@ static struct
 	int client_mcc_count;
 	int mcc_count;
 	unsigned long watch_time;
-} workshop = { PTHREAD_MUTEX_INITIALIZER };
+} workshop;
 
 /* ---------- files */
 
@@ -394,7 +397,7 @@ items but never downloads them; Linux without MCC from Steam), with the
 client still tried for the list and the subscriptions */
 static int bridge_backend(void)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	return STEAM_BRIDGE_BACKEND_NONE;
 #else
 	int backend = steam_bridge_backend();
@@ -427,21 +430,6 @@ static int link_offered(void)
 {
 	return steam_link_available() && !config_boolean("debug.workshop_steamcmd") &&
 		bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD;
-}
-
-static void link_row_make(void)
-{
-	struct workshop_browser_item *item = &workshop.link_row;
-
-	memset(item, 0, sizeof(*item));
-	snprintf(item->id, sizeof(item->id), "link");
-	snprintf(item->title, sizeof(item->title), "Link Steam");
-	snprintf(item->kind, sizeof(item->kind), "Steam");
-	snprintf(item->description, sizeof(item->description), "Downloads need your Steam account.\nLINK goes to "
-		"Settings: scan the code there with the Steam app.\nThe game never sees your password.");
-	item->size = -1;
-	item->setup = WORKSHOP_ROW_LINK;
-	item->step = WORKSHOP_STEP_TO_DO;
 }
 
 /* the items of Steam's page (not the installed ones found beside it, nor setup rows) */
@@ -771,6 +759,71 @@ static int bridge_state(struct workshop_browser_item *item, int folder_state)
 	}
 }
 
+/* ---------- items' whole descriptions */
+
+/* the whole descriptions Steam's details gave (an item keeps only their
+start): by id, on the heap, the one kept longest ago given up for a new one
+past DESCRIPTION_STORE. Under workshop_lock, from any thread */
+enum { DESCRIPTION_STORE = DETAILS_CACHE };
+static struct
+{
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	char *text;
+	unsigned long kept;
+} descriptions[DESCRIPTION_STORE];
+
+#ifdef HALO_GAME_BROWSER
+static unsigned long descriptions_kept;
+
+/* items' whole descriptions kept, under workshop_lock: each of full taken
+(left NULL), the caller frees what is left */
+static void descriptions_keep(const struct workshop_browser_item *items, char **full, int count)
+{
+	int index, slot;
+
+	for (index = 0; index < count; index++)
+	{
+		int oldest = 0;
+
+		if (!full[index] || !items[index].id[0])
+			continue;
+		for (slot = 0; slot < DESCRIPTION_STORE; slot++)
+		{
+			if (!strcmp(descriptions[slot].id, items[index].id) || !descriptions[slot].text)
+				break;
+			if (descriptions[slot].kept < descriptions[oldest].kept)
+				oldest = slot;
+		}
+		if (slot == DESCRIPTION_STORE)
+			slot = oldest;
+		free(descriptions[slot].text);
+		snprintf(descriptions[slot].id, sizeof(descriptions[slot].id), "%s", items[index].id);
+		descriptions[slot].text = full[index];
+		descriptions[slot].kept = ++descriptions_kept;
+		full[index] = NULL;
+	}
+}
+#endif
+
+int workshop_browser_description(const char *id, char *out, int size)
+{
+	int slot, found = 0;
+
+	if (!id || !id[0] || !out || size <= 0)
+		return 0;
+	pthread_mutex_lock(&workshop_lock);
+	for (slot = 0; slot < DESCRIPTION_STORE && !found; slot++)
+	{
+		if (descriptions[slot].text && !strcmp(descriptions[slot].id, id))
+		{
+			snprintf(out, (size_t)size, "%s", descriptions[slot].text);
+			found = 1;
+		}
+	}
+	pthread_mutex_unlock(&workshop_lock);
+	return found;
+}
+
 /* ---------- Steam's details */
 
 #ifdef HALO_GAME_BROWSER
@@ -778,8 +831,8 @@ static void *details_thread(void *context)
 {
 	char *body = context, *response = malloc(DETAILS_DOCUMENT + 1);
 	static struct workshop_browser_item found[DETAILS_BATCH];
-	char error[128];
-	int status = 0, count = -1;
+	char *full[DETAILS_BATCH], error[128];
+	int status = 0, count = -1, index;
 
 	error[0] = 0;
 	if (response)
@@ -787,19 +840,24 @@ static void *details_thread(void *context)
 		status = posix_browser_request_as(DETAILS_URL, body, "application/x-www-form-urlencoded",
 			build_identity_user_agent(), response, DETAILS_DOCUMENT + 1, error, sizeof(error));
 		if (status == 200)
-			count = workshop_browser_read_details(response, (int)strlen(response), found, DETAILS_BATCH);
+			count = workshop_browser_read_details_full(response, (int)strlen(response), found, DETAILS_BATCH, full);
 	}
 	if (count < 0)
 		platform_log("Workshop: Steam's item details could not be read (HTTP %d)", status);
-	pthread_mutex_lock(&workshop.lock);
+	pthread_mutex_lock(&workshop_lock);
 	workshop.details_status = status;
 	workshop.details_retry_after = retry_backoff_after(error);
 	workshop.details_answer_count = count;
 	if (count > 0)
+	{
 		memcpy(workshop.details_answer, found, sizeof(found[0]) * (size_t)count);
+		descriptions_keep(found, full, count);
+	}
 	workshop.details_answered = 1;
 	workshop.details_fetching = 0;
-	pthread_mutex_unlock(&workshop.lock);
+	pthread_mutex_unlock(&workshop_lock);
+	for (index = 0; index < count; index++)
+		free(full[index]);
 	free(response);
 	free(body);
 	return NULL;
@@ -907,14 +965,14 @@ static void *profile_thread(void *context)
 		if (status == 200 && !workshop_browser_read_profile_name(response, (int)strlen(response), name, sizeof(name)))
 			name[0] = 0;
 	}
-	pthread_mutex_lock(&workshop.lock);
+	pthread_mutex_lock(&workshop_lock);
 	snprintf(workshop.profile_creator, sizeof(workshop.profile_creator), "%s", creator);
 	snprintf(workshop.profile_name, sizeof(workshop.profile_name), "%s", name);
 	workshop.profile_status = status;
 	workshop.profile_retry_after = retry_backoff_after(error);
 	workshop.profile_answered = 1;
 	workshop.profile_fetching = 0;
-	pthread_mutex_unlock(&workshop.lock);
+	pthread_mutex_unlock(&workshop_lock);
 	free(response);
 	free(creator);
 	return NULL;
@@ -929,7 +987,7 @@ static void profile_step(void)
 {
 	int index;
 
-	pthread_mutex_lock(&workshop.lock);
+	pthread_mutex_lock(&workshop_lock);
 	if (workshop.profile_answered)
 	{
 		workshop.profile_answered = 0;
@@ -951,10 +1009,10 @@ static void profile_step(void)
 	}
 	if (workshop.profile_fetching)
 	{
-		pthread_mutex_unlock(&workshop.lock);
+		pthread_mutex_unlock(&workshop_lock);
 		return;
 	}
-	pthread_mutex_unlock(&workshop.lock);
+	pthread_mutex_unlock(&workshop_lock);
 #ifdef HALO_GAME_BROWSER
 	if (config_boolean("debug.workshop_no_steam") || !retry_backoff_ready(&workshop.profile_retry, system_milliseconds()) ||
 		(workshop.profile_time && system_milliseconds() - workshop.profile_time < PROFILE_GAP))
@@ -981,17 +1039,17 @@ static void profile_step(void)
 		author_put(item->creator, NULL, 1);
 		workshop.profile_time = system_milliseconds();
 		strcpy(creator, item->creator);
-		pthread_mutex_lock(&workshop.lock);
+		pthread_mutex_lock(&workshop_lock);
 		workshop.profile_fetching = 1;
-		pthread_mutex_unlock(&workshop.lock);
+		pthread_mutex_unlock(&workshop_lock);
 		if (pthread_create(&thread, NULL, profile_thread, creator) == 0)
 			pthread_detach(thread);
 		else
 		{
 			free(creator);
-			pthread_mutex_lock(&workshop.lock);
+			pthread_mutex_lock(&workshop_lock);
 			workshop.profile_fetching = 0;
-			pthread_mutex_unlock(&workshop.lock);
+			pthread_mutex_unlock(&workshop_lock);
 			/* (not asked after all: asked on a later step) */
 			if ((known = author_find(item->creator)) >= 0)
 				workshop.authors[known].asked = 0;
@@ -1206,7 +1264,13 @@ static unsigned char *shrink(const unsigned char *pixels, int width, int height,
 static unsigned char *picture_decode(unsigned char *data, int size, int *width, int *height,
 	struct preview_failure *failure)
 {
+	/* (the pictures' decoder, posix_ui_font.c, is the game browser's: none
+	without it, as workshop_browser_cached_picture) */
+#ifdef HALO_GAME_BROWSER
 	unsigned char *pixels = data ? posix_ui_image_decode(data, size, width, height) : NULL;
+#else
+	unsigned char *pixels = NULL;
+#endif
 
 	if (data && !pixels)
 		failure_say(failure, 0, 0, 0, "it couldn't be decoded (%d bytes)", size);
@@ -1235,7 +1299,7 @@ static void *preview_thread(void *context)
 	/* (an item the list hasn't shown: its picture's address from Steam's details) */
 	if (!pixels && !job->url[0] && job->ask_details)
 	{
-		static struct workshop_browser_item found;
+		struct workshop_browser_item found;
 		char *answer = malloc(DETAILS_DOCUMENT + 1), form[96], error[128];
 		int status = 0;
 
@@ -1288,9 +1352,11 @@ static void *preview_thread(void *context)
 		small = shrink(pixels, width, height, &small_width, &small_height);
 		if (!small)
 			failure_say(&failure, 1, 0, 0, "out of memory (%dx%d)", width, height);
+#ifdef HALO_GAME_BROWSER
 		posix_ui_image_free(pixels);
+#endif
 	}
-	pthread_mutex_lock(&workshop.lock);
+	pthread_mutex_lock(&workshop_lock);
 	snprintf(preview.id, sizeof(preview.id), "%s", job->id);
 	preview.pixels = small;
 	preview.width = small_width;
@@ -1298,7 +1364,7 @@ static void *preview_thread(void *context)
 	preview.failure = failure;
 	preview.done = 1;
 	preview.busy = 0;
-	pthread_mutex_unlock(&workshop.lock);
+	pthread_mutex_unlock(&workshop_lock);
 	free(job);
 	return NULL;
 }
@@ -1313,7 +1379,7 @@ static void preview_take(void)
 	unsigned char *pixels = NULL;
 	int width = 0, height = 0, done;
 
-	pthread_mutex_lock(&workshop.lock);
+	pthread_mutex_lock(&workshop_lock);
 	done = preview.done;
 	if (done)
 	{
@@ -1325,7 +1391,7 @@ static void preview_take(void)
 		height = preview.height;
 		preview.pixels = NULL;
 	}
-	pthread_mutex_unlock(&workshop.lock);
+	pthread_mutex_unlock(&workshop_lock);
 	if (!done)
 		return;
 	if (pixels)
@@ -1391,7 +1457,7 @@ static int local_preview(const char *id, char *path, int size)
 
 const unsigned char *workshop_browser_preview(int index, int *width, int *height, int *serial)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	(void)index; (void)width; (void)height; (void)serial;
 	return NULL;
 #else
@@ -1456,20 +1522,13 @@ const unsigned char *workshop_browser_preview(int index, int *width, int *height
 #endif
 }
 
-int workshop_browser_preview_missing(int index)
-{
-	const struct workshop_browser_item *item = workshop_browser_item(index);
-
-	return item && !item->setup && preview_cache_failed(&preview.cache, item->id);
-}
-
 /* the picture of any Workshop item, by its id (a game's MCC map, mcc_maps\<id>\<map>, in Online
 Games): its own installed picture, else the one kept in the cache, else Steam's (its details asked
 for, then the picture, kept in the cache): one at a time, a failed id again only once its wait is over. RGBA
 pixels as workshop_browser_preview's; NULL until there is one */
 const unsigned char *workshop_browser_picture_of(const char *id, int *width, int *height, int *serial)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	(void)id; (void)width; (void)height; (void)serial;
 	return NULL;
 #else
@@ -1533,7 +1592,7 @@ static void details_step(void)
 {
 	int index, count = 0;
 
-	pthread_mutex_lock(&workshop.lock);
+	pthread_mutex_lock(&workshop_lock);
 	if (workshop.details_answered)
 	{
 		workshop.details_answered = 0;
@@ -1575,10 +1634,10 @@ static void details_step(void)
 	}
 	if (workshop.details_fetching)
 	{
-		pthread_mutex_unlock(&workshop.lock);
+		pthread_mutex_unlock(&workshop_lock);
 		return;
 	}
-	pthread_mutex_unlock(&workshop.lock);
+	pthread_mutex_unlock(&workshop_lock);
 #ifdef HALO_GAME_BROWSER
 	{
 		char *body;
@@ -1622,10 +1681,10 @@ static void details_step(void)
 		for (index = 0; index < count; index++)
 			length += snprintf(body + length, size - (size_t)length, "&publishedfileids%%5B%d%%5D=%s", index,
 				workshop.details_asked[index]);
-		pthread_mutex_lock(&workshop.lock);
+		pthread_mutex_lock(&workshop_lock);
 		workshop.details_asked_count = count;
 		workshop.details_fetching = 1;
-		pthread_mutex_unlock(&workshop.lock);
+		pthread_mutex_unlock(&workshop_lock);
 		{
 			pthread_t thread;
 
@@ -1634,9 +1693,9 @@ static void details_step(void)
 			else
 			{
 				free(body);
-				pthread_mutex_lock(&workshop.lock);
+				pthread_mutex_lock(&workshop_lock);
 				workshop.details_fetching = 0;
-				pthread_mutex_unlock(&workshop.lock);
+				pthread_mutex_unlock(&workshop_lock);
 			}
 		}
 	}
@@ -1654,6 +1713,7 @@ static void *web_thread(void *context)
 	static struct workshop_browser_item found[BROWSE_PAGE_ITEMS];
 	static char ids[BROWSE_PAGE_ITEMS][WORKSHOP_BROWSER_ID_SIZE];
 	static struct workshop_browser_author authors[BROWSE_PAGE_ITEMS];
+	char *full[BROWSE_PAGE_ITEMS] = {NULL};
 	char *response = malloc(BROWSE_PAGE_DOCUMENT + 1), *body = NULL, error[128];
 	int status = 0, count = -1, id_count = 0, author_count = 0, pages = 0, total = 0, index, length;
 	size_t size;
@@ -1685,7 +1745,8 @@ static void *web_thread(void *context)
 		status = posix_browser_request_as(DETAILS_URL, body, "application/x-www-form-urlencoded",
 			build_identity_user_agent(), response, BROWSE_PAGE_DOCUMENT + 1, error, sizeof(error));
 		if (status == 200)
-			count = workshop_browser_read_details(response, (int)strlen(response), found, BROWSE_PAGE_ITEMS);
+			count = workshop_browser_read_details_full(response, (int)strlen(response), found, BROWSE_PAGE_ITEMS,
+				full);
 	}
 	for (index = 0; index < count; index++)
 	{
@@ -1701,12 +1762,15 @@ static void *web_thread(void *context)
 	if (status == 429)
 		count = -2;
 	platform_log("Workshop: Steam's browse page: %d Halo CE items (HTTP %d)", count, status);
-	pthread_mutex_lock(&workshop.lock);
+	pthread_mutex_lock(&workshop_lock);
 	workshop.web_status = status;
 	workshop.web_retry_after = retry_backoff_after(error);
 	workshop.answer_count = count;
 	if (count > 0)
+	{
 		memcpy(workshop.answer, found, sizeof(found[0]) * (size_t)count);
+		descriptions_keep(found, full, count);
+	}
 	workshop.answer_pages = pages;
 	workshop.answer_author_count = author_count;
 	if (author_count > 0)
@@ -1714,7 +1778,10 @@ static void *web_thread(void *context)
 	workshop.answered = 1;
 	workshop.web_answer = 1;
 	workshop.fetching = 0;
-	pthread_mutex_unlock(&workshop.lock);
+	pthread_mutex_unlock(&workshop_lock);
+	/* (what wasn't kept: Steam's 429 after all, or a page cut short) */
+	for (index = 0; index < BROWSE_PAGE_ITEMS; index++)
+		free(full[index]);
 	free(body);
 	free(response);
 	free(url);
@@ -1782,7 +1849,7 @@ static void web_ask(void)
 			if (workshop.pages[slot].time && now - workshop.pages[slot].time < BROWSE_KEEP &&
 				!strcmp(workshop.pages[slot].url, workshop.web_url) && strcmp(workshop.web_url, workshop.web_fetched))
 			{
-				pthread_mutex_lock(&workshop.lock);
+				pthread_mutex_lock(&workshop_lock);
 				if (!workshop.fetching)
 				{
 					workshop.answer_count = workshop.pages[slot].count;
@@ -1794,7 +1861,7 @@ static void web_ask(void)
 					workshop.web_answer = 1;
 					snprintf(workshop.web_fetched, sizeof(workshop.web_fetched), "%s", workshop.web_url);
 				}
-				pthread_mutex_unlock(&workshop.lock);
+				pthread_mutex_unlock(&workshop_lock);
 				return;
 			}
 		}
@@ -1807,9 +1874,9 @@ static void web_ask(void)
 
 		/* (the list's own page: as it was; another one not asked for now:
 		the list's own kept, saying why; one on its way: left to come) */
-		pthread_mutex_lock(&workshop.lock);
+		pthread_mutex_lock(&workshop_lock);
 		fetching = workshop.fetching;
-		pthread_mutex_unlock(&workshop.lock);
+		pthread_mutex_unlock(&workshop_lock);
 		if (fetching)
 			return;
 		if (workshop.awaiting && workshop.shown_url[0])
@@ -1818,14 +1885,14 @@ static void web_ask(void)
 			workshop.status = workshop.web_time ? WORKSHOP_LIST_LOADED : WORKSHOP_LIST_FAILED;
 		return;
 	}
-	pthread_mutex_lock(&workshop.lock);
+	pthread_mutex_lock(&workshop_lock);
 	if (workshop.fetching)
 	{
-		pthread_mutex_unlock(&workshop.lock);
+		pthread_mutex_unlock(&workshop_lock);
 		return;
 	}
 	workshop.fetching = 1;
-	pthread_mutex_unlock(&workshop.lock);
+	pthread_mutex_unlock(&workshop_lock);
 	workshop.status = WORKSHOP_LIST_LOADING;
 	snprintf(workshop.web_fetched, sizeof(workshop.web_fetched), "%s", workshop.web_url);
 	{
@@ -1842,9 +1909,9 @@ static void web_ask(void)
 			free(url);
 		}
 	}
-	pthread_mutex_lock(&workshop.lock);
+	pthread_mutex_lock(&workshop_lock);
 	workshop.fetching = 0;
-	pthread_mutex_unlock(&workshop.lock);
+	pthread_mutex_unlock(&workshop_lock);
 	workshop.status = WORKSHOP_LIST_FAILED;
 #else
 	(void)now;
@@ -1874,13 +1941,13 @@ static void *fetch_thread(void *context)
 		platform_log("Workshop: the list could not be read (HTTP %d%s%s)", status, error[0] ? ": " : "", error);
 	else
 		platform_log("Workshop: %d items listed", count);
-	pthread_mutex_lock(&workshop.lock);
+	pthread_mutex_lock(&workshop_lock);
 	workshop.answer_count = count;
 	if (count > 0)
 		memcpy(workshop.answer, items, sizeof(items[0]) * (size_t)count);
 	workshop.answered = 1;
 	workshop.fetching = 0;
-	pthread_mutex_unlock(&workshop.lock);
+	pthread_mutex_unlock(&workshop_lock);
 	free(response);
 	free(url);
 	return NULL;
@@ -1899,25 +1966,25 @@ static void list_ask(void)
 		pthread_t thread;
 		char *url = malloc(strlen(setting) + 1);
 
-		pthread_mutex_lock(&workshop.lock);
+		pthread_mutex_lock(&workshop_lock);
 		if (workshop.fetching || !url)
 		{
-			pthread_mutex_unlock(&workshop.lock);
+			pthread_mutex_unlock(&workshop_lock);
 			free(url);
 			return;
 		}
 		strcpy(url, setting);
 		workshop.fetching = 1;
-		pthread_mutex_unlock(&workshop.lock);
+		pthread_mutex_unlock(&workshop_lock);
 		workshop.status = WORKSHOP_LIST_LOADING;
 		if (pthread_create(&thread, NULL, fetch_thread, url) == 0)
 		{
 			pthread_detach(thread);
 			return;
 		}
-		pthread_mutex_lock(&workshop.lock);
+		pthread_mutex_lock(&workshop_lock);
 		workshop.fetching = 0;
-		pthread_mutex_unlock(&workshop.lock);
+		pthread_mutex_unlock(&workshop_lock);
 		free(url);
 		workshop.status = WORKSHOP_LIST_FAILED;
 		return;
@@ -1936,10 +2003,10 @@ static void list_take(void)
 	static struct workshop_browser_item before[WORKSHOP_BROWSER_MAXIMUM_ITEMS];
 	int before_count = workshop.count, index, other;
 
-	pthread_mutex_lock(&workshop.lock);
+	pthread_mutex_lock(&workshop_lock);
 	if (!workshop.answered)
 	{
-		pthread_mutex_unlock(&workshop.lock);
+		pthread_mutex_unlock(&workshop_lock);
 		return;
 	}
 	workshop.answered = 0;
@@ -1970,7 +2037,7 @@ static void list_take(void)
 		undone) */
 		if (workshop.answer_count < 0 && workshop.web_fetched[0] && strcmp(workshop.web_fetched, workshop.web_url))
 		{
-			pthread_mutex_unlock(&workshop.lock);
+			pthread_mutex_unlock(&workshop_lock);
 			web_ask();
 			return;
 		}
@@ -1979,7 +2046,7 @@ static void list_take(void)
 		if (workshop.answer_count < 0 && workshop.web_time && workshop.shown_url[0])
 		{
 			shown_again();
-			pthread_mutex_unlock(&workshop.lock);
+			pthread_mutex_unlock(&workshop_lock);
 			return;
 		}
 	}
@@ -2009,7 +2076,7 @@ static void list_take(void)
 	changed the sort, while it came. Kept, and the one asked for now asked) */
 	if (workshop.answer_count >= 0 && workshop.web_fetched[0] && strcmp(workshop.web_fetched, workshop.web_url))
 	{
-		pthread_mutex_unlock(&workshop.lock);
+		pthread_mutex_unlock(&workshop_lock);
 		web_ask();
 		return;
 	}
@@ -2028,7 +2095,7 @@ static void list_take(void)
 	}
 	else
 		workshop.status = WORKSHOP_LIST_FAILED;
-	pthread_mutex_unlock(&workshop.lock);
+	pthread_mutex_unlock(&workshop_lock);
 	if (workshop.status != WORKSHOP_LIST_LOADED)
 		return;
 	for (index = 0; index < workshop.count; index++)
@@ -2078,7 +2145,7 @@ static void own_library(void)
 
 /* ---------- WORKSHOP FOLDER: the system's folder picker */
 
-#if !defined(HALO_ANDROID) && !defined(HALO_WEB) && !defined(HALO_IOS) && !defined(HALO_CONSOLE) && !defined(HALO_SERVER)
+#if !defined(HALO_ANDROID) && !defined(HALO_IOS) && !defined(HALO_CONSOLE) && !defined(HALO_SERVER)
 #include <SDL3/SDL_dialog.h>
 #include <SDL3/SDL_atomic.h>
 
@@ -2140,30 +2207,14 @@ void workshop_browser_folder_follow(void)
 }
 #endif
 
-int workshop_browser_mcc_present(void)
-{
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
-	return 0;
-#else
-	own_library();
-	libraries_look(0);
-	return workshop.mcc_count > 0;
-#endif
-}
-
 int workshop_browser_offered(void)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	return 0;
 #else
 	/* (every desktop: the list works before setup, whose rows say what's needed) */
 	return 1;
 #endif
-}
-
-int workshop_browser_bridge_backend(void)
-{
-	return bridge_backend();
 }
 
 int workshop_browser_bridge_status(void)
@@ -2175,7 +2226,7 @@ int workshop_browser_bridge_status(void)
 
 void workshop_browser_own_library(void)
 {
-#if !defined(HALO_ANDROID) && !defined(HALO_WEB)
+#if !defined(HALO_ANDROID)
 	own_library();
 #endif
 }
@@ -2444,26 +2495,6 @@ int workshop_browser_sort(void)
 const char *workshop_browser_search(void)
 {
 	return workshop.search;
-}
-
-int workshop_browser_filter_offered(int filter)
-{
-	int index;
-
-	for (index = 0; filter != WORKSHOP_FILTER_ALL && index < workshop.count; index++)
-	{
-		const struct workshop_browser_item *item = &workshop.items[index];
-
-		/* (Multiplayer and Campaign: Steam's page's own items) */
-		if (!item->setup && ((filter == WORKSHOP_FILTER_MULTIPLAYER && !item->local &&
-			(item->tags & WORKSHOP_TAG_MULTIPLAYER)) ||
-			(filter == WORKSHOP_FILTER_CAMPAIGN && !item->local && (item->tags & WORKSHOP_TAG_CAMPAIGN)) ||
-			(filter == WORKSHOP_FILTER_INSTALLED && item->state == WORKSHOP_ITEM_INSTALLED)))
-		{
-			return 1;
-		}
-	}
-	return filter == WORKSHOP_FILTER_ALL;
 }
 
 /* (another page of Steam's: asked for, or taken from the pages kept) */
@@ -2877,6 +2908,10 @@ int workshop_browser_cancel(int index)
 		if (!strcmp(pending_gets[slot], item->id))
 			pending_gets[slot][0] = 0;
 	}
+	/* (the Steam client's subscription undone if the GET made it: the
+	client stops downloading as the game's own download does) */
+	if (bridge_ready())
+		steam_bridge_cancel(item->id);
 	steam_link_cancel_get(item->id);
 	failed_clear(item->id);
 	platform_log("Workshop: item %s's GET cancelled", item->id);
@@ -3263,7 +3298,23 @@ void workshop_join_cancel(void)
 	if (joining.state == WORKSHOP_JOIN_LINKING)
 		steam_link_cancel();
 	if (joining.state == WORKSHOP_JOIN_CONNECTING || joining.state == WORKSHOP_JOIN_DOWNLOADING)
-		steam_bridge_close();
+	{
+		/* (asked of Steam: the Steam client's subscription undone if this
+		join made it, so the client stops downloading too, and the game's
+		own download stopped and its part deleted, as the tab's CANCEL;
+		the item was missing when the join asked, so this is never an
+		update's copy) */
+		if (joining.asked)
+		{
+			if (bridge_ready())
+				steam_bridge_cancel(joining.id);
+			if (link_offered())
+				steam_link_cancel_get(joining.id);
+			platform_log("Workshop: the join's item %s cancelled", joining.id);
+		}
+		if (!workshop.tab_open)
+			steam_bridge_close();
+	}
 	joining.state = WORKSHOP_JOIN_IDLE;
 }
 
@@ -3299,7 +3350,12 @@ int workshop_browser_cached_picture(const char *level, struct mcc_preview_image 
 	posix_directory_close(directory);
 	if (!found || !(data = file_read(path, &size)))
 		return 0;
+	/* (the pictures' decoder, posix_ui_font.c, is the game browser's) */
+#ifdef HALO_GAME_BROWSER
 	pixels = picture_bytes(data, size) ? posix_ui_image_decode(data, size, &width, &height) : NULL;
+#else
+	pixels = NULL;
+#endif
 	free(data);
 	if (!pixels)
 		return 0;
@@ -3316,7 +3372,9 @@ int workshop_browser_cached_picture(const char *level, struct mcc_preview_image 
 		image->width = (unsigned)width;
 		image->height = (unsigned)height;
 	}
+#ifdef HALO_GAME_BROWSER
 	posix_ui_image_free(pixels);
+#endif
 	return image->pixels != NULL;
 }
 #endif /* HALO_MCC */

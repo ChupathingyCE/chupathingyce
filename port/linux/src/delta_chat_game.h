@@ -40,8 +40,6 @@ int delta_peer_game_chat_muted(int machine_index);
 
 /* the host agreed to chat (this player's lines may be said) */
 int delta_peer_game_chat_ready(void);
-/* the host agreed to server_messages (its own lines may come) */
-int delta_peer_game_chat_server_messages(void);
 /* a line its player says: its sequence, 0 if not sent */
 unsigned int delta_peer_game_chat_say(int scope, const char *text, int length);
 /* the lines heard so far (a count that grows; back to 0 with a new host),

@@ -6,7 +6,7 @@ wins. Android, iOS, the consoles and the dedicated server keep logs/ beside
 maps/ (their apps and scripts name a save root every time).
 
 The rule itself is port_folder_logs_override (port/linux/src/port_folders.c,
-tested by tools/test_port_folders.py); here, that every writer of the logs
+tested by tools/test_c_units.py); here, that every writer of the logs
 folder uses it, and a run of a built game (LOG_ROOT_GAME, else the build in
 build/: the macOS application, linux64, freebsd64 or the 32-bit linux one
 linux-tests has; skipped without one) with HOME, HALO_SAVE_ROOT and

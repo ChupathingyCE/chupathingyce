@@ -118,7 +118,7 @@ def driver(keys, tmp_path_factory):
     recovery = ",".join(f"0x{byte:02x}" for byte in keys[1][1])
     program = folder / "map_repo_test"
     sanitizers = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sys.platform != "win32" else []
-    sources = [DRIVER, SRC / "map_index.c", SRC / "map_repo.c", SRC / "playlist_manifest.c",
+    sources = [DRIVER, SRC / "map_index.c", SRC / "map_repo.c", SRC / "playlist_manifest.c", ROOT / "port/linux/game/content_sha256.c",
                MONOCYPHER / "monocypher.c", MONOCYPHER / "monocypher-ed25519.c"]
     command = [cc, "-std=c11", "-D_DEFAULT_SOURCE", "-Wall", "-Wextra", "-Werror", "-O1", "-g",
                f"-DHALO_MAPS_TEST_KEY={primary}", f"-DHALO_MAPS_TEST_RECOVERY_KEY={recovery}",

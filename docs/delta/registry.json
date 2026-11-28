@@ -496,6 +496,13 @@
         "name": "Content Evolved",
         "for": "Content Evolved (Watanoge)",
         "status": "in use"
+      },
+      {
+        "number": 3,
+        "key": "gulchce",
+        "name": "GulchCE",
+        "for": "GulchCE (chester)",
+        "status": "in progress"
       }
     ]
   },
@@ -799,7 +806,7 @@
           "name": "mcc",
           "meaning": "the host plays the MCC network protocol's join and settings record (peer.md, MCC games)",
           "for": "the MCC network protocol (from GulchCE)",
-          "status": "in use, in no Chupathingy release"
+          "status": "reserved: used by older GulchCE builds; no current build sets them"
         }
       ],
       "bytes": [
@@ -838,7 +845,7 @@
           "name": "mcc_version",
           "meaning": "with the flag 0x08, the MCC network protocol's version",
           "for": "the MCC network protocol (from GulchCE)",
-          "status": "in use, in no Chupathingy release"
+          "status": "reserved: used by older GulchCE builds; no current build sets them"
         },
         {
           "bytes": [
@@ -1448,6 +1455,13 @@
       "value": 32,
       "name": "devices",
       "meaning": "approve another device's code, revoke another device of the account"
+    }
+  ],
+  "device_account_marks": [
+    {
+      "value": 16777216,
+      "name": "developer",
+      "meaning": "a developer of the issuing network's project"
     }
   ],
   "report_reasons": [

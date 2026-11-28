@@ -121,6 +121,7 @@ def test_packages_and_features_choose_entries():
     desktop = {entry["name"] for entry in notices.components("game", ALL_FEATURES)}
     assert "Opus" in game and "Opus" not in server
     assert "SDL3" not in game and "SDL3" in desktop
+    assert "FFmpeg" not in game and "FFmpeg" in desktop and "FFmpeg" not in server
     assert "SPIRV-Cross" in desktop and "glslang" in desktop and "glslang" not in game
     assert "Mbed TLS" in server and "Cyborg Interface Gothic" in server
 
@@ -176,3 +177,21 @@ def test_packages_carry_only_the_two_files():
         text = (ROOT / build).read_text(encoding="utf-8")
         assert "ninja_notices(n, " in text, build
         assert "bcdec-LICENSE" not in text, build
+
+
+def test_ffmpeg_source_named_exactly(monkeypatch, tmp_path):
+    """FFmpeg is linked statically (LGPL 2.1, section 6): the notice names the
+    exact tarball the builds use, by its digest, and where it is: the
+    release's own page for a release (the command repository's Release
+    workflow attaches it), and the release's source by its tag"""
+    from tools import android_ffmpeg, ffmpeg_build
+    assert (android_ffmpeg.FFMPEG_VERSION, android_ffmpeg.FFMPEG_SHA256) == \
+        (ffmpeg_build.FFMPEG_VERSION, ffmpeg_build.FFMPEG_SHA256)
+    monkeypatch.setenv("HALO_RELEASE_BUILD", "1")
+    monkeypatch.setenv("HALO_VERSION", "9.9.9")
+    text = normalized(notices.render("game", ["ffmpeg"]))
+    assert f"ffmpeg-{ffmpeg_build.FFMPEG_VERSION}.tar.xz (SHA-256 {ffmpeg_build.FFMPEG_SHA256})" in text
+    assert "attached to this release, https://github.com/ChupathingyCE/chupathingyce/releases/tag/v9.9.9" in text
+    assert "is at https://github.com/ChupathingyCE/chupathingyce/tree/v9.9.9," in text
+    rendered = notices.render("game", notices.FEATURES)
+    assert "{ffmpeg_source}" not in rendered and "{game_source}" not in rendered

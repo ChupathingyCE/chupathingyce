@@ -19,9 +19,6 @@ from .ninja_syntax import Writer
 from .version import VERSION_SOURCES, identity_defines, release_build, version
 
 PORT_DIR = Path("port/linux")
-# the halo that starts chupathingy, beside it in the Linux and FreeBSD builds
-# (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
-RENAME_STUB_SCRIPT = Path("port/rename_stub/halo.sh")
 PORT_CONFIG = PORT_DIR / "port.json"
 # the Xbox SDK declarations the game and the platform layer use, in place of
 # the SDK's headers (port/include/xdk/README.md)
@@ -128,6 +125,12 @@ KCP_DIR = Path("port/third_party/kcp")
 # dedicated server's
 LUA_DIR = Path("port/third_party/lua")
 LUA_DEFINES = ["-DHALO_LUA"]
+# (after everything else, so that "../../" from it finds none of the game's
+# headers (#1702's review: mcc_vorbis.c on macOS). A system Lua's lua.h,
+# which may be another version, as Lua 5.5's in /usr/include, would come
+# first that way: the game's units include the bundled headers by their
+# path, port/linux/game/lua_internal.h, lua_scripting.c)
+LUA_INCLUDE = f"-idirafter {LUA_DIR}"
 
 
 def lua_sources() -> List[Path]:
@@ -182,6 +185,20 @@ JOLT_DEFINES = ["-DNDEBUG", "-DHALO_JOLT"]
 # object defines)
 JOLT_CXX_FLAGS = ["-std=c++17", OPTIMISATION, "-g", "-fno-rtti", "-fno-exceptions", "-ffp-contract=off",
                   "-fno-strict-aliasing", "-D_GLIBCXX_GTHREAD_USE_WEAK=0", "-w"]
+
+
+# Project Ark (port/linux/game/ark_mode.c), an early mode: its units are
+# port/linux/game/ark's, built only with HALO_ARK (configure.py --ark, the
+# 32-bit Linux desktop build). Without it no unit of the game differs.
+ARK_DIR = PORT_DIR / "game" / "ark"
+# (what the mode's units, written for Project Ark's engine, take from this
+# one's in its place: force-included ahead of each of them)
+ARK_PORT_HEADER = ARK_DIR / "h2_port.h"
+
+
+def ark_sources() -> List[Path]:
+    """Project Ark's units (port/linux/game/ark)"""
+    return sorted(ARK_DIR.glob("*.c"))
 
 
 def jolt_sources() -> List[Path]:
@@ -638,6 +655,9 @@ class Linux32Units:
     # the ragdolls' Jolt Physics (JOLT_DEFINES): the desktop build's, not the
     # server's
     jolt: bool = False
+    # Project Ark's units (ARK_DIR, ark_sources): the 32-bit Linux desktop
+    # build's, unless configure.py --no-ark
+    ark: bool = False
 
 
 # the ABI flags only x86 has, which clang rejects for another target: the
@@ -675,7 +695,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
                    + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
                    + browser_defines + CUSTOM_EDITION_DEFINES + MODS_DEFINES + COMPRESSED_MAP_DEFINES + units.extra_flags
                    + units.ffmpeg[0]
-                   + ([*LUA_DEFINES, f"-idirafter {LUA_DIR}"] if units.lua else [])
+                   + ([*LUA_DEFINES, LUA_INCLUDE] if units.lua else [])
                    + (["-DHALO_JOLT"] if units.jolt else []))
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
@@ -710,6 +730,8 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         # the headers of the port's own game units (port/linux/game), for
         # the game sources that call them
         f"-iquote {Path(config['game_sources'])}",
+        # (and Project Ark's own, for the game sources' calls into it)
+        *([f"-iquote {ARK_DIR}"] if units.ark else []),
         game_defines_and_includes(config),
         sdk_flags,
     ])
@@ -721,6 +743,10 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         add_object(source, game_cflags)
     for source in units.game_unit_sources:
         add_object(source, game_cflags)
+    # Project Ark's units (port/linux/game/ark), as port/linux/game's
+    if units.ark:
+        for source in ark_sources():
+            add_object(source, f"{game_cflags} -include {ARK_PORT_HEADER}")
     # the dedicated server's director, with the game browser (server/)
     if units.game_browser:
         for source in sorted(Path("server/src").glob("*.c")):
@@ -957,6 +983,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                          embedded_assets=embedded_assets, sysroot_flags=sysroot_cflags,
                          ffmpeg=(ffmpeg_cflags, ffmpeg_libs), lua=True,
                          jolt=getattr(sln, "with_ragdolls", True),
+                         ark=getattr(sln, "ark", False),
                          # configure.py --window-rebase: the memory window wherever
                          # HALO_WINDOW_BASE puts it (source/cseries/xbox_address.h), to
                          # test on the desktop what the Switch needs; never a build to ship
@@ -964,7 +991,10 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                          # configure.py --packaged and --console-limits (game_browser_defines),
                          # which the game's own units (source/) take too
                          + (["-DHALO_PACKAGED"] if getattr(sln, "packaged", False) else [])
-                         + (["-DHALO_CONSOLE_LIMITS"] if getattr(sln, "console_limits", False) else []))
+                         + (["-DHALO_CONSOLE_LIMITS"] if getattr(sln, "console_limits", False) else [])
+                         # configure.py --ark: Project Ark, an early mode
+                         # (port/linux/game/ark_mode.c); this build only for now
+                         + (["-DHALO_ARK"] if getattr(sln, "ark", False) else []))
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
              implicit_inputs: List[Path], validator: Optional[Path] = None) -> None:
@@ -1042,9 +1072,5 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule="linux_copy", inputs=Path("port/assets/network/brokers.txt"))
-    # halo, which starts chupathingy, for what started the game by its old
-    # name (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
-    stub = build_dir / "halo"
-    n.build(outputs=stub, rule="linux_copy", inputs=RENAME_STUB_SCRIPT)
-    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator, stub, *sdl_outputs])
+    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator, *sdl_outputs])
     n.newline()

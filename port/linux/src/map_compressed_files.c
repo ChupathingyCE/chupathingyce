@@ -33,6 +33,7 @@ SPDX-License-Identifier: GPL-3.0-only
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
+#include "../game/content_bytes.h"
 
 /* ---------- constants */
 
@@ -79,12 +80,6 @@ static int destination_write(void *context, const void *buffer, unsigned int siz
 	return WriteFile(files->destination, buffer, size, &written, NULL) && written == size;
 }
 
-static unsigned int little_long(const unsigned char *bytes)
-{
-	return (unsigned int)bytes[0] | ((unsigned int)bytes[1] << 8) | ((unsigned int)bytes[2] << 16) |
-		((unsigned int)bytes[3] << 24);
-}
-
 /* the file's first MAP_COMPRESSED_HEADER_SIZE bytes, and its size: 1 if
 read */
 static int header_read(const char *path, unsigned char *header, unsigned int *size)
@@ -114,7 +109,7 @@ static int copy_whole(const char *path, unsigned int version, unsigned int state
 
 	if (!header_read(path, header, &size))
 		return 0;
-	return little_long(header) == 0x68656164 && little_long(header + 4) == version &&
+	return content_u32le(header) == 0x68656164 && content_u32le(header + 4) == version &&
 		(stated_size <= MAP_COMPRESSED_HEADER_SIZE || size == stated_size);
 }
 
@@ -144,15 +139,6 @@ static void older_copies_delete(const char *name, const char *kept)
 	}
 	while (FindNextFileA(find, &data));
 	CloseHandle(find);
-}
-
-/* ---------- public code */
-
-unsigned int map_compressed_file_version(const char *path)
-{
-	unsigned char header[MAP_COMPRESSED_HEADER_SIZE];
-
-	return header_read(path, header, NULL) ? map_compressed_version(header) : 0;
 }
 
 int map_compressed_file_expand(const char *source, const char *destination, char *error, int error_size)
@@ -216,12 +202,12 @@ int map_compressed_file_resolve(char *path, int size)
 	length = strlen(name);
 	if (length > 4 && !_stricmp(name + length - 4, ".map"))
 		name[length - 4] = 0;
-	snprintf(copy, sizeof(copy), CACHE_PREFIX "%s_%08x_%08x.map", name, little_long(header + HEADER_CHECKSUM_OFFSET),
+	snprintf(copy, sizeof(copy), CACHE_PREFIX "%s_%08x_%08x.map", name, (unsigned int)content_u32le(header + HEADER_CHECKSUM_OFFSET),
 		compressed_size);
 	if ((int)strlen(copy) >= size)
 		return 0;
 	pthread_mutex_lock(&map_compressed_lock);
-	if (!copy_whole(copy, version, little_long(header + HEADER_FILE_SIZE_OFFSET)))
+	if (!copy_whole(copy, version, content_u32le(header + HEADER_FILE_SIZE_OFFSET)))
 	{
 		snprintf(temporary, sizeof(temporary), TEMPORARY_PREFIX "%s.map", name);
 		platform_log("map: %s is compressed (Chimera's format): expanding it into the cache", base);

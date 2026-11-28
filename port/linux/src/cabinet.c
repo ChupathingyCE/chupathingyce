@@ -92,6 +92,7 @@ behind half-written. A map the folder already has is left as it is.
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "../game/content_bytes.h"
 
 #ifndef O_LARGEFILE
 #define O_LARGEFILE 0
@@ -152,17 +153,6 @@ enum
 static const unsigned char cabinet_magic[] = { 'M', 'S', 'C', 'F', 0, 0, 0, 0 };
 
 /* ---------- reading */
-
-static unsigned int read_u16(const unsigned char *bytes)
-{
-	return (unsigned int)bytes[0] | (unsigned int)bytes[1] << 8;
-}
-
-static unsigned int read_u32(const unsigned char *bytes)
-{
-	return (unsigned int)bytes[0] | (unsigned int)bytes[1] << 8 | (unsigned int)bytes[2] << 16 |
-		(unsigned int)bytes[3] << 24;
-}
 
 int cabinet_fail(struct cabinet_import *import, const char *format, const char *detail)
 {
@@ -321,8 +311,8 @@ int cabinet_is_cabinet(struct cabinet_import *import, unsigned long long offset,
 
 	if (size < HEADER_SIZE || !cabinet_read(import, offset, header, sizeof(header)))
 		return 0;
-	return !memcmp(header, cabinet_magic, sizeof(cabinet_magic)) && read_u32(header + 8) <= size &&
-		read_u32(header + 8) >= HEADER_SIZE && read_u32(header + 16) < read_u32(header + 8) && header[25] == 1 &&
+	return !memcmp(header, cabinet_magic, sizeof(cabinet_magic)) && content_u32le(header + 8) <= size &&
+		content_u32le(header + 8) >= HEADER_SIZE && content_u32le(header + 16) < content_u32le(header + 8) && header[25] == 1 &&
 		header[24] == 3;
 }
 
@@ -363,17 +353,17 @@ static int cabinet_open(struct cabinet *cabinet, struct cabinet_import *import, 
 	cabinet->offset = offset;
 	if (!cabinet_is_cabinet(import, offset, size) || !cabinet_read(import, offset, header, sizeof(header)))
 		return cabinet_fail(import, "A cabinet in it is damaged.%s", NULL);
-	cabinet->size = read_u32(header + 8);
-	files_offset = read_u32(header + 16);
-	folder_count = read_u16(header + 26);
-	file_count = read_u16(header + 28);
-	flags = read_u16(header + 30);
+	cabinet->size = content_u32le(header + 8);
+	files_offset = content_u32le(header + 16);
+	folder_count = content_u16le(header + 26);
+	file_count = content_u16le(header + 28);
+	flags = content_u16le(header + 30);
 	if (flags & (FLAG_PREVIOUS | FLAG_NEXT))
 		return cabinet_fail(import, "Its maps are split across cabinets, which this cannot read.%s", NULL);
 	position = HEADER_SIZE;
 	if (flags & FLAG_RESERVE)
 	{
-		header_reserve = read_u16(header + 36);
+		header_reserve = content_u16le(header + 36);
 		folder_reserve = header[38];
 		cabinet->block_reserve = header[39];
 		position += 4 + header_reserve;
@@ -404,9 +394,9 @@ static int cabinet_open(struct cabinet *cabinet, struct cabinet_import *import, 
 
 		if (at + FOLDER_SIZE > table_size)
 			goto damaged;
-		folder->first_block = read_u32(table + at);
-		folder->blocks = read_u16(table + at + 4);
-		folder->compression = read_u16(table + at + 6);
+		folder->first_block = content_u32le(table + at);
+		folder->blocks = content_u16le(table + at + 4);
+		folder->compression = content_u16le(table + at + 6);
 	}
 	cabinet->folder_count = (int)folder_count;
 
@@ -422,9 +412,9 @@ static int cabinet_open(struct cabinet *cabinet, struct cabinet_import *import, 
 
 		if (files_offset + FILE_ENTRY_SIZE >= table_size)
 			goto damaged;
-		file->size = read_u32(table + files_offset);
-		file->start = read_u32(table + files_offset + 4);
-		file->folder = read_u16(table + files_offset + 8);
+		file->size = content_u32le(table + files_offset);
+		file->start = content_u32le(table + files_offset + 4);
+		file->folder = content_u16le(table + files_offset + 8);
 		files_offset += FILE_ENTRY_SIZE;
 		if (file->folder < folder_count &&
 			(unsigned long long)file->start + file->size > cabinet->folders[file->folder].end)
@@ -526,7 +516,7 @@ static unsigned int block_stream_byte(struct block_stream *stream)
 			stream->overrun++;
 			return 0;
 		}
-		size = read_u16(header + 4);
+		size = content_u16le(header + 4);
 		stream->next += DATA_HEADER_SIZE + stream->cabinet->block_reserve;
 		if (size > MAXIMUM_BLOCK || !cabinet_read(stream->cabinet->import, stream->next, stream->data, size))
 		{
@@ -847,9 +837,9 @@ static int lzx_block_header(struct lzx *lzx)
 		lzx_return_words(lzx);
 		for (index = 0; index < 12; index++)
 			recent[index] = (unsigned char)lzx_input_byte(lzx);
-		lzx->r0 = read_u32(recent);
-		lzx->r1 = read_u32(recent + 4);
-		lzx->r2 = read_u32(recent + 8);
+		lzx->r0 = content_u32le(recent);
+		lzx->r1 = content_u32le(recent + 4);
+		lzx->r2 = content_u32le(recent + 8);
 		return 1;
 	}
 	default:
@@ -980,7 +970,7 @@ static int lzx_frame(struct lzx *lzx, unsigned char *frame, unsigned int size, u
 				at++;
 				continue;
 			}
-			absolute = (int)read_u32(frame + at + 1);
+			absolute = (int)content_u32le(frame + at + 1);
 			position = frame_start + (int)at;
 			if (absolute >= -position && absolute < (int)lzx->translation_size)
 			{

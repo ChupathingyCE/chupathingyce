@@ -583,6 +583,9 @@ protocol's join and settings record, and byte 4 is the protocol's version
 into none of its releases: its MCC games go over Delta Peer (`mcc_maps`,
 HOST_NUMBER), so its hosts never set the flag or the byte, and its clients
 don't read them. A reader that doesn't play that protocol ignores both.
+Current GulchCE builds no longer set them either; only older GulchCE
+hosts do. Both stay reserved, never given another meaning, so a reader
+still reads those older hosts safely.
 
 ### Content Evolved's modded games
 
@@ -595,6 +598,10 @@ can't play it. All 26 reserved bytes then belong to Content Evolved
 - **Another reader reads none of its own meanings from them**: no MCC flag
   or version, no game kind, no Delta tag, no old layout. It shows the game
   as one it can't play.
+- **Chupathingy's clients** refuse it before joining and say what it plays
+  ("Content Evolved's Firefight isn't playable here yet."), and play
+  Content Evolved's plain games
+  ([versioning.md](versioning.md#other-projects-hosts)).
 - **A reader that doesn't know the range** sees a network version it
   doesn't play, which comes to the same thing. Bit 15 is set, as in a GOAT
   H1 host's closed number ([registry.md](registry.md#network-versions)):
@@ -1515,6 +1522,11 @@ and show their handle until their owner picks its capitals.
   "▲ Milenko" all show as "Milenko" (and as "Player N" next to a verified
   Milenko). A player who isn't connected to Delta (no
   linked profile, or a guest) never has the mark.
+- **Account marks** ([link.md](link.md#device-identity)): a client may draw
+  a mark the certificate carries (a developer's flame, say) on or beside a
+  verified player of its home network, from a bound proof, only where that
+  player shows by their verified name, and lets the viewer turn it off. A
+  mark is never a role or a ban.
 - **The same name everywhere.** The scoreboard, the postgame report, the
   lobby, the Delta Guide, chat, the kill feed, the corner score, the names
   above heads, the game types' lines (Slayer's target, Oddball, King of the

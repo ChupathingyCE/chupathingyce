@@ -892,6 +892,62 @@ static void test_schedule(void)
 	CHECK(identity_answered(&state, 403, "{\"locked\": true}", now) == IDENTITY_ANSWER_DAY && state.has_certificate);
 }
 
+/* account marks (link.md, "Device identity"): a certificate the issuer signed
+with the developer mark parses and checks, still reads play, and proves in
+a game; the mark set without the issuer's signature, or a chain to a root
+this copy doesn't trust, never checks */
+static void test_marks(void)
+{
+	static const char label[] = "chupathingy device cert v1\n";
+	unsigned char issuer_seed[32], device_seed[32], marked[IDENTITY_DEVICE_MOST], signed_part[256];
+	unsigned char proof_nonce[32], serial[8], message[IDENTITY_PROOF_MESSAGE_MOST], signature[64];
+	unsigned char other_roots[2][IDENTITY_KEY_SIZE];
+	struct identity_issuer issuer;
+	struct identity_device device;
+	unsigned long capabilities = 0x1FUL | (unsigned long)IDENTITY_MARK_DEVELOPER;
+	unsigned long now = VECTOR_ISSUED + 1000;
+	int body = device_size - IDENTITY_SIGNATURE_SIZE, size, index;
+
+	memcpy(marked, device_data, (size_t)device_size);
+	for (index = 0; index < 4; index++)
+		marked[80 + index] = (unsigned char)(capabilities >> (8 * index));
+	CHECK(identity_parse_device(marked, device_size, &device));
+	CHECK(device.capabilities == capabilities);
+	/* (the mark added to a certificate the issuer signed without it: broken) */
+	CHECK(identity_parse_issuer(issuer_data, IDENTITY_ISSUER_SIZE, &issuer));
+	CHECK(identity_check_device(marked, device_size, &issuer, now, &device) == IDENTITY_NOT_ISSUER_SIGNED);
+	/* (the issuer's signature: it checks) */
+	seed_of(ISSUER_SEED_TEXT, issuer_seed);
+	memcpy(signed_part, label, sizeof(label) - 1);
+	memcpy(signed_part + sizeof(label) - 1, marked, (size_t)body);
+	identity_sign(issuer_seed, signed_part, (int)(sizeof(label) - 1) + body, marked + body);
+	CHECK(identity_check_device(marked, device_size, &issuer, now, &device) == IDENTITY_OK);
+	CHECK(device.capabilities & IDENTITY_CAN_PLAY);
+	CHECK((device.capabilities & IDENTITY_CAPABILITY_BITS) == 0x1F);
+	CHECK((device.capabilities & IDENTITY_MARK_BITS) == IDENTITY_MARK_DEVELOPER);
+	CHECK(identity_accept(marked, device_size, issuer_data, IDENTITY_ISSUER_SIZE,
+		(const unsigned char (*)[32])roots, 2, device_public, now, &device) == IDENTITY_OK);
+	/* (a proof with it in a game: as any other) */
+	CHECK(from_hex(VECTOR_PROOF_NONCE, proof_nonce, 32));
+	memcpy(serial, device.serial, 8);
+	seed_of(DEVICE_SEED_TEXT, device_seed);
+	size = identity_proof_message(proof_nonce, VECTOR_PROOF_BINDING, 32, 3, 1, serial, (int)VECTOR_PROOF_FLAGS,
+		VECTOR_PROOF_TIME, VECTOR_PROOF_TAG, 7, message);
+	identity_sign(device_seed, message, size, signature);
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, marked, device_size, roots, 2, NULL, now,
+		message, size, signature, &device) == IDENTITY_OK);
+	CHECK((device.capabilities & IDENTITY_MARK_BITS) == IDENTITY_MARK_DEVELOPER);
+	/* (its issuer not of a root this copy trusts: never) */
+	memset(other_roots, 0, sizeof(other_roots));
+	memcpy(other_roots[0], issuer_public, 32);
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, marked, device_size,
+		(const unsigned char (*)[32])other_roots, 2, NULL, now, message, size, signature, &device) ==
+		IDENTITY_NOT_ROOT_SIGNED);
+	/* (an unknown mark is just a bit: the certificate still reads) */
+	marked[83] |= 0x80;
+	CHECK(identity_parse_device(marked, device_size, &device) && (device.capabilities & IDENTITY_CAN_PLAY));
+}
+
 int main(void)
 {
 	load();
@@ -909,6 +965,7 @@ int main(void)
 	test_text();
 	test_audience();
 	test_schedule();
+	test_marks();
 	if (failures)
 	{
 		printf("%d failure(s)\n", failures);

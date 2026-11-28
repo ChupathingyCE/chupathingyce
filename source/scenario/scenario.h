@@ -160,6 +160,10 @@ void scenario_get_current_from_weather_palette(
 
 extern long global_scenario_index;
 extern short global_structure_bsp_index;
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+/* port: one more each time the structure bsp is loaded or let go of (scenario.c) */
+extern unsigned long scenario_structure_bsp_generation;
+#endif
 extern struct scenario_globals *scenario_globals;
 
 extern struct scenario *global_scenario;

@@ -218,11 +218,13 @@ Custom Edition's resource maps, port/linux/game/ce_resources.c) */
 #define CACHE_FILE_VERSION_IS_PC(version) \
 	((version) == CACHE_FILE_CE_VERSION || (version) == CACHE_FILE_RETAIL_VERSION)
 #define CE_TAG_CACHE_BASE 0x40440000U
-/* port: Custom Edition's, or OpenSauce's larger one in SPV3 mode with its
-window mapped (port/linux/game/spv3_mode.c) */
+/* port: Custom Edition's, or OpenSauce's larger one for a map read with its
+memory upgrades (port/linux/game/opensauce_maps.c) */
 #include "spv3_mode.h"
 #include "opensauce.h"
-#define CE_TAG_CACHE_SIZE ((unsigned int)spv3_mode_tag_cache_size(0x01700000UL))
+#include "opensauce_maps.h"
+#define CE_TAG_CACHE_STOCK_SIZE 0x01700000UL
+#define CE_TAG_CACHE_SIZE ((unsigned int)opensauce_maps_tag_cache_size(CE_TAG_CACHE_STOCK_SIZE))
 /* what its load reads, against what was checked when it was opened
 (port/linux/game/ce_map_checks.c) */
 boolean ce_map_loaded_tags_unchanged(void const *tag_data, unsigned long size);
@@ -704,6 +706,14 @@ void scenario_tags_unload(
 		hud_hires_tags_unloaded();
 	}
 #endif
+#ifdef HALO_DEVELOPER_FLAMES
+	/* port: and the developer flames this map's flame sprite (developer_flames.c) */
+	{
+		extern void developer_flames_tags_unloaded(void);
+
+		developer_flames_tags_unloaded();
+	}
+#endif
 	sound_cache_close();
 	texture_cache_close();
 #ifndef HALO_CONSOLE_NO_FORGE
@@ -1176,7 +1186,8 @@ boolean cache_file_header_verify(
 		header->tag_data_offset < 0 ||
 		header->tag_data_size < 0 ||
 #ifdef HALO_CUSTOM_EDITION
-		header->tag_data_size > (CACHE_FILE_VERSION_IS_PC(header->version) ? (long)CE_TAG_CACHE_SIZE : TAG_CACHE_SIZE) ||
+		header->tag_data_size > (CACHE_FILE_VERSION_IS_PC(header->version) ?
+			(long)opensauce_maps_header_tag_cache_size(header, CE_TAG_CACHE_STOCK_SIZE) : TAG_CACHE_SIZE) ||
 #else
 		header->tag_data_size > TAG_CACHE_SIZE ||
 #endif
@@ -2440,6 +2451,15 @@ long scenario_tags_load(
 				extern void hud_hires_tags_loaded(long scenario_index);
 
 				hud_hires_tags_loaded(cache_file_globals.tag_header->scenario_tag_index);
+			}
+#endif
+#ifdef HALO_DEVELOPER_FLAMES
+			/* port: the map's flame sprite, for a verified developer's helmet
+			(port/linux/game/developer_flames.c) */
+			{
+				extern void developer_flames_tags_loaded(void);
+
+				developer_flames_tags_loaded();
 			}
 #endif
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)

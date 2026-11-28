@@ -51,7 +51,7 @@ The keyboard's keys are `controls.forge_*` in `config.toml` (see [settings.md](s
 
 X (E) opens the Forge menu: a narrow panel at the right of the screen, so the map stays in view. Its title and the budget are at the top, then the tabs, the list, a box about the row chosen, and the prompts at its foot. It works like the Delta Guide: LB and RB (Q and E) change the tab, the d-pad (arrows or WASD) moves, A (Enter) chooses, B (Esc) goes back, and the mouse can click rows and prompts. X closes it.
 
-- OBJECT BROWSER: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, AI, TELEPORTERS, OBJECTIVES, SPAWNING) with how many objects each has. A opens a category, and A on an object places it in your hands. The count at the top right is the budget: 512 objects and markers (`game.forge_objects`, 64 to 512; 256 before).
+- OBJECT BROWSER: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, AI, TELEPORTERS, OBJECTIVES, SPAWNING, AI ROUTES, VOLUMES, EFFECTS, DECALS) with how many objects each has. A opens a category, and A on an object places it in your hands. The count at the top right is the budget: 512 objects and markers (`game.forge_objects`, 64 to 512; 256 before).
 
   ![OBJECTS](screenshots/forge-objects.jpg)
 
@@ -63,11 +63,43 @@ X (E) opens the Forge menu: a narrow panel at the right of the screen, so the ma
 
   ![LAYOUTS](screenshots/forge-layouts.jpg)
 
+- SKY AND FOG: the layout's sky and fog (below).
+
 - OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, DELETE (PRESS deletes at a press, the default; HOLD: CONTROLLER deletes when Y is held half a second, the keyboard's key still at a press; HOLD: ALL holds both; `game.forge_hold_to_delete`), GRAB RANGE (how far the crosshair reaches to grab, copy or delete: NEAR 20 world units (about 60 m), MEDIUM 35 world units (about 105 m), FAR 60 world units (about 180 m), the default; `game.forge_grab_range`), HELD FACING (KEEP: what you hold keeps the facing you grabbed it with, the default; FOLLOW VIEW: it turns with the camera, so it keeps facing the same way from you, until you turn it by hand; `game.forge_held_facing`), UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), CLEAR DEAD AI, CLEAR ALL AI (press it twice), PLAY AS SPARTAN and CONTROLS.
 
   ![OPTIONS](screenshots/forge-options.jpg)
 
 The map's own objects (its vehicles, weapons, scenery and the rest) can be moved and deleted too, and the layout keeps that. One you delete is gone when the layout is loaded or played. One you grab or turn becomes one of the layout's objects: it counts in the budget, its properties can be set, and it is placed where you let it go. The map's file is never changed: the layout lists which of the map's objects it takes away.
+
+## Sky and fog
+
+SKY AND FOG, a tab of its own in the Forge menu, sets how the layout's outdoors looks, saved with the layout (left and right, or A, step a row):
+
+- SKY: MAP'S, or another sky the map has. The stock multiplayer maps have one sky each, so this only changes something on maps that carry more than one.
+- FOG: MAP'S or CUSTOM. FOG COLOR (grey, white, blue, teal, green, sand, orange, red, purple, black), FOG DENSITY (10 to 100 percent), FOG START and FOG END (where the fog begins and where it reaches its density) set the custom fog. Changing any of them turns the custom fog on.
+
+The custom fog replaces the map's outdoor fog. Indoors, and the map's own fog planes, stay as they are. Every player of the Forge game, or of the layout played, sees the same sky and fog. Nothing of the map file changes, and other games draw the map's own.
+
+## Volumes
+
+VOLUMES places zones that act on whoever is in them:
+
+- KILL VOLUME: kills a unit at once, the way the game kills a unit that falls out of the world.
+- DAMAGE VOLUME: takes a share of full health a second (5, 10, 25, 50 or 100 percent), shields first, then health.
+- GRAVITY VOLUME: scales gravity (0, 25, 50, 75, 150 or 200 percent) for what is in the air inside it: a jump, a falling vehicle, a dropped weapon.
+
+A volume is a box (width, length and height, from its floor up) or a sphere (its radius, resting on its floor), turned by its yaw. TARGET picks what it acts on: everyone (every unit, AI too), players, red players or blue players. Its PROPERTIES rows are TARGET, TYPE, the amount, YAW, SHAPE, WIDTH (a sphere's RADIUS), LENGTH and HEIGHT. A layout holds up to 32 volumes, within the markers' budget.
+
+Only the monitor sees volumes: each is drawn as a wireframe in its type's color (kill red, damage orange, gravity blue) with its marker on the floor, where the crosshair grabs it. The Spartan and anyone playing the layout see nothing. They act the same in a Forge game (as the Spartan) and in a layout played, a game tick at a time, from the layout alone. The monitor's own hidden body is left alone.
+
+## Effects and decals
+
+EFFECTS lists the loaded map's effects (smoke, sparks, explosions, a Banshee's glow...) and DECALS its decals (scorch marks, blood, Forerunner symbols...). On a multiplayer map, the effects and decals of what Forge brings in from the campaign maps (AI characters, campaign vehicles and objects) are listed too, but only those of a mission the layout already has a character, vehicle or object from, so a saved layout never names an effect that isn't there when it's played without them. A choice is placed like a marker: carried, let go, turned, deleted, its PROPERTIES opened from it.
+
+- An effect plays where it stands. REPEAT is LOOP (it starts again as soon as it ends) or a number of seconds between starts (1 to 60). Placed effects never hurt anyone: an explosion's effect shows and sounds, and deals no damage.
+- A decal is laid on the ground under it. SIZE scales it (30 to 400 percent).
+
+Everyone sees them, in a Forge game and in a layout played; the monitor also sees a small marker where each stands. A layout holds up to 16 effects and 32 decals, within the markers' budget, so what they cost stays small. One effect plays at a time per marker. A layout made on one map names its effects and decals by path; a layout's effect that another copy of the map lacks is skipped.
 
 A layout's spawn points replace the map's own for the players they fit (the game type, the team). A game type object replaces the map's own of that type (a CTF flag: that team's). Any type the layout has none of keeps the map's.
 
@@ -130,10 +162,10 @@ Layouts are saved in `forge/<map>/<name>.hmv` in the save root. The name is made
 - the map's own objects the layout takes away (version 11): each by its category and its index in the map's list;
 - the title, author, description and date, as UTF-8.
 
-All little-endian. Versions 1 to 7, 11, 12 and 13 are read. Each version adds what a layout may hold (AI settings, spawn points, teleporters, game type objects, physics, the map's own objects taken away, AI movement; version 13: more than 256 records, up to 512), and a layout is written as the lowest version that holds it, so a layout without the newer things stays readable by older builds, and a build from before the bigger budget reads a layout of more than 256 as one from a newer build. Versions 8 to 10 are kept for the layouts of the Vita build (game modes, boundaries, a lobby camera) and aren't read here; version 11 is the number the Halo CE Vita build uses for the same list of the map's own objects. `port/linux/game/forge_files.h` describes every byte.
+All little-endian. Versions 1 to 7 and 11 to 16 are read. Each version adds what a layout may hold (AI settings, spawn points, teleporters, game type objects, physics, the map's own objects taken away, AI movement; version 13: more than 256 records, up to 512; version 14: volumes; version 15: the sky and fog; version 16: effects and decals), and a layout is written as the lowest version that holds it, so a layout without the newer things stays readable by older builds, and a build from before the bigger budget reads a layout of more than 256 as one from a newer build. Versions 8 to 10 are kept for the layouts of the Vita build (game modes, boundaries, a lobby camera) and aren't read here; version 11 is the number the Halo CE Vita build uses for the same list of the map's own objects. `port/linux/game/forge_files.h` describes every byte.
 
 Every file goes through the validator before anything is read from it, whether you made it or it came from somewhere else. It checks the size, the header, the version, the map, the counts against the limits, the payload size and CRC-32, every path (characters, length, groups Forge places), every record (kind, path index, every field in range, finite floats inside the world, no unknown flags) and the texts (terminated UTF-8). A file that fails any check is refused whole and the log says why. When a layout is placed, a record whose tag the map doesn't have is skipped, and the budget and the map's bounds are checked again. `tools/test_forge_files.py` tests the validator against malformed files, and fuzzes it.
 
 ## Console commands
 
-Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race|route|area`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge clearai dead|all`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags`, `map [category]` (the map's own objects, and the ones the layout takes away), `ai` (and `ai move`, the characters' movement and the flown routes) to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`, `forge kill #id` (an AI character).
+Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race|route|area|kill|damage|gravity`, `forge effect <name>`, `forge decal <name>`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge environment sky|fog|color|density|start|end [-]`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge clearai dead|all`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags`, `map [category]` (the map's own objects, and the ones the layout takes away), `ai` (and `ai move`, the characters' movement and the flown routes) to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`, `forge kill #id` (an AI character).

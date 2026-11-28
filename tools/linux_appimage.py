@@ -44,7 +44,7 @@ from typing import Dict
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools import third_party_notices  # noqa: E402
+from tools import package_check, third_party_notices  # noqa: E402
 
 WORK = ROOT / "build/appimage"
 APPIMAGETOOL_URL = (
@@ -142,8 +142,8 @@ def main() -> int:
     if app.exists():
         shutil.rmtree(app)
     (app / "usr/lib").mkdir(parents=True)
-    # (not the halo stub beside the game in the zip, port/rename_stub/halo.sh:
-    # an AppImage is started by its own file's name)
+    # (not a halo stub an older build left beside the game: an AppImage is
+    # started by its own file's name)
     shutil.copytree(args.build, app / "usr/bin", symlinks=True, ignore=shutil.ignore_patterns("halo"))
     # (the notices again, with the AppImage's own runtime, which appimagetool
     # puts at the start of the file: tools/third_party_notices.py)
@@ -171,6 +171,13 @@ def main() -> int:
     shutil.copy2(ICON, app / f"{NAME}.png")
 
     subprocess.run([sys.executable, str(ROOT / "tools/linux_glibc_check.py"), str(app)], check=True)
+    # (nothing of a player's, config.toml or a log, which the AppImage would
+    # carry to every player: #2029)
+    found = package_check.check([app])
+    for line in found:
+        print(f"error: a player's own file in the AppImage: {line}", file=sys.stderr)
+    if found:
+        return 1
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     if args.output.exists():

@@ -78,9 +78,12 @@ struct sign_in
 	int in_store;
 };
 
+/* (client's lock, apart from it: its initializer is not zeros, and
+would put the whole of it in the data segment instead of bss) */
+static pthread_mutex_t client_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static struct
 {
-	pthread_mutex_t lock;
 	int initialised;
 	/* the QR sign-in */
 	int qr_state;
@@ -103,7 +106,7 @@ static struct
 	int revoking;
 	/* the stored token is in the system's secret store (0: the private file) */
 	int token_in_store;
-} client = { PTHREAD_MUTEX_INITIALIZER };
+} client;
 
 /* ---------- small things */
 
@@ -245,7 +248,7 @@ static void sign_in_update(const char *persona, const char *token)
 {
 	struct sign_in sign_in;
 
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	if (sign_in_read(&sign_in))
 	{
 		/* (a token still in the file moves to the system's store once it has one) */
@@ -267,7 +270,7 @@ static void sign_in_update(const char *persona, const char *token)
 		if (changed && !sign_in_write(&sign_in))
 			sc_log("Steam: the sign-in file could not be written");
 	}
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 }
 
 static uint32_t new_login_id(void)
@@ -293,9 +296,9 @@ static int log_on(struct sc_cm *cm, const volatile int *cancel)
 	struct sign_in sign_in;
 	int result, eresult;
 
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	result = sign_in_read(&sign_in);
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	if (!result)
 		return STEAM_CONTENT_SIGN_IN;
 	result = sc_cm_connect(cm, cancel);
@@ -343,7 +346,7 @@ static int log_on(struct sc_cm *cm, const volatile int *cancel)
 
 static void qr_set(int generation, int state, int error, const char *text)
 {
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	if (generation == client.qr_generation)
 	{
 		client.qr_state = state;
@@ -351,7 +354,7 @@ static void qr_set(int generation, int state, int error, const char *text)
 		if (text)
 			snprintf(client.qr_text, sizeof(client.qr_text), "%s", text);
 	}
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 }
 
 static void *qr_thread(void *context)
@@ -462,10 +465,10 @@ static void *qr_thread(void *context)
 			qr_set(generation, STEAM_CONTENT_QR_WAITING, STEAM_CONTENT_OK, url);
 		if (pb_get_number(response, length, 5, 0))
 		{
-			pthread_mutex_lock(&client.lock);
+			pthread_mutex_lock(&client_lock);
 			if (generation == client.qr_generation && client.qr_state == STEAM_CONTENT_QR_WAITING)
 				client.qr_state = STEAM_CONTENT_QR_SCANNED;
-			pthread_mutex_unlock(&client.lock);
+			pthread_mutex_unlock(&client_lock);
 		}
 		if (pb_get_string(response, length, 3, token, sizeof(token)) && token[0] &&
 			pb_get_string(response, length, 6, account, sizeof(account)) && account[0])
@@ -479,7 +482,7 @@ static void *qr_thread(void *context)
 			snprintf(sign_in.account, sizeof(sign_in.account), "%s", account);
 			snprintf(sign_in.token, sizeof(sign_in.token), "%s", token);
 			memset(token, 0, sizeof(token));
-			pthread_mutex_lock(&client.lock);
+			pthread_mutex_lock(&client_lock);
 			/* (the install's LoginID kept when one is stored; else a new one) */
 			sign_in_read(&old);
 			sign_in.login_id = old.login_id ? old.login_id : new_login_id();
@@ -487,7 +490,7 @@ static void *qr_thread(void *context)
 			memset(&old, 0, sizeof(old));
 			client.linked = written;
 			client.persona[0] = 0;
-			pthread_mutex_unlock(&client.lock);
+			pthread_mutex_unlock(&client_lock);
 			memset(&sign_in, 0, sizeof(sign_in));
 			sc_cm_close(&cm);
 			if (!written)
@@ -514,10 +517,10 @@ done:
 	free(response);
 	sc_cm_close(&cm);
 done_closed:
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	if (generation == client.qr_generation)
 		client.qr_running = 0;
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	return NULL;
 }
 
@@ -566,7 +569,7 @@ static void progress_set(unsigned long long id, int state, int error, unsigned l
 {
 	struct item *item;
 
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	if ((item = item_find(id)) != NULL)
 	{
 		item->progress.state = state;
@@ -574,7 +577,7 @@ static void progress_set(unsigned long long id, int state, int error, unsigned l
 		item->progress.done = done;
 		item->progress.total = total;
 	}
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 }
 
 /* the folders up to (not including) the last part of path made */
@@ -1286,7 +1289,7 @@ static void *worker_thread(void *context)
 		unsigned long long id = 0;
 		int index, result;
 
-		pthread_mutex_lock(&client.lock);
+		pthread_mutex_lock(&client_lock);
 		for (index = 0; index < client.count && !id; index++)
 		{
 			if (client.items[index].queued)
@@ -1299,12 +1302,12 @@ static void *worker_thread(void *context)
 		if (!id || client.stop)
 		{
 			client.worker_running = 0;
-			pthread_mutex_unlock(&client.lock);
+			pthread_mutex_unlock(&client_lock);
 			return NULL;
 		}
 		client.current = id;
 		client.cancel_current = 0;
-		pthread_mutex_unlock(&client.lock);
+		pthread_mutex_unlock(&client_lock);
 		progress_set(id, STEAM_CONTENT_ITEM_DOWNLOADING, 0, 0, 0);
 		download = (struct download *)calloc(1, sizeof(*download));
 		if (!download)
@@ -1323,7 +1326,7 @@ static void *worker_thread(void *context)
 			else
 				sc_log("Steam: item %llu: %s (%s)", id, steam_content_error_text(result), why);
 		}
-		pthread_mutex_lock(&client.lock);
+		pthread_mutex_lock(&client_lock);
 		{
 			struct item *item = item_find(id);
 
@@ -1339,7 +1342,7 @@ static void *worker_thread(void *context)
 				client.linked = 0;
 			client.current = 0;
 		}
-		pthread_mutex_unlock(&client.lock);
+		pthread_mutex_unlock(&client_lock);
 		if (download)
 		{
 			sc_manifest_free(&download->manifest);
@@ -1356,24 +1359,24 @@ void steam_content_init(const struct steam_content_host *host)
 {
 	struct sign_in sign_in;
 
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	sc_host = *host;
 	client.initialised = 1;
 	client.linked = sign_in_read(&sign_in);
 	snprintf(client.persona, sizeof(client.persona), "%s", client.linked ? sign_in.persona : "");
 	memset(&sign_in, 0, sizeof(sign_in));
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 }
 
 int steam_content_linked(char *persona, int size)
 {
 	int linked;
 
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	linked = client.linked;
 	if (persona && size > 0)
 		snprintf(persona, (size_t)size, "%s", linked ? client.persona : "");
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	return linked;
 }
 
@@ -1382,14 +1385,14 @@ void steam_content_sign_in_qr(void)
 	pthread_t thread;
 	int generation;
 
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	/* (a running one told to stop: its results are no longer taken) */
 	client.qr_cancel = 1;
 	generation = ++client.qr_generation;
 	client.qr_state = STEAM_CONTENT_QR_STARTING;
 	client.qr_error = STEAM_CONTENT_OK;
 	client.qr_text[0] = 0;
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	/* (the old thread sees the cancel within a quarter second) */
 	{
 		long long end = sc_milliseconds() + 2000;
@@ -1397,26 +1400,26 @@ void steam_content_sign_in_qr(void)
 
 		while (running && sc_milliseconds() < end)
 		{
-			pthread_mutex_lock(&client.lock);
+			pthread_mutex_lock(&client_lock);
 			running = client.qr_running;
-			pthread_mutex_unlock(&client.lock);
+			pthread_mutex_unlock(&client_lock);
 			if (running)
 				sleep_milliseconds(20);
 		}
 	}
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	client.qr_cancel = 0;
 	client.qr_running = 1;
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	if (pthread_create(&thread, NULL, qr_thread, (void *)(intptr_t)generation) == 0)
 		pthread_detach(thread);
 	else
 	{
-		pthread_mutex_lock(&client.lock);
+		pthread_mutex_lock(&client_lock);
 		client.qr_running = 0;
 		client.qr_state = STEAM_CONTENT_QR_FAILED;
 		client.qr_error = STEAM_CONTENT_FAILED;
-		pthread_mutex_unlock(&client.lock);
+		pthread_mutex_unlock(&client_lock);
 	}
 }
 
@@ -1424,25 +1427,25 @@ int steam_content_sign_in_poll(char *qr_text, int size, int *error)
 {
 	int state;
 
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	state = client.qr_state;
 	if (qr_text && size > 0)
 		snprintf(qr_text, (size_t)size, "%s", state == STEAM_CONTENT_QR_WAITING || state == STEAM_CONTENT_QR_SCANNED ?
 			client.qr_text : "");
 	if (error)
 		*error = client.qr_error;
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	return state;
 }
 
 void steam_content_sign_in_cancel(void)
 {
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	client.qr_cancel = 1;
 	client.qr_generation++;
 	client.qr_state = STEAM_CONTENT_QR_IDLE;
 	client.qr_text[0] = 0;
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 }
 
 int steam_content_get_item(unsigned long long id, const char *library)
@@ -1453,10 +1456,10 @@ int steam_content_get_item(unsigned long long id, const char *library)
 
 	if (!id || !library || !library[0] || strlen(library) >= STEAM_CONTENT_PATH_SIZE)
 		return 0;
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	if (!client.linked)
 	{
-		pthread_mutex_unlock(&client.lock);
+		pthread_mutex_unlock(&client_lock);
 		return 0;
 	}
 	item = item_find(id);
@@ -1477,7 +1480,7 @@ int steam_content_get_item(unsigned long long id, const char *library)
 			}
 			if (!item)
 			{
-				pthread_mutex_unlock(&client.lock);
+				pthread_mutex_unlock(&client_lock);
 				return 0;
 			}
 		}
@@ -1499,19 +1502,19 @@ int steam_content_get_item(unsigned long long id, const char *library)
 		client.stop = 0;
 		start = 1;
 	}
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	if (start)
 	{
 		if (pthread_create(&thread, NULL, worker_thread, NULL) == 0)
 			pthread_detach(thread);
 		else
 		{
-			pthread_mutex_lock(&client.lock);
+			pthread_mutex_lock(&client_lock);
 			client.worker_running = 0;
 			item->progress.state = STEAM_CONTENT_ITEM_FAILED;
 			item->progress.error = STEAM_CONTENT_FAILED;
 			item->queued = 0;
-			pthread_mutex_unlock(&client.lock);
+			pthread_mutex_unlock(&client_lock);
 			return 0;
 		}
 	}
@@ -1523,11 +1526,11 @@ int steam_content_progress(unsigned long long id, struct steam_content_progress 
 	struct item *item;
 
 	memset(progress, 0, sizeof(*progress));
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	item = item_find(id);
 	if (item)
 		*progress = item->progress;
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	return item != NULL;
 }
 
@@ -1535,7 +1538,7 @@ void steam_content_cancel(unsigned long long id)
 {
 	struct item *item;
 
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	item = item_find(id);
 	if (item)
 	{
@@ -1547,7 +1550,7 @@ void steam_content_cancel(unsigned long long id)
 		if (client.current == id)
 			client.cancel_current = 1;
 	}
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 }
 
 /* the refresh token revoked at Steam (Authentication.RevokeToken, permanent), on a thread of its own */
@@ -1584,9 +1587,9 @@ static void *revoke_thread(void *context)
 			"lapse unused", eresult);
 	memset(sign_in, 0, sizeof(*sign_in));
 	free(sign_in);
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	client.revoking = 0;
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	return NULL;
 }
 
@@ -1594,9 +1597,9 @@ const char *steam_content_store(void)
 {
 	int in_store;
 
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	in_store = client.linked ? client.token_in_store : !sc_host.file_only && sc_secret_store_name();
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	return in_store && sc_secret_store_name() ? sc_secret_store_name() :
 		"a private file in the data folder (not encrypted)";
 }
@@ -1605,9 +1608,9 @@ int steam_content_store_secure(void)
 {
 	int secure;
 
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	secure = !client.linked || client.token_in_store;
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	return secure;
 }
 
@@ -1619,7 +1622,7 @@ void steam_content_sign_out(void)
 	pthread_t thread;
 
 	steam_content_sign_in_cancel();
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	for (index = 0; index < client.count; index++)
 	{
 		if (client.items[index].queued)
@@ -1640,18 +1643,18 @@ void steam_content_sign_out(void)
 		sc_secret_delete(old->account);
 	if (sign_in_path(path, sizeof(path)))
 		remove_file(path);
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	/* (Steam told to forget the token too: the copy goes with the thread) */
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	client.revoking = old && old->token[0];
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	if (old && old->token[0] && pthread_create(&thread, NULL, revoke_thread, old) == 0)
 		pthread_detach(thread);
 	else if (old)
 	{
-		pthread_mutex_lock(&client.lock);
+		pthread_mutex_lock(&client_lock);
 		client.revoking = 0;
-		pthread_mutex_unlock(&client.lock);
+		pthread_mutex_unlock(&client_lock);
 		memset(old, 0, sizeof(*old));
 		free(old);
 	}
@@ -1664,16 +1667,16 @@ void steam_content_shutdown(void)
 	long long end = sc_milliseconds() + 15000;
 	int running = 1;
 
-	pthread_mutex_lock(&client.lock);
+	pthread_mutex_lock(&client_lock);
 	client.stop = 1;
 	client.cancel_current = 1;
 	client.qr_cancel = 1;
-	pthread_mutex_unlock(&client.lock);
+	pthread_mutex_unlock(&client_lock);
 	while (running && sc_milliseconds() < end)
 	{
-		pthread_mutex_lock(&client.lock);
+		pthread_mutex_lock(&client_lock);
 		running = client.worker_running || client.qr_running || client.revoking;
-		pthread_mutex_unlock(&client.lock);
+		pthread_mutex_unlock(&client_lock);
 		if (running)
 			sleep_milliseconds(20);
 	}

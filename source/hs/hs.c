@@ -3673,8 +3673,9 @@ boolean hs_scenario_postprocess(
 
 #define MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO 19001
 /* port: OpenSauce's maps' (1.5 times as many: blam_memory_upgrades.hpp), read
-in SPV3 mode only (port/linux/game/spv3_mode.c); the tables kept per node
-below are sized for them */
+for a map read with OpenSauce's memory upgrades, and in SPV3 mode
+(port/linux/game/opensauce_maps.c); the tables kept per node below are sized
+for them */
 #define OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO 28501
 #if defined(HALO_64BIT) && !defined(HALO_WINDOW_TRANSLATED)
 #define HS_SYNTAX_NODES_CAPACITY OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO
@@ -3683,6 +3684,8 @@ below are sized for them */
 #define HS_SYNTAX_NODES_CAPACITY MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO
 #endif
 #include "spv3_mode.h"
+#include "opensauce_maps.h"
+#include "opensauce_survey.h"
 /* port: the console's stand-in array (hs_allocate) */
 #define HS_SYNTAX_STAND_IN_NODES 2048
 /* port: the size of the "hs globals" array (hs_runtime_initialize), which
@@ -13393,9 +13396,11 @@ static char const *hs_scenario_syntax_data_problem(
 		if (mcc_valid >= 0)
 			return mcc_valid ? NULL : "its MCC script syntax data is damaged";
 	}
-	/* port: in SPV3 mode, OpenSauce's larger array too (spv3_mode.c) */
+	/* port: for a map read with OpenSauce's memory upgrades, and in SPV3
+	mode, OpenSauce's larger array too (opensauce_maps.c) */
 	long const maximum_nodes =
-		HS_SYNTAX_NODES_CAPACITY == OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO && spv3_mode_active() &&
+		HS_SYNTAX_NODES_CAPACITY == OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO &&
+		(spv3_mode_active() || opensauce_maps_memory_upgrades()) &&
 		scenario->hs_syntax_data.size ==
 			(long)(sizeof(struct data_array)+OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO*sizeof(struct hs_syntax_node)) ?
 		OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO : MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO;
@@ -13442,7 +13447,8 @@ static char const *hs_scenario_syntax_data_problem(
 				return "its header isn't a script node array's";
 			}
 			if (maximum_nodes != MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)
-				spv3_mode_log("scripts: OpenSauce's script node array (%ld nodes) read in place", maximum_nodes);
+				opensauce_survey_log("scripts: OpenSauce's script node array (%ld nodes) read in place",
+					maximum_nodes);
 			return hs_scenario_string_constants_valid(scenario) ? NULL : "its strings aren't inside the map's tag data";
 		}
 	}
@@ -13622,6 +13628,10 @@ may switch levels with map_name, as the pack's own release's do (the bonus
 level its menu opens), which no other map's scripts may. What it names goes
 through main_set_map_name, a level only the pack has being the pack's */
 static boolean hs_scenario_pack_menus = FALSE;
+/* port: whether the map whose scripts are checked is SPV3's own ui.yelo
+(spv3_mode_own_ui_open), whose map_name names only maps_spv3's levels
+(hs_map_name_set) */
+static boolean hs_scenario_spv3_ui = FALSE;
 
 static boolean hs_name_listed(
 	char const *name,
@@ -14016,11 +14026,21 @@ static void hs_scenario_functions_check(
 #endif
 #ifdef HALO_MAP_LIST
 	{
-		boolean map_pack_menus_known(void);
+		/* (a known pack's own ui.map, never an OpenSauce mod's ui.yelo,
+		whatever ui.map of a known pack sits in another of its folders; or
+		SPV3's own ui.yelo, whose map_name names only maps_spv3's levels,
+		hs_map_name_set: opensauce_maps.c, spv3_mode.c) */
+		short rule = opensauce_maps_menus_level_rule(cache_file_loaded_map_name());
 
-		hs_scenario_pack_menus = map_pack_menus_known() && !csstrcmp(cache_file_loaded_map_name(), "ui");
+		hs_scenario_pack_menus = rule == _opensauce_menus_known_pack;
 		if (hs_scenario_pack_menus)
 			error(_error_silent, "ui is a known map pack's menus: its scripts may call map_name");
+		hs_scenario_spv3_ui = rule == _opensauce_menus_spv3;
+		if (hs_scenario_spv3_ui)
+		{
+			hs_scenario_pack_menus = TRUE;
+			spv3_mode_log("ui: its scripts may call map_name for maps_spv3's levels");
+		}
 	}
 #endif
 	csmemset(hs_syntax_nodes_marked, 0, sizeof(hs_syntax_nodes_marked));
@@ -15335,6 +15355,10 @@ static void hs_enumerate_navpoints(
 {
 	long hud_globals_index;
 
+	/* port: no map, no globals (an unknown command in init.txt runs before
+	the first map, and its "command not found" looks for names) */
+	if (global_scenario_index == NONE || !global_game_globals)
+		return;
 	hud_globals_index = interface_get_tag_index(_interface_hud_globals);
 	if (hud_globals_index != NONE)
 	{
@@ -15353,6 +15377,9 @@ static void hs_enumerate_navpoints(
 static void hs_enumerate_hud_messages(
 	void)
 {
+	/* port: no map, no scenario (as hs_enumerate_navpoints) */
+	if (global_scenario_index == NONE)
+		return;
 	if (global_scenario_get()->hud_messages.index != NONE)
 	{
 		struct hud_message_text_definition const *hud_messages;
@@ -16205,7 +16232,27 @@ HS_EVALUATE_RETURN_BOOLEAN_NO_ARGUMENTS(player_control_action_test_move_relative
 /* port: in network co-op, also for the players the scripts can't name (coop_scripts.c) */
 HS_EVALUATE_VOID_FROM_ARGUMENTS(player_add_equipment_evaluate, struct hs_arguments_long_word_boolean, (coop_scripts_player_add_equipment(arguments->value0, arguments->value1, arguments->value2)))
 HS_EVALUATE_VOID_FROM_ARGUMENTS(debug_player_teleport_evaluate, struct hs_arguments_short_word, (debug_player_teleport(arguments->value0, arguments->value1)))
-HS_EVALUATE_VOID_STRING(main_set_map_name_evaluate, main_set_map_name)
+/* port: map_name. While SPV3's own ui is loaded, only a level of
+maps_spv3 (spv3a10, which is spv3a10@ce here); any other name is dropped
+and said once (spv3_mode_level_name) */
+static void hs_map_name_set(
+	char const *map_name)
+{
+#ifdef HALO_MAP_LIST
+	if (hs_scenario_spv3_ui)
+	{
+		char level[64];
+
+		if (spv3_mode_level_name(map_name, level, sizeof(level)))
+			main_set_map_name(level);
+		return;
+	}
+#endif
+	main_set_map_name(map_name);
+	return;
+}
+
+HS_EVALUATE_VOID_STRING(main_set_map_name_evaluate, hs_map_name_set)
 HS_EVALUATE_VOID_STRING(main_set_multiplayer_map_name_evaluate, main_set_multiplayer_map_name)
 HS_EVALUATE_VOID_UNSIGNED_SHORT(main_set_difficulty_evaluate, main_set_difficulty)
 /* port: a campaign script still switches, and so does a player walking
@@ -16698,6 +16745,31 @@ static boolean hs_compile_and_evaluate_command(
 			boolean forge_command(char const *arguments);
 
 			return forge_command(text);
+		}
+	}
+#endif
+#ifdef HALO_CAPTURE
+	/* port: "screenshot" and "screenshot <name>": the next frame saved as
+	the screenshot key saves it, to screenshots/<name>.png when named
+	(capture.c; tools/renderer_gate.py's pictures). It changes nothing of
+	the game */
+	{
+		char const *text = hs_host_player_command(expression, "screenshot");
+
+		if (text)
+		{
+			void capture_request_screenshot_named(const char *name);
+			char name[64];
+			long length = 0;
+
+			while (*text == ' ' || *text == '\t' || *text == '"')
+				text++;
+			while (*text && *text != ' ' && *text != '\t' && *text != '"' && *text != ')' &&
+				length < (long)sizeof(name) - 1)
+				name[length++] = *text++;
+			name[length] = 0;
+			capture_request_screenshot_named(name);
+			return TRUE;
 		}
 	}
 #endif

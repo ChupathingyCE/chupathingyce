@@ -391,8 +391,8 @@
 		<string text="How uneven the teams can get when BALANCED."/>
 		<string text="Block chat lines with blocked words."/>
 		<string text="Allow or block aim assist for mouse players."/>
-		<string text="Let players show names above heads. Off: as on the Xbox."/>
+		<string text="Let players show names above heads.\nOff, as on the Xbox."/>
 		<string text="Let players watch others while they wait to respawn."/>
-		<string text="The UDP port for hosting. Forward it on your router if friends can't join."/>
+		<string text="The UDP port for hosting. Forward it on your\nrouter if friends can't join."/>
 	</strings>
 </menus>

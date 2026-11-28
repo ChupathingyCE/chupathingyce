@@ -70,7 +70,7 @@ of a game.
 | Page | What it covers |
 | --- | --- |
 | [peer.md](peer.md) | Delta Peer, byte by byte: transport, handshake, capability registry, platform keys and policy, the wire format with real examples, the advertisement, the join mark, and every feature's messages |
-| [versioning.md](versioning.md) | the legacy number, wire IDs and their ranges, the signed table, legacy compatibility, join reasons |
+| [versioning.md](versioning.md) | the legacy number, wire IDs and their ranges, layout facts by network version and playing a range (and [layouts.json](layouts.json)), the signed table, legacy compatibility, join reasons |
 | [registry.md](registry.md) | every assigned number in one place: platforms, capability bits, wire IDs, network versions, ports (and [registry.json](registry.json)) |
 | [list.md](list.md) | the game list: a host's fields, pings before joining |
 | [stats.md](stats.md) | reports, the event batch, medals, map facts |

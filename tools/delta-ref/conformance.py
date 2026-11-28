@@ -29,15 +29,29 @@ docs/delta/ports.md. Python 3 alone, nothing to install.
         "Projects"): it prints the advertisement bytes such a host writes,
         to feed a client's advertisement reader, and its WELCOME names no
         Chupathingy build.
+    conformance.py layout N [--table legacy.json --wire W]
+        the layout facts of network version N (layouts.json, versioning.md
+        "Layout facts by network version"), and with a signed table's
+        document its "layouts" for a wire applied past 44
+    conformance.py record N FILE [--options BYTES]
+        a game settings record (a .bin file) a port read or made for a host
+        of network version N: its size, its counts and its further options
+        (--options: another project's row, Content Evolved's 88 at 44)
+    conformance.py convert FROM TO IN OUT [--expect FILE]
+        the record of version FROM's layout in IN made TO's, written to OUT,
+        as delta_layout.c makes it; with --expect, a port's own conversion
+        compared with it byte for byte (the first difference named by field)
 
 Exit status 0 when everything passed, 1 when something failed. Warnings
 (things a port may do but should know about) don't fail."""
 import argparse
+import json
 import re
 import socket
 import struct
 import sys
 import time
+from pathlib import Path
 
 MAJOR = 1
 HEADER = 12
@@ -500,6 +514,239 @@ def command_listen(args):
     return report
 
 
+# ---------- layout facts by network version (layouts.json, delta_layout.c)
+
+LAYOUT_HEAD = 0x3320
+LAYOUT_OPTIONS = 0x1C
+LAYOUT_EXTENDED = 16
+LAYOUT_MAXIMUM = 13136 + 128
+LAYOUT_OPTIONS_MAXIMUM = 0x2C + 128
+EXTENDED_DEFAULTS = bytes([0, 0, 1, 150, 200, 5, 10, 1, 0, 1, 0, 0, 0, 0, 0, 0])
+
+
+def layouts_file(path=None):
+    if path:
+        return Path(path)
+    here = Path(__file__).resolve().parent
+    for candidate in (here.parent / "layouts.json", here.parent.parent / "docs" / "delta" / "layouts.json"):
+        if candidate.exists():
+            return candidate
+    raise SystemExit("conformance.py: no layouts.json beside the spec (give --layouts)")
+
+
+def load_layouts(path=None):
+    return json.loads(layouts_file(path).read_text())
+
+
+def table_facts(document, wire):
+    """a signed table's document's layouts for a wire, as (version, fact) oldest first"""
+    row = document.get("wires", {}).get(wire, {})
+    return sorted(((int(version), fact) for version, fact in row.get("layouts", {}).items()), key=lambda item: item[0])
+
+
+def layout_of(layouts, version, facts=()):
+    """a version's layout: layouts.json's (past its presumed, the newest's), then a table's facts past the
+    newest within delta_layout.c's limits; None before the oldest"""
+    newest_fact = max([v for v, _ in facts if v > layouts["newest"]] or [0])
+    if version < layouts["oldest"] or version > max(layouts["presumed"], newest_fact + 1):
+        return None
+    key = str(min(version, layouts["newest"])) if version > layouts["presumed"] else str(version)
+    layout = json.loads(json.dumps(layouts["versions"][key]))
+    layout["version"] = version
+    layout["refused"] = 0
+    if version <= layouts["newest"]:
+        return layout
+    for fact_version, fact in facts:
+        if fact_version <= layouts["newest"] or fact_version > version:
+            continue
+
+        def take(ok, field, value):
+            if ok:
+                layout[field] = value
+            else:
+                layout["refused"] += 1
+        if fact.get("options_size"):
+            growth = fact["options_size"] - layout["options_size"]
+            ok = growth >= 0 and fact["options_size"] <= LAYOUT_OPTIONS_MAXIMUM and \
+                layout["settings_size"] + growth <= LAYOUT_MAXIMUM
+            take(ok, "options_size", fact["options_size"])
+            if ok:
+                layout["settings_size"] += growth
+        if fact.get("settings_size"):
+            size = fact["settings_size"]
+            take(layout["settings_size"] <= size <= LAYOUT_MAXIMUM, "settings_size", size)
+        if fact.get("shield_effects_maximum"):
+            value = fact["shield_effects_maximum"]
+            take(layout["shield_effects_maximum"] <= value <= 15, "shield_effects_maximum", value)
+        if "join_request_extra" in fact:
+            ok = fact.get("join_request_fill", "zeros") == "zeros" and 0 <= fact["join_request_extra"] <= 1024
+            take(ok, "join_request_extra", fact["join_request_extra"])
+            at = layout["join_request_version_at"]
+            if ok and at is not None and at + 2 > layout["join_request_extra"]:
+                layout["join_request_version_at"] = None
+        if "join_request_version_at" in fact:
+            at = fact["join_request_version_at"]
+            take(isinstance(at, int) and 0 <= at and at + 2 <= layout["join_request_extra"], "join_request_version_at", at)
+        if fact.get("header_extra"):
+            value = fact["header_extra"]
+            take(value <= 8 and not (layout["epoch_kind"] and value < 4), "header_extra", value)
+        if fact.get("epoch_kind"):
+            value = fact["epoch_kind"]
+            take(layout["header_extra"] >= 4 and 93 <= value <= 255, "epoch_kind", value)
+        for part in fact.get("unit_state_parts", []):
+            ok = part.get("bit", 0) in (6, 7) and 1 <= part.get("size", 0) <= 64 and part.get("at") in ("after_up", "last")
+            if ok:
+                layout["unit_state_parts"] = [p for p in layout["unit_state_parts"] if p["bit"] != part["bit"]] + [part]
+            else:
+                layout["refused"] += 1
+        if fact.get("rider_ejection_up"):
+            value = fact["rider_ejection_up"]
+            take(value <= 999, "rider_ejection_up", value)
+        layout["dropped_messages"] = sorted(set(layout["dropped_messages"]) |
+                                            {kind for kind in fact.get("dropped_messages", []) if 1 <= kind <= 255})
+    layout["local_data_offset"] = LAYOUT_HEAD + layout["options_size"]
+    layout["trailing_size"] = layout["settings_size"] - layout["local_data_offset"] - 4
+    return layout
+
+
+def sanitize_extended(extended):
+    """delta_layout_extended_sanitize"""
+    out = bytearray(extended[:LAYOUT_EXTENDED])
+    out[0] = out[0] if out[0] <= 3 else 0
+    for index in (1, 7, 9):
+        out[index] = 1 if out[index] else 0
+    for index, (least, most, default) in {2: (1, 16, 1), 3: (100, 200, 150), 4: (100, 250, 200), 5: (1, 30, 5),
+                                          6: (0, 30, 10)}.items():
+        out[index] = out[index] if least <= out[index] <= most else default
+    out[8] = out[8] if out[8] <= 2 else 0
+    for index in range(10, LAYOUT_EXTENDED):
+        out[index] = 0
+    return bytes(out)
+
+
+def record_fits(size, options):
+    return LAYOUT_OPTIONS <= options <= LAYOUT_OPTIONS_MAXIMUM and LAYOUT_HEAD + options + 4 <= size <= LAYOUT_MAXIMUM
+
+
+def convert_record(record, from_options, to_size, to_options):
+    """delta_layout_convert: (the record made the other layout, the source's further options sanitized)"""
+    if not record_fits(len(record), from_options) or not record_fits(to_size, to_options):
+        return None, None
+    options = record[LAYOUT_HEAD:LAYOUT_HEAD + from_options]
+    extended = bytes(options[LAYOUT_OPTIONS + index] if LAYOUT_OPTIONS + index < from_options else EXTENDED_DEFAULTS[index]
+                     for index in range(LAYOUT_EXTENDED))
+    new_options = bytes(options[index] if index < from_options else
+                        EXTENDED_DEFAULTS[index - LAYOUT_OPTIONS] if LAYOUT_OPTIONS <= index < LAYOUT_OPTIONS + LAYOUT_EXTENDED
+                        else 0 for index in range(to_options))
+    local = record[LAYOUT_HEAD + from_options:LAYOUT_HEAD + from_options + 4]
+    tail = record[LAYOUT_HEAD + from_options + 4:]
+    to_tail = to_size - LAYOUT_HEAD - to_options - 4
+    out = record[:LAYOUT_HEAD] + new_options + local + (tail[:to_tail] + bytes(max(0, to_tail - len(tail))))
+    return out, sanitize_extended(extended)
+
+
+def record_field(layouts, layout, offset):
+    for field in layouts["record"]["fields"]:
+        if field["offset"] <= offset < field["offset"] + field["size"]:
+            extra = ""
+            if "element_size" in field:
+                extra = f"[{(offset - field['offset']) // field['element_size']}]"
+            return f"{field['name']}{extra} (+0x{offset - field['offset']:x})"
+    if offset < layout["local_data_offset"]:
+        return f"variant_options (+0x{offset - LAYOUT_HEAD:x})"
+    if offset < layout["local_data_offset"] + 4:
+        return "local_data"
+    return f"trailing (+{offset - layout['local_data_offset'] - 4})"
+
+
+def facts_for(args):
+    if not getattr(args, "table", None):
+        return ()
+    document = json.loads(Path(args.table).read_text())
+    return table_facts(document, args.wire)
+
+
+def command_layout(args):
+    report = Report()
+    layouts = load_layouts(args.layouts)
+    layout = layout_of(layouts, args.version, facts_for(args))
+    if layout is None:
+        report.fail("layout", f"network version {args.version} is before {layouts['oldest']}, which no reader joins")
+        return report
+    print(json.dumps(layout, indent=1))
+    if layout["refused"]:
+        report.warn("layout", f"{layout['refused']} table fact field(s) past the limits, not taken")
+    return report
+
+
+def command_record(args):
+    report = Report()
+    layouts = load_layouts(args.layouts)
+    layout = layout_of(layouts, args.version, facts_for(args))
+    where = f"record of {args.version}"
+    if layout is None:
+        report.fail(where, f"version {args.version} is before {layouts['oldest']}")
+        return report
+    record = Path(args.file).read_bytes()
+    options = args.options or layout["options_size"]
+    size = layout["settings_size"] + options - layout["options_size"]
+    if len(record) != size:
+        report.fail(where, f"{len(record)} bytes, not {size} (options 0x{options:x}, local data at {LAYOUT_HEAD + options})")
+        return report
+    report.ok(where, f"{size} bytes: options 0x{options:x} at 0x{LAYOUT_HEAD:x}, local data at {LAYOUT_HEAD + options}, "
+              f"{size - LAYOUT_HEAD - options - 4} trailing")
+    machines, players, maximum = struct.unpack_from("<h", record, 0x112)[0], struct.unpack_from("<h", record, 0x2314)[0], \
+        record[0x10E]
+    for name, value in (("machine_count", machines), ("player_count", players), ("maximum_players", maximum)):
+        if not 0 <= value <= 128:
+            report.fail(where, f"{name} {value}, outside 0 to 128")
+    if options >= LAYOUT_OPTIONS + LAYOUT_EXTENDED:
+        extended = record[LAYOUT_HEAD + LAYOUT_OPTIONS:LAYOUT_HEAD + LAYOUT_OPTIONS + LAYOUT_EXTENDED]
+        clean = sanitize_extended(extended)
+        if clean != extended:
+            names = [byte["name"] for byte in layouts["record"]["extended_options"]["bytes"]]
+            bad = [names[min(index, len(names) - 1)] for index in range(LAYOUT_EXTENDED) if clean[index] != extended[index]]
+            report.warn(where, f"further options out of range ({', '.join(sorted(set(bad)))}): a reader takes "
+                        "them sanitized")
+        else:
+            report.ok(where, f"further options: mode {extended[0]}, hardcore {extended[1]}")
+    trailing = record[LAYOUT_HEAD + options + 4:]
+    if trailing and any(trailing) and len(trailing) >= 64:
+        report.seen(where, "the trailing bytes carry MCC digests (an MCC map's game)")
+    return report
+
+
+def command_convert(args):
+    report = Report()
+    layouts = load_layouts(args.layouts)
+    facts = facts_for(args)
+    source, target = layout_of(layouts, args.source, facts), layout_of(layouts, args.target, facts)
+    where = f"{args.source} to {args.target}"
+    if source is None or target is None:
+        report.fail(where, "a version before the oldest")
+        return report
+    record = Path(args.input).read_bytes()
+    from_options = args.options or source["options_size"]
+    out, extended = convert_record(record, from_options, target["settings_size"], target["options_size"])
+    if out is None:
+        report.fail(where, f"{len(record)} bytes is not a record with options 0x{from_options:x}")
+        return report
+    Path(args.output).write_bytes(out)
+    report.ok(where, f"{len(record)} bytes to {len(out)}; further options mode {extended[0]}, hardcore {extended[1]}")
+    if args.expect:
+        theirs = Path(args.expect).read_bytes()
+        if len(theirs) != len(out):
+            report.fail(where, f"the port's record is {len(theirs)} bytes, not {len(out)}")
+        else:
+            differ = next((index for index in range(len(out)) if out[index] != theirs[index]), None)
+            if differ is None:
+                report.ok(where, "the port's conversion matches byte for byte")
+            else:
+                report.fail(where, f"the port's conversion differs first at {differ}, "
+                            f"{record_field(layouts, target, differ)}: 0x{theirs[differ]:02x}, not 0x{out[differ]:02x}")
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -516,9 +763,28 @@ def main():
     listen.add_argument("--project", type=int, help="act as a port host of this project (docs/delta/registry.md, Projects)")
     listen.add_argument("--project-version", type=int, default=0)
     listen.add_argument("--announce", type=int, default=44, help="the network version its advertisement says")
+    for name in ("layout", "record", "convert"):
+        command = sub.add_parser(name)
+        if name == "convert":
+            command.add_argument("source", type=int)
+            command.add_argument("target", type=int)
+            command.add_argument("input")
+            command.add_argument("output")
+            command.add_argument("--expect", help="a port's own conversion, to compare")
+        else:
+            command.add_argument("version", type=int)
+            if name == "record":
+                command.add_argument("file")
+        if name != "layout":
+            command.add_argument("--options", type=lambda text: int(text, 0), help="the source's options' bytes, "
+                                 "for another project's row (Content Evolved's 0x58 at 44)")
+        command.add_argument("--layouts", help="layouts.json (the spec's, by default)")
+        command.add_argument("--table", help="a signed table's document (legacy.json), for its layouts")
+        command.add_argument("--wire", default="chupa-44b", help="the table's wire whose layouts to apply")
     args = parser.parse_args()
     report = {"check": command_check, "advert": command_advert, "announce": command_announce,
-              "listen": command_listen}[args.command](args)
+              "listen": command_listen, "layout": command_layout, "record": command_record,
+              "convert": command_convert}[args.command](args)
     print(f"{'FAILED' if report.failed else 'passed'}: {report.failed} failure(s), {report.warned} warning(s)")
     return 1 if report.failed else 0
 

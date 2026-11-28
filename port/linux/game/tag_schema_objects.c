@@ -846,7 +846,7 @@ static struct tag_schema_field const projectile_fields[] =
 	TAG_SCHEMA_REFERENCE(struct _projectile_definition, attached_detonation_damage, TAG_SCHEMA_GROUPS('jpt!')),
 	TAG_SCHEMA_REFERENCE(struct _projectile_definition, impact_damage, TAG_SCHEMA_GROUPS('jpt!')),
 	TAG_SCHEMA_BLOCK(struct _projectile_definition, material_responses, projectile_material_response_schema,
-		NUMBER_OF_MATERIAL_TYPES),
+		NUMBER_OF_HALO_MATERIAL_TYPES),
 	TAG_SCHEMA_END
 };
 
@@ -990,10 +990,11 @@ layout's 'proj' reference where they are) */
 /* port: in Halo PC's layout, OpenSauce's third and fourth grenade types (an
 SPV3 map's actor variants) are the first, as an equipment's past the game's
 two is (_unit_definition's and _equipment_definition's enums): the AI indexes
-the globals' grenades and a unit's grenade counts by it. Other values are left
-as they were, for the older layout above (the stock 'warthog gunner' has
-0x7072 there, part of its 'proj'). OpenSauce's four types are not here yet */
-#define OPENSAUCE_NUMBER_OF_GRENADE_TYPES 4
+the globals' grenades and a unit's grenade counts by it. A map in OpenSauce's
+own layout keeps them: it has four (tag_schema_opensauce.c, mcc_grenades.c).
+Other values are left as they were, for the older layout above (the stock
+'warthog gunner' has 0x7072 there, part of its 'proj') */
+#define OPENSAUCE_GRENADE_TYPES 4
 
 static boolean actor_variant_grenade_type_check(
 	struct tag_validation *validation,
@@ -1002,8 +1003,9 @@ static boolean actor_variant_grenade_type_check(
 	struct actor_variant_definition *variant = base;
 
 	if (TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_pc_header_bit) &&
+		!TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_opensauce_bit) &&
 		variant->grenade_combat.grenade_type >= NUMBER_OF_UNIT_GRENADE_TYPES &&
-		variant->grenade_combat.grenade_type < OPENSAUCE_NUMBER_OF_GRENADE_TYPES)
+		variant->grenade_combat.grenade_type < OPENSAUCE_GRENADE_TYPES)
 	{
 		tag_validate_correct(validation, "grenade_combat.grenade_type is %d, OpenSauce's, past the game's %d: 0",
 			(int)variant->grenade_combat.grenade_type, NUMBER_OF_UNIT_GRENADE_TYPES);

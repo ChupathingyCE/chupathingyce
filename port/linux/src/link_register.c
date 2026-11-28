@@ -153,8 +153,9 @@ int link_register_program_ours(const char *named, const char *executable, link_r
 	folder = folder_length(executable);
 	named_folder = folder_length(named);
 	base = named + named_folder + (named_folder ? 1 : 0);
-	/* the earlier name in this install's folder (port/rename_stub: halo.exe
-	or halo, which now starts chupathingy) */
+	/* the earlier name in this install's folder (halo.exe or halo: the game
+	before 0.9.0, or the stub 0.9.0 and 0.9.1 had, rename_stub.h): a link an
+	older version registered for it is this game's, and is pointed here */
 	if (folder && folder == named_folder && same_text(named, executable, folder, ignore_case) &&
 		(same_text(base, "halo", 5, 1) || same_text(base, "halo.exe", 9, 1) || same_text(base, "halo.sh", 8, 1)))
 	{

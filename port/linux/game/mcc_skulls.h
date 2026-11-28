@@ -35,8 +35,6 @@ enum mcc_skull {
 
 /* The globals themselves, mcc_skull_definitions[MCC_SKULL_COUNT], are
 declared where the engine's table lists them (source/hs/hs_globals_external.c). */
-/* The skull's short name, "black_eye". */
-char const *mcc_skull_name(short skull);
 /* TRUE for a skull global's name (mcc_campaign_global_settable). */
 boolean mcc_skull_global(char const *name);
 

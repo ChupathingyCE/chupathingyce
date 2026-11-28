@@ -1,7 +1,7 @@
 {
   "about": "the public games' listings a browser hears: the listing's reader, its queue and the table of games",
   "harness": "port/linux/tests/p2p_lobby_fuzz.c",
-  "sources": ["port/linux/src/p2p_crypto.c", "port/linux/src/p2p_copies.c", "port/linux/src/delta_compat.c",
+  "sources": ["port/linux/src/p2p_crypto.c", "port/linux/game/content_sha256.c", "port/linux/src/p2p_copies.c", "port/linux/src/delta_compat.c",
               "port/third_party/monocypher/monocypher.c", "port/third_party/monocypher/monocypher-ed25519.c"],
   "includes": ["port/third_party/monocypher", "port/linux/src"],
   "flags": ["-std=gnu11", "-D__HALO_LINUX_PLATFORM_H", "-D__HALO_LINUX_POSIX_H", "-include",

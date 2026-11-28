@@ -21,12 +21,20 @@ with the part that differs (rng, players, objects, scores).
     python3 tools/test_determinism.py --binary build/linux/chupathingy --maps ~/halo/maps \\
         --map bloodgulch --ticks 900 --work /tmp/determinism
     python3 tools/test_determinism.py --binary build/macos/chupathingy --maps ~/halo-maps/maps --tuning-most
+    python3 tools/test_determinism.py --binary OLD --maps ~/halo-maps/maps --save-golden DIR
+    python3 tools/test_determinism.py --binary NEW --maps ~/halo-maps/maps --golden DIR
 
 With --tuning-most the recording is made at the retail drawing and both
 replays with every [tuning] drawing knob at its most (TUNING_MOST): the
 knobs change only what is drawn, so the hashes must still agree. A replay
 counts as a local game for them (render.c's render_tuning), so every one
 goes as far as it can.
+
+With --save-golden a build records and checks a game on each of the stock
+maps in GOLDEN_MAPS (or --map) and keeps its inputs and hashes in a folder;
+with --golden another build replays those inputs and must hash every tick
+as the first build did. That checks a change that should play the same
+(a cleanup, a move of code) against the build from before it.
 
 Needs a Linux (or macOS) build and the stock Xbox maps (NTSC). CI has no
 maps, so under pytest the check is skipped unless HALO_DETERMINISM_BINARY
@@ -54,6 +62,8 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEFAULT_MAP = "bloodgulch"
+# the stock maps --save-golden and --golden play, one game each
+GOLDEN_MAPS = ("bloodgulch", "hangemhigh", "chillout", "prisoner", "damnation", "sidewinder")
 DEFAULT_TICKS = 900  # 30 seconds of play
 DEFAULT_SEED = 1
 BOT_SEED = 7
@@ -327,6 +337,40 @@ def run_check(binary, maps, work, game_map=DEFAULT_MAP, ticks=DEFAULT_TICKS, see
     return problems, len(runs["record"][0])
 
 
+def save_golden(binary, maps, work, folder, game_maps, ticks=DEFAULT_TICKS, seed=DEFAULT_SEED):
+    """Records and checks a game on each map, then keeps its inputs and the
+    recording's hashes in folder/<map>. Returns the problems."""
+    problems = []
+    for game_map in game_maps:
+        map_work = os.path.join(work, game_map)
+        found, _ = run_check(binary, maps, map_work, game_map, ticks, seed)
+        problems += [f"{game_map}: {problem}" for problem in found]
+        kept = os.path.join(folder, game_map)
+        os.makedirs(kept, exist_ok=True)
+        shutil.copyfile(os.path.join(map_work, "inputs.bin"), os.path.join(kept, "inputs.bin"))
+        shutil.copyfile(os.path.join(map_work, "record", "hashes.txt"), os.path.join(kept, "hashes.txt"))
+    return problems
+
+
+def check_golden(binary, maps, work, folder, seed=DEFAULT_SEED):
+    """Replays each map's kept inputs (save_golden) with this build. Returns
+    (problems, maps checked): every tick must hash as the kept recording's."""
+    problems = []
+    checked = 0
+    for game_map in sorted(os.listdir(folder)):
+        kept = os.path.join(folder, game_map)
+        inputs = os.path.join(kept, "inputs.bin")
+        if not os.path.exists(inputs):
+            continue
+        golden = read_hashes(os.path.join(kept, "hashes.txt"))
+        replay = play(binary, maps, os.path.join(work, game_map), "replay", "replay", os.path.abspath(inputs),
+            game_map, len(golden[0]), seed)
+        problems += [f"{game_map}: {problem}" for problem in
+            compare("golden", golden, "replay", read_hashes(replay))]
+        checked += 1
+    return problems, checked
+
+
 def test_determinism(tmp_path):
     """pytest: the check, when a build and maps are named (CI has no maps)."""
     import pytest
@@ -368,6 +412,21 @@ def test_determinism_with_the_tuning_at_its_most(tmp_path):
     assert not problems, "\n".join(problems)
 
 
+def test_determinism_against_golden(tmp_path):
+    """pytest: this build replays another build's kept games (--save-golden,
+    HALO_DETERMINISM_GOLDEN) tick for tick (needs a build and maps, as above)."""
+    import pytest
+
+    binary = os.environ.get("HALO_DETERMINISM_BINARY")
+    maps = os.environ.get("HALO_DETERMINISM_MAPS")
+    folder = os.environ.get("HALO_DETERMINISM_GOLDEN")
+    if not binary or not maps or not folder or not os.path.exists(binary) or not os.path.isdir(folder):
+        pytest.skip("no build, maps or kept games (HALO_DETERMINISM_BINARY, _MAPS, _GOLDEN)")
+    problems, checked = check_golden(binary, maps, str(tmp_path), folder)
+    assert checked, f"no kept games in {folder}"
+    assert not problems, "\n".join(problems)
+
+
 def test_recording_keeps_the_host_rule():
     """No build needed: the recording's header carries the host's rule after
     the seed, and a replay sets it over its own settings (determinism_check.c)."""
@@ -395,7 +454,31 @@ def main():
     parser.add_argument("--safe-zones", action="store_true",
         help="record with display.hud_safe_zone \"xbox\", replay with \"pc\" (split screen windows centered): "
         "they must agree")
+    parser.add_argument("--save-golden", metavar="DIR",
+        help="record and check a game on each stock map (GOLDEN_MAPS, or --map), keeping its inputs and hashes in DIR")
+    parser.add_argument("--golden", metavar="DIR",
+        help="replay the games kept in DIR (--save-golden) with this build: every tick must hash the same")
     args = parser.parse_args()
+    if args.save_golden or args.golden:
+        try:
+            if args.save_golden:
+                game_maps = [args.map] if args.map != DEFAULT_MAP else [
+                    name for name in GOLDEN_MAPS if os.path.exists(os.path.join(args.maps, f"{name}.map"))]
+                problems = save_golden(args.binary, args.maps, args.work, args.save_golden, game_maps, args.ticks,
+                    args.seed)
+                count = len(game_maps)
+            else:
+                problems, count = check_golden(args.binary, args.maps, args.work, args.golden, args.seed)
+        except RuntimeError as error:
+            log(str(error))
+            return 1
+        for problem in problems:
+            log(problem)
+        if problems or not count:
+            log(f"FAILED (runs in {args.work})")
+            return 1
+        log(f"passed: {count} maps, every tick the same")
+        return 0
     if not os.path.exists(os.path.join(args.maps, f"{args.map}.map")):
         log(f"no {args.map}.map in {args.maps}: skipped")
         return 0

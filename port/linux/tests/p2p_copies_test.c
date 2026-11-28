@@ -2,7 +2,7 @@
 P2P_COPIES_TEST.C
 
 Tests of one public game listed under every network version, shown once
-(port/linux/src/p2p_copies.c). Built and run by tools/test_p2p_copies.py;
+(port/linux/src/p2p_copies.c). Built and run by tools/test_c_units.py;
 exits nonzero on a failure.
 */
 

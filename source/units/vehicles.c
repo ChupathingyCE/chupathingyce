@@ -373,7 +373,8 @@ void vehicle_hover(
 	long vehicle_index,
 	boolean hover)
 {
-	if (vehicle_index!=NONE)
+	/* port: a vehicle deleted since the script had it is none (#1861) */
+	if (object_try_and_get(vehicle_index))
 	{
 		struct vehicle_datum *vehicle = vehicle_datum_get(vehicle_index);
 

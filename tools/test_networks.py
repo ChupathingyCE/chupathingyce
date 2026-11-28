@@ -32,6 +32,7 @@ def build(cc, out, extra=()):
          "-iquote", str(ROOT / "port" / "linux" / "include"), "-I", str(MONOCYPHER),
          str(TEST), str(ROOT / "port" / "linux" / "src" / "networks.c"),
          str(ROOT / "port" / "linux" / "src" / "identity.c"),
+         str(ROOT / "port" / "linux" / "game" / "content_sha256.c"),
          str(MONOCYPHER / "monocypher.c"), str(MONOCYPHER / "monocypher-ed25519.c"),
          "-o", str(out)],
         capture_output=True, text=True,

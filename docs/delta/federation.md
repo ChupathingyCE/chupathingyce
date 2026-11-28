@@ -95,6 +95,11 @@ A network can be as small as one site and one signer process.
 
 ## Between networks
 
+Account marks ([link.md](link.md#device-identity)) are each network's own: a
+client draws only its home network's marks as its own and ignores another
+network's (or shows them labeled with that network), so one network's
+`developer` never reads as another's.
+
 What works across networks from the start:
 
 - Joining any game, with names checked as above.

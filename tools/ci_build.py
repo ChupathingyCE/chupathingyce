@@ -53,26 +53,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools import third_party_notices  # noqa: E402
+from tools import package_check, third_party_notices  # noqa: E402
 from tools.version import base_version, commit, release_build, version  # noqa: E402
 
 # what each port's build leaves, and what goes into dist/
 OUTPUTS = {
     # (and the SDL3 each portable build brings, tools/linux_build.py, its
     # license in THIRD-PARTY-NOTICES.txt with the others'). The game is
-    # chupathingy (chupathingy.exe) from 0.9.0; halo (halo.exe) beside it is
-    # the small stub that starts it, for shortcuts and scripts made for
-    # the old name (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
-    "linux": ["build/linux/chupathingy", "build/linux/halo", "build/linux/libSDL3.so.0"],
+    # chupathingy (chupathingy.exe) from 0.9.0 (0.9.0 and 0.9.1 also had a
+    # small halo, halo.exe, that started it: port/linux/src/rename_stub.h)
+    "linux": ["build/linux/chupathingy", "build/linux/libSDL3.so.0"],
     # the native 64-bit build (ninja linux64; tools/linux64_build.py)
-    "linux64": ["build/linux64/chupathingy", "build/linux64/halo", "build/linux64/libSDL3.so.0"],
+    "linux64": ["build/linux64/chupathingy", "build/linux64/libSDL3.so.0"],
     # the native 64-bit FreeBSD build (ninja freebsd64; tools/unix64_build.py),
     # built on FreeBSD: SDL3 is the system's package (pkg install sdl3), not
     # brought along
-    "freebsd64": ["build/freebsd64/chupathingy", "build/freebsd64/halo"],
-    "windows": ["build/windows/chupathingy.exe", "build/windows/halo.exe", "build/windows/SDL3.dll"],
+    "freebsd64": ["build/freebsd64/chupathingy"],
+    "windows": ["build/windows/chupathingy.exe", "build/windows/SDL3.dll"],
     # the native 64-bit build (ninja windows64; tools/windows_build.py)
-    "windows64": ["build/windows64/chupathingy.exe", "build/windows64/halo.exe", "build/windows64/SDL3.dll"],
+    "windows64": ["build/windows64/chupathingy.exe", "build/windows64/SDL3.dll"],
     "android": [],  # the APK, below
     # the native 64-bit app (ninja android64; tools/android64_build.py): the
     # same app, built with -Pnative64, its APK below
@@ -112,6 +111,9 @@ def main() -> int:
                         help="a server: build it in Alpine Linux's Docker container (musl, static)")
     parser.add_argument("--without-ragdolls", action="store_true",
                         help="without ragdolls and their Jolt Physics (configure.py --without-ragdolls)")
+    parser.add_argument("--window-rebase", action="store_true",
+                        help="windows: the Xbox memory window wherever it fits (configure.py --window-rebase), "
+                        "as Chupathingy32's Windows build has it")
     args = parser.parse_args()
     server = args.platform.startswith("server-")
     if args.alpine:
@@ -133,6 +135,10 @@ def main() -> int:
         configure += ["--compiler-launcher", launcher]
     if args.without_ragdolls:
         configure.append("--without-ragdolls")
+    if args.window_rebase:
+        if args.platform != "windows":
+            parser.error("--window-rebase builds the 32-bit Windows build only")
+        configure.append("--window-rebase")
     # a release is VERSION's, and nothing else is one
     if release_build() and version() != base_version():
         print(f"error: a release build of {version()}, but VERSION is {base_version()}", file=sys.stderr)
@@ -207,16 +213,29 @@ def main() -> int:
     # game's built-in list)
     if args.platform not in ANDROID_BUILDS and args.platform != "macos":
         shutil.copy2(ROOT / "port/assets/network/brokers.txt", dist / "brokers.txt")
-    return 0
+    return no_player_files(dist)
+
+
+def no_player_files(dist: Path) -> int:
+    """1, with each named, if dist holds a player's own file (config.toml, a
+    log, a save: tools/package_check.py), which an update would put over the
+    player's (#2029)"""
+    found = package_check.check([dist])
+    for line in found:
+        print(f"error: a player's own file in a release package: {line}", file=sys.stderr)
+    return 1 if found else 0
 
 
 def game_features(platform: str) -> list:
     """the parts only some games have (tools/third_party_notices.py): the
     SDL3 library (every build but FreeBSD's, whose SDL3 is the system's
-    package), the bgfx renderer of the 64-bit desktop builds when built, its
-    Vulkan back end on Linux and Windows, and its SPIRV-Cross on macOS and
-    64-bit Windows"""
+    package), the movies' FFmpeg when the build made it (all but one
+    configured --without-ffmpeg: tools/ffmpeg_build.py), the bgfx renderer of
+    the 64-bit desktop builds when built, its Vulkan back end on Linux and
+    Windows, and its SPIRV-Cross on macOS and 64-bit Windows"""
     features = [] if platform == "freebsd64" else ["sdl3"]
+    if ffmpeg_built(platform):
+        features.append("ffmpeg")
     if (ROOT / "build" / platform / "bgfx").is_dir():
         features.append("bgfx")
         if platform in ("linux64", "windows64"):
@@ -224,6 +243,16 @@ def game_features(platform: str) -> list:
         if platform in ("macos", "windows64"):
             features.append("spirv-cross")
     return features
+
+
+def ffmpeg_built(platform: str) -> bool:
+    """whether this build linked the movies' FFmpeg: its libraries are in its
+    build folder (build/<platform>/ffmpeg, or ffmpeg-<arch> for each of the
+    macOS application's architectures)"""
+    folder = ROOT / "build" / platform
+    return any(path.is_file() for pattern in ("ffmpeg/build/libavcodec/libavcodec.a",
+                                              "third_party/ffmpeg-*/build/libavcodec/libavcodec.a")
+               for path in folder.glob(pattern))
 
 
 def write_licenses(dist: Path, package: str, features: list) -> None:
@@ -378,7 +407,7 @@ def server_dist(platform: str, config: str, output: str) -> int:
     write_build_ids(symbols)
     write_licenses(dist, "server", [])
     print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)
-    return 0
+    return no_player_files(dist)
 
 
 if __name__ == "__main__":

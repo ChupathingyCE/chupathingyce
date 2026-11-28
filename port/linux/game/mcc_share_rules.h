@@ -43,13 +43,6 @@ struct mcc_share_package {
 };
 
 enum mcc_share_reason mcc_share_decide(struct mcc_share_package const *package);
-int mcc_share_eligible(struct mcc_share_package const *package);
-/* A short stable word for logs and tests, such as "workshop". */
-char const *mcc_share_reason_word(enum mcc_share_reason reason);
-/* Preliminary resource leaf allowlist, not file validation or path containment.
- * Buffers must contain the declared number of readable bytes; no terminator
- * is required. Only bitmaps.map and sounds.map match, excluding their NUL. */
-int mcc_share_file_allowed(char const *leaf, size_t length);
 
 /* OpenCE's MCC package sharing on the wire (their 43 on; chester's): a
  * client's request, message 103, 80 bytes after the distributed header, and

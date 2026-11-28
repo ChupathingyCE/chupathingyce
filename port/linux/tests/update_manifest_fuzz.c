@@ -44,6 +44,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	first[line] = 0;
 	update_version_compare(first, "0.9.1a-testing.202611101530", &comparable);
 	update_version_newer(first, "0.9.0");
+	update_release_newer("0.9.2", first, "0.9.2-nightly.202611271330");
+	update_release_newer(first, "2026-11-26T02:15:07Z", "0.9.2-nightly.202611271330");
 	update_version_release(first);
 	update_version_prerelease(first, version, 4);
 	update_sha256(data, size, sha256);

@@ -107,6 +107,9 @@ static void forge_menu_asks_run(
 		case _forge_menu_ask_round:
 			forge_globals.round_requested = TRUE;
 			break;
+		case _forge_menu_ask_environment:
+			forge_environment_step(first, second);
+			break;
 		case _forge_menu_ask_spartan:
 			forge_end();
 			break;
@@ -217,6 +220,12 @@ short forge_property_count(
 
 	if (!forge_properties_get(&properties))
 		return 0;
+	/* (an effect's or a decal's two: forge_effects.inc) */
+	if (properties.effect)
+		return forge_effect_property_count();
+	/* (a volume's eight: forge_volumes.inc) */
+	if (properties.volume)
+		return _forge_property_physics + 1;
 	/* (a marker's: team, game type, kind, yaw) */
 	if (properties.spawn)
 		return 4;
@@ -264,6 +273,19 @@ boolean forge_property_text(
 			properties.spawn_kind == _forge_spawn_teleporter_receiver;
 		boolean objective = properties.spawn_kind >= _forge_spawn_flag && properties.spawn_kind <= FORGE_LAST_OBJECTIVE_KIND;
 		boolean ai_marker = properties.spawn_kind == _forge_spawn_ai_route || properties.spawn_kind == _forge_spawn_ai_area;
+
+		/* (a volume's rows: forge_volumes.inc) */
+		if (properties.volume)
+		{
+			forge_volume_property_text(&properties, row, label, label_size, value, value_size);
+			return TRUE;
+		}
+		/* (an effect's or a decal's rows: forge_effects.inc) */
+		if (properties.effect)
+		{
+			forge_effect_property_text(&properties, row, label, label_size, value, value_size);
+			return TRUE;
+		}
 
 		switch (row)
 		{

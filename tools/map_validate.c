@@ -185,12 +185,33 @@ long csstrcmp(char const *s1, char const *s2)
 	return strcmp(s1, s2);
 }
 
+/* (the game's allocator, which malloc and free become in its units:
+cseries.h. tag_validate.c's room for Forge's check of another map's tags
+takes it: an optimized build drops that code here, a debug build links it) */
+void *debug_malloc(unsigned int size, unsigned char clear, char const *file, long line)
+{
+	(void)file;
+	(void)line;
+	return clear ? calloc(1, size) : malloc(size);
+}
+
+void debug_free(void *pointer, char const *file, long line)
+{
+	(void)file;
+	(void)line;
+	free(pointer);
+}
+
 /* (Stubbs mode's animation data block, port/linux/game/stubbs_mode.c: the
 validator alone never runs Stubbs mode, so it owns nothing) */
 unsigned char stubbs_mode_owns_data(void const *address, long size)
 {
 	(void)address;
 	(void)size;
+	return 0;
+}
+unsigned char stubbs_mode_active(void)
+{
 	return 0;
 }
 

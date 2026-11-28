@@ -575,9 +575,8 @@ def draw_titles() -> list:
 
 def write_settings() -> None:
     """the settings screens tools/port_settings.py writes"""
-    for name, lines in [*port_settings.settings_files().items(), *port_settings.multiplayer_files().items()]:
-        (CE / name).write_text("\n".join(lines))
-    (MENUS / "chupathingy" / "settings_pages.xml").write_text("\n".join(port_settings.chupathingy_settings_pages()))
+    for path, text in port_settings.generated_files().items():
+        (MENUS / path).write_text(text)
 
 
 def main() -> None:

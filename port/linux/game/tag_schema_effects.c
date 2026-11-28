@@ -135,7 +135,7 @@ enum
 
 	/* the tool's limits, where the game has none of its own */
 	MAXIMUM_MATERIAL_EFFECTS = 13,
-	MAXIMUM_MATERIALS_PER_MATERIAL_EFFECT = 33,
+	MAXIMUM_MATERIALS_PER_MATERIAL_EFFECT = NUMBER_OF_HALO_MATERIAL_TYPES,
 	MAXIMUM_CAMERA_TRACK_CONTROL_POINTS = 16,
 	MAXIMUM_LIGHT_VOLUME_FRAMES = 2,
 	MAXIMUM_MULTITEXTURE_OVERLAYS_PER_HUD_ELEMENT = 30,
@@ -2047,7 +2047,7 @@ static struct tag_schema_field const game_globals_fields[] =
 	TAG_SCHEMA_BLOCK(struct game_globals, player_information, game_globals_player_information_schema, 1),
 	TAG_SCHEMA_BLOCK(struct game_globals, first_person_interface, game_globals_first_person_interface_schema, 1),
 	TAG_SCHEMA_BLOCK(struct game_globals, falling_damage, game_globals_falling_damage_schema, 1),
-	TAG_SCHEMA_BLOCK(struct game_globals, materials, material_schema, NUMBER_OF_MATERIAL_TYPES),
+	TAG_SCHEMA_BLOCK(struct game_globals, materials, material_schema, NUMBER_OF_HALO_MATERIAL_TYPES),
 	TAG_SCHEMA_CHECK(game_globals_check),
 	TAG_SCHEMA_END
 };

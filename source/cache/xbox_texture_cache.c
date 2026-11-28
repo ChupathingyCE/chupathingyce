@@ -1295,6 +1295,15 @@ void *_texture_cache_bitmap_get_hardware_format(
 								platform_ce_bitmap_loaded(bitmap);
 						}
 #endif
+#ifdef HALO_DEVELOPER_FLAMES
+						/* port: a developer flame's copy of the map's flame sprite,
+						its pixels made blue as they load (developer_flames.c) */
+						{
+							extern void developer_flames_bitmap_loaded(struct bitmap_data *bitmap);
+
+							developer_flames_bitmap_loaded(bitmap);
+						}
+#endif
 						texture->used = TRUE;
 					}
 					hardware_format = &texture->hardware_format;

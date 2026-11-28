@@ -10,8 +10,9 @@
 - no cache step saves by itself (actions/cache), every restore is skipped
   in a run with a version, and every save happens only in a run of main's
   own head without a version;
-- the plan job: which platform jobs a pull request gets, and the full
-  matrix everywhere else; ci-ok's verdict; cache-prune never deleting
+- the plan job: each run's tier (A on a pull request, B in the merge
+  queue, C on main, batches and plumbing changes, D by hand) and the
+  platform jobs it gets; ci-ok's verdict; cache-prune never deleting
   main's newest cache of a kind. Their scripts are run here with a fake gh;
 - the Linux jobs' Ubuntu packages: every job installs them through
   CI_APT_INSTALL, with its cache key, restore and save; the script is run
@@ -193,12 +194,15 @@ def test_gate_refuses_an_abbreviated_main_commit(repository, tmp_path):
 
 PLATFORMS = ["linux64", "freebsd64", "server", "server-container", "server-windows", "android64", "windows",
              "windows64", "macos"]
+# (the jobs that only some runs have, as the plan job's run output names them)
+TIER_B = ["linux64", "freebsd64", "windows", "windows64", "macos", "android64"]
+TIER_C = TIER_B + ["server_windows", "server_container"]
 
 
 @pytest.fixture
 def fake_gh(tmp_path):
-    """a gh that answers from files: labels, files (a pull request's), caches
-    (JSON lines), and logs each call"""
+    """a gh that answers from files: files (a pull request's or a merge
+    group's comparison), caches (JSON lines), and logs each call"""
     folder = tmp_path / "bin"
     folder.mkdir()
     gh = folder / "gh"
@@ -206,76 +210,116 @@ def fake_gh(tmp_path):
 echo "$*" >> {tmp_path}/calls
 case "$*" in
   *"-X DELETE"*) exit 0 ;;
-  *"/files"*) cat {tmp_path}/files ;;
+  *"/files"*|*"/compare/"*) cat {tmp_path}/files ;;
   *"/actions/caches"*) cat {tmp_path}/caches ;;
-  *) cat {tmp_path}/labels ;;
+  *) exit 1 ;;
 esac
 """)
     gh.chmod(0o755)
-    for name in ("labels", "files", "caches", "calls"):
+    for name in ("files", "caches", "calls"):
         (tmp_path / name).write_text("")
     return tmp_path
 
 
-def plan(fake_gh, event="pull_request", files=(), labels=(), head_ref="pr/change") -> dict:
+def plan(fake_gh, event="pull_request", files=(), head_ref="pr/change") -> dict:
+    import json
     (fake_gh / "files").write_text("".join(f"{name}\n" for name in files))
-    (fake_gh / "labels").write_text("".join(f"{name}\n" for name in labels))
     output = fake_gh / "output"
     output.write_text("")
     environment = {**os.environ, "PATH": f"{fake_gh / 'bin'}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(output),
-                   "EVENT": event, "HEAD_REF": head_ref, "NUMBER": "1", "REPOSITORY": "ChupathingyCE/chupathingyce"}
+                   "EVENT": event, "HEAD_REF": head_ref if event == "pull_request" else "", "NUMBER": "1",
+                   "BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "REPOSITORY": "ChupathingyCE/chupathingyce"}
     result = subprocess.run(["bash", "-e", "-c", job_script("plan")], capture_output=True, text=True, env=environment)
     assert result.returncode == 0, result.stdout + result.stderr
-    return dict(line.split("=", 1) for line in output.read_text().splitlines())
+    outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    outputs["run"] = json.loads(outputs["run"])
+    assert sorted(outputs["run"]) == sorted(TIER_C)
+    return outputs
 
 
-@pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
-def test_plan_builds_everything_off_pull_requests(fake_gh, event):
+def running(outputs: dict) -> list:
+    return sorted(job for job, runs in outputs["run"].items() if runs)
+
+
+@pytest.mark.parametrize("event,tier", [("push", "c"), ("workflow_dispatch", "d")])
+def test_plan_builds_everything_off_pull_requests(fake_gh, event, tier):
     outputs = plan(fake_gh, event=event)
-    assert outputs["full"] == "true" and outputs["server_archs"] == '["x86","x64","arm64"]'
-
-
-def test_plan_fast_check_for_shared_code(fake_gh):
-    outputs = plan(fake_gh, files=["source/game/game.c", "port/linux/src/posix_net.c"])
-    assert all(value == "false" for key, value in outputs.items() if key != "server_archs")
-
-
-@pytest.mark.parametrize("files,area", [
-    (["port/windows/src/win32_net.c"], "windows"),
-    (["tools/windows_build.py"], "windows"),
-    (["port/android/app/build.gradle"], "android"),
-    (["port/macos/main.m"], "macos"),
-    (["port/unix/unix_main.c"], "freebsd"),
-    (["server/src/main.c"], "server"),
-    (["port/linux/src/d3d8_bgfx.inl"], "linux64"),
-])
-def test_plan_adds_the_platform_changed(fake_gh, files, area):
-    outputs = plan(fake_gh, files=files)
-    assert outputs["full"] == "false"
-    assert outputs[area] == "true"
-    assert [key for key, value in outputs.items() if value == "true"] == [area]
-
-
-@pytest.mark.parametrize("kind", ["label", "batch", "plumbing"])
-def test_plan_full_matrix_on_a_pull_request(fake_gh, kind):
-    outputs = plan(fake_gh, files=["tools/ci_build.py" if kind == "plumbing" else "source/game/game.c"],
-                   labels=["network", "ci: full"] if kind == "label" else ["network"],
-                   head_ref="batch/2026-11-13" if kind == "batch" else "pr/change")
-    assert outputs["full"] == "true"
+    assert outputs["tier"] == tier
+    assert running(outputs) == sorted(TIER_C)
     assert outputs["server_archs"] == '["x86","x64","arm64"]'
 
 
-def ci_ok(needs: dict, full: str, event: str) -> bool:
+def test_plan_tier_a_for_shared_code(fake_gh):
+    outputs = plan(fake_gh, files=["source/game/game.c", "port/linux/src/posix_net.c"])
+    assert outputs["tier"] == "a" and running(outputs) == [] and outputs["server_archs"] == '["x64"]'
+
+
+def test_plan_documentation_alone(fake_gh):
+    for event in ("pull_request", "merge_group"):
+        outputs = plan(fake_gh, event=event, files=["docs/delta/registry.md", "README.md"])
+        assert running(outputs) == [] and outputs["server_archs"] == '["x64"]'
+
+
+@pytest.mark.parametrize("files,jobs", [
+    (["port/windows/src/win32_net.c"], ["server_windows", "windows", "windows64"]),
+    (["tools/windows_build.py"], ["server_windows", "windows", "windows64"]),
+    (["port/android/app/build.gradle"], ["android64"]),
+    (["port/macos/main.m"], ["macos"]),
+    (["port/unix/unix_main.c"], ["freebsd64"]),
+    (["server/src/main.c"], []),
+    (["port/linux/src/d3d8_bgfx.inl"], ["linux64"]),
+])
+def test_plan_adds_the_platform_changed(fake_gh, files, jobs):
+    outputs = plan(fake_gh, files=files)
+    assert outputs["tier"] == "a"
+    assert running(outputs) == jobs
+    assert outputs["server_archs"] == '["x64"]'
+
+
+@pytest.mark.parametrize("files,extra", [
+    (["source/game/game.c"], []),
+    (["server/src/main.c"], ["server_windows"]),
+    (["port/windows/src/win32_net.c"], ["server_windows"]),
+])
+def test_plan_merge_queue_is_tier_b(fake_gh, files, extra):
+    outputs = plan(fake_gh, event="merge_group", files=files)
+    assert outputs["tier"] == "b"
+    assert running(outputs) == sorted(TIER_B + extra)
+    assert outputs["server_archs"] == '["x64"]'
+    assert "compare/" + "a" * 40 + "..." + "b" * 40 in (fake_gh / "calls").read_text()
+
+
+@pytest.mark.parametrize("kind", ["batch", "plumbing"])
+def test_plan_full_matrix_on_a_pull_request(fake_gh, kind):
+    outputs = plan(fake_gh, files=["tools/ci_build.py" if kind == "plumbing" else "source/game/game.c"],
+                   head_ref="batch/2026-11-13" if kind == "batch" else "pr/change")
+    assert outputs["tier"] == "c" and running(outputs) == sorted(TIER_C)
+    assert outputs["server_archs"] == '["x86","x64","arm64"]'
+
+
+def test_plan_ignores_the_old_full_label():
+    assert "ci: full" not in job_script("plan")
+    assert not (WORKFLOW.parent / "full-build-label.yml").exists()
+
+
+def test_plan_falls_back_to_tier_b_when_github_does_not_answer(fake_gh):
+    (fake_gh / "bin" / "gh").write_text("#!/bin/sh\nexit 1\n")
+    outputs = plan(fake_gh)
+    assert running(outputs) == sorted(TIER_B)
+
+
+def ci_ok(needs: dict, run, event: str) -> bool:
     import json
     environment = {**os.environ, "NEEDS": json.dumps({name: {"result": result} for name, result in needs.items()}),
-                   "FULL": full, "EVENT": event}
+                   "RUN": run if isinstance(run, str) else json.dumps({job: job in run for job in TIER_C}),
+                   "TIER": "", "EVENT": event}
     return subprocess.run(["bash", "-e", "-c", job_script("ci-ok")], capture_output=True, text=True,
                           env=environment).returncode == 0
 
 
 def needs(platforms: str, **changes) -> dict:
     found = {"gate": "success", "plan": "success", "info": "skipped", "linux": "success", "linux-tests": "success",
-             "linux-big-endian": "success", **{name: platforms for name in PLATFORMS}}
+             "linux-big-endian": "success", **{name: platforms for name in PLATFORMS}, "server": "success"}
     found.update({name.replace("_", "-"): result for name, result in changes.items()})
     return found
 
@@ -283,16 +327,24 @@ def needs(platforms: str, **changes) -> dict:
 @pytest.mark.skipif(subprocess.run(["sh", "-c", "command -v jq"], capture_output=True).returncode != 0,
                     reason="no jq")
 def test_ci_ok():
-    assert ci_ok(needs("skipped"), "false", "pull_request")
-    assert ci_ok(needs("success"), "true", "push")
-    assert ci_ok(needs("success", info="success", freebsd64="failure"), "true", "workflow_dispatch")
-    # (a full run with a platform left out, a failed test, FreeBSD failing
-    # off a dispatch, a dispatch without its build-info, a failed gate)
-    assert not ci_ok(needs("skipped"), "true", "pull_request")
-    assert not ci_ok(needs("skipped", linux_tests="failure"), "false", "pull_request")
-    assert not ci_ok(needs("success", freebsd64="failure"), "true", "push")
-    assert not ci_ok(needs("success"), "true", "workflow_dispatch")
-    assert not ci_ok(needs("skipped", gate="failure", plan="skipped"), "", "pull_request")
+    # (tier A: the platforms skipped; tier B: its six passed, the rest skipped)
+    assert ci_ok(needs("skipped"), [], "pull_request")
+    assert ci_ok(needs("skipped", **{job: "success" for job in TIER_B}), TIER_B, "merge_group")
+    assert ci_ok(needs("success"), TIER_C, "push")
+    assert ci_ok(needs("success", info="success", freebsd64="failure"), TIER_C, "workflow_dispatch")
+    # (a platform the plan gave the run skipped, one it left out run anyway
+    # counts too; a failed test, the server failing, FreeBSD failing off a
+    # dispatch, a dispatch without its build-info, a failed gate)
+    assert not ci_ok(needs("skipped"), TIER_B, "merge_group")
+    assert not ci_ok(needs("skipped", macos="failure"), [], "pull_request")
+    assert not ci_ok(needs("skipped", linux_tests="failure"), [], "pull_request")
+    assert not ci_ok(needs("skipped", server="failure"), [], "pull_request")
+    assert not ci_ok(needs("success", freebsd64="failure"), TIER_C, "push")
+    assert not ci_ok(needs("success"), TIER_C, "workflow_dispatch")
+    assert not ci_ok(needs("skipped", gate="failure", plan="skipped"), "{}", "pull_request")
+    # (a canceled run: ci-ok still runs, and fails)
+    assert not ci_ok(needs("skipped", linux_tests="cancelled"), [], "merge_group")
+    assert "    if: always()" in jobs()["ci-ok"]
 
 
 def test_cache_prune_keeps_mains_newest(fake_gh):
@@ -539,7 +591,7 @@ def test_rerun_only_a_failed_first_attempt():
     text = RERUN.read_text()
     assert "workflows: [Build]" in text and "types: [completed]" in text
     assert ("if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1"
-            in text)
+            " && github.event.workflow_run.event != 'merge_group'" in text)
     assert "actions/checkout" not in text
 
 

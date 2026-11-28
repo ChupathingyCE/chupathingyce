@@ -66,6 +66,10 @@ struct _biped_datum
 	real_plane3d ground_plane;
 	byte limp_body_current_relaxation_iterations;
 	byte limp_body_max_relaxation_iterations;
+	/* port: an OpenSauce map's third and fourth grenade counts, in the two
+	bytes the Xbox left as padding (the datum stays 0x480 bytes:
+	port/linux/game/mcc_grenades.c) */
+	char opensauce_grenade_counts[2];
 };
 
 struct biped_datum

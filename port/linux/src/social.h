@@ -9,7 +9,7 @@ delta_profile.c reads it), and when this copy tells the site it is playing
 (presence: POST /v1/presence, browser.c's thread sends it).
 
 No SDL, no drawing and no game here, so its tests build anywhere
-(port/linux/tests/social_test.c, tools/test_social.py). Times are a
+(port/linux/tests/social_test.c, tools/test_c_units.py). Times are a
 millisecond clock's (p2p_now, system_milliseconds), compared by difference
 so that they may wrap.
 */

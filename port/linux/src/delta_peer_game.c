@@ -1501,16 +1501,6 @@ unsigned delta_peer_game_machine_modes(int machine_index)
 	return (unsigned)delta_peer_machine_modes(&delta_game.peer, machine_index);
 }
 
-unsigned delta_peer_game_host_modes(void)
-{
-	if (!delta_game.ready || delta_game.role != _role_client ||
-		delta_game.peer.client_state != _delta_peer_client_delta)
-	{
-		return 0;
-	}
-	return (unsigned)delta_game.peer.welcome.modes;
-}
-
 int delta_peer_game_player_has(int player_index, int capability)
 {
 	struct delta_peer_machine machine;
@@ -1571,23 +1561,6 @@ int delta_peer_game_under_floor(int *oldest)
 	if (oldest)
 		*oldest = delta_platform_floor(platform);
 	return delta_platform_floor_refuses(platform, (int)network_rules_layout_newest());
-}
-
-int delta_peer_game_room_has(int capability)
-{
-	return delta_game.ready && delta_game.role != _role_none && delta_peer_room_has(&delta_game.peer, capability);
-}
-
-int delta_peer_game_room_limit(int limit)
-{
-	return delta_game.ready && delta_game.role != _role_none ? delta_peer_room_limit(&delta_game.peer, limit) :
-		DELTA_PEER_NO_LIMIT;
-}
-
-int delta_peer_game_client_state(void)
-{
-	return delta_game.ready && delta_game.role == _role_client ? delta_game.peer.client_state :
-		_delta_peer_client_off;
 }
 
 /* ---------- Delta List (browser.c) */
@@ -1800,13 +1773,6 @@ int delta_peer_game_chat_ready(void)
 	return delta_game.ready && delta_game.role == _role_client && delta_peer_client_chat_ready(&delta_game.peer);
 }
 
-int delta_peer_game_chat_server_messages(void)
-{
-	return delta_game.ready && delta_game.role == _role_client &&
-		delta_game.peer.client_state == _delta_peer_client_delta &&
-		(delta_game.peer.agreed & ((delta_u32)1 << _delta_capability_server_messages));
-}
-
 unsigned int delta_peer_game_chat_say(int scope, const char *text, int length)
 {
 	if (!delta_game.ready || delta_game.role != _role_client)
@@ -1919,12 +1885,6 @@ int delta_peer_game_voice_config(struct delta_wire_voice_config *config)
 	if (delta_game.role == _role_client)
 		return delta_peer_client_voice_config(&delta_game.peer, GetTickCount(), config);
 	return 0;
-}
-
-int delta_peer_game_voice_talking(int machine_index)
-{
-	return delta_game.ready && delta_game.role == _role_host &&
-		delta_peer_voice_talking(&delta_game.peer, GetTickCount(), machine_index);
 }
 
 void delta_peer_game_set_team_host(const struct delta_peer_team_host *host)
@@ -2082,17 +2042,3 @@ void delta_peer_game_set_objects_client(const struct delta_peer_objects_client *
 	delta_peer_set_objects_client(&delta_game.peer, client);
 }
 
-int delta_peer_game_client_badge(struct delta_wire_badge *badge, delta_u32 *host_ipv4, delta_u32 *waited)
-{
-	delta_u32 start = 0;
-	int state;
-
-	if (!delta_game.ready || delta_game.role != _role_client)
-		return _delta_peer_badge_none;
-	state = delta_peer_client_badge(&delta_game.peer, badge, &start);
-	if (host_ipv4)
-		*host_ipv4 = delta_game.peer.host_ipv4;
-	if (waited)
-		*waited = GetTickCount() - start;
-	return state;
-}

@@ -35,7 +35,7 @@ def test_signalling_closes_every_connection(tmp_path):
     build = subprocess.run(
         [cc, "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-O1", "-D__HALO_LINUX_PLATFORM_H", "-D__HALO_LINUX_POSIX_H",
          "-include", "port/linux/tests/p2p_fuzz_prelude.h", "-Iport/third_party/monocypher", "-Iport/linux/src",
-         "port/linux/tests/p2p_signal_sockets_test.c", "port/linux/src/p2p_crypto.c", "port/linux/src/p2p_probe.c",
+         "port/linux/tests/p2p_signal_sockets_test.c", "port/linux/src/p2p_crypto.c", "port/linux/game/content_sha256.c", "port/linux/src/p2p_probe.c",
          "port/third_party/monocypher/monocypher.c", "port/third_party/monocypher/monocypher-ed25519.c",
          "-o", str(output)],
         capture_output=True, text=True, cwd=ROOT,

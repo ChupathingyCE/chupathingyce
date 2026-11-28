@@ -727,6 +727,9 @@ static boolean stubbs_function_query(
 			{
 				real distance;
 
+				/* (a listed object deleted since is passed over: #1861) */
+				if (!object_try_and_get(object_index))
+					continue;
 				object_get_origin(object_index, &other);
 				distance = square_root(distance_squared3d(&origin, &other));
 				if (shortest < 0.f || distance < shortest)

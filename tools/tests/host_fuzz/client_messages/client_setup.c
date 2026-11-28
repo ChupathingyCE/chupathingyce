@@ -15,6 +15,12 @@ struct network_game_client *client_messages_fuzz_reset(
 	long index;
 
 	csmemset(client, 0, sizeof(*client));
+#ifdef CLIENT_MESSAGES_FUZZ_JOINED_VERSION
+	/* (client_messages_44: a host advertised at that version, so the
+	settings record is read by its layout and other projects' rows:
+	network_rules.h, "other projects' hosts") */
+	network_game_client_joined_version = CLIENT_MESSAGES_FUZZ_JOINED_VERSION;
+#endif
 	network_game_invalidate(&client->game);
 	client->game.maximum_players = 16;
 	/* (a connection is not dereferenced here: the transport is the

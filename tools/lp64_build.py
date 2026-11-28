@@ -33,6 +33,7 @@ from .linux_build import (
     KCP_DIR,
     LUA_DEFINES,
     LUA_DIR,
+    LUA_INCLUDE,
     jolt_cflags,
     jolt_sources,
     LZMA_DIR,
@@ -208,10 +209,14 @@ def rewritten_inputs(extra_roots: Sequence[Path] = ()) -> List[Path]:
     including file find the rewritten copies."""
     roots = [Path("source"), LINUX_PORT_DIR / "game", LINUX_PORT_DIR / "src", LINUX_PORT_DIR / "include",
              Path("port/include"), KCP_DIR, TOML_DIR, Path("server/src"), *extra_roots]
+    # (Project Ark's units, port/linux/game/ark, are 32-bit code only: no
+    # 64-bit build compiles or includes them)
+    ark = LINUX_PORT_DIR / "game" / "ark"
     files = []
     for root in roots:
         for path in sorted(root.rglob("*")):
-            if path.is_file() and path.suffix.lower() in (".c", ".h", ".inl", ".inc") and not path.name.startswith("posix_"):
+            if path.is_file() and path.suffix.lower() in (".c", ".h", ".inl", ".inc") and not path.name.startswith("posix_") \
+                    and ark not in path.parents:
                 files.append(path)
     return files
 
@@ -281,7 +286,7 @@ class Lp64Build:
         # (the desktop builds, which have zstd: the Steam content client too,
         # port/linux/src/steam_content, steam_bridge_pipe.c)
         compressed_maps = [*COMPRESSED_MAP_DEFINES, "-DHALO_STEAM_CONTENT"] if host.compressed_maps else []
-        lua = [*LUA_DEFINES, f"-idirafter {LUA_DIR}"] if host.lua else []
+        lua = [*LUA_DEFINES, LUA_INCLUDE] if host.lua else []
         abi = " ".join([*host.target_flags, *LP64_ABI_FLAGS, *release, *game_browser_defines(sln),
                         *compressed_maps, *lua, *(["-DHALO_JOLT"] if host.jolt else [])])
         prefix_header = lp64(LINUX_PORT_DIR / "include" / "halo_linux_prefix.h")

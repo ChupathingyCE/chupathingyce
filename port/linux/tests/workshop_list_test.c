@@ -14,6 +14,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/workshop_browser.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int failures;
@@ -107,8 +108,8 @@ int main(void)
 		CHECK(workshop_browser_read_details(details, (int)strlen(details), items, WORKSHOP_BROWSER_MAXIMUM_ITEMS) == 2);
 		CHECK(!strcmp(items[0].id, "2906110850") && !strcmp(items[0].title, "Aerial"));
 		CHECK(!strcmp(items[0].kind, "multiplayer") && items[0].tags == WORKSHOP_TAG_MULTIPLAYER && items[0].size == -1 && items[0].updated == 1700000000);
-		/* (a non-ASCII escape: the description passed over, the item kept) */
-		CHECK(!items[0].description[0]);
+		/* (a non-ASCII escape: its character; a picture's address dropped) */
+		CHECK(!strcmp(items[0].description, "A map\nabove \xC3\xA9 clouds"));
 		CHECK(!strcmp(items[1].id, "2886943774") && !strcmp(items[1].kind, "campaign") && items[1].size == 2265580503LL);
 		{
 			static const char plain[] = "{\"response\":{\"publishedfiledetails\":[{\"publishedfileid\":\"5\","
@@ -116,7 +117,104 @@ int main(void)
 				"\"tags\":[{\"tag\":\"Halo1\"}]}]}}";
 
 			CHECK(workshop_browser_read_details(plain, (int)strlen(plain), items, 4) == 1);
-			CHECK(!strcmp(items[0].description, "Hi there"));
+			CHECK(!strcmp(items[0].description, "Hi\nthere"));
+		}
+		{
+			/* a long description (Mercury Rising's is 4.5 KB) reaches the
+			page whole (read_details_full), its markup out and its lines
+			kept; the item keeps its start. Past the cap, cut on a
+			character's start, ending "..." */
+			static char text[64 * 1024];
+			static const char head[] = "{\"response\":{\"publishedfiledetails\":[{\"publishedfileid\":\"9\","
+				"\"result\":1,\"consumer_app_id\":976730,\"title\":\"Long\",\"description\":\"";
+			static const char tail[] = "\",\"tags\":[{\"tag\":\"Halo1\"}]}]}}";
+			static const char start[] = "Co-op\nThe mod supports co-op up to 4 players. Its page \n  \nBubble Shield\n"
+				"\nEmoji \xF0\x9F\x98\x80 and a lone \xEF\xBF\xBD. Pic  abc";
+			char *full[4];
+			size_t length, index;
+
+			/* (600 bytes and more: the old 400-byte field cut "supports co") */
+			snprintf(text, sizeof(text), "%s[h2]Co-op[/h2]\\nThe mod supports co-op up to 4 players. "
+				"[URL=https://example.com/a]Its page[/url] [list]\\n  [*]Bubble Shield\\n[/list]\\n"
+				"[previewyoutube=abc;full][/previewyoutube]Emoji \\ud83d\\ude00 and a lone \\ud83d. "
+				"Pic [img]https://x/[url]y[/url].png[/img] ", head);
+			length = strlen(text);
+			for (index = 0; index < 600; index++)
+				text[length++] = (char)('a' + index % 26);
+			memcpy(text + length, tail, sizeof(tail));
+			CHECK(workshop_browser_read_details_full(text, (int)strlen(text), items, 4, full) == 1);
+			CHECK(full[0] && !full[1]);
+			if (full[0])
+			{
+				length = strlen(full[0]);
+				CHECK(length > 700);
+				CHECK(!strncmp(full[0], start, sizeof(start) - 1));
+				CHECK(full[0][length - 1] == 'z' - (26 - 600 % 26));
+				CHECK(!strstr(full[0], "["));
+				/* (the item's own: the same start, cut ending "...") */
+				length = strlen(items[0].description);
+				CHECK(length < WORKSHOP_BROWSER_DESCRIPTION_SIZE && !strcmp(items[0].description + length - 3, "..."));
+				CHECK(!strncmp(items[0].description, full[0], length - 3));
+				free(full[0]);
+			}
+
+			/* over the cap: 3-byte characters, so the cut falls inside one */
+			length = strlen(head);
+			memcpy(text, head, length);
+			for (index = 0; index < 12000; index += 3)
+			{
+				memcpy(text + length, "\xE2\x82\xAC", 3);
+				length += 3;
+			}
+			memcpy(text + length, tail, sizeof(tail));
+			CHECK(workshop_browser_read_details_full(text, (int)strlen(text), items, 4, full) == 1);
+			if (full[0])
+			{
+				length = strlen(full[0]);
+				CHECK(length < WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE && length > WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE - 8);
+				CHECK(!strcmp(full[0] + length - 3, "..."));
+				CHECK((length - 3) % 3 == 0);
+				CHECK(!memcmp(full[0] + length - 6, "\xE2\x82\xAC", 3));
+				free(full[0]);
+			}
+			else
+				CHECK(full[0] != NULL);
+
+			/* a description longer than the reader's buffer (24 KB of a
+			16 KB one): still read, cut, the item kept */
+			length = strlen(head);
+			memcpy(text, head, length);
+			for (index = 0; index < 24000; index++)
+				text[length++] = index % 50 == 49 ? ' ' : 'x';
+			memcpy(text + length, tail, sizeof(tail));
+			CHECK(workshop_browser_read_details_full(text, (int)strlen(text), items, 4, full) == 1);
+			if (full[0])
+			{
+				length = strlen(full[0]);
+				CHECK(length > WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE - 8 && length < WORKSHOP_BROWSER_FULL_DESCRIPTION_SIZE);
+				CHECK(!strcmp(full[0] + length - 3, "..."));
+				free(full[0]);
+			}
+			else
+				CHECK(full[0] != NULL);
+		}
+		{
+			/* a broken escape or a control character in one item's
+			description: a space, and every item of the batch still read */
+			static const char broken[] = "{\"response\":{\"publishedfiledetails\":["
+				"{\"publishedfileid\":\"11\",\"result\":1,\"consumer_app_id\":976730,\"title\":\"A\","
+				"\"description\":\"bad \\q escape, \\u12 short, raw\ttab\x01!\",\"tags\":[{\"tag\":\"Halo1\"}]},"
+				"{\"publishedfileid\":\"12\",\"result\":1,\"consumer_app_id\":976730,\"title\":\"B\","
+				"\"description\":\"fine\",\"tags\":[{\"tag\":\"Halo1\"}]}]}}";
+			char *full[4];
+
+			CHECK(workshop_browser_read_details_full(broken, (int)strlen(broken), items, 4, full) == 2);
+			CHECK(!strcmp(items[0].description, "bad   escape,  12 short, raw tab !"));
+			CHECK(full[0] && !strcmp(full[0], items[0].description) && full[1] && !strcmp(full[1], "fine"));
+			free(full[0]);
+			free(full[1]);
+			/* (a document that breaks off: -1, nothing kept to free) */
+			CHECK(workshop_browser_read_details_full(broken, 120, items, 4, full) == -1 && !full[0]);
 		}
 		{
 			/* a campaign that brings multiplayer maps (Steam tags it both,

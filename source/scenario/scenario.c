@@ -190,12 +190,14 @@ symbols in this file:
 #include "sky_definitions.h"
 #include "render/render_cameras.h"
 #include "render/render_debug.h"
+#include "rasterizer/rasterizer.h" /* port: rasterizer_lights_reset_for_new_structure_bsp */
 #include "scenario/wind.h"
 #include "sound/sound_definitions.h"
 #include "sound/sound_manager.h"
 #include "structures/structure_bsp_definitions.h"
 #include "units/units.h"
 #include "structure_culling.h" /* port: port/linux/game/structure_culling.c */
+#include "opensauce_bsp_sets.h" /* port: port/linux/game/opensauce_bsp_sets.c */
 
 /* ---------- constants */
 
@@ -229,6 +231,12 @@ extern boolean debug_sound_environment;
 
 long global_scenario_index = NONE;
 short global_structure_bsp_index = NONE;
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+/* port: one more each time the structure bsp is loaded or let go of, for what
+keeps answers of the bsp's tests (collisions.c's obstruction rays): a bsp of
+another map may be read at the same address */
+unsigned long scenario_structure_bsp_generation = 1;
+#endif
 
 static scenario_structure_bsp_connection_proc scenario_structure_bsp_reconnect_proc_table[] =
 {
@@ -382,6 +390,9 @@ void scenario_unload(
 	global_collision_bsp = NULL;
 	global_bsp3d = NULL;
 	global_game_globals = NULL;
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+	scenario_structure_bsp_generation++;
+#endif
 
 	return;
 }
@@ -533,7 +544,19 @@ long scenario_get_sky_definition_index(
 			struct tag_reference);
 
 		definition_index = sky_reference->index;
+		/* port: an OpenSauce map's sky set's sky for this index
+		(port/linux/game/opensauce_bsp_sets.c); any other map, the scenario's */
+		definition_index = opensauce_bsp_sets_sky(sky_index, definition_index);
 	}
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a Forge layout's sky in place of the map's
+	(port/linux/game/forge_environment.inc) */
+	{
+		long forge_sky_definition_index(long definition_index);
+
+		definition_index = forge_sky_definition_index(definition_index);
+	}
+#endif
 
 	return definition_index;
 }
@@ -919,7 +942,8 @@ boolean scenario_trigger_volume_test_object(
 {
 	boolean result = FALSE;
 
-	if (object_index != NONE)
+	/* port: an object deleted since a script had it is none (#1861) */
+	if (object_try_and_get(object_index))
 		result = scenario_trigger_volume_test_point(trigger_volume_index, &object_get(object_index)->object.bounding_sphere_center);
 
 	return result;
@@ -1181,9 +1205,17 @@ boolean scenario_switch_structure_bsp(
 				struct collision_bsp);
 			scenario_globals->structure_bsp_index = structure_bsp_index;
 			global_structure_bsp_index = structure_bsp_index;
+			/* port: the new bsp's lens flares are seen anew (rasterizer_lights.c) */
+			rasterizer_lights_reset_for_new_structure_bsp();
+#ifdef HALO_CONSOLE_COLLISION_CACHES
+			scenario_structure_bsp_generation++;
+#endif
 			/* port: cache buckets while the newly current bsp's tags are loaded */
 			structure_culling_load_settings();
 			structure_culling_structure_bsp_loaded();
+			/* port: an OpenSauce map's lightmap and sky sets chosen for this
+			bsp (port/linux/game/opensauce_bsp_sets.c); any other map, none */
+			opensauce_bsp_sets_structure_bsp_loaded(structure_bsp_index);
 
 			if (had_old_structure_bsp)
 			{
@@ -1567,6 +1599,15 @@ void scenario_get_atmospheric_fog(
 		else
 		{
 			fog = &sky->outdoor_fog;
+#ifndef HALO_CONSOLE_NO_FORGE
+			/* port: a Forge layout's fog outdoors
+			(port/linux/game/forge_environment.inc) */
+			{
+				struct sky_atmospheric_fog const *forge_outdoor_fog(struct sky_atmospheric_fog const *fog);
+
+				fog = (struct sky_atmospheric_fog *)forge_outdoor_fog(fog);
+			}
+#endif
 		}
 		indoor_fog_scale =
 			(short)sky_index == NONE && sky->indoor_fog_screen.index != NONE
