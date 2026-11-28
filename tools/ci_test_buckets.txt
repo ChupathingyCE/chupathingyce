@@ -293,6 +293,7 @@ security  tools/test_search_answer.py
 security  tools/test_server_accounts.py
 security  tools/test_server_badge.py
 security  tools/test_server_bans.py
+area      tools/test_server_changelog.py server/CHANGELOG.md docs/release-notes VERSION
 security  tools/test_server_control.py
 security  tools/test_server_deploy.py
 area      tools/test_server_mcc_playable.py
