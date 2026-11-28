@@ -788,7 +788,8 @@ static void network_test_shoot(
 		}
 		/* (a shot only with a clear line from the shooter's camera to the
 		target, as a player's is; with debug.network_test_shoot_walls through
-		what is between too, which the host refuses: network.hit_line_of_sight) */
+		what is between too, which the host logs, or refuses with
+		network.hit_line_of_sight on) */
 		in_sight = TRUE;
 		if (!melee && global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH)
 		{
