@@ -560,12 +560,20 @@ char const *mcc_maps_folder(void)
     return mcc_maps_directory()==MCC_MAPS_FALLBACK_FOLDER ? "mcc_maps" : "maps_mcc";
 }
 
+static unsigned long mcc_maps_rescans;
+
 void mcc_maps_rescan(void)
 {
+	mcc_maps_rescans++;
 	mcc_menu_preview_clear();
 	mcc_cache_precache_clear();
 	steam_workshop_scan();
 	mcc_menu_catalog.scanned = FALSE;
+}
+
+unsigned long mcc_maps_rescan_count(void)
+{
+	return mcc_maps_rescans;
 }
 
 short mcc_maps_count(boolean multiplayer_only)
