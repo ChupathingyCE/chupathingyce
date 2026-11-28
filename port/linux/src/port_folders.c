@@ -124,6 +124,39 @@ static int leaves_folder(const char *value)
 	}
 }
 
+int port_folder_whole(const char *working, const char *value, char *path, unsigned long size)
+{
+	size_t used;
+	int length;
+
+	if (size)
+		path[0] = '\0';
+	if (!value)
+		return 0;
+	if (port_folder_absolute(value))
+		return copy_trimmed(path, size, value);
+	if (!is_set(working))
+		return 0;
+	while (value[0] == '.' && (value[1] == '/' || value[1] == '\\'))
+	{
+		value += 2;
+		while (*value == '/' || *value == '\\')
+			value++;
+	}
+	if (!strcmp(value, "."))
+		value = "";
+	used = strlen(working);
+	length = snprintf(path, size, "%s%s%s", working,
+		*value && working[used - 1] != '/' && working[used - 1] != '\\' ? "/" : "", value);
+	if (length <= 0 || (unsigned long)length >= size)
+	{
+		if (size)
+			path[0] = '\0';
+		return 0;
+	}
+	return 1;
+}
+
 int port_folder_file(const char *folder, const char *value, char *path, unsigned long size)
 {
 	int length;

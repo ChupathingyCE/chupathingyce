@@ -4235,8 +4235,10 @@ static void forge_session_update(
 			said, and the factions none of whose campaign maps is there) */
 			if (forge_packs_of(NONE) > 0)
 			{
-				char found[96] = "";
-				char missing[96] = "";
+				/* (room for every faction's and pack's name: the eleven
+				are about 160 characters with their commas) */
+				char found[256] = "";
+				char missing[256] = "";
 				short faction;
 
 				for (faction = 0; faction < forge_ai_tags_faction_count(); faction++)

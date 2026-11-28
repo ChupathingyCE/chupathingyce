@@ -314,6 +314,88 @@ static void test_budget(void)
 	CHECK(line_of_sight_shot(&query, eyes, 0, &target, NULL) == 1);
 }
 
+/* what the host does with the line it found (network.hit_line_of_sight):
+by default (not enforced) a shot through a wall is dealt and logged, never
+refused; enforced, it is refused; a clear or undecided line is dealt either
+way */
+static void test_verdict(void)
+{
+	static struct box const wall[] = { { { 4.8f, -5.0f, -1.0f }, { 5.2f, 5.0f, 5.0f }, 0 } };
+	struct world blocked = { wall, 1, 0 };
+	struct world open = { wall, 0, 0 };
+	struct line_of_sight_point eye = at(0.0f, 0.0f, 0.6f);
+	struct line_of_sight_target target = target_at(10.0f, 0.0f, 0.4f);
+	struct line_of_sight_query query;
+	int clear;
+
+	query = query_of(&blocked);
+	clear = line_of_sight_shot(&query, &eye, 1, &target, NULL);
+	CHECK(clear == 0);
+	/* (the default: logged, dealt) */
+	CHECK(line_of_sight_verdict(clear, 0) == _line_of_sight_take_and_log);
+	CHECK(line_of_sight_verdict(clear, 0) != _line_of_sight_refuse);
+	/* (enforced: refused) */
+	CHECK(line_of_sight_verdict(clear, 1) == _line_of_sight_refuse);
+	query = query_of(&open);
+	clear = line_of_sight_shot(&query, &eye, 1, &target, NULL);
+	CHECK(clear == 1);
+	CHECK(line_of_sight_verdict(clear, 0) == _line_of_sight_take);
+	CHECK(line_of_sight_verdict(clear, 1) == _line_of_sight_take);
+	/* (the budget run out: undecided, dealt, nothing logged) */
+	query = query_of(&blocked);
+	query.budget = 0;
+	clear = line_of_sight_shot(&query, &eye, 1, &target, NULL);
+	CHECK(clear == -1);
+	CHECK(line_of_sight_verdict(clear, 0) == _line_of_sight_take);
+	CHECK(line_of_sight_verdict(clear, 1) == _line_of_sight_take);
+}
+
+/* a burst of misjudged hits over one window of the host's report log (a
+busy game: 16 shooters, every tick): at most the limit of per-hit lines,
+then one summary at the window's end that counts them all, the held back
+lines with them; the next window logs again */
+static void test_log_limit(void)
+{
+	enum { WINDOW = 900 };
+	struct line_of_sight_log_limit limit = { -1, 0, 0 };
+	long tick;
+	long hits = 0;
+	long lines = 0;
+	long summaries = 0;
+	long logged_since = 0;
+
+	for (tick = 1; tick <= WINDOW; tick++)
+	{
+		int shooter;
+
+		for (shooter = 0; shooter < 16; shooter++)
+		{
+			hits++;
+			logged_since++;
+			if (line_of_sight_log_allowed(&limit, tick, WINDOW))
+				lines++;
+		}
+		if (line_of_sight_summary_due(tick, WINDOW, 0, logged_since))
+		{
+			summaries++;
+			CHECK(limit.held + lines == hits);
+			limit.held = 0;
+			logged_since = 0;
+		}
+	}
+	CHECK(lines <= LINE_OF_SIGHT_LOG_LINES_PER_WINDOW);
+	CHECK(lines > 0);
+	CHECK(summaries == 1);
+	CHECK(lines + summaries <= LINE_OF_SIGHT_LOG_LINES_PER_WINDOW + 1);
+	/* (the next window logs again; a new game's tick 0 starts one too) */
+	CHECK(line_of_sight_log_allowed(&limit, WINDOW + 1, WINDOW));
+	CHECK(line_of_sight_log_allowed(&limit, 0, WINDOW));
+	/* (no summary when nothing was refused or logged, nor off a window's end) */
+	CHECK(!line_of_sight_summary_due(WINDOW * 2, WINDOW, 0, 0));
+	CHECK(line_of_sight_summary_due(WINDOW * 2, WINDOW, 1, 0));
+	CHECK(!line_of_sight_summary_due(WINDOW * 2 + 1, WINDOW, 1, 1));
+}
+
 int main(void)
 {
 	test_wall_and_clear();
@@ -324,6 +406,8 @@ int main(void)
 	test_explosion_core();
 	test_bend();
 	test_budget();
+	test_verdict();
+	test_log_limit();
 	if (failures)
 	{
 		printf("line_of_sight_test: %d failed\n", failures);
