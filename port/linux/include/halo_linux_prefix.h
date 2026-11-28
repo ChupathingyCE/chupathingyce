@@ -75,7 +75,7 @@ with -fshort-wchar and must be fixed before the host headers define theirs.
 The 64-bit builds also need the declarations themselves: they reject an
 implicitly declared function (its int result would truncate a pointer). */
 
-#if defined(__APPLE__) || defined(HALO_64BIT)
+#if defined(__APPLE__) || defined(HALO_64BIT) || defined(HALO_ANDROID32)
 #ifndef __APPLE__
 /* glibc: no extern-inline helpers (__NO_INLINE__ below; its headers are
 read here first), and the ctype functions as functions, not macros, which
@@ -116,6 +116,9 @@ say; the game has its own, of other types (cseries.h, real_math.h) */
 #ifdef __ANDROID__
 #undef strnlen
 #undef random
+#if defined(HALO_LINUX_PLATFORM_LAYER) && defined(HALO_ANDROID32)
+extern size_t strnlen(const char *, size_t);
+#endif
 #endif
 #endif
 

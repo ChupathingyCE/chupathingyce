@@ -16,7 +16,7 @@ layer, which doesn't include cseries.h, gets 32-bit macros.
 
 #include_next <limits.h>
 
-#ifdef HALO_64BIT
+#if defined(HALO_64BIT) || defined(HALO_ANDROID32)
 #undef LONG_MAX
 #undef LONG_MIN
 #undef ULONG_MAX

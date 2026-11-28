@@ -849,6 +849,11 @@ boolean debug_frame_rate = FALSE;
 boolean display_framerate = FALSE;
 boolean display_vblank_deltas = FALSE;
 boolean display_precache_progress = FALSE;
+/* (packed, so placed anywhere: the render windows in it are read with the instructions that need
+a 4-byte aligned address, which a 32-bit ARM kernel without an alignment trap does not forgive) */
+#ifdef HALO_ANDROID32
+__attribute__((aligned(4)))
+#endif
 struct _screenshot_and_framerate_globals global_screenshot_count = { 0 };
 boolean debug_render_freeze;
 

@@ -747,7 +747,7 @@ BOOL platform_sdl_initialize(void)
 	Command-W does not quit) */
 	SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
 #endif
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_ANDROID32)
 	/* landscape only; the back key arrives as a key event (xinput_sdl.c)
 	instead of closing the activity */
 	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
@@ -2323,7 +2323,7 @@ static void platform_swap_interval_apply(BOOL force, int vsync, long maximum)
 the window is first made; FALSE once the driver has none */
 static int platform_float_window = -1;
 
-#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_GLES2)
+#if !defined(HALO_ANDROID) && !defined(HALO_ANDROID32) && !defined(HALO_CONSOLE_GLES2)
 /* the attributes of a window with (or without) floating-point pixels */
 static void platform_float_window_attributes(BOOL floating)
 {
@@ -2395,7 +2395,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	host_renderer_vulkan = xgpu_vulkan;
 #endif
 
-#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_GLES2)
+#if !defined(HALO_ANDROID) && !defined(HALO_ANDROID32) && !defined(HALO_CONSOLE_GLES2)
 	/* display.hdr_output's floating-point window (scRGB), for an OpenGL
 	window on an HDR display; bgfx has its own HDR10 swap chain */
 	if (platform_float_window < 0)
@@ -2410,7 +2410,9 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		platform_float_window_attributes(TRUE);
 #endif
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_ANDROID32)
+	/* (HALO_ANDROID32: a 32-bit Android build whose driver is ES 3.2, built as the other consoles' ports
+	are, not as the guest build's HALO_ANDROID code paths) */
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
@@ -2504,7 +2506,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 #endif
 	if (!platform_window)
 	{
-#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_GLES2)
+#if !defined(HALO_ANDROID) && !defined(HALO_ANDROID32) && !defined(HALO_CONSOLE_GLES2)
 		if (platform_float_window_refused())
 			return platform_video_initialize(width, height);
 #endif
@@ -2574,16 +2576,24 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 #else
 	platform_gl_context = SDL_GL_CreateContext(platform_window);
 #endif
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_ANDROID32)
 	/* ES 3.2 where the driver has it, otherwise the renderer makes do with
 	3.0 plus extensions */
+#ifdef HALO_ANDROID32
+	/* (3.1 first: a Mali-T720's, the Echo Show 5) */
+	if (!platform_gl_context)
+	{
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+		platform_gl_context = SDL_GL_CreateContext(platform_window);
+	}
+#endif
 	if (!platform_gl_context)
 	{
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 		platform_gl_context = SDL_GL_CreateContext(platform_window);
 	}
 #endif
-#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_GLES2)
+#if !defined(HALO_ANDROID) && !defined(HALO_ANDROID32) && !defined(HALO_CONSOLE_GLES2)
 	if (!platform_gl_context && platform_float_window_refused())
 		return platform_video_initialize(width, height);
 #endif
@@ -2639,7 +2649,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	(void)version;
 	platform_event_thread = SDL_GetCurrentThreadID();
 	platform_log("OpenGL %s on %s", (const char *)glGetString(GL_VERSION), (const char *)glGetString(GL_RENDERER));
-#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_GLES2)
+#if !defined(HALO_ANDROID) && !defined(HALO_ANDROID32) && !defined(HALO_CONSOLE_GLES2)
 	{
 		int floating = 0;
 		float sdr_white, headroom;
@@ -3959,7 +3969,7 @@ void platform_pump_events(void)
 			/* port: the held mouse let go while another window has the focus */
 			mouse_warp_release();
 #endif
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_ANDROID32)
 			touch_input_cancel();
 #endif
 			break;
@@ -3971,7 +3981,7 @@ void platform_pump_events(void)
 				platform_mouse_capture(TRUE);
 #endif
 			break;
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_ANDROID32)
 		case SDL_EVENT_FINGER_DOWN:
 		case SDL_EVENT_FINGER_MOTION:
 		case SDL_EVENT_FINGER_UP:
@@ -4100,7 +4110,7 @@ int platform_binding_capture_poll(int *input)
 	return result;
 }
 
-#ifndef HALO_ANDROID
+#if !defined(HALO_ANDROID) && !defined(HALO_ANDROID32)
 /* ---------- the menus' pointer */
 
 /* While a menu is up the mouse is released, its pointer shows (centered when

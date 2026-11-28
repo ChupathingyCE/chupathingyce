@@ -2677,6 +2677,9 @@ static const struct
 
 #ifdef HALO_ANDROID
 #define CONFIG_PLATFORM _platform_android
+#elif defined(HALO_ANDROID32)
+/* (the 32-bit Android build: the desktop's settings and the touch controls') */
+#define CONFIG_PLATFORM (_platform_desktop | _platform_android)
 #elif defined(HALO_XBOX_CONSOLE)
 #define CONFIG_PLATFORM _platform_xbox
 #elif defined(HALO_XBOX360_CONSOLE)
