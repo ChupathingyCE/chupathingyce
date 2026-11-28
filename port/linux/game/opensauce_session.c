@@ -6,9 +6,11 @@ The network session a map loads in, for OpenSauce's maps
 game the internet may join (Online Games, online co-op, a dedicated server:
 p2p_set_hosting_allowed), or has joined a host on the internet (a public
 address, or an internet peer reached through the tunnel, whose game address
-is a virtual one: p2p_peer_public_address). System link and offline play
-are neither. Without the game list (--no-game-browser) there is no internet
-play, so no session is an online one.
+is a virtual one: p2p_peer_public_address, which takes it in the network's
+byte order, as a socket holds it, where the game's transport keeps it in
+this machine's). System link and offline play are neither. Without the
+game list (--no-game-browser) there is no internet play, so no session is
+an online one.
 */
 
 #include "cseries.h"
@@ -18,6 +20,7 @@ play, so no session is an online one.
 
 #include "cseries/cseries_windows.h"
 #include "bungie_net/network/transport.h"
+#include "memory/byte_swapping.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_client_manager.h"
 #include "network_rules.h"
@@ -47,7 +50,7 @@ void opensauce_maps_session_now(
 		address = host.address.ipv4_address;
 		session->joined = TRUE;
 		session->host_on_lan = network_rules_address_joins_as_lan((uint32_t)address) &&
-			!p2p_peer_public_address(address);
+			!p2p_peer_public_address(NETWORK_SWAP4(address));
 	}
 }
 
