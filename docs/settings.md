@@ -89,7 +89,8 @@ A few people look for most:
 | `audio.voice_volume`, `audio.voice_volume_party`, `_team`, `_proximity`, `_everyone` | Voices' volume, and each channel's, from 0.0 to 2.0. A channel at 0 is off: the host sends you none of it. |
 | `audio.voice_input_device`, `audio.voice_open_mic_level`, `audio.voice_positional` | The microphone (empty for the system's), how loud you must be for open mic to send, and whether proximity voices use the game's 3D sound (else a plain pan and fade). |
 | `display.voice_speakers` | Show who is talking in voice chat, small, at the top right (on by default). Your own channel shows there while you talk either way. |
-| `audio.hit_sounds` | `true`: a short tone when your shot hits another player in multiplayer, as Halo PC had. `false` (the default) is the Xbox's: none. Audio Setup: Hit Sounds. |
+| `audio.hit_sounds` | `true`: a short tone when your shot hits another player in multiplayer, as Halo PC had. `false` (the default) is the Xbox's: none. The tone is the map's own "ting"; on maps without one (the Xbox's), the ting from your own Custom Edition `sounds.map` in `maps_ce`, else `audio.hit_sound_file`, else none. Audio Setup: Hit Sounds. |
+| `audio.hit_sound_file` | A sound file (WAV 16-bit PCM, or Ogg Vorbis, any length; its first 2 seconds play) for hit sounds on maps without a ting, when Custom Edition's `sounds.map` is not in `maps_ce`. A name alone means a file in `data/sounds` next to the maps folder. Empty (the default): none. |
 | `audio.doppler` | Moving sounds shift in pitch as on the Xbox (on by default). |
 | `audio.reverb` | Sounds echo to match the place you are in, as the Xbox's reverb did (on by default; off on the slowest consoles). |
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |

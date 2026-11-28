@@ -51,6 +51,7 @@ UNITS = {
     "delta_input_rules": (C11, [f"{SRC}/delta_input_rules.c"], [], False),
     "discord_activity": (C11, [f"{SRC}/discord_activity.c"], [], False),
     "discord_register": (C11, [f"{SRC}/discord_register.c"], [], True),
+    "hit_sound": (C11, [f"{GAME}/content_audio.c"], [], False),
     "link_register": (C11, [f"{SRC}/link_register.c", f"{SRC}/discord_register.c"], [], True),
     "p2p_copies": (C11, [f"{SRC}/p2p_copies.c"], [], False),
     "p2p_host_port": (C11, [], [], False),
