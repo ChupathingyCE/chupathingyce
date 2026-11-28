@@ -246,6 +246,7 @@ security  tools/test_mcc_validation.py
 area      tools/test_mcc_workshop.py
 area      tools/test_medal_rules.py
 area      tools/test_menu_key_caps.py
+area      tools/test_menu_patches.py port/assets/menus/ce tools/ce_menus.py
 area      tools/test_menu_text_fit.py
 core      tools/test_menu_unique_rows.py
 area      tools/test_metal_ask.py

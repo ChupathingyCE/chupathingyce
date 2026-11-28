@@ -155,6 +155,7 @@ tools/test_mcc_skulls.py
 tools/test_mcc_validation.py
 tools/test_mcc_workshop.py
 tools/test_medal_rules.py
+tools/test_menu_patches.py
 tools/test_menu_text_fit.py
 tools/test_menu_unique_rows.py
 tools/test_metal_ask.py
