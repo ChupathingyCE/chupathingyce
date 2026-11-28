@@ -392,7 +392,9 @@ jobs:
       # - otherwise (no cache, another image's, or one that lacks a package):
       #   apt's lists are fetched fresh and the .debs downloaded first (those
       #   the cache has already are kept, and the ones no longer listed
-      #   dropped), each try cut off by timeout; a try that fails starts the
+      #   dropped), each try cut off after 5 minutes (sooner when the 15
+      #   minutes for all of them run out; a connection that sends nothing
+      #   for 20 s fails sooner still); a try that fails starts the
       #   next with another Ubuntu mirror first, and the .debs a try finished
       #   stay for the next, so a slow mirror's progress is kept. Only then is
       #   anything installed, offline.
@@ -432,7 +434,10 @@ jobs:
                 case " ${list[*]:-} " in *" $uri "*) ;; *) list+=("$uri") ;; esac
               done
             fi
-            updated=0 downloaded=0
+            # (a slow mirror that is still sending gets up to 300 s a try; one that
+            # stops sending fails sooner on Acquire::http::Timeout, which is also
+            # apt's data timeout)
+            updated=0 downloaded=0 deadline=$((SECONDS + ${APT_DOWNLOAD_SECONDS:-900}))
             for try in 1 2 3 4; do
               if [ "$try" -gt 1 ] && [ "${#list[@]}" -gt 1 ]; then
                 for ((i = 0; i < ${#list[@]}; i++)); do
@@ -441,7 +446,10 @@ jobs:
                 echo "apt: try $try, from ${list[(try - 1) % ${#list[@]}]} first"
               fi
               if [ "$updated" = 0 ]; then sudo timeout 120 apt-get update -q && updated=1; fi
-              if [ "$updated" = 1 ] && sudo timeout 90 apt-get install -y -q --no-install-recommends --download-only "${packages[@]}"; then
+              left=$((deadline - SECONDS))
+              [ "$left" -gt 0 ] || { echo "apt: out of time for downloads" >&2; break; }
+              if [ "$updated" = 1 ] && sudo timeout $((left < 300 ? left : 300)) \
+                apt-get install -y -q --no-install-recommends --download-only "${packages[@]}"; then
                 downloaded=1; break
               fi
               echo "apt: try $try of 4 failed" >&2

@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+- Hits through walls are only logged now, not refused: the check also
+  refused some clear shots. Each one it would have refused is one line in
+  the log (shooter and target slot, shot or explosion, distance).
+  `HALO_NET_HIT_LINE_OF_SIGHT=true` refuses them again.
 - `bans.txt` takes name rules: a line with `name=<player name>` bans a
   player who joins under that name (any case, with color codes or spaces
   in it; the whole name only, so `name=ifty` never catches `nifty`). Their

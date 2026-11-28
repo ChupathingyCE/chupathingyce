@@ -194,7 +194,7 @@ struct privacy_row
 static struct privacy_row const privacy_rows[] =
 {
 	{ "SHARE MY PROFILE", _privacy_game, "network.share_profile", { "false", "true" }, { "OFF", "ON" },
-		"Show your Delta name to Chupathingy players." },
+		"Show your verified Delta name to Chupathingy players." },
 	{ "RECORD GAMES I JOIN", _privacy_game, "network.report_joined_games", { "true", "false" }, { "ON", "OFF" },
 		"Report the games you join." },
 	{ "RECORD GAMES I HOST", _privacy_game, "network.report_hosted_games", { "true", "false" }, { "ON", "OFF" },

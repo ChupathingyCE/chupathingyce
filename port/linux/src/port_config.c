@@ -1559,11 +1559,11 @@ static const struct config_setting config_settings[] =
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
 		_platform_all | _platform_server,
 		"Turn off mouse aim assist for everyone in games you host." },
-	{ "network.hit_line_of_sight", _config_boolean, "true", "HALO_NET_HIT_LINE_OF_SIGHT", _environment_value,
+	{ "network.hit_line_of_sight", _config_boolean, "false", "HALO_NET_HIT_LINE_OF_SIGHT", _environment_value,
 		_platform_all | _platform_server,
-		"In games you host, refuse a player's hits through walls: the shot (or\n"
-		"the explosion) needs a clear line to its target. Turn it off if good\n"
-		"hits are refused." },
+		"In games you host, hits through walls are checked and logged; on,\n"
+		"they are also refused: the shot (or the explosion) needs a clear\n"
+		"line to its target. Off (the default) while the check is reworked." },
 	{ "network.max_machines_per_address", _config_integer, "0", "HALO_NET_MAX_MACHINES_PER_ADDRESS",
 		_environment_value, _platform_all,
 		"In games you host, the most machines that may join from one internet\n"
@@ -1604,8 +1604,9 @@ static const struct config_setting config_settings[] =
 		"How many times larger each co-op enemy squad is, from 2 to 32." },
 	{ "network.share_profile", _config_boolean, "false", "HALO_NET_SHARE_PROFILE", _environment_value,
 		_platform_all,
-		"Show your Chupathingy player ID to other Chupathingy players over\n"
-		"Delta." },
+		"SHARE MY PROFILE: send your verified Delta name and your player ID\n"
+		"to other Chupathingy players over Delta. false: they see your game\n"
+		"name." },
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
 	{ "network.share_presence", _config_boolean, "true", "HALO_NET_SHARE_PRESENCE", _environment_value,
 		_platform_all,
@@ -3849,6 +3850,10 @@ static const struct
 	/* the whole sum, 6 dB over the Xbox's level, the only one until 0.9.2
 	(a file from before the setting is asked; "louder" keeps it) */
 	{ "audio.loudness", "\"louder\"", 0, "Sound at the original Xbox's level, 6 dB quieter", 8 },
+	/* hits with no line of sight refused, the default until 0.9.3 made the
+	check log only while it is reworked (#2022): a file that names true
+	keeps refusing them; one that left it commented out follows */
+	{ "network.hit_line_of_sight", "true", 0, NULL, 0 },
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))

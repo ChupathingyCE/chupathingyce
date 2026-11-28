@@ -14,6 +14,7 @@ thread of its own (posix_browser_send). Moved here from the setup screen
 #include "platform.h"
 #include "port_config.h"
 #include "posix.h"
+#include "port_folders.h"
 #include "crash_report.h"
 #include "browser_http.h"
 #include "build_identity.h"
@@ -23,6 +24,7 @@ thread of its own (posix_browser_send). Moved here from the setup screen
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 /* where the logs go, unless debug.dump_url says otherwise */
 #define LOG_SEND_URL "https://" LOG_SEND_SITE "/upload"
@@ -377,11 +379,19 @@ void log_send_forget(void)
 void log_send_folder_url(const char *path, char *url, int size)
 {
 	static const char hex[] = "0123456789ABCDEF";
+	char working[LOG_SEND_PATH_SIZE], whole[LOG_SEND_PATH_SIZE];
 	size_t length;
 	const unsigned char *cursor;
 
 	if (size <= 0)
 		return;
+	/* (a relative folder, ./logs when the data root is the game's folder,
+	made whole: file:///./logs opens nothing) */
+	if (!port_folder_absolute(path) && getcwd(working, sizeof(working)) &&
+		port_folder_whole(working, path, whole, sizeof(whole)))
+	{
+		path = whole;
+	}
 	length = (size_t)snprintf(url, (size_t)size, "file://%s", path[0] == '/' ? "" : "/");
 	for (cursor = (const unsigned char *)path; *cursor && length + 4 < (size_t)size; cursor++)
 	{

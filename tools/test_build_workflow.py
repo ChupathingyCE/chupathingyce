@@ -461,7 +461,7 @@ args=()
 for a in "$@"; do case "$a" in /etc/*) a="{root}$a" ;; esac; args+=("$a"); done
 exec env "${{args[@]}}"
 """,
-        "timeout": '#!/usr/bin/env bash\nshift\nexec "$@"\n',
+        "timeout": f'#!/usr/bin/env bash\necho "$1" >> {tmp_path}/timeouts\nshift\nexec "$@"\n',
         "sleep": "#!/bin/sh\nexit 0\n",
         "curl": f"""#!/usr/bin/env bash
 echo "curl $*" >> {tmp_path}/calls
@@ -488,7 +488,7 @@ esac
     return tmp_path
 
 
-def run_apt(fake_apt, hit="", llvm="22", key_sha=None, mirrors=None):
+def run_apt(fake_apt, hit="", llvm="22", key_sha=None, mirrors=None, download_seconds=None):
     root = fake_apt / "root"
     mirror_file = root / "etc" / "apt" / "apt-mirrors.txt"
     if mirrors is not None:
@@ -498,6 +498,8 @@ def run_apt(fake_apt, hit="", llvm="22", key_sha=None, mirrors=None):
                    "APT_CACHE": str(fake_apt / "cache"), "APT_PACKAGES": "clang-22 lld-22\n zstd",
                    "APT_CACHE_HIT": hit, "LLVM_MAJOR": llvm, "APT_MIRRORS": str(mirror_file),
                    "LLVM_KEY_SHA256": key_sha or hashlib.sha256(b"the key\n").hexdigest()}
+    if download_seconds is not None:
+        environment["APT_DOWNLOAD_SECONDS"] = str(download_seconds)
     result = subprocess.run(["bash", "-c", apt_script()], capture_output=True, text=True,
                             env=environment)
     calls = (fake_apt / "calls").read_text().splitlines()
@@ -558,6 +560,29 @@ def test_apt_gives_up_after_four_tries(fake_apt):
     assert result.returncode != 0
     assert len([call for call in calls if "--download-only" in call]) == 4
     assert not any("--no-download" in call for call in calls)
+
+
+def test_apt_gives_a_slow_download_five_minutes(fake_apt):
+    # (#1531: a mirror still sending was cut off at 90 s on every try)
+    (fake_apt / "download-failures").write_text("1")
+    result, calls = run_apt(fake_apt, mirrors="http://slow.example/ubuntu/\n")
+    assert result.returncode == 0, result.stdout + result.stderr
+    # (the update's own 120 s, then each download try's)
+    assert (fake_apt / "timeouts").read_text().splitlines() == ["120", "300", "300"]
+    assert "--no-download" in calls[-1]
+
+
+def test_apt_download_tries_share_one_time_limit(fake_apt):
+    (fake_apt / "download-failures").write_text("9")
+    result, calls = run_apt(fake_apt, mirrors="http://slow.example/ubuntu/\n", download_seconds=60)
+    assert result.returncode != 0
+    timeouts = [int(value) for value in (fake_apt / "timeouts").read_text().splitlines()[1:]]
+    assert timeouts and all(0 < value <= 60 for value in timeouts)
+    # (no time left: no download tried)
+    (fake_apt / "timeouts").write_text("")
+    result, calls = run_apt(fake_apt, mirrors="http://slow.example/ubuntu/\n", download_seconds=0)
+    assert result.returncode != 0 and "out of time" in result.stderr
+    assert not any("--download-only" in call for call in calls)
 
 
 def test_apt_refuses_a_changed_llvm_key(fake_apt):

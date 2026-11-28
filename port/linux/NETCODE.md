@@ -627,7 +627,8 @@ a pregame keep-alive every five seconds from the host
      unit or vehicle: the host keeps a second of where they were) or of
      where it is (more for a fast one; also for one that is no longer a
      player's, a body or a vehicle left); a line of sight to the target
-     where the shooter saw it (`network.hit_line_of_sight`, on by default):
+     where the shooter saw it (`network.hit_line_of_sight`; off by default since
+     0.9.3, when a hit without one is dealt and logged, not refused):
      for a shot, from where the host had the shooter between the tick the
      report was made at and now, and before that for as long as the
      projectile flies (their view, their head, or the gun of the vehicle
