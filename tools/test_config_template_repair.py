@@ -215,12 +215,12 @@ def repair(tmp_path_factory):
 def starter(request):
     if request.param == "harness":
         binary = request.getfixturevalue("repair")
-        return lambda tmp_path, config=None, old=None: start_harness(binary, tmp_path, config, old)
+        return lambda tmp_path, config=None, old=None, kept=None: start_harness(binary, tmp_path, config, old, kept)
     binary = request.getfixturevalue("game")
-    return lambda tmp_path, config=None, old=None: start(binary, tmp_path, config, old)
+    return lambda tmp_path, config=None, old=None, kept=None: start(binary, tmp_path, config, old, kept)
 
 
-def start_harness(binary, tmp_path, config=None, old=None):
+def start_harness(binary, tmp_path, config=None, old=None, kept=None):
     """config_repair_template alone on config.toml in a folder"""
     folder = tmp_path / "game"
     folder.mkdir()
@@ -228,12 +228,14 @@ def start_harness(binary, tmp_path, config=None, old=None):
         (folder / "config.toml").write_bytes(config.encode())
     if old is not None:
         (folder / "config.toml.old").write_bytes(old.encode())
+    if kept is not None:
+        (folder / KEPT).write_bytes(kept.encode())
     done = subprocess.run([str(binary), str(folder / "config.toml")], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     return folder, done.stdout + "MENUS xbox\n"
 
 
-def start(binary, tmp_path, config=None, old=None):
+def start(binary, tmp_path, config=None, old=None, kept=None):
     """the game started with config.toml (and config.toml.old) where it reads
     them: their folder, its output"""
     saves = tmp_path / "saves"
@@ -246,6 +248,8 @@ def start(binary, tmp_path, config=None, old=None):
         (folder / "config.toml").write_bytes(config.encode())
     if old is not None:
         (folder / "config.toml.old").write_bytes(old.encode())
+    if kept is not None:
+        (folder / KEPT).write_bytes(kept.encode())
     env = dict(os.environ, HALO_SAVE_ROOT=str(saves), HOME=str(tmp_path / "home"))
     for name in list(env):
         if name in ("HALO_MENUS", "HALO_VOLUME"):
@@ -321,6 +325,25 @@ def test_once_only(game, tmp_path):
     assert done.returncode == 0
     assert not repaired_lines(done.stdout)
     assert (folder / "config.toml.old").exists()
+
+
+def test_a_repair_cut_short_is_finished(starter, tmp_path):
+    """a crash between the repair's two renames: no config.toml, the kept
+    template and config.toml.old; the next start puts .old back"""
+    folder, said = starter(tmp_path, None, PLAYERS, kept=TEMPLATE)
+    assert live(folder / "config.toml") == live_text(PLAYERS)
+    assert not (folder / "config.toml.old").exists()
+    assert (folder / KEPT).read_text() == TEMPLATE
+    assert "MENUS xbox" in said and "finished putting config.toml back" in said
+
+
+def test_a_kept_template_with_config_in_place_is_left_alone(starter, tmp_path):
+    """after a whole repair, a config.toml.old is never put over config.toml"""
+    later = PLAYERS.replace("0.4", "0.9")
+    folder, said = starter(tmp_path, PLAYERS, later, kept=TEMPLATE)
+    assert live(folder / "config.toml") == live_text(PLAYERS)
+    assert (folder / "config.toml.old").read_text() == later
+    assert not repaired_lines(said) and "finished putting" not in said
 
 
 # ---------- the header's checks alone

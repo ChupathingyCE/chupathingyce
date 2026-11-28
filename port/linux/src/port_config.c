@@ -5675,8 +5675,16 @@ static void config_repair_template(const char *path)
 
 	if ((size_t)snprintf(old, sizeof(old), "%s.old", path) >= sizeof(old) ||
 		(size_t)snprintf(kept, sizeof(kept), "%s" CONFIG_TEMPLATE_REPAIR_SUFFIX, path) >= sizeof(kept) ||
-		!SDL_GetPathInfo(old, NULL) || SDL_GetPathInfo(kept, NULL))
+		!SDL_GetPathInfo(old, NULL))
 	{
+		return;
+	}
+	/* (a repair cut short between its two renames: the template kept, no
+	config.toml, the player's file still config.toml.old) */
+	if (SDL_GetPathInfo(kept, NULL))
+	{
+		if (!SDL_GetPathInfo(path, NULL) && SDL_RenamePath(old, path))
+			platform_log("settings: finished putting config.toml back from config.toml.old");
 		return;
 	}
 	current = config_read_file(path, &size);
