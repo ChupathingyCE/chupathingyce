@@ -1841,8 +1841,11 @@ static void lab_poll(void)
 		}
 		else if (!strcmp(word, "debug"))
 			lab.debug = atoi(value);
+#ifdef HALO_CAPTURE
+		/* (the builds with screenshots: capture.h) */
 		else if (!strcmp(word, "shot"))
 			capture_request_screenshot();
+#endif
 		else if (!strcmp(word, "time") && frames > 0)
 		{
 			free(lab.intervals);

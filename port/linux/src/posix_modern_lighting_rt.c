@@ -2931,6 +2931,8 @@ void ml_rt_say(char *line, int size)
 
 #include "modern_lighting.h"
 
+#include <string.h>
+
 int ml_rt_why = ML_RT_WHY_NO_VULKAN;
 
 int ml_rt_probe(const unsigned char gl_device_uuid[16])
