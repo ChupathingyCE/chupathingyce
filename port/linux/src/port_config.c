@@ -869,6 +869,11 @@ static const struct config_setting config_settings[] =
 #endif
 		"If it can't start, the game draws with OpenGL. Set \"gl\" to go back.\n"
 		"Read when Chupathingy starts." },
+#ifdef HALO_METAL_ASK
+	{ "display.metal_asked", _config_boolean, "false", "HALO_METAL_ASKED", _environment_value, _platform_desktop,
+		"Chupathingy sets this after it asks once whether to go from Metal\n"
+		"back to OpenGL. Don't edit it." },
+#endif
 #if defined(__APPLE__) && !defined(HALO_IOS)
 	{ "display.metal_hud", _config_boolean, "false", "HALO_METAL_HUD", _environment_set_is_true, _platform_desktop,
 		"Show Apple's Metal Performance HUD over the game: frame rate, frame\n"
@@ -6157,6 +6162,23 @@ static char *config_refresh_commented(const char *text, const struct config_sett
 	return out.buffer;
 }
 
+#ifdef HALO_METAL_ASK
+/* ---------- the Mac's question about Metal (port_config.h) */
+
+int config_metal_ask_pending(void)
+{
+	return !config_boolean("display.metal_asked") && !strcmp(config_string("display.renderer"), "bgfx");
+}
+
+void config_metal_ask_answer(int use_opengl)
+{
+	if (use_opengl && !config_write("display.renderer", "gl"))
+		platform_log("settings: cannot write display.renderer = \"gl\"");
+	if (!config_write_boolean("display.metal_asked", 1))
+		platform_log("settings: cannot write display.metal_asked");
+}
+
+#endif
 /* ---------- retired menus
 
 Gearbox's menus (display.menus "gearbox", or the older "pc") are no longer a
