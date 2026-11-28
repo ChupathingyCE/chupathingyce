@@ -913,13 +913,16 @@ So a row can say what hosting it takes:
 
 - **The names** are `DELTA_HOST_PROTECTIONS` in `delta.h`, each with
   whether the build has it. A build marks a name as had when its hosts
-  and dedicated servers enforce it by default. 0.9.0 marks two:
+  and dedicated servers enforce it by default (`hit_line_of_sight` aside
+  until #2022, below). 0.9.0 marks two:
   `hit_report_checks` (the host checks each client's hit report: its own
   player, a weapon of theirs, the target where the host had it, within
   reach, no faster than the weapon fires; `network_damage.c`) and
-  `hit_line_of_sight` (the host checks hits for a line of sight,
-  `network.hit_line_of_sight`; from 0.9.3 the check logs by default and
-  refuses only with the setting on, while it is reworked). `address_machine_limit` and
+  `hit_line_of_sight` (the host checks hits for a line of sight). Until
+  the check's rewrite (#2022), `hit_line_of_sight` is checked and logged;
+  refused only when `network.hit_line_of_sight` enforces (off by default
+  from 0.9.3). The build still counts it as had, so a row that requires it
+  is hosted as before: a 0.9.3 host on `chupa-44b` announces 44, not 32. `address_machine_limit` and
   `map_votes` are named so a row can require them, and no build marks them
   as had yet. 0.9.0 can limit the machines from one address,
 but that is off by default on a

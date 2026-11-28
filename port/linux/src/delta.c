@@ -13,7 +13,10 @@ widens the built-in numbers (announces a newer number, joins a wider range).
 The row may also carry "layouts" (delta.h): facts about newer OpenCE versions
 that network_rules.c reads them by (delta_legacy_layouts), within its limits;
 and "requires": the host protections (DELTA_HOST_PROTECTIONS) a host must
-have to announce more than this build's own number. Beside the rows, the
+have to announce more than this build's own number (what this build has is
+fixed when it is built, never a setting: hit_line_of_sight is checked and
+logged; refused only when network.hit_line_of_sight enforces, until the
+check's rewrite, #2022). Beside the rows, the
 table's "platform_floors" (delta.h): the oldest network version a Delta
 machine of a platform may say in its HELLO to play with our hosts, one
 platform's apart from every other's.

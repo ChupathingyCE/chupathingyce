@@ -463,8 +463,9 @@ def checker(keys, recovery_keys, tmp_path_factory):
     return program
 
 
-def run_checker(program, root, *steps, override=None, url="", announce=None):
+def run_checker(program, root, *steps, override=None, url="", announce=None, extra=None):
     environment = {"DELTA_CHECK_ROOT": str(root), "PATH": "/usr/bin:/bin", "DELTA_CHECK_URL": url}
+    environment.update(extra or {})
     if announce is not None:
         environment["DELTA_CHECK_ANNOUNCE"] = announce
     if override:
@@ -1287,6 +1288,32 @@ def test_loader_hosts_only_with_the_protections(keys, checker, tmp_path):
     assert f"hosting {base['announce']} pinned 0" in output
     said = [line for line in output.splitlines() if "requires the host protection" in line]
     assert len(said) == 1 and "address_machine_limit" in said[0] and f"version {base['maximum'] + 1}" in said[0], output
+
+
+def test_line_of_sight_counted_whatever_the_setting():
+    """hit_line_of_sight is checked and logged; refused only when
+    network.hit_line_of_sight enforces (off by default, #2022). The build
+    counts the protection as had either way, from delta.h alone: no
+    setting can make a host drop from what a row proves (44 on chupa-44b)
+    to its own number"""
+    assert delta_table.host_protections()["hit_line_of_sight"] is True
+    delta_c = (ROOT / "port/linux/src/delta.c").read_text(encoding="utf-8")
+    assert "hit_line_of_sight\"" not in delta_c and "HIT_LINE_OF_SIGHT" not in delta_c
+    assert "config_boolean" not in delta_c.split("delta_host_protections[] =", 1)[1].split("};", 1)[0]
+
+
+@pytest.mark.parametrize("setting", [None, "false", "true"])
+def test_loader_hosts_44b_shaped_row_whatever_the_setting(keys, checker, tmp_path, setting):
+    """a row that requires both hit protections, as chupa-44b's does: the
+    newest proved announced with the setting at its default (log only),
+    off or on"""
+    newest = floor()["maximum"] + 1
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=requires_row(
+        requires=["hit_report_checks", "hit_line_of_sight"])))
+    extra = {"HALO_NET_HIT_LINE_OF_SIGHT": setting} if setting else None
+    output = run_checker(checker, tmp_path, "offer", table, "state", extra=extra)
+    assert state_line(output)[0].startswith(f"state {newest} "), output
+    assert "requires the host protection" not in output
 
 
 @pytest.mark.parametrize("requires", [["future_protection"], ["hit_report_checks", "Not-Plain"]])
