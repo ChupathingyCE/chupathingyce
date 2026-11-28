@@ -248,6 +248,7 @@ area      tools/test_menu_text_fit.py
 core      tools/test_menu_unique_rows.py
 security  tools/test_mod_archives.py
 area      tools/test_model_obscurer.py
+maps      tools/test_name_ban_server.py
 maps      tools/test_net43_host.py
 local     tools/test_network_messages.py
 core      tools/test_network_rules.py
