@@ -6,6 +6,12 @@ release notes.
 
 ## Unreleased
 
+- `bans.txt` takes name rules: a line with `name=<player name>` bans a
+  player who joins under that name (any case, with color codes or spaces
+  in it; the whole name only, so `name=ifty` never catches `nifty`). Their
+  machine is banned the way `sv_ban` does it, and its own line is added to
+  `bans.txt` under a comment naming the rule, so it stays out under any
+  name.
 - `opence_welcome` (off by default): each OpenCE player gets one line in
   their chat once they join, that this is a Chupathingy server.
   `opence_welcome_text` sets the line, up to 63 characters. Chupathingy

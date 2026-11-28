@@ -1,21 +1,39 @@
 # Trying SPV3
 
 SPV3 is a campaign mod for Halo Custom Edition, made by the SPV3 team. You
-can try it in Chupathingy 0.9.2. It's early. Some things are missing, and we
-want your bug reports and logs.
+can try it in Chupathingy 0.9.2a and newer. It's early. Some things are
+missing, and we want your bug reports and logs.
 
 ## What you need
 
-- Chupathingy 0.9.2 for Windows, Mac or Linux, the 64-bit build. SPV3 mode
+- Chupathingy for Windows, Mac or Linux, the 64-bit build. SPV3 mode
   isn't in the console or 32-bit builds.
 - Your Xbox maps, set up as usual ([Set it up](../README.md#set-it-up)).
-- Your own copy of SPV3, installed with SPV3's own installer. We test with
-  version 3.3.0.
+- Your own copy of SPV3 3.3.0: its release zip, the folder it unpacked to,
+  or an SPV3 install.
 
-We don't include any SPV3 files, and there's no installer for it in
-Chupathingy yet. You copy the files from your own SPV3 install.
+We don't include any SPV3 files, and the game never downloads them.
 
-## Where the files go
+## Install it from the setup screen
+
+1. Open the setup screen (hold **Shift**, or **Back** on a controller, while
+   Chupathingy starts).
+2. Go to **MAPS** and pick **ADD SPV3**.
+3. Pick SPV3 3.3.0's release zip. If you unpacked it, pick `manifest.bin`
+   in its `data` folder instead.
+
+The game checks that it's SPV3 3.3.0, then copies what it uses into
+`maps_spv3` and `lua/spv3`: the maps, `bitmaps.map`, `sounds.map`,
+`loc.map`, the three movies and the Lua scripts. It never copies or runs an
+`.exe` or `.dll`. You need about 12 GB free.
+
+Press **B** to stop it. Pick **ADD SPV3** again and it carries on where it
+stopped. Running it again also repairs a file that's damaged or missing.
+
+If you only have an SPV3 install and no release zip, copy the files by hand
+instead.
+
+## Copy the files by hand
 
 Find the folder that holds your `maps` folder
 ([where that is](install.md#where-your-files-go)). Copy these from your SPV3
@@ -62,19 +80,25 @@ lua/
       JSON.lua
 ```
 
-## Turn on the Lua scripts
+## Lua scripts
 
-SPV3's HUD, skulls and other extras are Lua scripts. They're off unless you
-turn them on.
+SPV3's HUD, skulls and other extras are Lua scripts. In SPV3 mode they run
+on their own from `lua/spv3`; you don't need to turn anything on. They get
+the same limits as any script: they read and write only their own `data`
+folder and load only their own modules.
 
-1. Open `config.toml` ([where it is](settings.md)).
-2. Under `[lua]`, find `# scripts = false`. Change it to `scripts = true`.
-3. Save the file.
+Only SPV3's own files run this way: the ones the setup screen installs,
+unchanged. A file that's been edited, or an extra `.lua` file dropped into
+`lua/spv3`, doesn't run unless you turn on `lua.scripts`.
 
-```toml
-[lua]
-scripts = true
-```
+SPV3's scripts also read and change the game's memory, for things like its
+HUD and skulls. That goes through Twiddlings, which translates the Halo PC
+addresses they use into this game's. The `lua.twiddlings` setting (on by
+default) controls it: turn it off and every read gives 0 and every write is
+refused, so those scripts' extras stop working.
+
+The `lua.scripts` setting in `config.toml` is for your own scripts in
+`lua/scripts`. It stays off unless you turn it on.
 
 ## Play it
 
@@ -92,18 +116,23 @@ screen.
 
 All 22 levels and the menu load. SPV3's Lua scripts run.
 
+What works:
+
+- SPV3's own menus. Pick a level and a difficulty and it starts.
+- Its post-processing, on OpenGL and on bgfx. It costs frame rate. Turn it
+  off with `display.opensauce_post_processing = false`.
+- Its skies and lighting change when its scripts ask, as on a30, b30 and
+  d40.
+- All four grenade types, cluster and anti-matter included.
+- Enemies transform as SPV3 says, such as the Flood taking over Marines.
+- Its movies, at start and in the credits.
+
 Not working yet:
 
-- A flat blue box shows at the crosshair
-  ([#1781](https://github.com/ChupathingyCE/chupathingyce/issues/1781)).
-- Enemies don't transform
-  ([#1749](https://github.com/ChupathingyCE/chupathingyce/issues/1749)).
-- SPV3's four new grenade types are missing
-  ([#1751](https://github.com/ChupathingyCE/chupathingyce/issues/1751)).
-- SPV3's post-processing works on the default renderer, but some levels
-  don't look right yet and it costs frame rate. Turn it off with
-  `display.opensauce_post_processing = false`
-  ([#1786](https://github.com/ChupathingyCE/chupathingyce/issues/1786)).
+- On bgfx with Vulkan or Direct3D 11 and anti-aliasing on, the effects that
+  need depth don't draw. OpenGL and Metal draw them.
+- In online co-op, players who join see zero of the third and fourth
+  grenade types, and keep the old skies and lighting.
 - In online co-op Firefight, players who join don't get the loadout.
 
 The full list is in

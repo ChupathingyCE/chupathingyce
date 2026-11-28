@@ -27,6 +27,7 @@ it did before the console had the file.
 #include "posix.h"
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 #include "packaged_install.h"
+#include "config_template_repair.h"
 #endif
 
 #include <time.h>
@@ -869,6 +870,11 @@ static const struct config_setting config_settings[] =
 #endif
 		"If it can't start, the game draws with OpenGL. Set \"gl\" to go back.\n"
 		"Read when Chupathingy starts." },
+#ifdef HALO_METAL_ASK
+	{ "display.metal_asked", _config_boolean, "false", "HALO_METAL_ASKED", _environment_value, _platform_desktop,
+		"Chupathingy sets this after it asks once whether to go from Metal\n"
+		"back to OpenGL. Don't edit it." },
+#endif
 #if defined(__APPLE__) && !defined(HALO_IOS)
 	{ "display.metal_hud", _config_boolean, "false", "HALO_METAL_HUD", _environment_set_is_true, _platform_desktop,
 		"Show Apple's Metal Performance HUD over the game: frame rate, frame\n"
@@ -1398,7 +1404,8 @@ static const struct config_setting config_settings[] =
 	/* ---- lua: mods' scripts for Chimera's Lua API (port/linux/game/lua_scripting.c) */
 	{ "lua.scripts", _config_boolean, "false", "HALO_LUA_SCRIPTS", _environment_value, _platform_desktop,
 		"Run mods' Lua scripts made for Chimera, from the lua folder beside\n"
-		"maps/. A map pack's own are in lua/<pack>, like lua/spv3." },
+		"maps/. A map pack's own are in lua/<pack>, like lua/spv3; a pack\n"
+		"mode's own run in that mode even with this off." },
 	{ "lua.twiddlings", _config_boolean, "true", "HALO_LUA_TWIDDLINGS", _environment_value, _platform_desktop,
 		"Let those scripts read and change the game's memory, translated\n"
 		"from Halo PC's. false makes every read 0 and refuses every write." },
@@ -2064,6 +2071,11 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test's host: a file the host writes its invite link\n"
 		"to once it has one, for a joining machine's command line. Leave it\n"
 		"empty for none." },
+	{ "debug.network_test_name", _config_string, "\"\"", "HALO_NETWORK_TEST_NAME", _environment_value,
+		_platform_all,
+		"With debug.network_test: the name this machine's player joins under\n"
+		"(UTF-8), over the profile's, for a test of what a host does with a\n"
+		"name. Empty keeps the profile's." },
 	{ "debug.monitor_name", _config_string, "\"Chupa\"", "HALO_MONITOR_NAME", _environment_value, _platform_all,
 		"With debug.network_test's monitor: the name its player joins under." },
 	{ "debug.monitor_output", _config_string, "\"\"", "HALO_MONITOR_OUTPUT", _environment_value, _platform_all,
@@ -5652,6 +5664,60 @@ static void config_report_unread(const char *path)
 }
 #endif
 
+/* the desktops whose config.toml an update may have replaced with the
+template v0.9.2a's 64-bit zips held (config_template_repair.h, #2029) */
+#if !defined(HALO_ANDROID) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE) && !defined(CONFIG_CONSOLE_FILES) && \
+	!defined(HALO_CONSOLE_CONFIG_IN_DATA_ROOT) && (defined(_WIN32) || defined(__linux__) || defined(__APPLE__))
+#define CONFIG_TEMPLATE_REPAIR 1
+#endif
+
+#ifdef CONFIG_TEMPLATE_REPAIR
+/* the player's config.toml back from config.toml.old, once, when the
+template is in its place (config_template_should_repair); the template kept
+as config.toml.template-0.9.2a. Nothing is touched otherwise, nor when that
+name is taken already */
+static void config_repair_template(const char *path)
+{
+	char old[1100], kept[1100];
+	size_t size = 0, old_size = 0;
+	char *current, *previous;
+	int repair;
+
+	if ((size_t)snprintf(old, sizeof(old), "%s.old", path) >= sizeof(old) ||
+		(size_t)snprintf(kept, sizeof(kept), "%s" CONFIG_TEMPLATE_REPAIR_SUFFIX, path) >= sizeof(kept) ||
+		!SDL_GetPathInfo(old, NULL))
+	{
+		return;
+	}
+	/* (a repair cut short between its two renames: the template kept, no
+	config.toml, the player's file still config.toml.old) */
+	if (SDL_GetPathInfo(kept, NULL))
+	{
+		if (!SDL_GetPathInfo(path, NULL) && SDL_RenamePath(old, path))
+			platform_log("settings: finished putting config.toml back from config.toml.old");
+		return;
+	}
+	current = config_read_file(path, &size);
+	previous = current ? config_read_file(old, &old_size) : NULL;
+	repair = current && previous && strlen(current) == size && strlen(previous) == old_size &&
+		config_template_should_repair(current, previous);
+	free(current);
+	free(previous);
+	if (!repair)
+		return;
+	if (!SDL_RenamePath(path, kept))
+		return;
+	if (!SDL_RenamePath(old, path))
+	{
+		/* (as it was) */
+		SDL_RenamePath(kept, path);
+		return;
+	}
+	platform_log("settings: config.toml was the template an update put in its place; "
+		"config.toml.old is config.toml again (the template is config.toml" CONFIG_TEMPLATE_REPAIR_SUFFIX ")");
+}
+#endif
+
 static void config_load(void)
 {
 	char path[1024];
@@ -5677,6 +5743,9 @@ static void config_load(void)
 	}
 
 	config_path(path, sizeof(path));
+#ifdef CONFIG_TEMPLATE_REPAIR
+	config_repair_template(path);
+#endif
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	config_report_unread(path);
 #endif
@@ -6156,6 +6225,23 @@ static char *config_refresh_commented(const char *text, const struct config_sett
 	return out.buffer;
 }
 
+#ifdef HALO_METAL_ASK
+/* ---------- the Mac's question about Metal (port_config.h) */
+
+int config_metal_ask_pending(void)
+{
+	return !config_boolean("display.metal_asked") && !strcmp(config_string("display.renderer"), "bgfx");
+}
+
+void config_metal_ask_answer(int use_opengl)
+{
+	if (use_opengl && !config_write("display.renderer", "gl"))
+		platform_log("settings: cannot write display.renderer = \"gl\"");
+	if (!config_write_boolean("display.metal_asked", 1))
+		platform_log("settings: cannot write display.metal_asked");
+}
+
+#endif
 /* ---------- retired menus
 
 Gearbox's menus (display.menus "gearbox", or the older "pc") are no longer a

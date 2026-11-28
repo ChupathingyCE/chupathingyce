@@ -77,4 +77,31 @@ int server_names_blocked(const unsigned int *characters, int count);
 /* the same, for a name in ASCII or UTF-8 */
 int server_names_blocked_text(const char *text);
 
+/* bans.txt's name rules (a line's name=, server/docs/admin.md, Bans) */
+
+enum
+{
+	/* a rule's key, with its end (a character is at most 4 of its bytes) */
+	SERVER_NAMES_RULE_KEY_SIZE = 64 * 4 + 1
+};
+
+/* a name's key for a name rule: what player_name_clean leaves out (control
+characters, ones that draw as nothing, "|") left out, color codes ("^" and
+a digit) and every space dropped, lower case, accents dropped, full-width
+forms and Cyrillic and Greek look-alikes read as their Latin letters,
+and any other character kept as itself (its UTF-8), so names in other
+scripts match only themselves. Unlike the blocked names' key, digits and signs stay as they are and
+nothing else is dropped, so a rule matches the name it names and its
+look-alikes, never a longer or shorter name. Into key (size bytes): its
+length, 0 for an empty one (which matches nothing) */
+int server_names_rule_key(const unsigned int *characters, int count, char *key, size_t size);
+
+/* the same, for a name in ASCII or UTF-8 */
+int server_names_rule_key_text(const char *text, char *key, size_t size);
+
+/* whether a name (count characters, as Unicode code points) is the one a
+rule (its text, ASCII or UTF-8) names: their keys the same, and not empty.
+1, else 0 */
+int server_names_rule_matches(const char *rule, const unsigned int *characters, int count);
+
 #endif

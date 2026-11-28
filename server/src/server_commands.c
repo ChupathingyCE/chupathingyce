@@ -152,6 +152,9 @@ boolean host_rules_host_late_join_hold(void);
 lists") */
 boolean network_distributed_ban_account(char const *account, char const *handle, char const *reason,
 	unsigned long until);
+/* (network_distributed.c's: bans.txt's name rules, and its comments) */
+boolean network_distributed_name_banned(unsigned int const *name, int count, char *rule, long rule_size);
+boolean network_distributed_ban_comment(char const *text);
 #ifdef HALO_GAME_BROWSER
 /* (delta_peer_game.c's: MOD_STATE told again, the lock in it) */
 void delta_peer_game_moderation_roles_changed(void);
@@ -453,6 +456,21 @@ static struct
 		unsigned long kick_time;
 	} slots[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 } server_names_globals;
+
+/* bans.txt's name rules (name=): each player slot's name as it was last
+looked at, and a ban that could not drop its machine yet (tried again) */
+static struct
+{
+	unsigned long check_time;
+	struct
+	{
+		boolean checked;
+		long machine_index;
+		unsigned int name[32];
+		long name_length;
+		boolean ban_waiting;
+	} slots[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+} server_name_bans_globals;
 
 static struct
 {
@@ -3059,6 +3077,124 @@ static void names_update(
 	}
 }
 
+/* the players' names looked at against bans.txt's name rules (name=; a
+player who joined, or whose name changed): one a rule names is banned as
+sv_ban bans, told as sv_ban tells them, their machine refused with the
+game's own ban refusal, and the machine's own line added to bans.txt
+under a comment naming the rule, by its hardware id and address, so it
+stays out whatever name it comes back under. Its address goes in bans.txt
+alone, never the log */
+static void name_bans_update(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+	unsigned long now = system_milliseconds();
+	long index;
+
+	if (now - server_name_bans_globals.check_time < NAMES_CHECK_MILLISECONDS && server_name_bans_globals.check_time)
+		return;
+	server_name_bans_globals.check_time = now;
+	if (!game)
+	{
+		csmemset(server_name_bans_globals.slots, 0, sizeof(server_name_bans_globals.slots));
+		return;
+	}
+	for (index = 0; index < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; index++)
+	{
+		struct network_player *network_player = &game->players[index];
+		unsigned int name[32];
+		char rule[96];
+		long length;
+		boolean same;
+		boolean retry;
+
+		if (!network_player_is_valid(network_player))
+		{
+			server_name_bans_globals.slots[index].checked = FALSE;
+			server_name_bans_globals.slots[index].ban_waiting = FALSE;
+			continue;
+		}
+		for (length = 0; length < (long)NUMBEROF(network_player->name) && length < (long)NUMBEROF(name) &&
+			network_player->name[length]; length++)
+		{
+			name[length] = (unsigned short)network_player->name[length];
+		}
+		same = server_name_bans_globals.slots[index].checked &&
+			server_name_bans_globals.slots[index].machine_index == network_player->machine_index &&
+			server_name_bans_globals.slots[index].name_length == length &&
+			!memcmp(server_name_bans_globals.slots[index].name, name, (size_t)length * sizeof(name[0]));
+		if (same && !server_name_bans_globals.slots[index].ban_waiting)
+			continue;
+		retry = same;
+		server_name_bans_globals.slots[index].checked = TRUE;
+		server_name_bans_globals.slots[index].machine_index = network_player->machine_index;
+		server_name_bans_globals.slots[index].name_length = length;
+		csmemcpy(server_name_bans_globals.slots[index].name, name, (size_t)length * sizeof(name[0]));
+		server_name_bans_globals.slots[index].ban_waiting = FALSE;
+		if (!network_distributed_name_banned(name, (int)length, rule, sizeof(rule)))
+			continue;
+		{
+			static struct server_player players[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+			struct server_player const *player = NULL;
+			long count = get_players(players, NUMBEROF(players));
+			long other;
+			char names[96];
+			char reason[160];
+			char comment[256];
+			char target[32];
+			char when[32] = "";
+			time_t clock = time(NULL);
+			struct tm *local = localtime(&clock);
+
+			for (other = 0; other < count && !player; other++)
+			{
+				if (players[other].number == index + 1)
+					player = &players[other];
+			}
+			if (!player)
+				continue;
+			if (local)
+				strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", local);
+			machine_names(player->machine_index, names, sizeof(names));
+			snprintf(reason, sizeof(reason), "banned by the server: name rule %s", rule);
+			snprintf(comment, sizeof(comment), "%s name rule name=%s matched \"%s\": their machine is banned on the "
+				"next line", when, rule, player->name);
+			snprintf(target, sizeof(target), "player %ld", index + 1);
+#ifdef HALO_SERVER
+			/* (a Custom Edition player: by their address, which their next
+			join is checked against, as sv_ban bans them) */
+			{
+				unsigned long address = 0;
+
+				if (server_ce_kick(player->machine_index, player->controller_index, &address))
+				{
+					network_distributed_ban_comment(comment);
+					network_distributed_ban_until(NONE, address, player->name, reason, 0);
+					server_audit("server", "name rule", SERVER_ROLE_OWNER, "sv_ban", target, reason, TRUE, NULL);
+					platform_log("banned %s (Custom Edition, a bans.txt name rule)", player->name);
+					continue;
+				}
+			}
+#endif
+			/* (told once, not each time a drop is tried again) */
+			if (!retry)
+				server_moderation_notice(player->machine_index, TRUE, "Banned", "forever");
+			if (!network_game_server_drop_machine(player->machine_index, _rejection_code_blacklisted_machine))
+			{
+				/* (a machine that has not joined yet: tried again) */
+				server_name_bans_globals.slots[index].ban_waiting = TRUE;
+				continue;
+			}
+			network_distributed_ban_comment(comment);
+			network_distributed_ban_until(player->machine_index,
+				network_game_server_machine_address(player->machine_index), names, reason, 0);
+			server_audit("server", "name rule", SERVER_ROLE_OWNER, "sv_ban", target, reason, TRUE, NULL);
+			platform_log("banned %s (a bans.txt name rule)", names);
+		}
+	}
+}
+
 void server_commands_set_name_filter(
 	boolean name_filter)
 {
@@ -3134,6 +3270,7 @@ void server_commands_update(
 	}
 	server_moderation_update();
 	names_update();
+	name_bans_update();
 	steam_update();
 	server_conduct_update();
 #ifdef HALO_SERVER

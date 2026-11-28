@@ -53,7 +53,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools import third_party_notices  # noqa: E402
+from tools import package_check, third_party_notices  # noqa: E402
 from tools.version import base_version, commit, release_build, version  # noqa: E402
 
 # what each port's build leaves, and what goes into dist/
@@ -213,7 +213,17 @@ def main() -> int:
     # game's built-in list)
     if args.platform not in ANDROID_BUILDS and args.platform != "macos":
         shutil.copy2(ROOT / "port/assets/network/brokers.txt", dist / "brokers.txt")
-    return 0
+    return no_player_files(dist)
+
+
+def no_player_files(dist: Path) -> int:
+    """1, with each named, if dist holds a player's own file (config.toml, a
+    log, a save: tools/package_check.py), which an update would put over the
+    player's (#2029)"""
+    found = package_check.check([dist])
+    for line in found:
+        print(f"error: a player's own file in a release package: {line}", file=sys.stderr)
+    return 1 if found else 0
 
 
 def game_features(platform: str) -> list:
@@ -397,7 +407,7 @@ def server_dist(platform: str, config: str, output: str) -> int:
     write_build_ids(symbols)
     write_licenses(dist, "server", [])
     print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)
-    return 0
+    return no_player_files(dist)
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ tools/test_ci_select.py
 tools/test_compressed_maps.py
 tools/test_conduct_rules.py
 tools/test_config_console_replace.py
+tools/test_config_template_repair.py
 tools/test_console_claims.py
 tools/test_console_gates.py
 tools/test_console_gl_check.py
@@ -156,6 +157,7 @@ tools/test_mcc_workshop.py
 tools/test_medal_rules.py
 tools/test_menu_text_fit.py
 tools/test_menu_unique_rows.py
+tools/test_metal_ask.py
 tools/test_mod_archives.py
 tools/test_model_obscurer.py
 tools/test_net43_host.py
@@ -171,6 +173,7 @@ tools/test_p2p_public_address.py
 tools/test_p2p_signal_sockets.py
 tools/test_p2p_spoofed_source.py
 tools/test_pack_movies.py
+tools/test_package_check.py
 tools/test_packaged_install.py
 tools/test_pause_leave.py
 tools/test_picture_check.py
@@ -221,6 +224,7 @@ tools/test_tuning_table.py
 tools/test_update_channels.py
 tools/test_update_manifest.py
 tools/test_updater_follow_ups.py
+tools/test_updater_player_files.py
 tools/test_virtual_keyboard_input.py
 tools/test_voice.py
 tools/test_vote_notice.py

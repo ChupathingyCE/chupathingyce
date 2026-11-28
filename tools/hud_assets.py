@@ -222,8 +222,11 @@ MCC_MATCH = 0.5
 # MCC sheets left as the map draws them: the ammo and grenade counters'
 # panels, which MCC draws taller than the restored art (64 texels to its 56,
 # at the same size), so the art left a transparent strip along their bottom
-# (#1821); at the same size the restored art adds no detail
-MCC_OWN_SHEETS = {"hud_weapon_backgrounds__0", "hud_weapon_backgrounds__1", "hud_weapon_backgrounds__2"}
+# (#1821); at the same size the restored art adds no detail. Their outlines
+# (hud_ammo_outlines 0, 2 and 3) stay MCC's too: the restored ones have
+# another shape, so MCC's panel color ran past them (#1985)
+MCC_OWN_SHEETS = {"hud_weapon_backgrounds__0", "hud_weapon_backgrounds__1", "hud_weapon_backgrounds__2",
+                  "hud_ammo_outlines__0", "hud_ammo_outlines__2", "hud_ammo_outlines__3"}
 # the sheets whose sequences the HUD globals' button icons name
 MESSAGE_ICONS = ("ui\\hud\\bitmaps\\combined\\hud_msg_icons", "ui\\hud\\bitmaps\\hud_msg_icons_sm")
 

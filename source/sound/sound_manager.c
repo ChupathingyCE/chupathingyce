@@ -1088,6 +1088,29 @@ void sound_stop_impulse_by_source_and_definition(
 	return;
 }
 
+#if defined(HALO_CUSTOM_EDITION) && !defined(HALO_CONSOLE)
+/* port: whether a sound of this definition is playing, or is the next one a
+playing sound goes on to (a Custom Edition map's decoded sounds are not moved
+out of their file while they play: ce_resources.c) */
+boolean sound_definition_playing(
+	long definition_index)
+{
+	long sound_index;
+
+	if (!sound_data || !sound_data->valid)
+		return FALSE;
+	for (sound_index = data_next_index(sound_data, NONE); sound_index != NONE;
+		sound_index = data_next_index(sound_data, sound_index))
+	{
+		struct sound_datum *sound = sound_get(sound_index);
+
+		if (sound->definition_index == definition_index || sound->next_definition_index == definition_index)
+			return TRUE;
+	}
+	return FALSE;
+}
+#endif
+
 /* ---------- private code */
 
 static void sound_update_time(
