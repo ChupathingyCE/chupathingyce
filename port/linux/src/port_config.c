@@ -2071,6 +2071,11 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test's host: a file the host writes its invite link\n"
 		"to once it has one, for a joining machine's command line. Leave it\n"
 		"empty for none." },
+	{ "debug.network_test_name", _config_string, "\"\"", "HALO_NETWORK_TEST_NAME", _environment_value,
+		_platform_all,
+		"With debug.network_test: the name this machine's player joins under\n"
+		"(UTF-8), over the profile's, for a test of what a host does with a\n"
+		"name. Empty keeps the profile's." },
 	{ "debug.monitor_name", _config_string, "\"Chupa\"", "HALO_MONITOR_NAME", _environment_value, _platform_all,
 		"With debug.network_test's monitor: the name its player joins under." },
 	{ "debug.monitor_output", _config_string, "\"\"", "HALO_MONITOR_OUTPUT", _environment_value, _platform_all,

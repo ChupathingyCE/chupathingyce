@@ -1755,6 +1755,105 @@ static void test_names(void)
 	}
 }
 
+/* a name (ASCII or UTF-8) as code points, against a name rule */
+static int name_rule_matches(const char *rule, const char *name)
+{
+	unsigned int characters[64];
+	const unsigned char *cursor = (const unsigned char *)name;
+	int count = 0;
+
+	while (*cursor && count < 64)
+	{
+		unsigned int character = *cursor++;
+		int more = character >= 0xF0 ? 3 : character >= 0xE0 ? 2 : character >= 0xC0 ? 1 : 0;
+
+		if (more)
+			character &= 0x3F >> more;
+		for (; more && (*cursor & 0xC0) == 0x80; more--)
+			character = (character << 6) | (*cursor++ & 0x3F);
+		characters[count++] = character;
+	}
+	return server_names_rule_matches(rule, characters, count);
+}
+
+/* bans.txt's name rules (name=): the whole name, case, color codes, spaces
+and look-alike letters aside; never a longer or shorter name */
+static void test_name_rules(void)
+{
+	char key[SERVER_NAMES_RULE_KEY_SIZE];
+	static const unsigned int empty[] = { 0 };
+
+	CHECK(name_rule_matches("ifty", "ifty"));
+	/* (case) */
+	CHECK(name_rule_matches("ifty", "IFTY"));
+	CHECK(name_rule_matches("ifty", "IfTy"));
+	CHECK(name_rule_matches("IFTY", "ifty"));
+	/* (color codes) */
+	CHECK(name_rule_matches("ifty", "^1ifty"));
+	CHECK(name_rule_matches("ifty", "^1i^2f^3t^4y"));
+	CHECK(name_rule_matches("ifty", "ifty^7"));
+	/* (spaces, Unicode's too, and what draws as nothing) */
+	CHECK(name_rule_matches("ifty", " i f t y "));
+	CHECK(name_rule_matches("ifty", "i\xc2\xa0" "fty"));
+	CHECK(name_rule_matches("ifty", "if\xe2\x80\x8bty"));
+	CHECK(name_rule_matches("ifty", "i|fty"));
+	CHECK(name_rule_matches("i f t y", "ifty"));
+	/* (accents, full-width forms, a Cyrillic look-alike) */
+	CHECK(name_rule_matches("ifty", "\xc3\xae" "fty"));
+	CHECK(name_rule_matches("ifty", "\xef\xbc\xa9\xef\xbc\xa6\xef\xbc\xb4\xef\xbc\xb9"));
+	CHECK(name_rule_matches("ifty", "\xd1\x96" "fty"));
+	/* (other scripts: each character itself, so only the same name matches;
+	CJK, Arabic, Hangul, emoji, and a UTF-16 pair as a wide name has one) */
+	CHECK(name_rule_matches("\xe5\xb1\xb1\xe7\x94\xb0", "\xe5\xb1\xb1\xe7\x94\xb0"));
+	CHECK(!name_rule_matches("\xe5\xb1\xb1\xe7\x94\xb0", "\xe7\x94\xb0\xe4\xb8\xad"));
+	CHECK(!name_rule_matches("\xe5\xb1\xb1\xe7\x94\xb0", "\xe5\xb1\xb1"));
+	CHECK(name_rule_matches("\xe5\xb1\xb1 \xe7\x94\xb0", "\xe5\xb1\xb1\xe7\x94\xb0"));
+	CHECK(name_rule_matches("\xd8\xb9\xd9\x84\xd9\x8a", "\xd8\xb9\xd9\x84\xd9\x8a"));
+	CHECK(!name_rule_matches("\xd8\xb9\xd9\x84\xd9\x8a", "\xd8\xb3\xd9\x84\xd9\x8a"));
+	CHECK(!name_rule_matches("\xd8\xb9\xd9\x84\xd9\x8a", "\xe5\xb1\xb1\xe7\x94\xb0"));
+	CHECK(name_rule_matches("\xea\xb9\x80", "\xea\xb9\x80"));
+	CHECK(!name_rule_matches("\xea\xb9\x80", "\xeb\xb0\x95"));
+	CHECK(name_rule_matches("ab\xf0\x9f\x98\x80", "ab\xf0\x9f\x98\x80"));
+	CHECK(!name_rule_matches("ab\xf0\x9f\x98\x80", "ab\xf0\x9f\x98\x83"));
+	CHECK(!name_rule_matches("\xf0\x9f\x98\x80", "\xf0\x9f\x98\x83"));
+	CHECK(!name_rule_matches("\xf0\x9f\x98\x80", "\xe5\xb1\xb1"));
+	CHECK(!name_rule_matches("ab\xf0\x9f\x98\x80", "ab"));
+	{
+		static const unsigned int smile[] = { 'a', 'b', 0xD83D, 0xDE00 };
+		static const unsigned int other[] = { 'a', 'b', 0xD83D, 0xDE03 };
+
+		CHECK(server_names_rule_matches("ab\xf0\x9f\x98\x80", smile, 4));
+		CHECK(!server_names_rule_matches("ab\xf0\x9f\x98\x80", other, 4));
+	}
+	/* (other names: longer, shorter, a letter changed, digits kept as they
+	are) */
+	CHECK(!name_rule_matches("ifty", "nifty"));
+	CHECK(!name_rule_matches("ifty", "fifty"));
+	CHECK(!name_rule_matches("ifty", "Nifty"));
+	CHECK(!name_rule_matches("ifty", "iftyy"));
+	CHECK(!name_rule_matches("ifty", "ift"));
+	CHECK(!name_rule_matches("ifty", "ifty2"));
+	CHECK(!name_rule_matches("ifty", "1fty"));
+	CHECK(!name_rule_matches("ifty", "if.ty"));
+	CHECK(!name_rule_matches("ifty", "ifty_"));
+	CHECK(!name_rule_matches("ifty", "^ifty"));
+	CHECK(!name_rule_matches("ifty", "Player"));
+	/* (a digit is no color code without its "^") */
+	CHECK(name_rule_matches("Player1", "player1"));
+	CHECK(!name_rule_matches("Player1", "Player"));
+	/* (an empty rule, or one of spaces and color codes alone, matches
+	nothing) */
+	CHECK(!name_rule_matches("", ""));
+	CHECK(!name_rule_matches("", "ifty"));
+	CHECK(!name_rule_matches("  ^1 ", "^2"));
+	CHECK(!server_names_rule_matches("ifty", empty, 0));
+	CHECK(!server_names_rule_matches("ifty", NULL, 4));
+	CHECK(server_names_rule_key_text("^1I f T y", key, sizeof(key)) == 4 && !strcmp(key, "ifty"));
+	CHECK(server_names_rule_key_text("", key, sizeof(key)) == 0 && !key[0]);
+	/* (a key larger than its room: cut, ended) */
+	CHECK(server_names_rule_key_text("abcdef", key, 4) == 3 && !strcmp(key, "abc"));
+}
+
 static void test_link(int rounds)
 {
 	static struct control_link_poll poll;
@@ -2218,6 +2317,7 @@ int main(int argc, char **argv)
 	test_roles_cache(rounds);
 	test_link_extras(rounds);
 	test_names();
+	test_name_rules();
 	printf("%d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }

@@ -343,9 +343,10 @@ int server_names_list_blocked(const struct server_names_list *list, const unsign
 	return 0;
 }
 
-int server_names_list_blocked_text(const struct server_names_list *list, const char *text)
+/* text in ASCII or UTF-8 as code points (NAMES_MAXIMUM_CHARACTERS at most):
+their count */
+static int decode_text(const char *text, unsigned int *characters)
 {
-	unsigned int characters[NAMES_MAXIMUM_CHARACTERS];
 	const unsigned char *cursor = (const unsigned char *)text;
 	int count = 0;
 
@@ -361,7 +362,162 @@ int server_names_list_blocked_text(const struct server_names_list *list, const c
 			character = (character << 6) | (*cursor++ & 0x3F);
 		characters[count++] = character;
 	}
+	return count;
+}
+
+int server_names_list_blocked_text(const struct server_names_list *list, const char *text)
+{
+	unsigned int characters[NAMES_MAXIMUM_CHARACTERS];
+	int count = decode_text(text, characters);
+
 	return server_names_list_blocked(list, characters, count);
+}
+
+/* whether a character is one player_name_clean (source/game/players.c)
+leaves out of a name: a control character, one that draws as nothing, a
+lone surrogate, a non-character or "|" */
+static int rule_left_out(unsigned int character)
+{
+	return character < 0x20 || (character >= 0x7F && character <= 0x9F) || character == 0xAD ||
+		character == 0x34F || character == 0x115F || character == 0x1160 || character == 0x17B4 ||
+		character == 0x17B5 || (character >= 0x180B && character <= 0x180E) ||
+		(character >= 0x200B && character <= 0x200F) || (character >= 0x2028 && character <= 0x202E) ||
+		(character >= 0x2060 && character <= 0x206F) || character == 0x2800 || character == 0x3164 ||
+		(character >= 0xD800 && character <= 0xDFFF) || (character >= 0xFE00 && character <= 0xFE0F) ||
+		character == 0xFEFF || character == 0xFFA0 || (character >= 0xFFF0 && character <= 0xFFFF) ||
+		character == '|';
+}
+
+/* whether a character is a space (Unicode's, as player_name_clean makes
+them plain ones) */
+static int rule_space(unsigned int character)
+{
+	return character == ' ' || character == 0xA0 || character == 0x1680 || (character >= 0x2000 && character <= 0x200A) ||
+		character == 0x202F || character == 0x205F || character == 0x3000;
+}
+
+/* a code point as UTF-8, appended to text */
+static void append_utf8(unsigned int character, char *text, size_t *length, size_t size)
+{
+	unsigned char bytes[4];
+	size_t count, index;
+
+	if (character > 0x10FFFF)
+		character = 0xFFFD;
+	if (character < 0x80)
+	{
+		bytes[0] = (unsigned char)character;
+		count = 1;
+	}
+	else if (character < 0x800)
+	{
+		bytes[0] = (unsigned char)(0xC0 | character >> 6);
+		bytes[1] = (unsigned char)(0x80 | (character & 0x3F));
+		count = 2;
+	}
+	else if (character < 0x10000)
+	{
+		bytes[0] = (unsigned char)(0xE0 | character >> 12);
+		bytes[1] = (unsigned char)(0x80 | ((character >> 6) & 0x3F));
+		bytes[2] = (unsigned char)(0x80 | (character & 0x3F));
+		count = 3;
+	}
+	else
+	{
+		bytes[0] = (unsigned char)(0xF0 | character >> 18);
+		bytes[1] = (unsigned char)(0x80 | ((character >> 12) & 0x3F));
+		bytes[2] = (unsigned char)(0x80 | ((character >> 6) & 0x3F));
+		bytes[3] = (unsigned char)(0x80 | (character & 0x3F));
+		count = 4;
+	}
+	/* (a character that does not fit whole is left out) */
+	if (*length + count >= size)
+		return;
+	for (index = 0; index < count; index++)
+		text[(*length)++] = (char)bytes[index];
+	text[*length] = 0;
+}
+
+int server_names_rule_key(const unsigned int *characters, int count, char *key, size_t size)
+{
+	char folded[SERVER_NAMES_RULE_KEY_SIZE];
+	size_t length = 0;
+	int character;
+
+	if (!key || !size)
+		return 0;
+	key[0] = 0;
+	if (!characters || count <= 0)
+		return 0;
+	if (count > NAMES_MAXIMUM_CHARACTERS)
+		count = NAMES_MAXIMUM_CHARACTERS;
+	folded[0] = 0;
+	for (character = 0; character < count; character++)
+	{
+		unsigned int one = characters[character];
+
+		/* (a UTF-16 pair, as a wide name may hold one: its code point) */
+		if (one >= 0xD800 && one <= 0xDBFF && character + 1 < count && characters[character + 1] >= 0xDC00 &&
+			characters[character + 1] <= 0xDFFF)
+		{
+			one = 0x10000 + ((one - 0xD800) << 10) + (characters[character + 1] - 0xDC00);
+			character++;
+		}
+		if (rule_left_out(one) || rule_space(one))
+			continue;
+		/* (a color code: "^" and a digit, both left out) */
+		if (one == '^' && character + 1 < count && characters[character + 1] >= '0' && characters[character + 1] <= '9')
+		{
+			character++;
+			continue;
+		}
+		/* (a character the fold has no letter for, "~": itself, so that
+		names of other scripts differ as they do) */
+		{
+			size_t before = length;
+
+			fold_character(one, folded, &length, sizeof(folded));
+			if (one >= 0x80 && length == before + 1 && folded[before] == '~')
+			{
+				length = before;
+				folded[length] = 0;
+				append_utf8(one, folded, &length, sizeof(folded));
+			}
+		}
+	}
+	/* (a folded character may be a space: U+00A0's and its kind) */
+	{
+		size_t index, kept = 0;
+
+		for (index = 0; index < length && kept + 1 < size; index++)
+		{
+			if (folded[index] != ' ')
+				key[kept++] = folded[index];
+		}
+		key[kept] = 0;
+		return (int)kept;
+	}
+}
+
+int server_names_rule_key_text(const char *text, char *key, size_t size)
+{
+	unsigned int characters[NAMES_MAXIMUM_CHARACTERS];
+	int count = decode_text(text, characters);
+
+	return server_names_rule_key(characters, count, key, size);
+}
+
+int server_names_rule_matches(const char *rule, const unsigned int *characters, int count)
+{
+	char rule_key[SERVER_NAMES_RULE_KEY_SIZE];
+	char name_key[SERVER_NAMES_RULE_KEY_SIZE];
+
+	if (!server_names_rule_key_text(rule, rule_key, sizeof(rule_key)) ||
+		!server_names_rule_key(characters, count, name_key, sizeof(name_key)))
+	{
+		return 0;
+	}
+	return !strcmp(rule_key, name_key);
 }
 
 void server_names_clear(void)
