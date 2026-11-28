@@ -62,9 +62,6 @@ enum
 	_sound_compression_xbox_adpcm = 1,
 	/* (an xbox adpcm block, of each channel: sound_dsound_xbox.c) */
 	SOUND_COMPRESSED_BLOCK_SIZE = 36,
-	/* (the sound cache: sound_dsound_xbox.c's SOUND_CACHE_SIZE) */
-	SOUND_CACHE_SIZE = 0x400000,
-
 	/* damage.c */
 	NUMBER_OF_DAMAGE_SIDE_EFFECTS = 4,
 	NUMBER_OF_DAMAGE_CATEGORIES = 13,
@@ -1022,7 +1019,8 @@ static struct tag_schema_field const sound_permutation_fields[] =
 		offsetof(struct sound_pitch_range, permutations), FLAG(_tag_schema_none_bit)),
 	TAG_SCHEMA_RESET(struct sound_permutation, unknown0, NONE),
 	TAG_SCHEMA_RESET(struct sound_permutation, unknown1, 0),
-	TAG_SCHEMA_FILE_DATA(struct sound_permutation, samples, SOUND_CACHE_SIZE),
+	/* (the Xbox's sound cache, the most on every build: halo_port_capacity.h) */
+	TAG_SCHEMA_FILE_DATA(struct sound_permutation, samples, HALO_PORT_XBOX_SOUND_CACHE_SIZE),
 	TAG_SCHEMA_DATA(struct sound_permutation, mouth_data, MAXIMUM_SOUND_MOUTH_DATA_SIZE),
 	TAG_SCHEMA_DATA(struct sound_permutation, subtitle_data, MAXIMUM_SOUND_SUBTITLE_DATA_SIZE),
 	TAG_SCHEMA_END
