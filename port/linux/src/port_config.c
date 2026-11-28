@@ -27,6 +27,7 @@ it did before the console had the file.
 #include "posix.h"
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 #include "packaged_install.h"
+#include "config_template_repair.h"
 #endif
 
 #include <time.h>
@@ -5658,6 +5659,60 @@ static void config_report_unread(const char *path)
 }
 #endif
 
+/* the desktops whose config.toml an update may have replaced with the
+template v0.9.2a's 64-bit zips held (config_template_repair.h, #2029) */
+#if !defined(HALO_ANDROID) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE) && !defined(CONFIG_CONSOLE_FILES) && \
+	!defined(HALO_CONSOLE_CONFIG_IN_DATA_ROOT) && (defined(_WIN32) || defined(__linux__) || defined(__APPLE__))
+#define CONFIG_TEMPLATE_REPAIR 1
+#endif
+
+#ifdef CONFIG_TEMPLATE_REPAIR
+/* the player's config.toml back from config.toml.old, once, when the
+template is in its place (config_template_should_repair); the template kept
+as config.toml.template-0.9.2a. Nothing is touched otherwise, nor when that
+name is taken already */
+static void config_repair_template(const char *path)
+{
+	char old[1100], kept[1100];
+	size_t size = 0, old_size = 0;
+	char *current, *previous;
+	int repair;
+
+	if ((size_t)snprintf(old, sizeof(old), "%s.old", path) >= sizeof(old) ||
+		(size_t)snprintf(kept, sizeof(kept), "%s" CONFIG_TEMPLATE_REPAIR_SUFFIX, path) >= sizeof(kept) ||
+		!SDL_GetPathInfo(old, NULL))
+	{
+		return;
+	}
+	/* (a repair cut short between its two renames: the template kept, no
+	config.toml, the player's file still config.toml.old) */
+	if (SDL_GetPathInfo(kept, NULL))
+	{
+		if (!SDL_GetPathInfo(path, NULL) && SDL_RenamePath(old, path))
+			platform_log("settings: finished putting config.toml back from config.toml.old");
+		return;
+	}
+	current = config_read_file(path, &size);
+	previous = current ? config_read_file(old, &old_size) : NULL;
+	repair = current && previous && strlen(current) == size && strlen(previous) == old_size &&
+		config_template_should_repair(current, previous);
+	free(current);
+	free(previous);
+	if (!repair)
+		return;
+	if (!SDL_RenamePath(path, kept))
+		return;
+	if (!SDL_RenamePath(old, path))
+	{
+		/* (as it was) */
+		SDL_RenamePath(kept, path);
+		return;
+	}
+	platform_log("settings: config.toml was the template an update put in its place; "
+		"config.toml.old is config.toml again (the template is config.toml" CONFIG_TEMPLATE_REPAIR_SUFFIX ")");
+}
+#endif
+
 static void config_load(void)
 {
 	char path[1024];
@@ -5683,6 +5738,9 @@ static void config_load(void)
 	}
 
 	config_path(path, sizeof(path));
+#ifdef CONFIG_TEMPLATE_REPAIR
+	config_repair_template(path);
+#endif
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	config_report_unread(path);
 #endif
