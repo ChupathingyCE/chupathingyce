@@ -94,8 +94,13 @@ HALO_LINUX_PLATFORM_LAYER), so that define can't be the test here) */
 #endif
 /* Port/linux/game/modern_lighting_scene.c,
 in the 64-bit desktop builds (HALO_PORT_HDR is the platform layer's alone:
-the game's units, render.c among them, do not have it) */
-#if defined(HALO_64BIT) && !defined(HALO_SERVER) && !defined(HALO_ANDROID) && !defined(HALO_CONSOLE)
+the game's units, render.c among them, do not have it): the builds of
+halo_port_features.h's HALO_PORT_MODERN_LIGHTING, its gate word for word
+(the Switch's build defines HALO_SWITCH_CONSOLE alone, and the Mac's
+OpenGL draws none of it) */
+#if defined(HALO_64BIT) && !defined(HALO_SERVER) && !defined(HALO_ANDROID) && !defined(__APPLE__) && \
+	!(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER))
 struct render_camera;
 void modern_lighting_opaque(const struct render_camera *camera);
 void modern_lighting_shine(const struct render_camera *camera);
