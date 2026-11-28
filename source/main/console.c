@@ -370,6 +370,15 @@ commands and its typing (port/linux/game/console_shell.h) */
 #define CONSOLE_SHELL
 #include "console_shell.h"
 
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_XBOX360_CONSOLE) && !defined(HALO_SERVER)
+/* port: setting <key> [<value>], a setting of config.toml read, set or
+listed (port/linux/src/port_config.c's config_console_command, under the
+same gate): the desktop's and Android's console. Not the original Xbox's
+or the Xbox 360's, which have no keyboard to type it, nor the dedicated
+server's, whose settings stay in its file */
+#define CONSOLE_SETTING_COMMAND
+#endif
+
 /* port: help, and help <command> */
 static void console_shell_help(
 	char const *topic)
@@ -415,6 +424,15 @@ static void console_shell_help(
 			terminal_shell_output("%s", line);
 		return;
 	}
+#ifdef CONSOLE_SETTING_COMMAND
+	if (!csstrcmp(topic, "setting"))
+	{
+		terminal_shell_output("usage: setting [<key> [<value>]]");
+		terminal_shell_output("Shows a setting of config.toml, or sets it and writes it there. With nothing, or the "
+			"start of a key (display.), lists them.");
+		return;
+	}
+#endif
 	if (hs_function_usage(topic, usage, sizeof(usage)) && hs_function_help(topic, &help, &returns))
 	{
 		terminal_shell_output("usage: %s", usage);
@@ -452,6 +470,38 @@ static boolean console_shell_host_command(
 	return FALSE;
 }
 
+#ifdef CONSOLE_SETTING_COMMAND
+void config_console_command(char const *arguments, int network_game, void (*say)(int kind, char const *text));
+boolean render_tuning_network_game(void);
+
+/* (port_config.h's CONFIG_SAY_*: output, a note, a refusal) */
+static void console_setting_say(
+	int kind,
+	char const *text)
+{
+	if (!terminal_shell_style())
+		console_printf(FALSE, "%s", text);
+	else if (kind == 2)
+		terminal_shell_error("%s", text);
+	else if (kind == 1)
+		terminal_shell_note("%s", text);
+	else
+		terminal_shell_output("%s", text);
+}
+
+/* port: TRUE when the line was setting, done */
+static boolean console_setting_command(
+	char const *command)
+{
+	while (*command == ' ')
+		command++;
+	if (strncmp(command, "setting", 7) || (command[7] && command[7] != ' '))
+		return FALSE;
+	config_console_command(command + 7, render_tuning_network_game(), console_setting_say);
+	return TRUE;
+}
+#endif
+
 /* port: a line typed into the drop-down console, as a shell runs it:
 TRUE when it was the shell's own (clear, help) and is done */
 static boolean console_shell_builtin(
@@ -483,6 +533,19 @@ char const *console_history_entry(
 	return console_globals.previous_commands[
 		(console_globals.newest_previous_command_index - age + MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS) %
 			MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS];
+}
+
+/* port: a line of the telnet console that is the setting command, run
+(console_setting_command): TRUE when it was; a build without it, FALSE */
+boolean console_setting_line(
+	char const *line)
+{
+#ifdef CONSOLE_SETTING_COMMAND
+	return console_setting_command(line);
+#else
+	(void)line;
+	return FALSE;
+#endif
 }
 
 static boolean console_process_command(
@@ -571,6 +634,10 @@ static boolean console_process_command(
 	(port/linux/game/lua_scripting.c, its "command" callback) */
 	if (!lua_scripting_command(command))
 		return TRUE;
+#ifdef CONSOLE_SETTING_COMMAND
+	if (console_setting_command(command))
+		return TRUE;
+#endif
 #ifdef CONSOLE_SHELL
 	/* port: the drop-down console's shell: its own commands, then the line
 	made the scripts' expression (console_shell.h) */

@@ -185,6 +185,13 @@ boolean hs_compile_and_evaluate(const char *expression)
 	return 1;
 }
 
+/* (console.c's setting command: never a line of it here) */
+boolean console_setting_line(const char *line)
+{
+	(void)line;
+	return 0;
+}
+
 /* ---------- private code */
 
 /* whether the input's first line is an HTTP request's, as a browser sends one */

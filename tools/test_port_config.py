@@ -1568,6 +1568,64 @@ def test_xbox_follows_new_defaults(program, directory):
 		f"xbox/chosen: {values}")
 
 
+def setting_lines(case, *words):
+	"""The console's setting command on words: its lines, (kind, text)."""
+	_, output = case.run("setting", *words)
+	return [(int(kind), text) for kind, text in re.findall(r"^say(\d): (.*)$", output, re.M)], output
+
+
+def test_setting_command(program, directory, defaults, kind):
+	"""The console's setting command: a setting shown with its default; set
+	as config.toml would set it (a boolean's words, a number, a word of its
+	list in any case, quotes taken off) and written there, with a log line;
+	a value it can't take, or a key that is none, refused in one line and
+	the file left; the start of a key lists the settings; a token hidden;
+	and in a network game a held knob says so."""
+	case = Case(program, directory / "setting")
+	lines, _ = setting_lines(case, "display.vsync")
+	check(lines == [(0, "display.vsync = true"), (1, "Default: true.")], f"setting: shown {lines}")
+	lines, output = setting_lines(case, "display.vsync", "off")
+	check(lines == [(0, "display.vsync = false")], f"setting: set {lines}")
+	check("log: settings: the console set display.vsync = false" in output, f"setting: no log line {output}")
+	values, commented = value_lines(case.text(), "vsync")
+	check(values == ["vsync = false"], f"setting: the file has {values}")
+	before = case.text()
+	for words, refusal in (
+		(("display.vsync", "maybe"), "setting: display.vsync is true or false"),
+		(("display.theme", "purple"), 'setting: display.theme takes "blue", "red", "green", "orange" or "live"'),
+		(("display.max_fps", "2x"), "setting: display.max_fps takes a whole number"),
+		(("display.field_of_view", "wide"), "setting: display.field_of_view takes a number"),
+		(("nothing.at_all", "1"), "setting: no setting is named nothing.at_all"),
+		(("nothing.at_all",), "setting: no setting is named nothing.at_all"),
+	):
+		if kind == "server" and words[0] != "nothing.at_all":
+			continue
+		lines, _ = setting_lines(case, *words)
+		check(lines == [(2, refusal)], f"setting {words}: {lines}")
+	check(case.text() == before, "setting: a refused value changed the file")
+	if kind != "server":
+		lines, _ = setting_lines(case, "display.theme", '"RED"')
+		check(lines == [(0, 'display.theme = "red"')], f"setting: a word {lines}")
+		lines, _ = setting_lines(case, "display.field_of_view", "90")
+		check(lines == [(0, "display.field_of_view = 90")], f"setting: a number {lines}")
+		# (a [tuning] knob out of its range, held in it as config.toml's would be)
+		lines, output = setting_lines(case, "display.particle_limit", "99999999")
+		check(len(lines) == 1 and lines[0][1] != "display.particle_limit = 99999999", f"setting: not held {lines}")
+		check("(clamped)" in output, f"setting: no tuning line {output}")
+		lines, _ = setting_lines(case, "--network", "display.particle_limit", "512")
+		check(lines == [(0, "display.particle_limit = 512"), (1, "A network game keeps at least 1024 particles.")],
+			f"setting: network {lines}")
+	lines, _ = setting_lines(case, "network.events_token", "abc123")
+	check(lines == [(0, "network.events_token = (hidden)")], f"setting: token {lines}")
+	lines, _ = setting_lines(case, "network.events_token")
+	check(lines == [(0, "network.events_token = (hidden)")], f"setting: token shown {lines}")
+	lines, _ = setting_lines(case, "network.")
+	check(len(lines) > 5 and all(text.startswith("network.") for _, text in lines[:-1]), f"setting: list {lines}")
+	check(lines[-1] == (1, f"{len(lines) - 1} settings. setting <key> <value> sets one."), f"setting: {lines[-1]}")
+	everything, _ = setting_lines(case)
+	check(len(everything) > len(lines), f"setting: all {len(everything)}")
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--cc", default=os.environ.get("CC", "cc"))
@@ -1592,7 +1650,7 @@ def main():
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
 				test_retired_setting, test_delta_renamed, test_interrupted_write, test_long_string_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
-				test_server_file, test_follow_file, test_tuning, test_tuning_drawing_knobs, test_renderer_round_trip):
+				test_server_file, test_follow_file, test_tuning, test_tuning_drawing_knobs, test_renderer_round_trip, test_setting_command):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

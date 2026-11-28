@@ -128,4 +128,22 @@ const char *config_setting_word(const char *name, int index);
 that it follows the version's default again; 1 on success */
 int config_reset(const char *name);
 
+/* ---------- the console's setting command (source/main/console.c) */
+
+/* what a line the command says is: plain output, a note, a refusal */
+enum
+{
+	CONFIG_SAY_OUTPUT,
+	CONFIG_SAY_NOTE,
+	CONFIG_SAY_ERROR,
+};
+
+/* "setting <key> [<value>]", arguments being what follows the word: with
+a value, the setting set as config.toml would set it and written there,
+then said; without one, said with its default; with nothing, or a key's
+start, the settings whose names start so listed. A key that is none is
+refused in a plain line. network_game: a network game is on, whose holds
+the command says of a setting it holds. Each line goes to say */
+void config_console_command(const char *arguments, int network_game, void (*say)(int kind, const char *text));
+
 #endif

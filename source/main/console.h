@@ -27,6 +27,9 @@ void console_input_update(void);
 #endif
 boolean console_is_active(void);
 void console_printf(boolean clear, const char *format, ...);
+/* port: the telnet console's line run as the setting command, when it is
+one (port_config.c's config_console_command): TRUE if it was */
+boolean console_setting_line(char const *line);
 void console_warning(const char *format, ...);
 void console_startup(void);
 void console_dispose(void);

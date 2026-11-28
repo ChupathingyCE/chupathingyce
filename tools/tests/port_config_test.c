@@ -27,6 +27,10 @@ the C library (the test's SDL3/SDL.h and platform.h declare them).
 	                                         "tuning: at=map" line, and the
 	                                         Potato preset's knobs
 	                                         ("potato.<setting>=<value>")
+	port_config_test setting [--network] <line>  the console's setting command
+	                                         (config_console_command) on the
+	                                         words after it, each line it says
+	                                         as "say<kind>: <text>"
 */
 
 #include "platform.h"
@@ -168,6 +172,13 @@ void SDL_free(void *memory)
 	free(memory);
 }
 
+#ifndef HALO_XBOX_CONSOLE
+static void setting_say(int kind, const char *text)
+{
+	printf("say%d: %s\n", kind, text);
+}
+#endif
+
 int main(int argc, char **argv)
 {
 	int index = 2;
@@ -205,6 +216,27 @@ int main(int argc, char **argv)
 		}
 		return 0;
 	}
+#ifndef HALO_XBOX_CONSOLE
+	else if (argc >= 2 && !strcmp(argv[1], "setting"))
+	{
+		char line[600] = "";
+		int word = 2, network = 0;
+
+		if (argc > 2 && !strcmp(argv[2], "--network"))
+		{
+			network = 1;
+			word++;
+		}
+		for (; word < argc; word++)
+		{
+			size_t length = strlen(line);
+
+			snprintf(line + length, sizeof(line) - length, "%s%s", length ? " " : "", argv[word]);
+		}
+		config_console_command(line, network, setting_say);
+		return 0;
+	}
+#endif
 	else if (argc >= 2 && !strcmp(argv[1], "pending"))
 	{
 		char changes[1024];

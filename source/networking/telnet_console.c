@@ -47,6 +47,7 @@ symbols in this file:
 #include "bungie_net/network/transport_address_constants.h"
 #include "bungie_net/network/transport_endpoint.h"
 #include "hs/hs.h"
+#include "main/console.h"
 #include "networking/telnet_console.h"
 #ifdef HALO_64BIT
 #include "cseries/errors.h"
@@ -422,6 +423,13 @@ static boolean process_telnet_client_buffer(
 						telnet_client_disconnect(client);
 						error(2, "dropped a telnet client that sent an HTTP request");
 						return TRUE;
+					}
+					/* port: setting <key> [<value>], as the drop-down
+					console has it (console.c's console_setting_line) */
+					if (console_setting_line(expression))
+					{
+						telnet_client_write(client, "\r\n", 2);
+						continue;
 					}
 					if (hs_compile_and_evaluate(expression))
 					{

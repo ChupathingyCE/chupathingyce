@@ -37,6 +37,7 @@ it did before the console had the file.
 #include <SDL3/SDL.h>
 #endif
 #include <ctype.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6786,3 +6787,285 @@ const char *config_tuning_preset_value(const char *preset, const char *name)
 	}
 	return NULL;
 }
+
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_XBOX360_CONSOLE)
+/* ---------- the console's setting command (source/main/console.c's
+CONSOLE_SETTING_COMMAND, the same gate less the dedicated server's, whose
+file tools/test_port_config.py checks it refuses the game's settings in)
+
+"setting <key>" says a setting's value, "setting <key> <value>" sets it as
+config.toml would (the same words, and the [tuning] knobs held in range by
+config_tuning_apply, which logs it) and writes it there, and "setting" with
+nothing or the start of a key lists the settings. A network game's holds
+stay: they are made where the settings are read (render.c's render_tuning,
+particles.c, object_lights.c), and the command says so. */
+
+/* what a network game holds, for the settings it holds where they could
+hide or show a player (docs/settings.md, "Tuning") */
+static const struct
+{
+	const char *name;
+	const char *held;
+} config_network_holds[] =
+{
+	{ "tuning.preset", "A network game keeps its knobs from hiding players." },
+	{ "display.particle_limit", "A network game keeps at least 1024 particles." },
+	{ "display.dynamic_light_limit", "A network game keeps at least 8 lights." },
+	{ "display.specular_light_limit", "A network game keeps at least 2 lights with shine." },
+	{ "tuning.particle_thinning", "A network game thins only past 1024 particles." },
+	{ "tuning.effects", "A network game still draws the grass, rain and snow." },
+	{ "tuning.object_cull_pixels", "A network game leaves out only debris." },
+};
+
+#define NUMBER_OF_NETWORK_HOLDS (sizeof(config_network_holds) / sizeof(config_network_holds[0]))
+
+/* whether two words are the same in any case */
+static int config_console_same(const char *a, const char *b)
+{
+	for (; *a && *b; a++, b++)
+	{
+		if (tolower((unsigned char)*a) != tolower((unsigned char)*b))
+			return 0;
+	}
+	return *a == *b;
+}
+
+/* whether a setting's value is not shown (a token or a password) */
+static int config_value_hidden(const char *name)
+{
+	size_t length = strlen(name);
+
+	return (length > 6 && !strcmp(name + length - 6, "_token")) ||
+		(length > 9 && !strcmp(name + length - 9, "_password"));
+}
+
+/* a setting's value as config.toml has it ("true", 60, "xbox" in quotes) */
+static void config_console_value(const char *name, char *text, size_t size)
+{
+	char value[300];
+
+	if (!config_text(name, value, sizeof(value)))
+		value[0] = '\0';
+	if (config_value_hidden(name) && value[0])
+		snprintf(text, size, "(hidden)");
+	else if (config_setting_kind(name) == CONFIG_KIND_STRING)
+		snprintf(text, size, "\"%s\"", value);
+	else
+		snprintf(text, size, "%s", value);
+}
+
+/* a word setting's words, "a", "b" or "c" (empty for any text) */
+static void config_console_words(const char *name, char *text, size_t size)
+{
+	size_t word_index;
+
+	text[0] = '\0';
+	for (word_index = 0; word_index < NUMBER_OF_CONFIG_WORDS; word_index++)
+	{
+		const char *const *words = config_words[word_index].words;
+		size_t word;
+
+		if (strcmp(config_words[word_index].name, name) || !config_words[word_index].otherwise)
+			continue;
+		for (word = 0; words[word]; word++)
+		{
+			size_t length = strlen(text);
+
+			snprintf(text + length, size - length, "%s\"%s\"", !word ? "" : !words[word + 1] ? " or " : ", ",
+				words[word]);
+		}
+		return;
+	}
+}
+
+/* value as one of a word setting's words (in its case, an older word as
+its new one: config_check_words): 1 when it is one, or the setting takes
+any text */
+static int config_console_word(const char *name, const char *value, char *word, size_t size)
+{
+	size_t word_index, old;
+
+	snprintf(word, size, "%s", value);
+	for (old = 0; old < NUMBER_OF_CONFIG_OLD_WORDS; old++)
+	{
+		if (!strcmp(config_old_words[old].name, name) && config_console_same(value, config_old_words[old].old_word))
+		{
+			snprintf(word, size, "%s", config_old_words[old].word);
+			break;
+		}
+	}
+	for (word_index = 0; word_index < NUMBER_OF_CONFIG_WORDS; word_index++)
+	{
+		const char *const *words = config_words[word_index].words;
+		size_t index;
+
+		if (strcmp(config_words[word_index].name, name))
+			continue;
+		for (index = 0; words[index]; index++)
+		{
+			if (config_console_same(word, words[index]))
+			{
+				snprintf(word, size, "%s", words[index]);
+				return 1;
+			}
+		}
+		/* (one whose reader takes other text too: display.hud_safe_zone's
+		two numbers) */
+		return !config_words[word_index].otherwise;
+	}
+	return 1;
+}
+
+void config_console_command(const char *arguments, int network_game, void (*say)(int kind, const char *text))
+{
+	char key[128], value[300], text[600], shown[320];
+	const char *name, *end;
+	size_t length;
+	int index, kind, count = 0;
+
+	while (*arguments == ' ')
+		arguments++;
+	for (end = arguments; *end && *end != ' '; end++)
+	{
+	}
+	length = (size_t)(end - arguments);
+	if (length >= sizeof(key))
+	{
+		say(CONFIG_SAY_ERROR, "setting: no setting has a name that long");
+		return;
+	}
+	memcpy(key, arguments, length);
+	key[length] = '\0';
+	while (*end == ' ')
+		end++;
+	/* (a value in quotes, as config.toml writes one, without them) */
+	snprintf(value, sizeof(value), "%s", end);
+	length = strlen(value);
+	while (length && value[length - 1] == ' ')
+		value[--length] = '\0';
+	if (length >= 2 && (value[0] == '"' || value[0] == '\'') && value[length - 1] == value[0])
+	{
+		memmove(value, value + 1, length - 2);
+		value[length - 2] = '\0';
+	}
+	kind = key[0] ? config_setting_kind(key) : -1;
+	if (kind < 0)
+	{
+		/* (none by that name: those whose names start with it) */
+		for (index = 0; (name = config_setting_name(index)) != NULL; index++)
+		{
+			if (!name[0] || strncmp(name, key, strlen(key)))
+				continue;
+			config_console_value(name, shown, sizeof(shown));
+			snprintf(text, sizeof(text), "%s = %s", name, shown);
+			say(CONFIG_SAY_OUTPUT, text);
+			count++;
+		}
+		if (!count)
+		{
+			snprintf(text, sizeof(text), "setting: no setting is named %s", key);
+			say(CONFIG_SAY_ERROR, text);
+			return;
+		}
+		snprintf(text, sizeof(text), "%d setting%s. setting <key> <value> sets one.", count, count == 1 ? "" : "s");
+		say(CONFIG_SAY_NOTE, text);
+		return;
+	}
+	if (!*end)
+	{
+		char fallback[300], words[200];
+
+		config_console_value(key, shown, sizeof(shown));
+		snprintf(text, sizeof(text), "%s = %s", key, shown);
+		say(CONFIG_SAY_OUTPUT, text);
+		config_console_words(key, words, sizeof(words));
+		if (config_default(key, fallback, sizeof(fallback)) && !config_value_hidden(key))
+		{
+			snprintf(text, sizeof(text), "Default: %s%s%s.%s%s", kind == CONFIG_KIND_STRING ? "\"" : "", fallback,
+				kind == CONFIG_KIND_STRING ? "\"" : "", words[0] ? " Takes " : "", words);
+			if (words[0])
+				strcat(text, ".");
+			say(CONFIG_SAY_NOTE, text);
+		}
+		return;
+	}
+	switch (kind)
+	{
+	case CONFIG_KIND_BOOLEAN:
+	{
+		static const char *const yes[] = { "true", "on", "yes", "1" };
+		static const char *const no[] = { "false", "off", "no", "0" };
+		size_t word;
+		int found = -1;
+
+		for (word = 0; word < 4 && found < 0; word++)
+		{
+			if (config_console_same(value, yes[word]))
+				found = 1;
+			else if (config_console_same(value, no[word]))
+				found = 0;
+		}
+		if (found < 0)
+		{
+			snprintf(text, sizeof(text), "setting: %s is true or false", key);
+			say(CONFIG_SAY_ERROR, text);
+			return;
+		}
+		snprintf(value, sizeof(value), "%s", found ? "true" : "false");
+		break;
+	}
+	case CONFIG_KIND_INTEGER:
+	case CONFIG_KIND_REAL:
+	{
+		char *after;
+
+		errno = 0;
+		if (kind == CONFIG_KIND_INTEGER)
+			(void)strtol(value, &after, 10);
+		else
+			(void)strtod(value, &after);
+		if (after == value || *after || errno)
+		{
+			snprintf(text, sizeof(text), "setting: %s takes %s", key,
+				kind == CONFIG_KIND_INTEGER ? "a whole number" : "a number");
+			say(CONFIG_SAY_ERROR, text);
+			return;
+		}
+		break;
+	}
+	default:
+	{
+		char word[300], words[200];
+
+		if (!config_console_word(key, value, word, sizeof(word)))
+		{
+			config_console_words(key, words, sizeof(words));
+			snprintf(text, sizeof(text), "setting: %s takes %s", key, words);
+			say(CONFIG_SAY_ERROR, text);
+			return;
+		}
+		snprintf(value, sizeof(value), "%s", word);
+		break;
+	}
+	}
+	if (!config_write(key, value))
+	{
+		say(CONFIG_SAY_ERROR, "setting: config.toml could not be written (debug.txt says why)");
+		return;
+	}
+	platform_log("settings: the console set %s = %s", key, config_value_hidden(key) ? "(hidden)" : value);
+	config_console_value(key, shown, sizeof(shown));
+	snprintf(text, sizeof(text), "%s = %s", key, shown);
+	say(CONFIG_SAY_OUTPUT, text);
+	if (network_game)
+	{
+		size_t hold;
+
+		for (hold = 0; hold < NUMBER_OF_NETWORK_HOLDS; hold++)
+		{
+			if (!strcmp(config_network_holds[hold].name, key))
+				say(CONFIG_SAY_NOTE, config_network_holds[hold].held);
+		}
+	}
+}
+#endif
