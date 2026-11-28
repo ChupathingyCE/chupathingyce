@@ -298,8 +298,13 @@ void scripted_camera_set(
 		camera_script_globals.field_of_view = 1.22173047f;
 	/* port: an OpenSauce map's camera points may be wider than the Xbox's
 	camera takes (SPV3's menus' is 95 degrees); on such a map, and in SPV3
-	mode, they are narrowed to it, and logged (opensauce_survey.c) */
-	if ((spv3_mode_active() || opensauce_map_active()) && camera_script_globals.field_of_view > _pi / 2.f)
+	mode, they are narrowed to it, and logged (opensauce_survey.c). Only the
+	Custom Edition builds load OpenSauce maps (opensauce_map.c) */
+	if ((spv3_mode_active()
+#ifdef HALO_CUSTOM_EDITION
+		|| opensauce_map_active()
+#endif
+		) && camera_script_globals.field_of_view > _pi / 2.f)
 	{
 		char what[96];
 
