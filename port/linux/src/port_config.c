@@ -1596,8 +1596,9 @@ static const struct config_setting config_settings[] =
 		"How many times larger each co-op enemy squad is, from 2 to 32." },
 	{ "network.share_profile", _config_boolean, "false", "HALO_NET_SHARE_PROFILE", _environment_value,
 		_platform_all,
-		"Show your Chupathingy player ID to other Chupathingy players over\n"
-		"Delta." },
+		"SHARE MY PROFILE: send your verified Delta name and your player ID\n"
+		"to other Chupathingy players over Delta. false: they see your game\n"
+		"name." },
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
 	{ "network.share_presence", _config_boolean, "true", "HALO_NET_SHARE_PRESENCE", _environment_value,
 		_platform_all,
