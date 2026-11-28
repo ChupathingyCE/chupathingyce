@@ -128,6 +128,7 @@ static void game_time_start(void) {}
 static void sound_pause(boolean paused) { (void)paused; }
 static void error(int kind, char const *format, ...) { (void)kind; (void)format; }
 static void ui_mouse_forget_widget(struct widget_instance *widget) { (void)widget; }
+static void ui_widget_port_deleted_handler_script(struct ui_widget_event_handler_reference const *handler) { (void)handler; }
 static void dispose_pointer(void *pool, void *pointer) { (void)pool; free(pointer); }
 
 /* ---- the map list */
