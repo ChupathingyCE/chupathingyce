@@ -512,6 +512,13 @@ the default: it deals it and logs it, network.hit_line_of_sight) */
 static boolean damage_line_of_sight_enforced = FALSE;
 /* hits dealt that had no line of sight, logged (the check not enforced) */
 static long damage_line_of_sight_logged;
+/* How often the host logs how many client hits it accepted, refused and
+logged only (when it refused or logged some). Tells "my shots don't
+register" apart from "I missed". The lines for each hit with no line of
+sight are as many as LINE_OF_SIGHT_LOG_LINES_PER_WINDOW in each of these
+windows; the rest are counted in the summary. */
+#define REPORT_LOG_TICKS (30 * TICKS_PER_SECOND)
+static struct line_of_sight_log_limit damage_line_of_sight_log_limit = { -1, 0, 0 };
 static long damage_dealt_reports;
 static long damage_sent_reports;
 static long damage_replayed_events;
@@ -2490,7 +2497,8 @@ static boolean distributed_report_valid(
 			&sight_distance);
 		enum line_of_sight_verdict verdict = line_of_sight_verdict(clear, damage_line_of_sight_enforced);
 
-		if (verdict != _line_of_sight_take)
+		if (verdict != _line_of_sight_take &&
+			line_of_sight_log_allowed(&damage_line_of_sight_log_limit, now, REPORT_LOG_TICKS))
 		{
 			error(_error_silent, "damage: no line of sight: shooter %d target %ld %s %.1f %s",
 				(int)player_index, distributed_target_player_slot(target), area ? "explosion" : "shot",
@@ -2728,26 +2736,29 @@ static boolean distributed_event_goes_to(
 	return FALSE;
 }
 
-/* How often the host logs how many client hits it accepted and refused
-(only when it refused some). Tells "my shots don't register" apart from
-"I missed". */
-#define REPORT_LOG_TICKS (30 * TICKS_PER_SECOND)
-
 static void distributed_log_reports(
 	void)
 {
 	static long logged_dealt;
 	static long logged_rejected;
 	static long logged_line_of_sight;
+	static long logged_line_of_sight_only;
 
-	if (game_time_get() % REPORT_LOG_TICKS != 0 || damage_rejected_reports == logged_rejected)
+	if (!line_of_sight_summary_due(game_time_get(), REPORT_LOG_TICKS, damage_rejected_reports - logged_rejected,
+		damage_line_of_sight_logged - logged_line_of_sight_only))
+	{
 		return;
-	error(_error_silent, "damage: clients' hits in the last %d seconds: %ld dealt, %ld refused (%ld with no line of sight)",
+	}
+	error(_error_silent, "damage: clients' hits in the last %d seconds: %ld dealt, %ld refused (%ld with no line of sight), "
+		"%ld with no line of sight logged only, %ld lines held back",
 		REPORT_LOG_TICKS / TICKS_PER_SECOND, damage_dealt_reports - logged_dealt,
-		damage_rejected_reports - logged_rejected, damage_line_of_sight_reports - logged_line_of_sight);
+		damage_rejected_reports - logged_rejected, damage_line_of_sight_reports - logged_line_of_sight,
+		damage_line_of_sight_logged - logged_line_of_sight_only, damage_line_of_sight_log_limit.held);
 	logged_dealt = damage_dealt_reports;
 	logged_rejected = damage_rejected_reports;
 	logged_line_of_sight = damage_line_of_sight_reports;
+	logged_line_of_sight_only = damage_line_of_sight_logged;
+	damage_line_of_sight_log_limit.held = 0;
 }
 
 /* the tick's killing blows once more, reliably, to every client: sent with

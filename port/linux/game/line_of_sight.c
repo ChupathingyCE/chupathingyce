@@ -354,3 +354,37 @@ enum line_of_sight_verdict line_of_sight_verdict(
 		return _line_of_sight_take;
 	return enforce ? _line_of_sight_refuse : _line_of_sight_take_and_log;
 }
+
+int line_of_sight_log_allowed(
+	struct line_of_sight_log_limit *limit,
+	long tick,
+	long window_ticks)
+{
+	/* (a window ends at the tick its summary is due: ticks 1 to window_ticks
+	are one, as line_of_sight_summary_due sums them) */
+	long window = window_ticks > 0 && tick > 0 ? (tick + window_ticks - 1) / window_ticks : 0;
+
+	if (window != limit->window)
+	{
+		limit->window = window;
+		limit->lines = 0;
+	}
+	if (limit->lines >= LINE_OF_SIGHT_LOG_LINES_PER_WINDOW)
+	{
+		limit->held++;
+		return 0;
+	}
+	limit->lines++;
+	return 1;
+}
+
+int line_of_sight_summary_due(
+	long tick,
+	long window_ticks,
+	long refused_since,
+	long logged_since)
+{
+	if (window_ticks <= 0 || tick % window_ticks != 0)
+		return 0;
+	return refused_since > 0 || logged_since > 0;
+}

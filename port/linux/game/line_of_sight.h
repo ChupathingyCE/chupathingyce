@@ -48,6 +48,9 @@ may pass, and how far to the side or above its point a shooter is tried */
 #define LINE_OF_SIGHT_MAXIMUM_PASSES 4
 /* the segment tests a decision makes at most */
 #define LINE_OF_SIGHT_DEFAULT_BUDGET 256
+/* the per-hit log lines (refused or logged) a window of the host's report
+log may have, at most; the rest are counted in its summary */
+#define LINE_OF_SIGHT_LOG_LINES_PER_WINDOW 5
 
 /* what the host does with a report it judged (line_of_sight_verdict) */
 enum line_of_sight_verdict
@@ -99,6 +102,16 @@ struct line_of_sight_bend
 	float slowest_speed;
 };
 
+/* the per-hit lines logged in the current window (line_of_sight_log_allowed) */
+struct line_of_sight_log_limit
+{
+	/* the window (tick / window ticks; -1 for none yet) and its lines */
+	long window;
+	int lines;
+	/* lines held back past the limit, since the summary last took them */
+	long held;
+};
+
 struct line_of_sight_query
 {
 	line_of_sight_test test;
@@ -139,5 +152,15 @@ int line_of_sight_explosion(struct line_of_sight_query *query, struct line_of_si
 blocked (0) or undecided (-1), as line_of_sight_shot returns: enforce is
 network.hit_line_of_sight (off by default: a blocked hit is only logged) */
 enum line_of_sight_verdict line_of_sight_verdict(int clear, int enforce);
+
+/* whether a hit's line may be logged at the tick: at most
+LINE_OF_SIGHT_LOG_LINES_PER_WINDOW in each window of window_ticks, which
+ends at the tick the summary is due (a tick from another window, a new
+game's too, starts one); one held back is counted in held */
+int line_of_sight_log_allowed(struct line_of_sight_log_limit *limit, long tick, long window_ticks);
+
+/* whether the summary is due at the tick: a window's last tick, with hits
+refused or logged since the last summary */
+int line_of_sight_summary_due(long tick, long window_ticks, long refused_since, long logged_since);
 
 #endif /* __LINE_OF_SIGHT_H */

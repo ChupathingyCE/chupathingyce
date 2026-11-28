@@ -84,3 +84,18 @@ def test_host_checks_shots_and_explosions_only():
     # (counted with the other refusals, and logged)
     assert "damage_line_of_sight_reports++" in source
     assert "with no line of sight" in source
+
+
+def test_log_lines_are_limited_and_summarized():
+    """the per-hit lines go through line_of_sight_log_allowed (the C tests
+    check the limit: a burst logs at most its lines and one summary), and
+    the 30-second summary prints for logged-only hits too, with them"""
+    source = DAMAGE_C.read_text(encoding="utf-8")
+    assert re.search(r"if \(verdict != _line_of_sight_take &&\s*"
+                     r"line_of_sight_log_allowed\(&damage_line_of_sight_log_limit, now, REPORT_LOG_TICKS\)\)", source)
+    assert source.count('"damage: no line of sight: shooter') == 1
+    summary = source[source.index("static void distributed_log_reports("):]
+    summary = summary[:summary.index("\n}\n")]
+    assert "line_of_sight_summary_due(game_time_get(), REPORT_LOG_TICKS" in summary
+    assert "damage_line_of_sight_logged - logged_line_of_sight_only" in summary
+    assert "logged only" in summary and "held back" in summary

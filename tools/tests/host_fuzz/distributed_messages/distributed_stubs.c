@@ -236,8 +236,12 @@ long hud_weapon_port_set_script_flags(void);
 long hud_weapon_port_set_script_flags(void) { return 0; }
 long line_of_sight_explosion(void);
 long line_of_sight_explosion(void) { return 0; }
+long line_of_sight_log_allowed(void);
+long line_of_sight_log_allowed(void) { return 0; }
 long line_of_sight_shot(void);
 long line_of_sight_shot(void) { return 0; }
+long line_of_sight_summary_due(void);
+long line_of_sight_summary_due(void) { return 0; }
 long line_of_sight_verdict(void);
 long line_of_sight_verdict(void) { return 0; }
 long main_get_window_count(void);
