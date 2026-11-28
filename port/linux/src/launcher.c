@@ -655,6 +655,8 @@ struct xbox_mod_map
 };
 
 #include "../game/xbox_mod_maps.h"
+#include "ark_files.h"
+#include "ark_names.h"
 
 /* the known pack whose folder (maps_<name>) this is, by its id or one of
 its aliases; NULL for none */
@@ -1192,6 +1194,11 @@ static void modes_find(void)
 			valid = isalnum((unsigned char)suffix[character]) || suffix[character] == '+';
 		if (!valid || !SDL_strcasecmp(suffix, "ce") || !SDL_strcasecmp(suffix, "pc") || !SDL_strcasecmp(suffix, "md"))
 			continue;
+#ifdef HALO_ARK
+		/* (maps_ark is Project Ark's, below, never a pack) */
+		if (!SDL_strcasecmp(suffix, "ark"))
+			continue;
+#endif
 		snprintf(path, sizeof(path), "%s/%s", launcher.root, name);
 		/* (SPV3, early: its menus are its ui.yelo, a Custom Edition map read
 		with OpenSauce's larger tag window, port/linux/game/spv3_mode.c; only
@@ -1257,6 +1264,14 @@ static void modes_find(void)
 	}
 	if (directory)
 		posix_directory_close(directory);
+#ifdef HALO_ARK
+	/* (Project Ark, early: port/linux/game/ark_mode.c. No ui.map: the menus
+	stay the game's own. Listed only with the player's own files here, in
+	maps_ark or MCC's install, never a download, and only once the mode
+	plays: ark_names.h) */
+	if (ARK_MODE_PLAYABLE && ark_files_folder(NULL, 1024))
+		mode_add(ARK_FILES_MODE_ID, ARK_MODE_DISPLAY_NAME, ARK_MODE_DISPLAY_TAG, ARK_FILES_FOLDER, 1);
+#endif
 	for (index = 0; index < sizeof(xbox_mod_packs) / sizeof(*xbox_mod_packs); index++)
 	{
 		char folder[64];
