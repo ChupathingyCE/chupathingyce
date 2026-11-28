@@ -8529,7 +8529,7 @@ static wchar_t const *const host_row_labels[NUMBER_OF_HOST_ROWS] =
 {
 	L"GAME NAME:", L"MAX PLAYERS:", L"PUBLIC LOBBY:", L"PASSWORD:", L"PORT:", L"GAME TYPE:", L"TEAM SWITCHING:",
 	L"TEAM SWITCH MARGIN:", L"CHAT FILTER:", L"MOUSE AIM ASSIST:", L"PLAYER NAMES:",
-	L"FOLLOW CAMERA:", L"180 GLITCH:", L"OPENCE WELCOME:", L"HOST RULES", L"START GAME",
+	L"FOLLOW CAMERA:", L"180 GLITCH:", L"LEGACY WELCOME:", L"HOST RULES", L"START GAME",
 };
 
 /* the editor's pages, by their screens' names */
@@ -8862,7 +8862,7 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_password:
 		return L"Required to join from the game list.";
 	case _host_row_port:
-		return host_help_with_status(L"The UDP port for hosting. Forward it on your router if friends can't join.",
+		return host_help_with_status(L"The UDP port for hosting. Forward it if friends can't join.",
 			with_status, NUMBEROF(with_status));
 	case _host_row_game_type:
 		if (hosting_cooperative())
@@ -8889,10 +8889,10 @@ static wchar_t const *host_setup_help(short row)
 		return host_setup.air_turn_aim ? L"Shots after a mid-air turn go where players aim." :
 			L"Shots after a mid-air turn leave at an angle, as on the Xbox.";
 	case _host_row_opence_welcome:
-		return host_setup.opence_welcome ? L"OpenCE players get one line about Chupathingy." :
-			L"OpenCE players get no line from you.";
+		return host_setup.opence_welcome ? L"Legacy players get one line about Chupathingy." :
+			L"Legacy players get no line from you.";
 	case _host_row_rules:
-		return L"Team switching, chat filter, aim assist, player names, follow camera, 180 glitch, OpenCE welcome.";
+		return L"Team switching, chat filter, aim assist, player names, follow camera, 180 glitch, Legacy welcome.";
 	case _host_row_start:
 		return host_help_with_status(L"Open the lobby.", with_status, NUMBEROF(with_status));
 	}

@@ -3262,6 +3262,7 @@ static void multiplayer_game_directions(
 	{
 		long team_one_player_count = 0;
 		long team_zero_player_count = 0;
+		long valid_player_count = 0;
 		long player_index;
 
 		for (player_index = 0;
@@ -3270,6 +3271,7 @@ static void multiplayer_game_directions(
 		{
 			if (network_player_is_valid(&game->players[player_index]))
 			{
+				valid_player_count++;
 				switch (game->players[player_index].team_index)
 				{
 				case _team_red:
@@ -3282,7 +3284,14 @@ static void multiplayer_game_directions(
 			}
 		}
 
-		if (team_zero_player_count && team_one_player_count)
+		/* port: a client alone in a dedicated server's game (a host with no
+		players of its own) waits for another player, not for two teams */
+		if (!server && valid_player_count < 2)
+		{
+			widget->parameters.text_box.string_list_index =
+				_multiplayer_game_text_string_waiting_for_player;
+		}
+		else if (team_zero_player_count && team_one_player_count)
 		{
 			widget->parameters.text_box.string_list_index =
 				_multiplayer_game_text_string_teams_ready;
