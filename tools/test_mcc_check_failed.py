@@ -7,7 +7,9 @@ entry), and a check still running keeps the pick pending as before. A
 campaign level picked for co-op while its check runs keeps its co-op
 settings back (mcc_ui_network_hold_cooperative): they go on with the map
 when the check passes, and a failed check leaves the lobby on its map and
-gametype (#1124). The functions are compiled from the game's source with
+gametype (#1124). A lobby map the server refuses to put on (not installed
+on this machine) is not asked for again every tick (#1463), only after a new
+pick. The functions are compiled from the game's source with
 stand-ins."""
 import re
 import shutil
@@ -62,9 +64,9 @@ static void network_event(char const *format, ...) { (void)format; events++; }
 static char menu_map[64], override_map[64];
 static void main_set_multiplayer_map_name(char const *name) { snprintf(menu_map, sizeof(menu_map), "%s", name); }
 static void game_engine_override_map_name(char const *name) { snprintf(override_map, sizeof(override_map), "%s", name); }
-static int map_changes;
+static int map_changes, refuse_changes;
 static boolean network_game_server_change_map_name(struct network_game_server *server, char const *name)
-{ map_changes++; snprintf(server->game.map.name, sizeof(server->game.map.name), "%s", name); server->game.map.version = 0x1234; return TRUE; }
+{ map_changes++; if (refuse_changes) return FALSE; snprintf(server->game.map.name, sizeof(server->game.map.name), "%s", name); server->game.map.version = 0x1234; return TRUE; }
 /* (network_server_manager.c's: the co-op settings, and the MCC question) */
 static boolean network_game_server_mcc_asking;
 static short network_game_server_mcc_choosing_difficulty = NONE;
@@ -86,6 +88,7 @@ static void reset(void)
 	strcpy(menu_map, "mcc_maps\\123\\a10");
 	override_map[0] = 0;
 	check_status = 0;
+	refuse_changes = 0;
 	errors_shown = events = map_changes = cancels = updates = identity_prepared = cooperative_applied = 0;
 	cooperative_difficulty = NONE;
 	mcc_ui_network_server_dispose(&the_server);
@@ -123,6 +126,24 @@ int main(void)
 	mcc_ui_network_update_map(&the_server);
 	CHECK(map_changes == 1 && !errors_shown && identity_prepared == 1);
 	CHECK(!mcc_ui_network_map_refused(map, sizeof(map), reason, sizeof(reason)));
+	/* the lobby on an MCC map the server refuses (not installed here): asked
+	once, not every tick (#1463); a new pick asks again */
+	reset();
+	check_status = 1;
+	strcpy(the_server.game.map.name, "mcc_maps\\123\\a10");
+	the_server.game.map.version = 0;
+	refuse_changes = 1;
+	{
+		int tick;
+
+		for (tick = 0; tick < 33; tick++)
+			mcc_ui_network_update_map(&the_server);
+	}
+	CHECK(map_changes == 1);
+	refuse_changes = 0;
+	(void)mcc_ui_network_defer_map(&the_server, "mcc_maps\\123\\a10"); /* (a new pick) */
+	mcc_ui_network_update_map(&the_server);
+	CHECK(map_changes == 2 && the_server.game.map.version == 0x1234);
 	/* a co-op pick whose check fails: the settings never go on, so the lobby
 	keeps its map and its gametype (#1124) */
 	reset();
@@ -191,6 +212,14 @@ def test_negative_control(tmp_path):
     functions = mutated(functions, "        mcc_pending_map_server=NULL;\n        mcc_validation_server=NULL;\n"
                         "        /* (a co-op pick's settings never went on: the gametype stays too) */",
                         "        /* (a co-op pick's settings never went on: the gametype stays too) */")
+    result = compile_and_run(tmp_path, functions)
+    assert result.returncode != 0
+
+
+def test_negative_control_refused_every_tick(tmp_path):
+    """a refused lobby map asked for again every tick (the bug): caught"""
+    functions = "\n".join(function(SOURCE, name) for name in FUNCTIONS)
+    functions = mutated(functions, "    if (server!=mcc_pending_map_server && !strcmp(selected,mcc_change_refused_map)) return;\n", "")
     result = compile_and_run(tmp_path, functions)
     assert result.returncode != 0
 
