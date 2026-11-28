@@ -106,6 +106,11 @@ int main(int count, char **arguments)
 	printf("%s\n", log_address_name("localhost", text, sizeof(text)));
 	printf("%s\n", log_address_name("HALO.example.com", text, sizeof(text)));
 	printf("%s\n", log_address_name("halo.example.com", text, sizeof(text)));
+	/* (an internet play peer's: a local network's a tag too) */
+	{
+		unsigned int value = (unsigned int)network;
+		printf("%s\n", log_address_ipv4_peer(value, port, text, sizeof(text)));
+	}
 	return 0;
 }
 """
@@ -224,3 +229,20 @@ def test_public_address_host_is_a_tag():
     for call in calls:
         if "public_host" in call:
             assert "log_address_name(p2p.public_host" in call, call
+
+
+def test_peer_addresses_hide_local_networks(program):
+    """An internet play peer's address (p2p.c's "connected to player ... at")
+    is a tag even in a local network's range: someone's own LAN address. Only
+    this machine's own (loopback) is whole, and every address with
+    debug.log_addresses."""
+    for address in (["192", "168", "1", "20"], ["10", "0", "0", "5"], ["100", "64", "0", "9"],
+                    ["172", "16", "3", "4"], ["203", "0", "113", "45"]):
+        lines = run(program, "tags", *address)
+        assert re.fullmatch(r"addr#[0-9a-f]{6}:2302", lines[9]), lines[9]
+        assert ".".join(address) not in lines[9]
+    # (the same address, the same tag as the log's other lines give it)
+    lines = run(program, "tags", "203", "0", "113", "45")
+    assert lines[9] == lines[0]
+    assert run(program, "tags", "127", "0", "0", "2")[9] == "127.0.0.2:2302"
+    assert run(program, "whole", "192", "168", "1", "20")[9] == "192.168.1.20:2302"

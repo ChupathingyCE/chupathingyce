@@ -1201,7 +1201,7 @@ static void peer_heard(struct peer *peer, unsigned long address, unsigned short 
 		peer->endpoint.port = port;
 		peer->endpoint_heard_time = now;
 		platform_log("Internet play: connected to %s %s at %s", peer->is_host ? "host" : "player", peer->name,
-			log_address_ipv4(address, port, text, sizeof(text)));
+			log_address_ipv4_peer(address, port, text, sizeof(text)));
 		if (peer->is_host)
 		{
 			if (p2p.joining && !memcmp(p2p.join_host, peer->identifier, P2P_IDENTIFIER_SIZE))
