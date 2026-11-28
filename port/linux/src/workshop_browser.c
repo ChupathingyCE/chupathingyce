@@ -1299,7 +1299,7 @@ static void *preview_thread(void *context)
 	/* (an item the list hasn't shown: its picture's address from Steam's details) */
 	if (!pixels && !job->url[0] && job->ask_details)
 	{
-		static struct workshop_browser_item found;
+		struct workshop_browser_item found;
 		char *answer = malloc(DETAILS_DOCUMENT + 1), form[96], error[128];
 		int status = 0;
 

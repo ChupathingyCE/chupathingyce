@@ -100,7 +100,8 @@ line (a notice shown in the chat); its length and, but for a player's, its
 text (a player's is never kept) */
 void net_monitor_chat(int channel, int length, char const *text);
 void net_monitor_warning(int warning, int type, int size);
-/* the player's name for this run (debug.monitor_name), over the profile's */
+/* the player's name for this run (debug.monitor_name; an automated network
+test's, debug.network_test_name), over the profile's */
 void net_monitor_player_name(wchar_t *name, int size);
 /* each frame (network_test.c) */
 void net_monitor_update(int main_menu_loaded, float seconds);

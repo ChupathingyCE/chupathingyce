@@ -239,6 +239,7 @@ def build(cc, kind, directory):
 	shutil.copy(ROOT / "port/linux/src/port_config.c", source)
 	shutil.copy(ROOT / "port/linux/src/port_config.h", source)
 	shutil.copy(ROOT / "port/linux/src/packaged_install.h", source)
+	shutil.copy(ROOT / "port/linux/src/config_template_repair.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_limits.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_capacity.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_features.h", source)

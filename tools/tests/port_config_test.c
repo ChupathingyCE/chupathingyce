@@ -15,6 +15,10 @@ the C library (the test's SDL3/SDL.h and platform.h declare them).
 	                                         (config_menus_retired_pending)
 	port_config_test menus_retired_seen      config_menus_retired_seen, then
 	                                         as menus_retired
+	port_config_test metal_ask [yes|no]      prints "metal_ask=<0|1>"
+	                                         (config_metal_ask_pending), then
+	                                         config_metal_ask_answer with the
+	                                         answer given (HALO_METAL_ASK builds)
 	port_config_test duplicates              a setting or environment variable
 	                                         named twice ("duplicates=none")
 	port_config_test reset <setting>         config_reset, then as get
@@ -220,6 +224,15 @@ int main(int argc, char **argv)
 		printf("display.menus=%s\n", text);
 		return 0;
 	}
+#ifdef HALO_METAL_ASK
+	else if (argc >= 2 && !strcmp(argv[1], "metal_ask"))
+	{
+		printf("metal_ask=%d\n", config_metal_ask_pending());
+		if (argc >= 3)
+			config_metal_ask_answer(!strcmp(argv[2], "yes"));
+		return 0;
+	}
+#endif
 	else if (argc >= 3 && !strcmp(argv[1], "bench"))
 	{
 		/* config_changes called as the menus' glyph checks call it */

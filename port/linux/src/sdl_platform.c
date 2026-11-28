@@ -366,6 +366,48 @@ static void new_defaults_offer(BOOL quiet)
 	config_new_defaults_answer(answer);
 }
 
+#ifdef HALO_METAL_ASK
+/* a Mac player on Metal asked once whether to go back to OpenGL (#2028:
+0.9.1's setup screen offered Metal with no testing mark). Asked before the
+window opens, so a yes draws with OpenGL from this start; either answer
+writes display.metal_asked, and it is never asked again. A player on
+OpenGL has the flag written without a question, so choosing Metal later
+(marked TESTING now) asks nothing. A run that cannot ask leaves both as they
+are and says so in the log */
+static void metal_testing_offer(BOOL quiet)
+{
+	static const SDL_MessageBoxButtonData buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No" },
+	};
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: renderer",
+		"Metal is still in testing. Switch back to OpenGL?", 2, buttons, NULL };
+	int answer = 0;
+
+	if (quiet)
+	{
+		if (config_metal_ask_pending())
+			platform_log("settings: the game draws with Metal, which is still in testing; whether to switch back "
+				"to OpenGL is asked when the game is run where it can ask");
+		return;
+	}
+	if (!config_metal_ask_pending())
+	{
+		if (!config_boolean("display.metal_asked"))
+			config_metal_ask_answer(0);
+		return;
+	}
+	if (!SDL_ShowMessageBox(&question, &answer))
+	{
+		platform_log("settings: the question about Metal could not be shown; display.renderer stays \"bgfx\"");
+		return;
+	}
+	config_metal_ask_answer(answer == 1);
+	platform_log("settings: the player %s", answer == 1 ? "switched from Metal back to OpenGL (display.renderer = \"gl\")" :
+		"kept Metal (display.renderer = \"bgfx\")");
+}
+#endif
+
 #ifndef HALO_ANDROID
 static BOOL data_has_xbox_maps(const char *destination);
 #ifdef HALO_CONSOLE_SETUP_SCREENS
@@ -389,6 +431,9 @@ static void data_check_maps(void)
 	BOOL quiet = platform_run_is_quiet();
 
 	new_defaults_offer(quiet);
+#ifdef HALO_METAL_ASK
+	metal_testing_offer(quiet);
+#endif
 	platform_maps_folder_check(&maps);
 	snprintf(where, sizeof(where),
 		"Put the Xbox maps from your Halo: Combat Evolved disc image in %s/maps. "
@@ -2928,6 +2973,10 @@ void platform_exit_window_closed(void)
 	quit_watchdog_stand_down();
 #endif
 	platform_log("window closed");
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+		xgpu_bgfx_closing();
+#endif
 	if (platform_gl_context)
 	{
 		SDL_GL_MakeCurrent(platform_window, NULL);

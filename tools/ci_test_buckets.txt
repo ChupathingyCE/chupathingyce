@@ -117,6 +117,7 @@ maps      tools/test_compare_stock_maps.py
 security  tools/test_compressed_maps.py
 security  tools/test_conduct_rules.py
 security  tools/test_config_console_replace.py
+area      tools/test_config_template_repair.py
 local     tools/test_config_upgrade.py
 security  tools/test_console_claims.py
 core      tools/test_console_gates.py
@@ -247,8 +248,10 @@ area      tools/test_medal_rules.py
 area      tools/test_menu_key_caps.py
 area      tools/test_menu_text_fit.py
 core      tools/test_menu_unique_rows.py
+area      tools/test_metal_ask.py
 security  tools/test_mod_archives.py
 area      tools/test_model_obscurer.py
+maps      tools/test_name_ban_server.py
 maps      tools/test_net43_host.py
 local     tools/test_network_messages.py
 core      tools/test_network_rules.py
@@ -263,6 +266,7 @@ security  tools/test_p2p_public_address.py
 security  tools/test_p2p_signal_sockets.py
 security  tools/test_p2p_spoofed_source.py
 area      tools/test_pack_movies.py
+area      tools/test_package_check.py
 security  tools/test_packaged_install.py
 area      tools/test_pause_leave.py
 area      tools/test_picture_check.py
@@ -325,6 +329,7 @@ security  tools/test_update_channels.py
 security  tools/test_update_install.py
 security  tools/test_update_manifest.py
 security  tools/test_updater_follow_ups.py
+security  tools/test_updater_player_files.py
 area      tools/test_vertex_byte_order.py
 area      tools/test_virtual_keyboard_input.py
 security  tools/test_voice.py

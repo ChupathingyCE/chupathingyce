@@ -164,6 +164,17 @@ static void parse_line(const char *text, size_t length)
 	server_names_blocked_text(text);
 	server_names_clear();
 	{
+		/* (a name rule, the input as both the rule and the name) */
+		char key[SERVER_NAMES_RULE_KEY_SIZE];
+		unsigned int characters[64];
+		int count;
+
+		server_names_rule_key_text(text, key, sizeof(key));
+		for (count = 0; count < 64 && (size_t)count < length; count++)
+			characters[count] = (unsigned char)text[count] | (count & 1 ? 0x400u : 0u);
+		server_names_rule_matches(text, characters, count);
+	}
+	{
 		/* (a command the site relays, its reason the input's second half) */
 		size_t half = length / 2;
 		char *command = malloc(half + 1);

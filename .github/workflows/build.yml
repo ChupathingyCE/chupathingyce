@@ -912,6 +912,11 @@ jobs:
       - name: bgfx shaders
         run: python3 tools/bgfx_shader_check.py --binary dist/chupathingyce-linux64-release/chupathingy --out build/bgfx-shaders
 
+      # nothing of a player's (config.toml, logs, saves) in what an update
+      # puts over their install (#2029): tools/package_check.py
+      - name: Player files
+        run: python3 tools/package_check.py $([ "$BUILD_DEBUG" = true ] && echo dist/chupathingyce-linux64-debug) dist/chupathingyce-linux64-release
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -1800,6 +1805,12 @@ jobs:
       - name: bgfx shaders
         run: python tools/bgfx_shader_check.py --binary dist/chupathingyce-windows64-release/chupathingy.exe --out build/bgfx-shaders
 
+      # nothing of a player's (config.toml, logs, saves) in what an update
+      # puts over their install (#2029): tools/package_check.py
+      - name: Player files
+        shell: bash
+        run: python tools/package_check.py $([ "$BUILD_DEBUG" = true ] && echo dist/chupathingyce-windows64-debug) dist/chupathingyce-windows64-release
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -1955,6 +1966,11 @@ jobs:
         run: |
           if [ "$BUILD_DEBUG" = true ]; then tar -C dist -cf chupathingyce-macos-debug.tar chupathingyce-macos-debug; fi
           tar -C dist -cf chupathingyce-macos-release.tar chupathingyce-macos-release
+
+      # nothing of a player's (config.toml, logs, saves) in what an update
+      # puts over their install (#2029): tools/package_check.py
+      - name: Player files
+        run: python3 tools/package_check.py $([ "$BUILD_DEBUG" = true ] && echo chupathingyce-macos-debug.tar) chupathingyce-macos-release.tar
 
       - uses: actions/upload-artifact@v4
         if: env.BUILD_DEBUG == 'true'

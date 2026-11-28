@@ -262,6 +262,40 @@ final class UpdateManifest {
         return order != null && order > 0;
     }
 
+    /**
+     * whether release (a release's version) is newer than current
+     * (update_release_newer): as newer, except from a test build or a
+     * nightly, which is offered a release of its version or a newer one only
+     * when made (the release's created_at, its commit's date,
+     * 2026-11-26T02:15:07Z) is after the build's serial; without a made time,
+     * by the order alone
+     */
+    static boolean releaseNewer(String release, String made, String current) {
+        if (!newer(release, current))
+            return false;
+        java.util.regex.Matcher build = version(current);
+        java.util.regex.Matcher time = made == null ? null
+            : java.util.regex.Pattern.compile("(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}).*").matcher(made);
+
+        if (!release(release) || build == null || build.group(5) == null || time == null || !time.matches())
+            return true;
+        String serial = time.group(1) + time.group(2) + time.group(3) + time.group(4) + time.group(5);
+        if (!serialValid(serial))
+            return true;
+        return Long.parseLong(serial) > Long.parseLong(build.group(6));
+    }
+
+    /**
+     * whether a channel's feed's build (feed) goes before the latest release (release, made as above), on a
+     * build of version current (update_feed_newer, but as this updater always has, never a feed that is not
+     * a version): when it is newer; and on a test build or a nightly (never a release's build, which decides
+     * by the order alone), also when the release is not newer than the feed's build by releaseNewer
+     */
+    static boolean feedNewer(String feed, String release, String made, String current) {
+        return newer(feed, release)
+            || (compare(feed, release) != null && !release(current) && !releaseNewer(release, made, feed));
+    }
+
     /** a test build's or a nightly's label (testing, nightly), else null */
     static String label(String version) {
         java.util.regex.Matcher matcher = version(version);

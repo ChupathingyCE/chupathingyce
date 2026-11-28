@@ -475,7 +475,11 @@ static char ce_map_name[64];
 /* each request's file, if not the map's: a Custom Edition map's resource
 map, for its indexed tags' pixels and samples (port/linux/game/ce_resources.c) */
 static HANDLE ce_request_files[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
+/* (a decoded sound's read, told when it finishes: ce_resources.c) */
+static long ce_request_sound_reads[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
 HANDLE ce_resources_file_for_tag(long tag_index);
+boolean ce_resources_sound_read(long tag_index, long *offset, long size, long *read);
+void ce_resources_sound_read_finished(long read);
 boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset,
 	long tag_data_size);
 boolean ce_map_check_stale(void);
@@ -1363,6 +1367,19 @@ short cache_file_read(
 	{
 		size = (size | (CACHE_FILE_SECTOR_SIZE - 1)) + 1;
 	}
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a decoded sound's samples read at their place in the decoded
+	sounds' file, decoded into it first if they are not there
+	(ce_resources.c); one that cannot be is a failed read */
+	ce_request_sound_reads[request_index] = NONE;
+	if (cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX &&
+		!ce_resources_sound_read(tag_index, &offset, size, &ce_request_sound_reads[request_index]))
+	{
+		*completion_flag_reference = _cache_file_read_failed;
+
+		return NONE;
+	}
+#endif
 	*completion_flag_reference = FALSE;
 #ifdef HALO_CUSTOM_EDITION
 	ce_request_files[request_index] = cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX
@@ -1765,6 +1782,14 @@ static void CALLBACK cache_file_read_io_completion_routine(
 		error_code == ERROR_SUCCESS && bytes_transferred == (unsigned long)finished_request->size ?
 			TRUE :
 			_cache_file_read_failed;
+#ifdef HALO_CUSTOM_EDITION
+	{
+		long *sound_read = &ce_request_sound_reads[finished_request - cache_request_get(0)];
+
+		ce_resources_sound_read_finished(*sound_read);
+		*sound_read = NONE;
+	}
+#endif
 	finished_request->pending = FALSE;
 	finished_request->running = FALSE;
 
