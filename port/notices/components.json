@@ -953,6 +953,24 @@
       "covers": [
         "port/notices/turnip-LICENSE.txt"
       ]
+    },
+    {
+      "name": "TLSF",
+      "use": "Project Ark's level builder: the heap it makes a level in (32-bit Linux builds).",
+      "source": "https://github.com/mattconte/tlsf (commit deff9ab509341f264addbd3c8ada533678591905)",
+      "copyright": [
+        "Copyright (c) 2006-2016, Matthew Conte"
+      ],
+      "license": "BSD-3-Clause",
+      "files": [
+        "port/third_party/tlsf/LICENSE"
+      ],
+      "packages": [
+        "game"
+      ],
+      "covers": [
+        "port/third_party/tlsf"
+      ]
     }
   ]
 }

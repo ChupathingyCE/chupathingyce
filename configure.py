@@ -92,9 +92,10 @@ parser.add_argument(
 parser.add_argument(
     "--ark",
     action=argparse.BooleanOptionalAction,
-    default=True,
+    default=False,
     help="the 32-bit Linux desktop build (ninja linux): Project Ark, an early mode (HALO_ARK; "
-    "port/linux/game/ark_mode.c); on unless --no-ark, which leaves every unit as it is without the mode",
+    "port/linux/game/ark_mode.c and port/linux/game/ark), built in only with --ark; without it every unit "
+    "is as it is without the mode",
 )
 parser.add_argument(
     "--packaged",
