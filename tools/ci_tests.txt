@@ -198,6 +198,7 @@ tools/test_search_answer.py
 tools/test_server_accounts.py
 tools/test_server_badge.py
 tools/test_server_bans.py
+tools/test_server_changelog.py
 tools/test_server_control.py
 tools/test_server_deploy.py
 tools/test_server_mcc_playable.py

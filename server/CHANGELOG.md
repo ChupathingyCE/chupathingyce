@@ -4,6 +4,11 @@ What changed in the ChupathingyCE Dedicated Server. The server is released
 with the game and has its version; the game's own changes are in its
 release notes.
 
+New entries go under Unreleased. When a release is made, they move under a
+heading for its version, newest first, and a release with nothing to list
+gets "No server changes listed." `tools/test_server_changelog.py` checks
+that each version with release notes in `docs/release-notes` has a heading.
+
 ## Unreleased
 
 - Hits through walls are only logged now, not refused: the check also
@@ -16,10 +21,28 @@ release notes.
   machine is banned the way `sv_ban` does it, and its own line is added to
   `bans.txt` under a comment naming the rule, so it stays out under any
   name.
+
+## 0.9.2b
+
+- No server changes listed.
+
+## 0.9.2a
+
+- No server changes listed.
+
+## 0.9.2
+
 - `opence_welcome` (off by default): each OpenCE player gets one line in
   their chat once they join, that this is a Chupathingy server.
   `opence_welcome_text` sets the line, up to 63 characters. Chupathingy
   players never see it.
+
+## 0.9.1a
+
+- No server changes listed.
+
+## 0.9.1
+
 - A playlist entry whose map isn't installed on the server is skipped,
   and a playlist with no installed map at all isn't hosted (the console
   and the log say so) instead of the game ending at the switch.
@@ -43,6 +66,21 @@ release notes.
   lists you pick on My servers come back as `sv_banlist`'s S entries
   (`sv_ban_lists`, `sv_unban S<ref>` for an exception here).
   `sv_ban_account` bans a Delta account that isn't in the game.
+
+## 0.9.0d
+
+- No server changes listed.
+
+## 0.9.0c
+
+- No server changes listed.
+
+## 0.9.0b
+
+- No server changes listed.
+
+## 0.9.0a
+
 - The control panel is on by default, at `http://127.0.0.1:8080` (this
   machine only). New hosts get the one-time setup link on the console and in
   `control_setup_code.txt`; on Windows the server also opens it in the
@@ -55,6 +93,9 @@ release notes.
   map to the next, as on Custom Edition's own servers. The development
   switch `HALO_DEDICATED_CE_ACCEPT` is gone. See "Custom Edition join
   attempts" in server/docs/settings.md for what works and what doesn't yet.
+
+## 0.9.0
+
 - Host rules, off by default as on the Xbox: `allow_player_names`
   (`HALO_DEDICATED_ALLOW_PLAYER_NAMES`) lets Chupathingy players show names
   above heads, and `allow_follow_camera`
@@ -134,22 +175,6 @@ release notes.
   service that starts with Windows, restarts after a crash and runs as its
   own account, not SYSTEM; `--uninstall-service` takes it out. Both keep
   the server's saves in `saves` in the data folder, apart from the game's.
-- Map names as Halo PC takes them: commas, brackets, spaces and the rest a
-  Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
-  `sv_map`, `sv_maps` and playlists. A name with a space goes in double
-  quotes (`sv_map "skedar v2@ce" slayer`, and the same in a playlist file).
-  A playlist entry that cannot be played (a missing or damaged map, a
-  campaign level, an unknown game type, or a lobby that closed before its
-  game started) is skipped with the reason in the log, `sv_status` and the
-  panel, instead of being hosted again every 5 seconds or stopping the
-  server on the damaged disc error. When every entry is skipped, the server
-  waits 5 seconds, then twice as long each round, up to 5 minutes.
-- GameSpy status queries, off by default (`gamespy_listing`,
-  `HALO_DEDICATED_GAMESPY_*`): the server answers `\basic\` and QR2 status
-  queries on UDP 2302 and sends QR2 heartbeats to the masters Halo Custom
-  Edition 1.0.10 reports to, with Xbox maps named `xbox_<map>` (naming from
-  the Custom Edition community, via ugoboom). It reports its own version, so
-  Custom Edition 1.0.10's browser does not show it.
 - Halo Custom Edition 1.0.10 join attempts, off by default (`ce_joins`,
   `HALO_DEDICATED_CE_JOINS`, with `gamespy_listing` on): the GameSpy port
   answers a Custom Edition client's connection (its handshake, key
@@ -179,6 +204,33 @@ release notes.
   vehicles and seats, a welcome line in their chat (`ce_welcome`), and
   `sv_say`, `sv_kick` and `sv_ban` reaching them. Bans, the limit on
   players from one address and the betrayal and AFK limits apply to them.
+
+## 0.8.1d
+
+- No server changes listed.
+
+## 0.8.1c
+
+- No server changes listed.
+
+## 0.8.1b
+
+- Map names as Halo PC takes them: commas, brackets, spaces and the rest a
+  Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
+  `sv_map`, `sv_maps` and playlists. A name with a space goes in double
+  quotes (`sv_map "skedar v2@ce" slayer`, and the same in a playlist file).
+  A playlist entry that cannot be played (a missing or damaged map, a
+  campaign level, an unknown game type, or a lobby that closed before its
+  game started) is skipped with the reason in the log, `sv_status` and the
+  panel, instead of being hosted again every 5 seconds or stopping the
+  server on the damaged disc error. When every entry is skipped, the server
+  waits 5 seconds, then twice as long each round, up to 5 minutes.
+- GameSpy status queries, off by default (`gamespy_listing`,
+  `HALO_DEDICATED_GAMESPY_*`): the server answers `\basic\` and QR2 status
+  queries on UDP 2302 and sends QR2 heartbeats to the masters Halo Custom
+  Edition 1.0.10 reports to, with Xbox maps named `xbox_<map>` (naming from
+  the Custom Edition community, via ugoboom). It reports its own version, so
+  Custom Edition 1.0.10's browser does not show it.
 - Control panel hardening: `sv_welcome` needs the settings permission (an
   admin's) and is in the audit file; a command missing from the permission
   table is the console's alone. Wrong logins lock an account only for the
@@ -191,9 +243,27 @@ release notes.
   8 at most from one address. The log hides IPv4-mapped IPv6 addresses;
   `sv_link_status`'s JSON is escaped; `HALO_DEDICATED_LINK_URL`'s plain-HTTP
   exception is this machine's exact address only.
+
+## 0.8.0h
+
+- No server changes listed.
+
+## 0.8.0g
+
+- No server changes listed.
+
+## 0.8.0f
+
+- No server changes listed.
+
+## 0.8.0e
+
 - Bomb and Grifball game types for playlists (`bomb`, `grifball`,
   `grifball_open_pitch`, `bomb.*` fields), played only with Chupathingy
   clients; standard game types are unchanged.
+
+## 0.8.0d
+
 - Xbox map packs: each pack's maps in its own `maps_<pack>` folder of the
   data folder (Halo CE+'s in `maps_cex`), named `<name>@<pack>` in
   playlists, `sv_map` and `sv_maps` (`wizard@cex`); `/v1/maps` adds
@@ -201,6 +271,21 @@ release notes.
   pack's map ("Gothra", Halo CE+) for players without it. Deploy: a CE+
   server needs the pack's `maps` folder copied to `data/maps_cex` and a
   playlist naming `@cex` maps; nothing changes for the other servers.
+
+## 0.8.0c
+
+- No server changes listed.
+
+## 0.8.0b
+
+- No server changes listed.
+
+## 0.8.0a
+
+- No server changes listed.
+
+## 0.8.0
+
 - Network versions 30, 31 and 32. Announces 32 and joins as a client hosts
   of 11 through 33. Redeploy: a legacy table can't follow this one (wire
   `chupa-32a`).
@@ -209,6 +294,14 @@ release notes.
   server; clients are told when they join and when it changes.
 - Riders of an elevator are carried by its movement of the same tick, and a
   second game on one computer can play (a client takes any free port).
+
+## 0.7.5d
+
+- No server changes listed.
+
+## 0.7.5c
+
+- No server changes listed.
 
 ## 0.7.5b
 
