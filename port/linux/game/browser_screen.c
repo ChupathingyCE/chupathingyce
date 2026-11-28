@@ -2016,6 +2016,11 @@ static void wait_for_host(
 	{
 		extern char const *pc_menus_screen(char const *name);
 
+		platform_log("online games: joined; the pregame screen asks the host for P1 %d, P2 %d, P3 %d, P4 %d "
+			"(1: joining)", (int)player_ui_local_player_wants_to_play_multiplayer(0),
+			(int)player_ui_local_player_wants_to_play_multiplayer(1),
+			(int)player_ui_local_player_wants_to_play_multiplayer(2),
+			(int)player_ui_local_player_wants_to_play_multiplayer(3));
 		browser_screen.connecting = FALSE;
 		browser_screen.active = FALSE;
 		ui_widgets_close_all();
@@ -2514,7 +2519,8 @@ static void link_profile_button(
 boolean browser_screen_active(
 	void)
 {
-	return browser_screen.active;
+	/* (the preview's SELECT PROFILE is up in its place: lobby_screen.c) */
+	return browser_screen.active && !lobby_screen_adding_players();
 }
 
 /* the screen opened (the Multiplayer menu's ONLINE GAMES, interface/ui_widget.c) */

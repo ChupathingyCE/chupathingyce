@@ -473,8 +473,12 @@ player's B in the lobby leaves the game alone, and the last player of the
 computer leaves it for all of them. In the game, each player's pause menu
 opens on their part of the screen, and its LEAVE GAME is theirs: their part
 of the screen stays until the game ends. A game under way shows its own
-screen before JOIN GAME: players join there the same way, START or ADD
-PLAYER then START, and JOIN GAME brings them all into the game.
+screen before JOIN GAME, with ADD PLAYERS (or another controller's START):
+whoever led the way there, on a gamepad or the keyboard and mouse, is
+player 1 and already in the top-left quarter. Each other player presses A
+in their quarter and picks a profile; B in a filled quarter takes that
+player out. A on a picked quarter goes back, and JOIN GAME brings them all
+into the game.
 
 With the PC menus, the pause menu (escape) has SETTINGS after RESUME GAME,
 which opens the profile's settings: in the campaign the game stays paused,

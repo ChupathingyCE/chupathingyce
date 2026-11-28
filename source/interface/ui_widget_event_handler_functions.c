@@ -948,6 +948,9 @@ boolean playlist_profile_get_mode_options(long playlist_profile_index, byte *mod
 #include "stubbs_campaign.h" /* port: port/linux/game/stubbs_campaign.c */
 #include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #ifdef HALO_GAME_BROWSER
+#include "lobby_screen.h" /* port: port/linux/game/lobby_screen.c */
+#endif
+#ifdef HALO_GAME_BROWSER
 /* port: network co-op from the Chupathingy menus' Select Map
 (port/linux/game/menu_functions.c) */
 boolean pc_menus_host_cooperative_shown(void);
@@ -2217,9 +2220,13 @@ static boolean multiplayer_type_menu_initialize(
 	/* port: the Multiplayer menu ends a network game left behind, as System
 	Link's list does when it opens (network_game_server_list_initialize):
 	Online Games' joins and games (browser_screen.c) have no such list to
-	come back to */
-	network_game_cancel(widget, event, widget_deleted);
-	network_game_accept_remote_connections(FALSE);
+	come back to; not back from the preview's SELECT PROFILE, whose game is
+	still to be joined (lobby_screen.c) */
+	if (!lobby_screen_adding_players())
+	{
+		network_game_cancel(widget, event, widget_deleted);
+		network_game_accept_remote_connections(FALSE);
+	}
 #endif
 	/* port: and no co-op player's controller, which one player with one
 	gamepad gives back to the keyboard's (xinput_sdl.c's port_gamepad): its
@@ -2269,6 +2276,15 @@ static boolean clear_multiplayer_player_joins(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
+#ifdef HALO_GAME_BROWSER
+	/* port: SELECT PROFILE over a game's preview (lobby_screen.c's ADD
+	PLAYERS): the joins alone, not the game being joined */
+	if (lobby_screen_adding_players())
+	{
+		player_ui_clear_multiplayer_joins();
+		return TRUE;
+	}
+#endif
 	dispose_global_network_game_client();
 	dispose_global_network_game_server();
 	player_ui_clear_multiplayer_joins();

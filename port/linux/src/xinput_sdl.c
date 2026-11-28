@@ -2108,6 +2108,35 @@ ports follow the order the controllers were connected in */
 static SDL_JoystickID port_gamepad_ids[PORT_COUNT];
 /* the ports kept for controllers unplugged while people play */
 static BOOL port_gamepad_kept[PORT_COUNT];
+/* the gamepad made player 1's (platform_gamepad_make_first; 0 none), or the
+keyboard: the first port's while one person plays, kept once others join.
+Asked for, it waits for the gamepads to be at rest (sdl_gamepads): a
+button held as a gamepad changes port is pressed again on the new one */
+static SDL_JoystickID first_gamepad_id;
+static BOOL first_keyboard;
+static BOOL first_asked;
+static SDL_JoystickID first_asked_id;
+static BOOL first_asked_keyboard;
+
+/* the controller of the port made player 1's (-1: the keyboard and mouse,
+no gamepad on the first port then): whoever led the way to adding players
+(lobby_screen.c's ADD PLAYERS) is player 1 and the top-left quarter,
+whichever controller was connected first */
+void platform_gamepad_make_first(int port)
+{
+	if (port < 0)
+	{
+		first_asked_keyboard = TRUE;
+		first_asked_id = 0;
+		first_asked = TRUE;
+	}
+	else if (port < PORT_COUNT && port_gamepad_ids[port])
+	{
+		first_asked_keyboard = FALSE;
+		first_asked_id = port_gamepad_ids[port];
+		first_asked = TRUE;
+	}
+}
 
 /* each listed gamepad's port (port_of; -1 for none), the gamepads listed in
 connection order; returns the number of ports in use: one past the last with
@@ -2121,15 +2150,34 @@ static int gamepad_ports_assign(const SDL_JoystickID *listed, int count, BOOL ke
 		port_of[index] = -1;
 	if (!keep)
 	{
-		/* (one person: the ports in connection order, none kept) */
+		/* (one person: the ports in connection order, none kept, but for
+		the gamepad made first, on the first port, or none there when the
+		keyboard was) */
+		int order[PORT_COUNT];
+		int ordered = 0, start = first_keyboard ? 1 : 0;
+
+		for (index = 0; index < count && index < PORT_COUNT; index++)
+		{
+			if (first_gamepad_id && listed[index] == first_gamepad_id)
+				order[ordered++] = index;
+		}
+		for (index = 0; index < count && index < PORT_COUNT; index++)
+		{
+			if (!first_gamepad_id || listed[index] != first_gamepad_id)
+				order[ordered++] = index;
+		}
 		for (port = 0; port < PORT_COUNT; port++)
 		{
-			port_gamepad_ids[port] = port < count ? listed[port] : 0;
+			port_gamepad_ids[port] = 0;
 			port_gamepad_kept[port] = FALSE;
-			if (port < count)
-				port_of[port] = port;
 		}
-		return count < PORT_COUNT ? count : PORT_COUNT;
+		for (index = 0; index < ordered && index + start < PORT_COUNT; index++)
+		{
+			port_gamepad_ids[index + start] = listed[order[index]];
+			port_of[order[index]] = index + start;
+			ports = index + start + 1;
+		}
+		return ports;
 	}
 	/* the controllers still connected keep their ports; an unplugged one's
 	port is kept for the next */
@@ -2206,6 +2254,8 @@ static BOOL gamepad_shares_first_port(int port, BOOL sharing, BOOL present, BOOL
 
 /* ---------- SDL gamepads */
 
+static BOOL gamepad_idle(SDL_Gamepad *gamepad);
+
 /* the SDL gamepads by port (NULL for a port with none: gamepad_ports_assign);
 returns the number of ports in use */
 static int sdl_gamepads(SDL_Gamepad *gamepads[PORT_COUNT])
@@ -2258,6 +2308,22 @@ static int sdl_gamepads(SDL_Gamepad *gamepads[PORT_COUNT])
 	}
 #endif
 	SDL_free(ids);
+	/* (player 1's gamepad, asked for, once every gamepad is at rest) */
+	if (first_asked)
+	{
+		BOOL idle = TRUE;
+
+		for (index = 0; index < found && idle; index++)
+			idle = gamepad_idle(listed[index]);
+		if (idle)
+		{
+			first_gamepad_id = first_asked_id;
+			first_keyboard = first_asked_keyboard;
+			first_asked = FALSE;
+			platform_log("gamepads: player 1 is %s now", first_keyboard ? "the keyboard and mouse" :
+				"the gamepad that led the way");
+		}
+	}
 	ports = gamepad_ports_assign(listed_ids, found, pc_menu_split_players() != 0, port_of);
 	for (index = 0; index < found; index++)
 	{

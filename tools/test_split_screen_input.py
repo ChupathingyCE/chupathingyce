@@ -11,7 +11,9 @@ drives them:
 - the gamepads' ports (port/linux/src/xinput_sdl.c's gamepad_ports_assign):
   the order controllers were connected in while one person plays, and while
   two or more do, a port kept for each controller as others are plugged in
-  and out; and while one person plays the game, the other ports' gamepads
+  and out; the controller that led the way to ADD PLAYERS (or the keyboard)
+  made player 1's, whichever was connected first (platform_gamepad_make_first);
+  and while one person plays the game, the other ports' gamepads
   also driving their player (gamepad_shares_first_port).
 
 Where SDL3 is installed (pkg-config sdl3, or Homebrew's), the ports are also
@@ -412,6 +414,28 @@ int main(void)
 	CHECK(!gamepad_shares_first_port(2, TRUE, FALSE, TRUE), "no pad on port 3: nothing shared");
 	CHECK(!gamepad_shares_first_port(1, FALSE, TRUE, TRUE), "split screen: port 2's pad is player 2's alone");
 	CHECK(!gamepad_shares_first_port(0, TRUE, TRUE, TRUE), "port 1's own pad is not shared with itself");
+
+	/* player 1's controller made first (ADD PLAYERS, led by pad 4 on port
+	3): it takes port 1 and keeps it once split screen starts; the others
+	follow in connection order (pads 2, 4 and 5 are connected) */
+	platform_gamepad_make_first(port_of_pad(3, FALSE));
+	CHECK(first_asked && first_asked_id == id_of(3), "player 1's pad: asked for");
+	/* (sdl_gamepads takes it with the gamepads at rest) */
+	first_gamepad_id = first_asked_id;
+	first_keyboard = first_asked_keyboard;
+	first_asked = FALSE;
+	CHECK(port_of_pad(3, FALSE) == 0 && port_of_pad(1, FALSE) == 1 && port_of_pad(4, FALSE) == 2,
+		"player 1's pad: on port 1, the others after it");
+	CHECK(port_of_pad(3, TRUE) == 0 && port_of_pad(1, TRUE) == 1 && port_of_pad(4, TRUE) == 2,
+		"player 1's pad: split screen keeps it on port 1");
+	/* the keyboard and mouse led the way: no pad on port 1 */
+	platform_gamepad_make_first(-1);
+	first_gamepad_id = first_asked_id;
+	first_keyboard = first_asked_keyboard;
+	first_asked = FALSE;
+	CHECK(port_of_pad(1, FALSE) == 1 && port_of_pad(3, FALSE) == 2 && port_of_pad(4, FALSE) == 3,
+		"the keyboard player 1's: the pads from port 2");
+	first_keyboard = FALSE;
 #ifdef WITH_SDL
 	printf("ports (SDL virtual gamepads): %s\n", failures ? "FAILED" : "each controller keeps its player's port");
 	SDL_Quit();
