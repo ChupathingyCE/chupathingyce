@@ -24,6 +24,7 @@ area      tools/harness/tests/test_client_spiral_guard.py
 area      tools/harness/tests/test_client_trouble_box.py
 area      tools/harness/tests/test_cluster_object_lists.py
 area      tools/harness/tests/test_coop_activating_cluster.py
+area      tools/harness/tests/test_coop_map_list.py
 area      tools/harness/tests/test_coop_monitor.py
 area      tools/harness/tests/test_coop_progress.py
 area      tools/harness/tests/test_coop_stranded.py
