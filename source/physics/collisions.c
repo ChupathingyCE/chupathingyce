@@ -125,6 +125,12 @@ that passes nothing over, port/xbox/game/xbox_desktop_stubs.c) */
 #else
 boolean object_bounds_cache_missed_by_vector(long object_index, real_point3d const *point, real_vector3d const *vector);
 #endif
+#ifdef HALO_PORT_CLUSTER_OBJECT_LISTS
+long const *object_bounds_cache_cluster_objects(short cluster_index, unsigned long flags, long *count);
+#else
+/* (a console walks the cluster's list) */
+#define object_bounds_cache_cluster_objects(cluster_index, flags, count) ((long const *)NULL)
+#endif
 
 #undef REAL_MATH_EXTERNAL_POINT_FROM_LINE3D
 
@@ -851,10 +857,21 @@ boolean collision_test_vector(
 				{
 					long reference_index;
 					long object_index;
+					/* port: a vector that tests for no bipeds goes through
+					the cluster's other objects of the types it tests for, in
+					the list's order, from a list of them (object_bounds_cache.c;
+					from GulchCE by chestahh, granted 2026-11-26) */
+					long cached_count = 0;
+					long cached_next = 0;
+					long const *cached = object_bounds_cache_cluster_objects((short)cluster_index, flags, &cached_count);
 
-					for (object_index = cluster_get_first_collideable_object(&reference_index, cluster_index);
+					for (object_index = cached ?
+							(cached_count > 0 ? cached[0] : NONE) :
+							cluster_get_first_collideable_object(&reference_index, cluster_index);
 						object_index != NONE;
-						object_index = cluster_get_next_collideable_object(&reference_index))
+						object_index = cached ?
+							(++cached_next < cached_count ? cached[cached_next] : NONE) :
+							cluster_get_next_collideable_object(&reference_index))
 					{
 						/* port: (the ones the vector misses passed over on a
 						packed copy of their bounding spheres, before they

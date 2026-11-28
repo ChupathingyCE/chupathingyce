@@ -126,7 +126,9 @@ symbols in this file:
 #include "mcc_cache.h"
 #include "mcc_checkpoint.h"
 #include "stubbs_regions.h"
+#include "opensauce_bsp_sets.h"
 #include "opensauce_scripts.h"
+#include "opensauce_transforms.h"
 #include "ragdolls.h" /* port: display.ragdolls (port/linux/game/ragdolls.c) */
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_invalidate(void);
@@ -229,7 +231,13 @@ static game_state_after_load_proc after_load_procs[] =
 	scripted_hud_messages_clear,
 	/* port: Stubbs mode's region rows start again from the objects put back
 	(port/linux/game/stubbs_regions.c) */
-	stubbs_regions_forget
+	stubbs_regions_forget,
+	/* port: an OpenSauce map's transforms under way end where they stood
+	(port/linux/game/opensauce_transforms.c) */
+	opensauce_transforms_game_state_loaded,
+	/* port: an OpenSauce map's lightmap and sky sets as they were saved
+	(port/linux/game/opensauce_bsp_sets.c) */
+	opensauce_bsp_sets_game_state_loaded
 };
 
 /* ---------- public code */

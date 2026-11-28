@@ -24,6 +24,7 @@ game's log, d:\debug.txt (and debug.old.txt), is in logs/.
 #include "port_folders.h"
 #include "save_folder.h"
 #include "steam_workshop.h"
+#include "ark_files.h"
 #include "mcc_local_package.h"
 
 #include <ctype.h>
@@ -32,9 +33,6 @@ game's log, d:\debug.txt (and debug.old.txt), is in logs/.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef HALO_WINDOW_REBASE
-#include <strings.h>
-#endif
 #include <unistd.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -445,8 +443,10 @@ it is. With the window at its linked address the name is the game's own.
 Returns xbox_path, or the renamed path in buffer. */
 static const char *window_save_path(const char *xbox_path, char *buffer, unsigned long buffer_size)
 {
+	static const char save_name[] = "savegame.bin";
 	const char *name = xbox_path;
 	const char *cursor;
+	unsigned long index;
 
 	if (PLATFORM_CONTIGUOUS_BASE == 0x80000000UL)
 		return xbox_path;
@@ -455,8 +455,12 @@ static const char *window_save_path(const char *xbox_path, char *buffer, unsigne
 		if (*cursor == '\\' || *cursor == '/' || *cursor == ':')
 			name = cursor + 1;
 	}
-	if (strcasecmp(name, "savegame.bin"))
-		return xbox_path;
+	/* (in any case; Windows has no strcasecmp) */
+	for (index = 0; index < sizeof(save_name); index++)
+	{
+		if (tolower((unsigned char)name[index]) != save_name[index])
+			return xbox_path;
+	}
 	snprintf(buffer, buffer_size, "%.*ssavegame-%08lx.bin", (int)(name - xbox_path), xbox_path,
 		(unsigned long)PLATFORM_CONTIGUOUS_BASE);
 	return buffer;
@@ -533,6 +537,26 @@ static int translate_workshop(const char *cursor, char *resolved, unsigned long 
 	return 1;
 }
 
+#ifdef HALO_ARK
+/* maps_ark\... where the data root has no such folder with the mode's maps: their folder in MCC's install in
+the player's Steam library (ark_files.h), read in place. The rest of the path after the folder in rest */
+static void translate_ark(const char *cursor, char *resolved, unsigned long size, const char **rest)
+{
+	static const char folder[] = ARK_FILES_FOLDER;
+	char found[1024];
+	unsigned long length = sizeof(folder) - 1;
+
+	while (*cursor == '\\' || *cursor == '/')
+		cursor++;
+	if (strncasecmp(cursor, folder, length) || (cursor[length] && cursor[length] != '\\' && cursor[length] != '/'))
+		return;
+	if (ark_files_local() || !ark_files_folder(found, sizeof(found)) || strlen(found) >= size)
+		return;
+	snprintf(resolved, size, "%s", found);
+	*rest = cursor + length;
+}
+#endif
+
 /* the save root's folder of the drives (platform_save_drive_folder) */
 static char save_drive_folder[32];
 
@@ -599,6 +623,11 @@ void platform_translate_path(const char *xbox_path, char *host_path, unsigned lo
 		/* port: an MCC Workshop item's maps, in place (steam_workshop.c) */
 		if (drive == 'd')
 			translate_workshop(cursor, resolved, sizeof(resolved), &cursor);
+#ifdef HALO_ARK
+		/* port: Project Ark's files in MCC's install, in place (ark_files.c) */
+		if (drive == 'd')
+			translate_ark(cursor, resolved, sizeof(resolved), &cursor);
+#endif
 	}
 	else
 	{

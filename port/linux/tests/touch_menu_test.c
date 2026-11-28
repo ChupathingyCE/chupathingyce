@@ -2,7 +2,7 @@
 TOUCH_MENU_TEST.C
 
 Tests of the menus' touch gestures (port/linux/src/touch_menu.c). Built and
-run by tools/test_touch_menu.py; exits nonzero on a failure.
+run by tools/test_c_units.py; exits nonzero on a failure.
 */
 
 #include "../src/touch_menu.h"

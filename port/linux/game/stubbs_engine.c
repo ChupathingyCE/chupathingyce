@@ -39,6 +39,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "stubbs_mode.h"
 #include "stubbs_engine.h"
 #include "content_bytes.h"
+#include "models/model_animation_definitions.h"
 
 #ifndef HALO_CONSOLE_NO_STUBBS
 
@@ -759,6 +760,44 @@ void stubbs_engine_player_move_origin(
 
 	if (local_player_index != NONE)
 		stubbs_local_players[local_player_index].origin_unit_index = to_unit_index;
+}
+
+/* an animation graph's sound reference as Stubbs mode leaves it: Halo's
+element (model_animations.c's), its unused long the effect a Stubbs graph
+names in its place, or NONE (stubbs_mode.c) */
+struct stubbs_animation_sound_reference
+{
+	struct tag_reference sound;
+	long effect;
+};
+typedef char stubbs_animation_sound_reference_size_assert[
+	sizeof(struct stubbs_animation_sound_reference) == 0x14 ? 1 : -1];
+
+void stubbs_engine_animation_effect(
+	long object_index,
+	long animation_graph_index,
+	struct animation_state const *state)
+{
+	struct animation_graph const *graph;
+	struct animation const *animation;
+	struct stubbs_animation_sound_reference const *reference;
+
+	if (!stubbs_mode_active() || animation_graph_index == NONE || !state ||
+		(graph = animation_graph_definition_get(animation_graph_index)) == NULL ||
+		!VALID_INDEX(state->index, graph->animations.count))
+	{
+		return;
+	}
+	animation = TAG_BLOCK_GET_ELEMENT(&graph->animations, state->index, struct animation);
+	if (animation->sound_index == NONE || animation->private_sound_frame_index != state->frame_index ||
+		!VALID_INDEX(animation->sound_index, graph->sound_references.count))
+	{
+		return;
+	}
+	reference = TAG_BLOCK_GET_ELEMENT(&graph->sound_references, animation->sound_index,
+		struct stubbs_animation_sound_reference);
+	if (reference->sound.index == NONE && reference->effect != NONE && reference->effect != 0)
+		effect_new_from_object(reference->effect, object_index, object_index, NONE, 0.f, 0.f, NULL, NULL);
 }
 
 #endif

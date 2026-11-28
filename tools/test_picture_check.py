@@ -81,3 +81,12 @@ def test_skyline_a_pixel_off_is_no_hole(tmp_path):
     test = picture(tmp_path / "test.ppm", rows)
     changed, holes, mask = picture_check.compare(test, reference, (8, 0), 18, tmp_path)
     assert holes == 0 and changed > 0
+
+
+def test_renderer_settings():
+    """--renderer and --reference-renderer: bgfx with the Vulkan blocklist
+    off (lavapipe), OpenGL as it is, and --env still has the last word"""
+    assert picture_check.settings(None) == {}
+    assert picture_check.settings(None, "bgfx") == {"HALO_RENDERER": "bgfx", "HALO_VULKAN_BLOCKLIST": "false"}
+    assert picture_check.settings(None, "gl") == {"HALO_RENDERER": "gl"}
+    assert picture_check.settings(["HALO_VULKAN_BLOCKLIST=true"], "bgfx")["HALO_VULKAN_BLOCKLIST"] == "true"

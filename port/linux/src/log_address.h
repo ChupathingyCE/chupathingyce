@@ -47,6 +47,11 @@ int log_address_local(const unsigned char *bytes, int length);
 a port in network byte order (0: none) */
 const char *log_address_ipv4(unsigned long network_address, unsigned short network_port, char *text, int size);
 
+/* the same, for an internet play peer's address (p2p.c): a local network's
+as a tag too, only this machine's own (loopback, unspecified) whole. A
+peer's address is someone's whatever range it is in */
+const char *log_address_ipv4_peer(unsigned long network_address, unsigned short network_port, char *text, int size);
+
 /* a host name a player typed to join a game by (port/linux/game/
 direct_join.c), as the log may show it: "localhost" as it is, any other as
 a tag, "name#3f2a9c" (the same salted hash as an address's: the same name,

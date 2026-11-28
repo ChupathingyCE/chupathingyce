@@ -467,6 +467,14 @@ unsigned long system_milliseconds(void)
 	return 0;
 }
 
+/* (sound_manager.c's, for ce_resources.c's decoded sounds: none plays here) */
+boolean sound_definition_playing(long definition_index);
+boolean sound_definition_playing(long definition_index)
+{
+	(void)definition_index;
+	return FALSE;
+}
+
 void system_exit(long code)
 {
 	if (fuzz_verbose)
@@ -2009,18 +2017,43 @@ boolean pc_menu_owns(unsigned long address, long size)
 	return FALSE;
 }
 
-/* (SPV3 mode, spv3_mode.c, not in the harness: always off, so the checks
-see Custom Edition's own limits) */
+#include "opensauce_maps.h"
+/* (SPV3 mode, spv3_mode.c, and OpenSauce's larger tag window,
+opensauce_maps.c, not in the harness: always off, so the checks see Custom
+Edition's own limits) */
 boolean spv3_mode_active(void) { return FALSE; }
-unsigned long spv3_mode_tag_cache_size(unsigned long custom_edition_size) { return custom_edition_size; }
-boolean spv3_mode_accepts_opensauce(char const *map_name, unsigned short flags)
+unsigned long opensauce_maps_tag_cache_size(unsigned long custom_edition_size) { return custom_edition_size; }
+boolean opensauce_maps_accepts_header(char const *map_name, unsigned short flags)
 {
 	(void)map_name;
 	(void)flags;
 	return FALSE;
 }
-void spv3_mode_survey(char const *map_name, void const *cache_header, void const *tags, unsigned long tag_data_size,
-	unsigned long file_size)
+void opensauce_maps_check_started(void) { }
+void opensauce_maps_session_now(struct opensauce_maps_session *session)
+{
+	session->hosting = session->hosting_internet = session->joined = session->host_on_lan = FALSE;
+}
+boolean opensauce_maps_online_allows(char const *map_name, unsigned short flags,
+	struct opensauce_maps_session const *session)
+{
+	(void)map_name;
+	(void)flags;
+	(void)session;
+	return TRUE;
+}
+void opensauce_maps_check_done(void) { }
+void spv3_mode_log(char const *format, ...) { (void)format; }
+
+/* (an OpenSauce map's log, opensauce_survey.c, not in the harness: nothing
+logged) */
+boolean opensauce_survey_wanted(void const *cache_header)
+{
+	(void)cache_header;
+	return FALSE;
+}
+void opensauce_survey_map(char const *map_name, void const *cache_header, void const *tags,
+	unsigned long tag_data_size, unsigned long file_size)
 {
 	(void)map_name;
 	(void)cache_header;
@@ -2028,18 +2061,27 @@ void spv3_mode_survey(char const *map_name, void const *cache_header, void const
 	(void)tag_data_size;
 	(void)file_size;
 }
-void spv3_mode_log(char const *format, ...) { (void)format; }
-void spv3_mode_note_resource_miss(char const *kind, char const *tag_name)
+void opensauce_survey_checked(char const *map_name, char const *refusal)
+{
+	(void)map_name;
+	(void)refusal;
+}
+void opensauce_survey_note_resource_miss(char const *kind, char const *tag_name)
 {
 	(void)kind;
 	(void)tag_name;
 }
 
-/* (tag_validate.c asks whether tag data is Stubbs the Zombie's own:
-stubbs_mode.c, not in the harness) */
+/* (tag_validate.c asks whether tag data is Stubbs the Zombie's own, and
+whether Stubbs mode is on for its layout: stubbs_mode.c, not in the
+harness) */
 boolean stubbs_mode_owns_data(void const *address, long size)
 {
 	(void)address;
 	(void)size;
+	return FALSE;
+}
+boolean stubbs_mode_active(void)
+{
 	return FALSE;
 }

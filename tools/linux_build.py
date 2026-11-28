@@ -187,6 +187,20 @@ JOLT_CXX_FLAGS = ["-std=c++17", OPTIMISATION, "-g", "-fno-rtti", "-fno-exception
                   "-fno-strict-aliasing", "-D_GLIBCXX_GTHREAD_USE_WEAK=0", "-w"]
 
 
+# Project Ark (port/linux/game/ark_mode.c), an early mode: its units are
+# port/linux/game/ark's, built only with HALO_ARK (configure.py --ark, the
+# 32-bit Linux desktop build). Without it no unit of the game differs.
+ARK_DIR = PORT_DIR / "game" / "ark"
+# (what the mode's units, written for Project Ark's engine, take from this
+# one's in its place: force-included ahead of each of them)
+ARK_PORT_HEADER = ARK_DIR / "h2_port.h"
+
+
+def ark_sources() -> List[Path]:
+    """Project Ark's units (port/linux/game/ark)"""
+    return sorted(ARK_DIR.glob("*.c"))
+
+
 def jolt_sources() -> List[Path]:
     """Jolt's units as its own build lists them (Jolt/Jolt.cmake's
     JOLT_PHYSICS_SRC_FILES), and the C face"""
@@ -641,6 +655,9 @@ class Linux32Units:
     # the ragdolls' Jolt Physics (JOLT_DEFINES): the desktop build's, not the
     # server's
     jolt: bool = False
+    # Project Ark's units (ARK_DIR, ark_sources): the 32-bit Linux desktop
+    # build's, unless configure.py --no-ark
+    ark: bool = False
 
 
 # the ABI flags only x86 has, which clang rejects for another target: the
@@ -713,6 +730,8 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         # the headers of the port's own game units (port/linux/game), for
         # the game sources that call them
         f"-iquote {Path(config['game_sources'])}",
+        # (and Project Ark's own, for the game sources' calls into it)
+        *([f"-iquote {ARK_DIR}"] if units.ark else []),
         game_defines_and_includes(config),
         sdk_flags,
     ])
@@ -724,6 +743,10 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         add_object(source, game_cflags)
     for source in units.game_unit_sources:
         add_object(source, game_cflags)
+    # Project Ark's units (port/linux/game/ark), as port/linux/game's
+    if units.ark:
+        for source in ark_sources():
+            add_object(source, f"{game_cflags} -include {ARK_PORT_HEADER}")
     # the dedicated server's director, with the game browser (server/)
     if units.game_browser:
         for source in sorted(Path("server/src").glob("*.c")):
@@ -960,6 +983,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                          embedded_assets=embedded_assets, sysroot_flags=sysroot_cflags,
                          ffmpeg=(ffmpeg_cflags, ffmpeg_libs), lua=True,
                          jolt=getattr(sln, "with_ragdolls", True),
+                         ark=getattr(sln, "ark", False),
                          # configure.py --window-rebase: the memory window wherever
                          # HALO_WINDOW_BASE puts it (source/cseries/xbox_address.h), to
                          # test on the desktop what the Switch needs; never a build to ship
@@ -967,7 +991,10 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                          # configure.py --packaged and --console-limits (game_browser_defines),
                          # which the game's own units (source/) take too
                          + (["-DHALO_PACKAGED"] if getattr(sln, "packaged", False) else [])
-                         + (["-DHALO_CONSOLE_LIMITS"] if getattr(sln, "console_limits", False) else []))
+                         + (["-DHALO_CONSOLE_LIMITS"] if getattr(sln, "console_limits", False) else [])
+                         # configure.py --ark: Project Ark, an early mode
+                         # (port/linux/game/ark_mode.c); this build only for now
+                         + (["-DHALO_ARK"] if getattr(sln, "ark", False) else []))
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
              implicit_inputs: List[Path], validator: Optional[Path] = None) -> None:

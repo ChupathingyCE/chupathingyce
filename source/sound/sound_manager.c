@@ -241,6 +241,7 @@ symbols in this file:
 #include "render/render_debug.h"
 #include "scenario/scenario.h"
 #include "tag_files/tag_files.h"
+#include "opensauce.h" /* port: port/linux/game/opensauce_map.c */
 
 #include <math.h>
 #include <stdio.h>
@@ -1087,6 +1088,29 @@ void sound_stop_impulse_by_source_and_definition(
 	return;
 }
 
+#if defined(HALO_CUSTOM_EDITION) && !defined(HALO_CONSOLE)
+/* port: whether a sound of this definition is playing, or is the next one a
+playing sound goes on to (a Custom Edition map's decoded sounds are not moved
+out of their file while they play: ce_resources.c) */
+boolean sound_definition_playing(
+	long definition_index)
+{
+	long sound_index;
+
+	if (!sound_data || !sound_data->valid)
+		return FALSE;
+	for (sound_index = data_next_index(sound_data, NONE); sound_index != NONE;
+		sound_index = data_next_index(sound_data, sound_index))
+	{
+		struct sound_datum *sound = sound_get(sound_index);
+
+		if (sound->definition_index == definition_index || sound->next_definition_index == definition_index)
+			return TRUE;
+	}
+	return FALSE;
+}
+#endif
+
 /* ---------- private code */
 
 static void sound_update_time(
@@ -1211,6 +1235,10 @@ static real sound_manager_master_gain(
 	{
 		gain *= mcc_campaign_mix_gain(class_index == _sound_class_music);
 	}
+	/* port: an OpenSauce map's scripts' music or effects gain (Halo PC's
+	sound_set_music_gain and sound_set_effects_gain: port/linux/game/
+	opensauce_map.c); any other map, 1 */
+	gain *= opensauce_map_sound_gain(class_index == _sound_class_music);
 
 	if (class_index != _sound_class_scripted_dialog_to_player &&
 		class_index != _sound_class_scripted_dialog_to_other &&

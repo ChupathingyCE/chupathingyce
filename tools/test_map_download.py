@@ -13,8 +13,11 @@ the names read, and the hash against a reference written here in Python.
 
 The last tests download real maps from the community map repository
 (maps.halonet.net) and check them as the game does (sneak's whole-file hash
-is the one a host named Sneak_af352483 by); they are skipped when the
-repository can't be reached, or when HALO_MAP_DOWNLOAD_ONLINE=0."""
+is the one a host named Sneak_af352483 by). They run only with
+HALO_MAP_DOWNLOAD_ONLINE=1, as the nightly Online tests workflow
+(.github/workflows/online-tests.yml) sets it, so that no pull request
+depends on another site being up; they are skipped when the repository
+can't be reached."""
 import io
 import os
 import shutil
@@ -623,9 +626,14 @@ def test_consoles_download_as_before():
 # ---------- the real repository
 
 
+def online():
+    """the online tests run only when asked for (HALO_MAP_DOWNLOAD_ONLINE=1)"""
+    if os.environ.get("HALO_MAP_DOWNLOAD_ONLINE") != "1":
+        pytest.skip("downloads from the community map repository: HALO_MAP_DOWNLOAD_ONLINE=1")
+
+
 def test_real_repository_map(harness, tmp_path):
-    if os.environ.get("HALO_MAP_DOWNLOAD_ONLINE") == "0":
-        pytest.skip("HALO_MAP_DOWNLOAD_ONLINE=0")
+    online()
     request = urllib.request.Request(ONLINE_URL.format(ONLINE_MAP), headers={"User-Agent": "ChupathingyCE tests"})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
@@ -643,8 +651,7 @@ def test_real_repository_map(harness, tmp_path):
 
 def test_real_listing_spelling(harness, tmp_path):
     """#639: the locator has no battlecraft, the listing has BattleCraft.zip"""
-    if os.environ.get("HALO_MAP_DOWNLOAD_ONLINE") == "0":
-        pytest.skip("HALO_MAP_DOWNLOAD_ONLINE=0")
+    online()
     request = urllib.request.Request("https://maps.halonet.net/index.php?fulllist=y",
                                      headers={"User-Agent": "ChupathingyCE tests"})
     try:
@@ -659,8 +666,7 @@ def test_real_listing_spelling(harness, tmp_path):
 
 
 def download(name, tmp_path):
-    if os.environ.get("HALO_MAP_DOWNLOAD_ONLINE") == "0":
-        pytest.skip("HALO_MAP_DOWNLOAD_ONLINE=0")
+    online()
     request = urllib.request.Request(ONLINE_URL.format(name), headers={"User-Agent": "ChupathingyCE tests"})
     try:
         with urllib.request.urlopen(request, timeout=120) as response:

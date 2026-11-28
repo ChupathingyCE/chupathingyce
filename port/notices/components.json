@@ -2,7 +2,7 @@
   "about": [
     "What every download's THIRD-PARTY-NOTICES.txt lists (tools/third_party_notices.py writes it at build time; tools/test_third_party_notices.py checks this list).",
     "One entry per component built into the game or the dedicated server: what it is for, its copyright lines, and the license files whose full texts the notices carry.",
-    "packages: the downloads it is in (game, server). requires: only when the build has it (sdl3: the SDL3 library ships with the game; bgfx: the bgfx renderer; vulkan: bgfx's Vulkan renderer, Linux and Windows; spirv-cross: bgfx's SPIRV-Cross, macOS and 64-bit Windows; appimage: the Linux AppImage's own runtime; vulkan-android: the 64-bit Android app's Vulkan renderer).",
+    "packages: the downloads it is in (game, server). requires: only when the build has it (sdl3: the SDL3 library ships with the game; bgfx: the bgfx renderer; vulkan: bgfx's Vulkan renderer, Linux and Windows; spirv-cross: bgfx's SPIRV-Cross, macOS and 64-bit Windows; appimage: the Linux AppImage's own runtime; ffmpeg: the movies' FFmpeg, built into every game but one made with configure.py --without-ffmpeg; vulkan-android: the 64-bit Android app's Vulkan renderer).",
     "shared: a license text printed once at the end (shared_texts) for every entry under it. covers: the folders and files in the repository the entry accounts for. fetched: where a build puts the license of a library it downloads, compared with the copy here (port/notices).",
     "A new library in port/third_party, or a new font or data set, needs an entry here, or the test fails."
   ],
@@ -338,6 +338,30 @@
       ],
       "covers": [
         "port/third_party/opus"
+      ]
+    },
+    {
+      "name": "FFmpeg",
+      "use": "Playing the Bink movies (the intro, the attract movies, the credits and a map pack's own), and encoding clips (F10) where the build has them.",
+      "source": "https://ffmpeg.org (release 7.1, built from its release tarball by tools/ffmpeg_build.py and tools/android_ffmpeg.py: the Bink demuxer and decoders, the file protocol, swscale, swresample, and for clips the MP4 muxer, the AAC and MPEG-4 Part 2 encoders and, on macOS, VideoToolbox's H.264; nothing else)",
+      "copyright": [
+        "Copyright (c) 2000-2024 the FFmpeg developers"
+      ],
+      "license": "LGPL-2.1-or-later (built without FFmpeg's GPL and nonfree parts). The libraries are linked into the game statically. {ffmpeg_source} The game's own source, with the scripts that build these libraries, is at {game_source}, so they can be rebuilt and linked again.",
+      "files": [
+        "port/notices/FFmpeg-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "ffmpeg",
+      "covers": [
+        "port/notices/FFmpeg-LICENSE.txt"
+      ],
+      "fetched": [
+        "build/*/ffmpeg/src/COPYING.LGPLv2.1",
+        "build/*/third_party/ffmpeg-*/src/COPYING.LGPLv2.1",
+        "build/*/ffmpeg-guest/src/COPYING.LGPLv2.1"
       ]
     },
     {
@@ -710,6 +734,26 @@
       ]
     },
     {
+      "name": "Dynamic Lighting, Dynamic Shadows and shared renderer optimisations",
+      "use": "The Light effects (display.light_effects) and the lighting and shadow work brought over from GulchCE: port/linux/game/*_lighting.c and the changes marked as his in the game's sources.",
+      "source": "https://github.com/chestahh/GulchCE/tree/035f47bb8fc682675456323dbb3095b506502ec6",
+      "copyright": [
+        "Copyright chestahh (GulchCE)"
+      ],
+      "license": "GPL-3.0-or-later, like the rest of the game (offered by chestahh under AGPL-3.0-or-later or GPL-3.0-or-later; his lines only)",
+      "credit": "Dynamic Lighting, Dynamic Shadows and shared renderer optimisations by chestahh (https://github.com/chestahh), originally developed for GulchCE (https://github.com/chestahh/GulchCE). Original OpenCE port: https://github.com/chestahh/GulchCE/tree/035f47bb8fc682675456323dbb3095b506502ec6. Our changes are in the git history.",
+      "packages": [
+        "game"
+      ],
+      "covers": [
+        "port/linux/game/plasma_lighting.c",
+        "port/linux/game/muzzle_lighting.c",
+        "port/linux/game/rocket_lighting.c",
+        "port/linux/game/covenant_lighting.c",
+        "port/linux/game/covenant_emitter_lighting.c"
+      ]
+    },
+    {
       "name": "HD controller buttons",
       "use": "The Duke's, PlayStation's and Switch's buttons in the prompts (input.button_style, input.hud_buttons).",
       "source": "DKrumpp's hd_buttons_v1 (Chupathingy Discord, November 11, 2026)",
@@ -908,6 +952,24 @@
       "requires": "vulkan-android",
       "covers": [
         "port/notices/turnip-LICENSE.txt"
+      ]
+    },
+    {
+      "name": "TLSF",
+      "use": "Project Ark's level builder: the heap it makes a level in (32-bit Linux builds).",
+      "source": "https://github.com/mattconte/tlsf (commit deff9ab509341f264addbd3c8ada533678591905)",
+      "copyright": [
+        "Copyright (c) 2006-2016, Matthew Conte"
+      ],
+      "license": "BSD-3-Clause",
+      "files": [
+        "port/third_party/tlsf/LICENSE"
+      ],
+      "packages": [
+        "game"
+      ],
+      "covers": [
+        "port/third_party/tlsf"
       ]
     }
   ]

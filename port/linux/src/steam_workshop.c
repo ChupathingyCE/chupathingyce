@@ -1017,6 +1017,28 @@ int steam_workshop_resource_path(const char *request, const char *data_root, cha
 	return result;
 }
 
+#ifdef HALO_ARK
+int steam_workshop_mcc_install(int which, char *path, unsigned long size)
+{
+	char (*paths)[STEAM_WORKSHOP_PATH_SIZE];
+	int count, library, seen = 0, result = 0;
+
+	if (which < 0 || !path || !size)
+		return 0;
+	paths = malloc(sizeof(*paths) * 2 * STEAM_WORKSHOP_MAXIMUM_LIBRARIES);
+	if (!paths)
+		return 0;
+	count = libraries(paths, 2 * STEAM_WORKSHOP_MAXIMUM_LIBRARIES);
+	for (library = 0; library < count && !result; library++)
+	{
+		if (mcc_install_folder(paths[library], path, (unsigned)size) && is_directory(path) && seen++ == which)
+			result = 1;
+	}
+	free(paths);
+	return result;
+}
+#endif
+
 int steam_workshop_shared_missing(void)
 {
 	return shared_missing;

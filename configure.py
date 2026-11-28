@@ -85,7 +85,17 @@ parser.add_argument(
     action="store_true",
     help="the 32-bit Linux build (ninja linux) with its Xbox memory window wherever HALO_WINDOW_BASE puts it "
     "(HALO_WINDOW_REBASE: source/cseries/xbox_address.h), to test on the desktop what the Switch's guest "
-    "does; never a build to ship",
+    "does, never a build to ship; and the 32-bit Windows build (ninja windows) with its window wherever it "
+    "fits (or where HALO_WINDOW_BASE puts it), which Chupathingy32 ships: 32-bit Windows keeps 0x80000000 "
+    "up for itself",
+)
+parser.add_argument(
+    "--ark",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="the 32-bit Linux desktop build (ninja linux): Project Ark, an early mode (HALO_ARK; "
+    "port/linux/game/ark_mode.c and port/linux/game/ark), built in only with --ark; without it every unit "
+    "is as it is without the mode",
 )
 parser.add_argument(
     "--packaged",
@@ -181,6 +191,7 @@ sln = SimpleNamespace(
     game_browser=args.game_browser,
     console_limits=args.console_limits,
     window_rebase=args.window_rebase,
+    ark=args.ark,
     packaged=args.packaged,
     port_lto=args.lto,
     with_bgfx=args.with_bgfx,

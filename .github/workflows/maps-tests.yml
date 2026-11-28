@@ -1,0 +1,71 @@
+# The tests that need the stock Xbox maps and a built game (the maps bucket
+# of tools/ci_test_buckets.txt), every night and by hand, on a self-hosted
+# runner labeled `maps` that keeps the maps on its own disk. The maps never
+# leave it: nothing here uploads an artifact or a cache. GitHub's runners
+# have no maps, so in the Build workflow these tests always skipped.
+# (Tier C's nightly half: docs/ci.md, "Nightly".) What they catch that no
+# other test does: a change that makes the game play differently on a real
+# map (determinism and the tricks replayed tick for tick), the AI losing
+# its way, Forge's mouse look and the map names a real map shows.
+#
+# Until a runner is registered with the label and the repository variable
+# MAPS_RUNNER is set to true, the job is skipped and the run passes.
+# join_password_pair and net43_host host games, so they stay local runs
+# (loopback only), never a scheduled job.
+name: Maps tests
+
+on:
+  schedule:
+    - cron: "5 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# (one at a time: the runner is one machine)
+concurrency:
+  group: maps-tests
+  cancel-in-progress: false
+
+jobs:
+  maps:
+    # (main's code only: the runner is a machine of ours)
+    if: github.repository == 'ChupathingyCE/chupathingyce' && github.ref == 'refs/heads/main' && vars.MAPS_RUNNER == 'true'
+    runs-on: [self-hosted, maps]
+    timeout-minutes: 120
+    env:
+      # (the runner's own .env names the stock Xbox maps' folder, HALO_MAPS,
+      # and optionally a data root with maps_ce/deathisland.map,
+      # HALO_MAPS_DATA_ROOT: docs/ci.md, "The maps runner")
+      SDL_VIDEO_DRIVER: dummy
+      SDL_AUDIO_DRIVER: dummy
+    steps:
+      - name: The runner has the maps
+        run: |
+          if [ -z "${HALO_MAPS:-}" ] || [ ! -f "$HALO_MAPS/bloodgulch.map" ]; then
+            echo "::error::HALO_MAPS is not set to a folder of the stock Xbox maps in this runner's .env"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build
+        run: |
+          python3 configure.py --portable --release --pgo=off
+          ninja linux64
+
+      - name: Test
+        run: |
+          binary="$PWD/build/linux64/chupathingy"
+          export HALO_DETERMINISM_BINARY="$binary" HALO_DETERMINISM_MAPS="$HALO_MAPS"
+          export HALO_AI_NAV_BINARY="$binary" HALO_AI_NAV_MAPS="$HALO_MAPS"
+          export HALO_FORGE_MOUSE_BINARY="$binary" HALO_FORGE_MOUSE_MAPS="$HALO_MAPS"
+          export HALO_MAP_NAME_BINARY="$binary" HALO_MAP_NAME_MAPS="$HALO_MAPS"
+          if [ -n "${HALO_MAPS_DATA_ROOT:-}" ]; then export HALO_DATA_ROOT="$HALO_MAPS_DATA_ROOT"; fi
+          # (every run its own HOME: the game keeps its settings there)
+          export HOME="$RUNNER_TEMP/home"
+          mkdir -p "$HOME"
+          python3 -m pytest -q -rs tools/test_determinism.py tools/test_tricks.py tools/test_ai_nav.py \
+            tools/test_forge_mouse_look.py tools/test_map_name.py tools/test_compare_stock_maps.py

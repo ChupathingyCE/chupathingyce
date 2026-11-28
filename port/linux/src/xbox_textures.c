@@ -897,6 +897,20 @@ unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *de
 }
 #endif
 
+#if defined(HALO_BGFX) && (defined(HALO_GL_ES) || !defined(HALO_CONSOLE_NO_GUIDE))
+BOOL xgpu_texture_dxt_decode_level(const struct xgpu_texture_description *description, unsigned long level,
+	const unsigned char *source, unsigned long *destination)
+{
+	unsigned char kind = format_information(description->format).kind;
+
+	if (kind != _texel_dxt1 && kind != _texel_dxt3 && kind != _texel_dxt5)
+		return FALSE;
+	dxt_decode_level(kind, source, level_dimension(description->width, level),
+		level_dimension(description->height, level), level_dimension(description->depth, level), destination);
+	return TRUE;
+}
+#endif
+
 static void upload(GLuint texture, GLenum target, const struct xgpu_texture_description *description,
 	const unsigned char *base, const D3DCOLOR *palette)
 {
@@ -936,21 +950,15 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 			channels[2] = GL_RED;
 		}
 #endif
-		/* a Halo PC HUD meter: its fill order (alpha) sampled as the color,
-		its shape (the color) as alpha, as the Xbox's meter shader reads
-		them (D3DCOMMON_PORT_PC_METER) */
-		if (description->pc_meter)
-		{
-			GLint red = channels[0];
-
-			channels[0] = channels[1] = channels[2] = channels[3];
-			channels[3] = red;
-		}
+		/* (a Halo PC HUD meter's bitmap is sampled as it is: the meter
+		shader reads its fill order and shape where Halo PC keeps them,
+		rasterizer_xbox_dynavobgeom.c, and a static element drawing the
+		same bitmap needs its own colors) */
 		/* a Halo PC multipurpose map: specular (blue), self-illumination
 		(green), color change (alpha) and the auxiliary mask (red) sampled
 		where the Xbox's model shaders read them, red, green, blue and alpha
 		(D3DCOMMON_PORT_PC_MULTIPURPOSE) */
-		else if (description->pc_multipurpose)
+		if (description->pc_multipurpose)
 		{
 			GLint red = channels[0];
 

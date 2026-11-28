@@ -395,6 +395,9 @@ symbols in this file:
 #include "halo_map_families.h" /* port: map_family_from_wire_name */
 #include "halo_join_reasons.h" /* port: why a game can't be joined, as the game lists say it */
 #include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
+#ifdef HALO_ARK
+#include "ark_mode.h" /* port: port/linux/game/ark_mode.c */
+#endif
 #ifdef HALO_GAME_BROWSER
 #include "map_share.h" /* port: the map bot's fetch (port/linux/game/map_share_client.c) */
 #include "net_monitor.h" /* port: the server monitor (port/linux/game/net_monitor.c) */
@@ -1525,6 +1528,16 @@ boolean network_game_client_game_settings_updated(
 				display_error_when_main_menu_loaded(_error_network_failed_to_join_game);
 				return FALSE;
 			}
+#ifdef HALO_ARK
+			/* port: Project Ark joins no online games yet
+			(port/linux/game/ark_mode.c) */
+			if (!network_game_is_splitscreen_local() && !global_network_game_server_get() &&
+				ark_mode_join_refused(message_packet->map.name))
+			{
+				display_error_when_main_menu_loaded(_error_network_failed_to_join_game);
+				return FALSE;
+			}
+#endif
 
 			/* port: a map this machine has not (a Custom Edition map not in
 			its folder, or another version of it than the host's, say): the

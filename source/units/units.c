@@ -645,6 +645,7 @@ symbols in this file:
 
 #include "cseries.h"
 #include "opensauce.h" /* port: port/linux/game/opensauce_map.c */
+#include "opensauce_transforms.h" /* port: port/linux/game/opensauce_transforms.c */
 #include "units.h"
 #include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 
@@ -2189,17 +2190,29 @@ short unit_add_grenade_type_to_inventory(
 	if (mcc_grenades_active()) return mcc_grenades_add(unit_index, grenade_type, grenade_count);
 	struct unit_datum *unit = unit_get(unit_index);
 
-	/* port: OpenSauce's maps may give an actor variant one of its four
-	grenade types; in SPV3 mode the two Halo has are taken and the others
-	passed over, logged (port/linux/game/spv3_mode.c) */
-	if (spv3_mode_active() && !VALID_INDEX(grenade_type, NUMBER_OF_UNIT_GRENADE_TYPES))
+#ifdef HALO_CUSTOM_EDITION
+	/* port: an OpenSauce map may give an actor variant one of its four
+	grenade types. With its globals listing them, the extra types' layer
+	above has them (port/linux/game/mcc_grenades.c); without, a third or
+	fourth is given none, logged (in SPV3 mode as its correction:
+	port/linux/game/spv3_mode.c) */
+	if (opensauce_map_active() && !VALID_INDEX(grenade_type, NUMBER_OF_UNIT_GRENADE_TYPES))
 	{
+		static boolean opensauce_grenade_type_logged = FALSE;
 		char what[80];
 
-		snprintf(what, sizeof(what), "grenade type %d (OpenSauce has four, Halo two) not given", grenade_type);
-		spv3_mode_note_correction(what);
+		snprintf(what, sizeof(what), "grenade type %d (OpenSauce has four, the map's globals two) not given",
+			grenade_type);
+		if (spv3_mode_active())
+			spv3_mode_note_correction(what);
+		else if (!opensauce_grenade_type_logged)
+		{
+			opensauce_grenade_type_logged = TRUE;
+			error(_error_silent, "OpenSauce map: %s", what);
+		}
 		return 0;
 	}
+#endif
 	match_assert("c:\\halo\\SOURCE\\units\\units.c", 7309, grenade_count>=0);
 	match_assert("c:\\halo\\SOURCE\\units\\units.c", 7310, (grenade_type >= 0) && (grenade_type < NUMBER_OF_UNIT_GRENADE_TYPES));
 
@@ -4406,6 +4419,22 @@ void unit_port_play_user_animation(
 	if (frame_index > 0 && frame_index < animation->frame_count)
 		unit->object.animation.state.frame_index = frame_index;
 	object_compute_node_matrices_recursive(unit_index);
+}
+
+/* port: an OpenSauce map's actor variant transforms
+(port/linux/game/opensauce_transforms.c), as OpenSauce's do: the new actor's
+unit readies its weapon at once (an energy sword not readied goes off), and
+a rider moved to the new unit stands idle */
+void unit_port_ready_desired_weapon(
+	long unit_index)
+{
+	unit_ready_desired_weapon(unit_index, TRUE);
+}
+
+void unit_port_animation_set_idle(
+	long unit_index)
+{
+	unit_animation_set_state(unit_index, _unit_state_idle);
 }
 
 boolean unit_melee_attack_begin(
@@ -10405,7 +10434,14 @@ static short unit_animation_update(
 	struct animation_state *animation)
 {
 	long sound_index;
-	short result = animation_update_internal(
+	short result;
+
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: Stubbs's animations' effects (Stubbs mode only: port/linux/game/stubbs_engine.c) */
+	if (stubbs_mode_active())
+		stubbs_engine_animation_effect(unit_index, animation_graph_index, animation);
+#endif
+	result = animation_update_internal(
 		1,
 		animation_graph_index,
 		animation,
@@ -10588,6 +10624,11 @@ short unit_update_animation(
 			case _unit_state_throw_grenade:
 				unit_throw_grenade_release(unit_index, FALSE);
 				break;
+			case _unit_state_user_animation:
+				/* port: an OpenSauce transform's key frame actions (only on
+				an OpenSauce map: port/linux/game/opensauce_transforms.c) */
+				opensauce_transforms_unit_animation_event(unit_index, FALSE);
+				break;
 			case _unit_state_melee_attack:
 			case _unit_state_melee_airborne:
 			case _unit_state_leap_melee:
@@ -10608,6 +10649,12 @@ short unit_update_animation(
 		{
 			switch (unit->unit.animation.state)
 			{
+			case _unit_state_user_animation:
+				/* port: an OpenSauce transform's stage ends with its
+				animation (port/linux/game/opensauce_transforms.c) */
+				opensauce_transforms_unit_animation_event(unit_index, TRUE);
+				break;
+
 			case _unit_state_leap_start:
 				result = TRUE;
 				desired_state = _unit_state_leap_airborne;

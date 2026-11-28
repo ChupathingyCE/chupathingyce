@@ -46,6 +46,8 @@ static void game_frame(real seconds) { (void)seconds; }
 /* port: chester's MCC game speed (mcc_game_speed.c): off without an MCC map */
 static real mcc_game_speed_client(real speed) { return speed; }
 static void mcc_game_speed_frame(void) {}
+/* (debug.freeze_at_tick: never) */
+static boolean game_time_frozen_at_tick(void) { return FALSE; }
 /* (a bsp is always loaded: no switch fails here) */
 struct structure_bsp { int unused; };
 static struct structure_bsp bsp;

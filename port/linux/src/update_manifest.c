@@ -762,6 +762,54 @@ int update_version_newer(const char *version, const char *current)
 	return update_version_compare(version, current, &comparable) > 0 && comparable;
 }
 
+/* a release's made time (GitHub's created_at for it, its commit's date:
+2026-11-26T02:15:07Z) as a serial, YYYYMMDDHHMM; 0 if it is not one */
+static int version_made_serial(const char *made, unsigned long long *serial)
+{
+	static const char shape[] = "dddd-dd-ddTdd:dd";
+	size_t index;
+
+	*serial = 0;
+	if (!made)
+		return 0;
+	for (index = 0; shape[index]; index++)
+	{
+		if (shape[index] == 'd' ? made[index] < '0' || made[index] > '9' : made[index] != shape[index])
+			return 0;
+		if (shape[index] == 'd')
+			*serial = *serial * 10 + (unsigned long long)(made[index] - '0');
+	}
+	return version_serial_valid(*serial);
+}
+
+int update_release_newer(const char *release, const char *made, const char *current)
+{
+	struct update_version build;
+	unsigned long long serial;
+
+	if (!update_version_newer(release, current))
+		return 0;
+	/* (a release's build, or a version that is not a release's, or no made
+	time: by the order alone, as before) */
+	if (!update_version_release(release) || !version_parse(current, &build) || !build.prerelease ||
+		!version_made_serial(made, &serial))
+	{
+		return 1;
+	}
+	/* (a test build or a nightly made after the release's commit was has
+	it: the release is newer only when it was made after the build) */
+	return serial > build.serial;
+}
+
+int update_feed_newer(const char *feed, const char *release, const char *made, const char *current)
+{
+	int comparable, order = update_version_compare(feed, release, &comparable);
+
+	if (!comparable || order > 0)
+		return 1;
+	return order < 0 && !update_version_release(current) && !update_release_newer(release, made, feed);
+}
+
 int update_version_release(const char *text)
 {
 	char label[16];

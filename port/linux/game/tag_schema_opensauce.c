@@ -29,6 +29,7 @@ groups are checked as their tags load and not used yet.
 #include "cache/predicted_resources.h"
 #include "opensauce.h"
 #include "opensauce_postprocess_tags.h"
+#include "opensauce_transform_tags.h"
 
 #include <string.h>
 
@@ -183,119 +184,6 @@ struct opensauce_project_yellow_globals
 	byte pad4[80];
 };
 
-/* ---------- structures: actor variant transforms (avtc, avti, avto) */
-
-struct opensauce_transform_keyframe_action
-{
-	short keyframe;
-	short rider_handling;
-	short target;
-	word pad;
-	struct tag_reference damage_effect;
-	struct tag_reference effect;
-	char effect_marker[32];
-};
-
-struct opensauce_transform_in_target
-{
-	char target_name[32];
-	word flags;
-	word pad;
-	real selection_chance[4];
-	struct tag_reference actor_variant;
-	short encounter_squad_handling;
-	word pad2;
-	short team_handling;
-	short team_override;
-	short initial_state_handling;
-	short initial_state_override;
-	short return_state_handling;
-	short return_state_override;
-	word pad3[2];
-	char transform_in_animation[32];
-	struct tag_block keyframe_actions;
-	unsigned long pad4;
-	short vitality_inheritance;
-	short vitality_override;
-	real shield_override;
-	real health_override;
-	byte pad5[24];
-};
-
-struct opensauce_transform_in
-{
-	struct tag_block targets;
-	byte pad[24];
-};
-
-struct opensauce_transform_out_instigator
-{
-	struct tag_reference unit;
-	short damage_type;
-	word pad;
-	byte pad2[12];
-};
-
-struct opensauce_transform_out_attachment
-{
-	struct tag_reference object_type;
-	char object_marker[32];
-	char destination_marker[32];
-	short destination_marker_count;
-	word pad;
-	short team_handling;
-	short team_override;
-	real attachment_scale[2];
-	byte pad2[24];
-};
-
-struct opensauce_transform_out
-{
-	word flags;
-	word pad;
-	word criteria_flags;
-	word pad2;
-	word actor_action;
-	word actor_state;
-	real shield_range[2];
-	real health_range[2];
-	byte pad3[24];
-	struct tag_block instigators;
-	char transform_out_animation[32];
-	struct tag_block keyframe_actions;
-	word attachment_flags;
-	word pad4;
-	struct tag_block attachments;
-	byte pad5[24];
-};
-
-struct opensauce_transform_collection_transform
-{
-	word flags;
-	word pad;
-	char transform_name[32];
-	real selection_chance[4];
-	struct tag_reference transform_out;
-	/* (runtime: OpenSauce's pointer to the tag's definition) */
-	unsigned long transform_out_definition;
-	struct tag_reference transform_in;
-	unsigned long transform_in_definition;
-	byte pad2[24];
-};
-
-struct opensauce_transform_collection_entry
-{
-	struct tag_reference actor_variant;
-	struct tag_block transforms;
-	byte pad[24];
-};
-
-struct opensauce_transform_collection
-{
-	struct tag_block actor_variant_transforms;
-	byte pad[24];
-};
-
 /* (OpenSauce's sizes: its structures' asserts and its tag definitions) */
 typedef char verify_opensauce_build_info_size[sizeof(struct opensauce_build_info) == 0x30 ? 1 : -1];
 typedef char verify_opensauce_scripted_widget_size[sizeof(struct opensauce_scripted_widget) == 0x4C ? 1 : -1];
@@ -306,16 +194,6 @@ typedef char verify_opensauce_project_yellow_size[sizeof(struct opensauce_projec
 typedef char verify_opensauce_player_unit_size[sizeof(struct opensauce_player_unit) == 0x50 ? 1 : -1];
 typedef char verify_opensauce_project_yellow_globals_size[
 	sizeof(struct opensauce_project_yellow_globals) == 0x120 ? 1 : -1];
-typedef char verify_opensauce_keyframe_action_size[sizeof(struct opensauce_transform_keyframe_action) == 0x48 ? 1 : -1];
-typedef char verify_opensauce_transform_in_target_size[sizeof(struct opensauce_transform_in_target) == 0xAC ? 1 : -1];
-typedef char verify_opensauce_transform_in_size[sizeof(struct opensauce_transform_in) == 0x24 ? 1 : -1];
-typedef char verify_opensauce_instigator_size[sizeof(struct opensauce_transform_out_instigator) == 0x20 ? 1 : -1];
-typedef char verify_opensauce_attachment_size[sizeof(struct opensauce_transform_out_attachment) == 0x78 ? 1 : -1];
-typedef char verify_opensauce_transform_out_size[sizeof(struct opensauce_transform_out) == 0x94 ? 1 : -1];
-typedef char verify_opensauce_collection_transform_size[
-	sizeof(struct opensauce_transform_collection_transform) == 0x74 ? 1 : -1];
-typedef char verify_opensauce_collection_entry_size[sizeof(struct opensauce_transform_collection_entry) == 0x34 ? 1 : -1];
-typedef char verify_opensauce_collection_size[sizeof(struct opensauce_transform_collection) == 0x24 ? 1 : -1];
 
 /* ---------- definitions: project_yellow and its globals */
 
@@ -854,8 +732,11 @@ static char const *const tag_schema_opensauce_placements[][2] =
 
 /* OpenSauce's maps' maxima where they are not Halo PC's: the scenario's
 scripts' syntax is for 28501 nodes (scenario_check_scripts checks it as such
-in this layout), and its object placements are as many as there are; any
-other field keeps the one the checks take (maximum) */
+in this layout), its object placements are as many as there are, and its
+grenade types are four (the globals' grenades, a unit's and an equipment's
+grenade type: OpenSauce's grenade type upgrade, game_globals_definitions
+and units_grenade_count_upgrade); any other field keeps the one the checks
+take (maximum) */
 static long tag_schema_opensauce_field_maximum(
 	struct tag_schema_field const *field,
 	long maximum)
@@ -864,6 +745,11 @@ static long tag_schema_opensauce_field_maximum(
 		return maximum;
 	if (field->type == _tag_schema_data && !strcmp(field->name, "hs_syntax_data"))
 		return OPENSAUCE_HS_SYNTAX_DATA_SIZE;
+	if (maximum == 2 && ((field->type == _tag_schema_enum && !strcmp(field->name, "grenade_type")) ||
+		(field->type == _tag_schema_block && !strcmp(field->name, "grenades"))))
+	{
+		return OPENSAUCE_NUMBER_OF_GRENADE_TYPES;
+	}
 	if (field->type == _tag_schema_block && field->definition)
 	{
 		struct tag_schema_definition const *element = field->definition;

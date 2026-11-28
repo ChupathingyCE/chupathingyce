@@ -4,7 +4,8 @@ LUA_SCRIPTING.H
 Mods' Lua scripts written for Chimera's Lua API, run by the game
 (port/linux/game/lua_scripting.c): the game's calls into them. A build
 without Lua (HALO_LUA: the desktop builds define it) compiles each call to
-nothing. Nothing runs unless lua.scripts is on.
+nothing. Nothing runs unless lua.scripts is on, but a pack mode's own
+scripts (lua_scripting.c).
 
 SPDX-FileCopyrightText: 2026 The Chupathingy contributors
 SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev

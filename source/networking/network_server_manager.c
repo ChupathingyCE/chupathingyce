@@ -489,6 +489,9 @@ symbols in this file:
 #include <time.h>
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c (a console's empty ones) */
+#ifdef HALO_ARK
+#include "ark_mode.h" /* port: port/linux/game/ark_mode.c */
+#endif
 #ifdef HALO_GAME_BROWSER
 #include "map_share.h" /* port: map sharing's downloading machines (port/linux/game/map_share_host.c) */
 /* port: OpenCE's MCC admission holds (port/linux/game/network_distributed.c,
@@ -2680,6 +2683,16 @@ boolean network_game_server_accept_client_machine_into_game(
 			network_game_server_refusal_code = _rejection_code_game_is_closed;
 			return FALSE;
 		}
+#ifdef HALO_ARK
+		/* (and none in Project Ark, which hosts no online games yet:
+		port/linux/game/ark_mode.c) */
+		if (ark_mode_active() && !network_game_server_client_machine_is_local(server, machine) &&
+			address.address.long_words[0] != IPV4_LOOPBACK_ADDRESS && ark_mode_remote_machine_refused())
+		{
+			network_game_server_refusal_code = _rejection_code_game_is_closed;
+			return FALSE;
+		}
+#endif
 		/* (and not one the host banned: its address or hardware id in
 		bans.txt) */
 		/* (the host's own client, which connects from 127.0.0.1, never) */

@@ -2,8 +2,10 @@
 own, built with libFuzzer, AddressSanitizer and UndefinedBehaviorSanitizer
 (tools/fuzz_support.py), run on every input saved in its regressions
 (tools/tests/host_fuzz/<name>/regressions: each crash once found and
-fixed), then from its seeds (seeds/ beside it), then for a few seconds of fuzzing
-(HOST_FUZZ_SECONDS, 3 by default). Without a clang that has libFuzzer the
+fixed), then on its seeds (seeds/ beside it), each once; then, with
+HALO_FUZZ_SECONDS (or HOST_FUZZ_SECONDS), for that many seconds of fuzzing
+from the seeds (0 by default: pull requests only replay, and
+.github/workflows/fuzz.yml fuzzes every night). Without a clang that has libFuzzer the
 tests are skipped (they fail where HALO_SANITIZERS_REQUIRED=1, as in CI).
 
 A target may also take game units (its "game_sources"), compiled with the
@@ -39,7 +41,7 @@ except ImportError:
     pytest = None
 
 TARGETS_DIR = ROOT / "tools" / "tests" / "host_fuzz"
-SECONDS = int(os.environ.get("HOST_FUZZ_SECONDS", "3"))
+SECONDS = fuzz_support.fuzz_seconds("HOST_FUZZ_SECONDS")
 
 
 def load_targets():

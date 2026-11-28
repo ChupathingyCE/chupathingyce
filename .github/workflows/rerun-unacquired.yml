@@ -6,7 +6,9 @@ name: No runner
 # silicon runners have been short at busy hours, and ci-ok then fails a run
 # in which nothing failed. Such a Build's failed and canceled jobs are run
 # again, once (its first attempt only); a run canceled by a newer commit is
-# left alone. It runs no code from the run: only GitHub's API.
+# left alone, and so is a merge queue's run (the queue has already taken
+# the pull request out; queuing it again starts a new run). It runs no code
+# from the run: only GitHub's API.
 on:
   workflow_run:
     workflows: [Build]
@@ -17,7 +19,7 @@ permissions:
 
 jobs:
   rerun:
-    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.event != 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

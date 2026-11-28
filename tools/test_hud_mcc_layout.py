@@ -90,3 +90,12 @@ def test_counter_panels_stay_the_maps():
     names = {entry["name"] for entry in entries()}
     for index in range(3):
         assert f"hud_weapon_backgrounds__{index}" not in names
+
+
+def test_counter_outlines_stay_the_maps():
+    # the counter panels' outlines go with MCC's own panels: the restored
+    # outlines have another shape, so the panel color ran past them (#1985)
+    names = {entry["name"] for entry in entries()}
+    for index in (0, 2, 3):
+        assert f"hud_ammo_outlines__{index}" not in names
+        assert not (ROOT / f"port/assets/hud/mcc/hud_ammo_outlines__{index}.png").exists()

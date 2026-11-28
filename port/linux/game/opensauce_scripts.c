@@ -30,10 +30,17 @@ back). Read as facts; the code is this game's:
     (or project_yellow_globals) lists under the name, as OpenSauce's
     UIWidgets.cpp does: a widget of its own, the one open closed (none on
     the dedicated server, as OpenSauce's has none);
+  - ai_transform_actor, ai_transform_actors, ai_transform_actors_by_type
+    and ai_actor_is_transforming start and ask after the map's actor
+    variant transforms (opensauce_transforms.c), on the host;
+  - structure_bsp_set_lightmap_set and structure_bsp_set_sky_set choose a
+    BSP's lightmap or sky set by name (opensauce_bsp_sets.c);
+  - play_bink_movie plays the movie over the game, as OpenSauce's does,
+    the map pack's own file first (opensauce_play_bink_movie);
   - what needs a part of OpenSauce the game does not have yet answers as
-    that part would with nothing to show, and says so once: BSP sky and lightmap
-    sets, runtime vectors, bink movies, OpenSauce's third and fourth
-    grenade counts.
+    that part would with nothing to show, and says so once: faux zones'
+    skies, runtime vectors, and the third and fourth grenade counts on a map
+    whose globals list only two.
 The globals are Halo PC's network globals (vehicle_incremental_rate and the
 rest, which SPV3's scripts use as their own variables) and OpenSauce's motion
 blur ones, of the types Halo PC's and OpenSauce's scripts give them
@@ -56,9 +63,14 @@ blur ones, of the types Halo PC's and OpenSauce's scripts give them
 #include "objects/objects.h"
 #include "objects/object_types.h"
 #include "units/units.h"
+#include "units/bipeds.h"
+#include "bink/bink_playback.h"
 #include "interface/ui_widget.h"
+#include "halo_map_packs.h"
 #include "opensauce.h"
 #include "opensauce_postprocess.h"
+#include "opensauce_transforms.h"
+#include "opensauce_bsp_sets.h"
 #include "stubbs_functions.h"
 #include "network_coop.h"
 #include "networking/network_game_globals.h"
@@ -110,7 +122,7 @@ static void opensauce_script_evaluate(short function_index, long thread_index, b
 		{ 0 } }, { 0 }, __VA_ARGS__, FALSE }
 
 /* (OpenSauce's signatures, or Halo PC's for the two sound gains: every one
-SPV3's scripts call) */
+SPV3's scripts call, and the actor variant transforms') */
 static struct opensauce_script_function opensauce_script_functions[] =
 {
 	OPENSAUCE_SCRIPT_FUNCTION("weapon_data_get_real", _hs_type_real, 2, { _hs_type_object, _hs_type_string }),
@@ -154,19 +166,30 @@ static struct opensauce_script_function opensauce_script_functions[] =
 	OPENSAUCE_SCRIPT_FUNCTION("pp_bloom_set_maximum_color", _hs_type_void, 4,
 		{ _hs_type_real, _hs_type_real, _hs_type_real, _hs_type_real }),
 	OPENSAUCE_SCRIPT_FUNCTION("pp_bloom_set_exposure", _hs_type_void, 2, { _hs_type_real, _hs_type_real }),
-	/* (parts the game does not have yet) */
-	OPENSAUCE_SCRIPT_FUNCTION("display_scripted_ui_widget", _hs_type_boolean, 1, { _hs_type_string }),
+	/* (a movie: opensauce_play_bink_movie) */
+	OPENSAUCE_SCRIPT_FUNCTION("play_bink_movie", _hs_type_void, 1, { _hs_type_string }),
+	/* (BSP lightmap and sky sets: opensauce_bsp_sets.c) */
 	OPENSAUCE_SCRIPT_FUNCTION("structure_bsp_set_sky_set", _hs_type_boolean, 2,
 		{ _hs_type_short_integer, _hs_type_string }),
 	OPENSAUCE_SCRIPT_FUNCTION("structure_bsp_set_lightmap_set", _hs_type_boolean, 2,
 		{ _hs_type_short_integer, _hs_type_string }),
+	/* (parts the game does not have yet) */
+	OPENSAUCE_SCRIPT_FUNCTION("display_scripted_ui_widget", _hs_type_boolean, 1, { _hs_type_string }),
 	OPENSAUCE_SCRIPT_FUNCTION("scenario_faux_zone_switch_sky", _hs_type_boolean, 1, { _hs_type_string }),
 	OPENSAUCE_SCRIPT_FUNCTION("runtime_vector_set", _hs_type_boolean, 5,
 		{ _hs_type_short_integer, _hs_type_string, _hs_type_real, _hs_type_real, _hs_type_real }),
-	OPENSAUCE_SCRIPT_FUNCTION("play_bink_movie", _hs_type_void, 1, { _hs_type_string }),
-	/* (Halo PC's, which the Xbox's scripts never had) */
+	/* (Halo PC's, which the Xbox's scripts never had: opensauce_map.c's sound
+	gains) */
 	OPENSAUCE_SCRIPT_FUNCTION("sound_set_music_gain", _hs_type_void, 1, { _hs_type_real }),
 	OPENSAUCE_SCRIPT_FUNCTION("sound_set_effects_gain", _hs_type_void, 1, { _hs_type_real }),
+	/* (the actor variant transforms': opensauce_transforms.c) */
+	OPENSAUCE_SCRIPT_FUNCTION("ai_transform_actor", _hs_type_boolean, 3,
+		{ _hs_type_object, _hs_type_string, _hs_type_string }),
+	OPENSAUCE_SCRIPT_FUNCTION("ai_transform_actors", _hs_type_boolean, 3,
+		{ _hs_type_object_list, _hs_type_string, _hs_type_string }),
+	OPENSAUCE_SCRIPT_FUNCTION("ai_transform_actors_by_type", _hs_type_boolean, 4,
+		{ _hs_type_object_list, _hs_type_actor_variant, _hs_type_string, _hs_type_string }),
+	OPENSAUCE_SCRIPT_FUNCTION("ai_actor_is_transforming", _hs_type_boolean, 1, { _hs_type_object }),
 };
 
 /* (Halo PC's network globals, and OpenSauce's motion blur's) */
@@ -402,11 +425,18 @@ static boolean opensauce_unit_integer(
 		byte_field = &unit->unit.grenade_counts[1], writable = networked = TRUE;
 	else if (!strcmp(name, "total_grenade_count[custom2]") || !strcmp(name, "total_grenade_count[custom3]"))
 	{
-		/* (OpenSauce's third and fourth grenades: none here yet) */
-		opensauce_script_log_once(function, "names OpenSauce's third or fourth grenade type, which this game has none of "
-			"yet: 0, and set to nothing");
-		*value = 0;
-		return TRUE;
+		/* (OpenSauce's third and fourth grenades: a biped's, where the map's
+		globals list them, mcc_grenades.c; none elsewhere) */
+		if (opensauce_map_four_grenades() && unit->object.type == _object_type_biped)
+			byte_field = &((struct biped_datum *)unit)->biped.opensauce_grenade_counts[name[26] == '2' ? 0 : 1],
+				writable = networked = TRUE;
+		else
+		{
+			opensauce_script_log_once(function, "names a third or fourth grenade type the map's globals don't list: 0, "
+				"and set to nothing");
+			*value = 0;
+			return TRUE;
+		}
 	}
 	else if (!strcmp(name, "current_grenade_index"))
 		byte_field = &unit->unit.current_grenade_index;
@@ -465,6 +495,54 @@ static struct player_datum *opensauce_player_at(
 	}
 	return NULL;
 }
+
+#ifndef HALO_SERVER
+/* play_bink_movie: the named movie played over the game, as OpenSauce plays
+it (Halo PC's bink_playback_start, in a local game only), and the script goes
+on. Only the file's own name is used, and it must be a .bik: the pack's
+movie first (its bink folder, maps_spv3\bink\attract.bik), else the game's
+(d:\bink\attract.bik), else it is skipped with one line (halo_map_packs.h,
+docs/maps.md). A button press stops it; the menus or the level stay where
+they were when it ends. */
+boolean main_menu_is_active(void);
+int config_boolean(char const *name);
+
+static void opensauce_play_bink_movie(
+	struct opensauce_script_function *function,
+	char const *name)
+{
+	char movie[96], path[256];
+	char const *file = name ? name : "";
+	char const *cursor;
+	size_t length;
+
+	for (cursor = file; *cursor; cursor++)
+	{
+		if (*cursor == '\\' || *cursor == '/')
+			file = cursor + 1;
+	}
+	length = strlen(file);
+	if (length < 5 || length > 64 || _stricmp(file + length - 4, ".bik") || strchr(file, ':'))
+	{
+		opensauce_script_log_once(function, "was given a name that isn't a movie's file: not played");
+		return;
+	}
+	/* (OpenSauce's: a network client's own game plays none) */
+	if (game_connection() != _game_connection_local || bink_playback_in_progress())
+		return;
+	/* (the menus' movie is the mod's intro, SPV3's attract.bik: the setting
+	that skips the game's intro skips it too) */
+	if (main_menu_is_active() && config_boolean("display.skip_intro"))
+		return;
+	snprintf(movie, sizeof(movie), "d:\\bink\\%s", file);
+	if (!map_pack_menus_movie_path(movie, path, sizeof(path)))
+		snprintf(path, sizeof(path), "%s", movie);
+	bink_playback_start(path, FLAG(_bink_playback_button_click_stops_movie_bit) |
+		FLAG(_bink_playback_prevent_events_to_ui_bit) | FLAG(_bink_playback_dont_render_ui_bit));
+	error(_error_silent, "OpenSauce scripts: play_bink_movie '%s': %s", file,
+		bink_playback_active() ? path : "not played");
+}
+#endif
 
 /* the functions made real: TRUE once the call's value is returned */
 static boolean opensauce_script_data(
@@ -648,7 +726,41 @@ static boolean opensauce_script_data(
 		else
 			error(_error_silent, "OpenSauce scripts: scripted widget '%s' isn't in the map's lists", widget_name);
 	}
+	else if (!strcmp(name, "play_bink_movie"))
+		opensauce_play_bink_movie(function, opensauce_string_argument(arguments[0]));
 #endif
+#ifdef OPENSAUCE_BSP_SETS
+	/* (what the map draws: each machine's that runs the map's scripts) */
+	else if (!strcmp(name, "structure_bsp_set_lightmap_set"))
+		*value = opensauce_bsp_sets_set_lightmap_set((short)arguments[0], opensauce_string_argument(arguments[1]));
+	else if (!strcmp(name, "structure_bsp_set_sky_set"))
+		*value = opensauce_bsp_sets_set_sky_set((short)arguments[0], opensauce_string_argument(arguments[1]));
+#endif
+#ifdef OPENSAUCE_TRANSFORMS
+	/* (host-authoritative: a client has no transforms of its own,
+	opensauce_transforms.c, and its scripts don't run) */
+	else if (!strcmp(name, "ai_transform_actor"))
+	{
+		*value = opensauce_transforms_transform_actor(arguments[0], opensauce_string_argument(arguments[1]),
+			opensauce_string_argument(arguments[2]));
+	}
+	else if (!strcmp(name, "ai_transform_actors"))
+	{
+		*value = opensauce_transforms_transform_actors(arguments[0], NONE, opensauce_string_argument(arguments[1]),
+			opensauce_string_argument(arguments[2]));
+	}
+	else if (!strcmp(name, "ai_transform_actors_by_type"))
+	{
+		*value = arguments[1] != NONE && opensauce_transforms_transform_actors(arguments[0], arguments[1],
+			opensauce_string_argument(arguments[2]), opensauce_string_argument(arguments[3]));
+	}
+	else if (!strcmp(name, "ai_actor_is_transforming"))
+		*value = opensauce_transforms_actor_is_transforming(arguments[0]);
+#endif
+	/* (Halo PC's: the music's and the other sounds' gain for this map, each
+	machine's own: opensauce_map.c) */
+	else if (!strcmp(name, "sound_set_music_gain") || !strcmp(name, "sound_set_effects_gain"))
+		opensauce_map_set_sound_gain(name[10] == 'm', opensauce_real_argument(arguments[0]));
 	else if (!strcmp(name, "physics_set_gravity"))
 	{
 		real scale = opensauce_real_argument(arguments[0]);

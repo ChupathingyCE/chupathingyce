@@ -530,7 +530,13 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     use_jolt = not target.server and getattr(sln, "with_ragdolls", True)
     abi = " ".join(target.abi_flags + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False)
                                                            else ["-fstack-protector-strong"])
-                   + game_browser_defines(sln) + (["-DHALO_JOLT"] if use_jolt else []))
+                   + game_browser_defines(sln) + (["-DHALO_JOLT"] if use_jolt else [])
+                   # configure.py --window-rebase: the 32-bit build's memory
+                   # window wherever it fits (port/linux/src/xbox_memory.c),
+                   # as Chupathingy32 ships it, since 32-bit Windows keeps
+                   # 0x80000000 up for itself (source/cseries/xbox_address.h)
+                   + (["-DHALO_WINDOW_REBASE"] if target is WINDOWS32 and getattr(sln, "window_rebase", False)
+                      else []))
     sdl_include = SDL_DIR / "include"
     # the movies' FFmpeg (port/linux/src/bink_ffmpeg.c), static, built with
     # the same clang for the same target (tools/ffmpeg_build.py); with

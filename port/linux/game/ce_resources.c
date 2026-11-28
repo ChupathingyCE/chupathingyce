@@ -49,6 +49,10 @@ for one not there) they are found in Custom Edition's by their tags' paths
 #include "content_sha256.h"
 #include "halo_map_families.h"
 #include "halopc_bitmap_offsets.h"
+#include "opensauce_survey.h"
+#ifndef HALO_CONSOLE
+#include "ce_sound_pool.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -173,6 +177,29 @@ static long ce_indexed_tag_count;
 and its path */
 static HANDLE ce_decoded_sounds_file;
 static char ce_decoded_sounds_path[256];
+#ifndef HALO_CONSOLE
+/* the decoded sounds (desktop): each sound's job (what decodes it again),
+its piece of the file (ce_sound_pool.h: where it is, while it is in it),
+and the offset its tags read it at (its piece's at the map's load; past
+the file's budget for one that did not fit then, decoded when it is first
+read: ce_resources_sound_read). By tag index: its entry, or NONE */
+static struct ce_sound_job *ce_sound_jobs;
+static struct ce_sound_pool_entry *ce_sound_pool;
+static unsigned long *ce_sound_bases;
+static long ce_sound_entry_count, ce_sound_entry_capacity;
+static long *ce_sound_entry_by_tag;
+static long ce_sound_entry_tag_count;
+/* (said once a map: the file full at load, sounds moved out, one that could
+not be put in) */
+static boolean ce_sound_full_told, ce_sound_evicted_told, ce_sound_no_room_told;
+static long ce_sound_reloads, ce_sound_evictions;
+/* the decoded sounds' file's bytes, and which map's they are (a read is
+told finished for its own map's sounds alone) */
+static unsigned long ce_decoded_sounds_size;
+static long ce_sound_generation;
+/* (ce_read at the place given, not the file's position) */
+static boolean ce_read_positioned;
+#endif
 /* the space left in the map's tag cache (ce_resources_allocate) */
 static unsigned long ce_free_next, ce_free_end;
 /* and in the room above it (platform.h), once that runs out: the next free
@@ -197,6 +224,18 @@ static boolean ce_read(
 {
 	unsigned long bytes_read = 0;
 
+#ifndef HALO_CONSOLE
+	/* (while a sound is decoded again in play, at its place: the cache's
+	thread reads the same files then, ce_sound_entry_load) */
+	if (ce_read_positioned)
+	{
+		OVERLAPPED overlapped;
+
+		memset(&overlapped, 0, sizeof(overlapped));
+		overlapped.Offset = offset;
+		return ReadFile(file, buffer, size, &bytes_read, &overlapped) && bytes_read == size;
+	}
+#endif
 	if (SetFilePointer(file, (long)offset, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
 		return FALSE;
 	return ReadFile(file, buffer, size, &bytes_read, NULL) && bytes_read == size;
@@ -1284,8 +1323,8 @@ static boolean ce_retail_bitmaps(
 			{
 				if (*stood_in < 16)
 					error(_error_silent, "HaloMD map: bitmap %ld of %s is not in bitmaps.map: stood in for", index, name);
-				/* (SPV3 mode's log counts every one: spv3_mode.c) */
-				spv3_mode_note_resource_miss("bitmap (not in bitmaps.map)", name);
+				/* (an OpenSauce map's log counts every one: opensauce_survey.c) */
+				opensauce_survey_note_resource_miss("bitmap (not in bitmaps.map)", name);
 			}
 			(*stood_in)++;
 		}
@@ -2155,13 +2194,94 @@ static boolean ce_sound_compression_repair(
 	return TRUE;
 }
 
-/* a permutation decoded, before it is changed to read its samples from them */
+/* a permutation decoded, before it is changed to read its samples from them:
+its pitch range and index there, and where its samples are from the start
+of its sound's */
 struct ce_decoded_permutation
 {
-	byte *permutation;
+	unsigned long range;
+	unsigned long index;
 	unsigned long offset;
 	unsigned long size;
 };
+
+/* where a sound's decoded samples are written: the decoded sounds' file, at
+position (on a console, at the file's own position, as it always was); with
+no file, they are only counted */
+struct ce_sound_writer
+{
+	HANDLE file;
+	unsigned long position;
+};
+
+/* what a sound is decoded from, kept so that it can be decoded again
+(desktop: ce_sound_entry_load): its pitch ranges and their permutations as
+they were before they were changed to read the decoded samples (copies, on
+the desktop; on a console the tags' own blocks, decoded once) */
+struct ce_sound_job
+{
+	struct ce_tag_instance const *instance;
+	HANDLE sounds_map;
+	/* (an indexed tag's: all its samples in sounds_map) */
+	boolean indexed;
+	boolean ogg;
+	boolean is_looped;
+	short encoding;
+	int played_rate;
+	unsigned long range_count;
+	byte *ranges;
+	byte **permutations;
+	unsigned long *permutation_counts;
+};
+
+/* what decoding a map's sounds did, for its log lines */
+struct ce_sound_decode_counts
+{
+	long resampled;
+	long resampled_joined;
+	long resampled_looped;
+	long streamed;
+	boolean resampled_told;
+};
+
+enum
+{
+	_ce_sound_decoded,
+	/* (no room left for it in the file) */
+	_ce_sound_full,
+	_ce_sound_failed
+};
+
+static boolean ce_sound_write(
+	struct ce_sound_writer *writer,
+	void const *data,
+	unsigned long bytes)
+{
+	unsigned long bytes_written = 0;
+
+	if (!writer->file)
+	{
+		writer->position += bytes;
+		return TRUE;
+	}
+#ifdef HALO_CONSOLE
+	if (!WriteFile(writer->file, data, bytes, &bytes_written, NULL) || bytes_written != bytes)
+		return FALSE;
+#else
+	{
+		/* (at its place: the cache's thread reads the same file while a
+		sound is decoded again, ce_sound_entry_load) */
+		OVERLAPPED overlapped;
+
+		memset(&overlapped, 0, sizeof(overlapped));
+		overlapped.Offset = writer->position;
+		if (!WriteFile(writer->file, data, bytes, &bytes_written, &overlapped) || bytes_written != bytes)
+			return FALSE;
+	}
+#endif
+	writer->position += bytes;
+	return TRUE;
+}
 
 /* the frames of its neighbors a permutation brought to another rate is
 filtered with (ce_vorbis_resample_piece: 47 halving, 24 doubling) */
@@ -2490,9 +2610,9 @@ room left in the file, written. Its edges, as decoded, kept in edge (if
 given). The bytes written, or 0 if it could not be (what was written is
 then written over); *resampled if it was brought to another rate. Only
 a permutation of `channels` at played_rate, or at half or twice it, is */
-static unsigned long ce_sound_stream(HANDLE file, unsigned long room, void *stream, int channels, int rate,
-	int played_rate, short const *before, int before_frames, short const *after, int after_frames,
-	struct ce_permutation_edges *edge, boolean *resampled)
+static unsigned long ce_sound_stream(struct ce_sound_writer *writer, unsigned long room, void *stream,
+	int channels, int rate, int played_rate, short const *before, int before_frames, short const *after,
+	int after_frames, struct ce_permutation_edges *edge, boolean *resampled, boolean *full)
 {
 	short *pieces[2];
 	int frames[2];
@@ -2526,7 +2646,7 @@ static unsigned long ce_sound_stream(HANDLE file, unsigned long room, void *stre
 		int other = !current;
 		int count = frames[current];
 		int out_frames = count;
-		unsigned long bytes, bytes_written = 0;
+		unsigned long bytes;
 		short const *piece_before = first ? before : last;
 		int piece_before_frames = first ? before_frames : last_frames;
 
@@ -2569,8 +2689,10 @@ static unsigned long ce_sound_stream(HANDLE file, unsigned long room, void *stre
 				short *piece = pieces[current];
 
 				bytes = (unsigned long)out_frames * (unsigned long)channels * sizeof(short);
+				if (bytes > room - written)
+					*full = TRUE;
 				if (bytes > room - written || written + bytes > CE_SOUND_STREAM_MOST ||
-					!WriteFile(file, piece, bytes, &bytes_written, NULL) || bytes_written != bytes)
+					!ce_sound_write(writer, piece, bytes))
 				{
 					ok = FALSE;
 					break;
@@ -2584,8 +2706,10 @@ static unsigned long ce_sound_stream(HANDLE file, unsigned long room, void *stre
 			}
 		}
 		bytes = (unsigned long)out_frames * (unsigned long)channels * sizeof(short);
+		if (bytes > room - written)
+			*full = TRUE;
 		if (bytes > room - written || written + bytes > CE_SOUND_STREAM_MOST ||
-			!WriteFile(file, pieces[current], bytes, &bytes_written, NULL) || bytes_written != bytes)
+			!ce_sound_write(writer, pieces[current], bytes))
 		{
 			ok = FALSE;
 			break;
@@ -2751,6 +2875,566 @@ static long ce_sound_split(byte *sound, byte *pitch_ranges, unsigned long pitch_
 }
 #endif
 
+/* a sound's permutations decoded (or, a sound's with samples in both the map
+and sounds.map, copied as they are) to writer, no more than room bytes from
+where it starts: listed in *decoded (grown as needed), each where it is from
+the sound's start. _ce_sound_full if there was not room for them (said by
+the caller), _ce_sound_failed if one could not be (said here). Its
+permutations' edges are kept as each is decoded, in the order they are
+played (ce_permutation_edges) */
+static int ce_sound_job_decode(
+	struct ce_sound_job const *job,
+	struct ce_sound_writer *writer,
+	unsigned long room,
+	struct ce_decoded_permutation **decoded,
+	unsigned long *decoded_count,
+	unsigned long *decoded_capacity,
+	struct ce_sound_decode_counts *counts)
+{
+	HANDLE map_file = cache_files_ce_map_file();
+	HANDLE sounds_map = job->sounds_map;
+	unsigned long start = writer->position, pitch_range;
+	struct ce_permutation_edges *edges = NULL;
+	unsigned long *order = NULL;
+	int result = _ce_sound_decoded;
+
+	*decoded_count = 0;
+	for (pitch_range = 0; result == _ce_sound_decoded && pitch_range < job->range_count; pitch_range++)
+	{
+		byte *range = job->ranges + pitch_range * CE_SOUND_PITCH_RANGE_SIZE;
+		unsigned long permutation_count = job->permutation_counts[pitch_range];
+		byte *permutations = job->permutations[pitch_range];
+		unsigned long permutation, step;
+
+		/* (an Ogg Vorbis sound's permutations each after the one played
+		before it, and their edges kept: ce_permutation_edges) */
+		if (job->ogg && permutation_count)
+		{
+			struct ce_permutation_edges *grown_edges = realloc(edges, permutation_count * sizeof(*edges));
+			unsigned long *grown_order = realloc(order, permutation_count * sizeof(*order));
+
+			/* (none, if there is no room for them) */
+			if (!grown_edges && edges)
+				free(edges);
+			if (!grown_order && order)
+				free(order);
+			edges = grown_edges;
+			order = grown_order;
+			if (edges)
+				memset(edges, 0, permutation_count * sizeof(*edges));
+			if (order)
+				ce_permutation_order(permutations, permutation_count, order);
+		}
+		for (step = 0; result == _ce_sound_decoded && step < permutation_count; step++)
+		{
+			byte *at;
+			long size;
+			unsigned long offset, used = writer->position - start;
+			HANDLE source;
+			unsigned char *data;
+			short *samples = NULL;
+			int channels = 0, rate = 0, frames;
+			unsigned long bytes;
+			/* (a looped sound's: its pieces play round in a ring) */
+			boolean is_looped = edges && job->is_looped;
+
+			permutation = job->ogg && order ? order[step] : step;
+			at = permutations + permutation * CE_SOUND_PERMUTATION_SIZE;
+			size = *(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET);
+			offset = *(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8);
+			source = job->indexed || ce_samples_external(at) ? sounds_map : map_file;
+			if (size <= 0)
+				continue;
+			if (!source)
+			{
+				result = _ce_sound_failed;
+				break;
+			}
+			/* (another compression's samples stay in the sound's own file,
+			which a decoded sound is no longer read from) */
+			if (job->ogg && *(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
+			{
+				error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis sound with a permutation of "
+					"another compression; left as it was", ce_loaded_tag_name(job->instance));
+				result = _ce_sound_failed;
+				break;
+			}
+			if (*decoded_count == *decoded_capacity)
+			{
+				unsigned long capacity = *decoded_capacity ? *decoded_capacity * 2 : 64;
+				struct ce_decoded_permutation *grown = realloc(*decoded, capacity * sizeof(**decoded));
+
+				if (!grown)
+				{
+					result = _ce_sound_failed;
+					break;
+				}
+				*decoded = grown;
+				*decoded_capacity = capacity;
+			}
+			data = malloc((size_t)size);
+			if (!job->ogg)
+			{
+				/* (a sound with samples in both files: copied as they are) */
+				bytes = (unsigned long)size;
+				if (bytes > room - used)
+				{
+					if (data)
+						free(data);
+					result = _ce_sound_full;
+					break;
+				}
+				if (!data || !ce_read(source, offset, data, bytes) || !ce_sound_write(writer, data, bytes))
+				{
+					error(_error_silent, "Custom Edition maps: %s: its samples in the map and sounds.map could not "
+						"be copied", ce_loaded_tag_name(job->instance));
+					if (data)
+						free(data);
+					result = _ce_sound_failed;
+					break;
+				}
+				free(data);
+				(*decoded)[*decoded_count].range = pitch_range;
+				(*decoded)[*decoded_count].index = permutation;
+				(*decoded)[*decoded_count].offset = used;
+				(*decoded)[*decoded_count].size = bytes;
+				(*decoded_count)++;
+				continue;
+			}
+#ifndef HALO_CONSOLE
+			/* (a long one decoded and written a piece at a time, not held
+			whole: ce_sound_stream; split once the sound is, if the cache
+			could not hold it, ce_sound_split) */
+			if (data && size > CE_SOUND_STREAM_OGG_BYTES && ce_read(source, offset, data, (unsigned long)size))
+			{
+				void *stream = ce_vorbis_stream_open(data, (int)size, &channels, &rate);
+
+				if (stream && channels == (job->encoding ? 2 : 1) &&
+					(rate == job->played_rate || rate == job->played_rate * 2 || rate * 2 == job->played_rate))
+				{
+					short const *before_samples = NULL, *after_samples = NULL;
+					int before_frames = 0, after_frames = 0;
+					boolean joined = FALSE, is_resampled = FALSE, full = FALSE;
+
+					if (rate != job->played_rate)
+					{
+						ce_permutation_context(range, permutations, permutation_count, permutation, is_looped,
+							channels, rate, edges, sounds_map, map_file, job->indexed,
+							&before_samples, &before_frames, &after_samples, &after_frames, &joined);
+					}
+					bytes = ce_sound_stream(writer, room - used, stream, channels, rate, job->played_rate,
+						before_samples, before_frames, after_samples, after_frames,
+						edges ? &edges[permutation] : NULL, &is_resampled, &full);
+					ce_vorbis_stream_close(stream);
+					free(data);
+					if (!bytes)
+					{
+						if (full)
+						{
+							result = _ce_sound_full;
+							break;
+						}
+						error(_error_silent, "Custom Edition maps: %s: a long Ogg Vorbis permutation could not be "
+							"decoded; it does not play", ce_loaded_tag_name(job->instance));
+						opensauce_survey_note_resource_miss("sound (Ogg Vorbis permutation that does not play)",
+							ce_loaded_tag_name(job->instance));
+						result = _ce_sound_failed;
+						break;
+					}
+					if (is_resampled)
+					{
+						counts->resampled++;
+						counts->resampled_joined += joined;
+						counts->resampled_looped += joined && is_looped;
+					}
+					counts->streamed++;
+					(*decoded)[*decoded_count].range = pitch_range;
+					(*decoded)[*decoded_count].index = permutation;
+					(*decoded)[*decoded_count].offset = used;
+					(*decoded)[*decoded_count].size = bytes;
+					(*decoded_count)++;
+					continue;
+				}
+				ce_vorbis_stream_close(stream);
+			}
+#endif
+			frames = data && ce_read(source, offset, data, (unsigned long)size) ?
+				ce_vorbis_decode(data, size, &channels, &rate, &samples) : -1;
+			if (data)
+				free(data);
+			/* (its edges, for its neighbors) */
+			if (edges && frames > 0 && samples && channels >= 1 && channels <= 2)
+			{
+				struct ce_permutation_edges *edge = &edges[permutation];
+				int count = frames < CE_RESAMPLE_CONTEXT ? frames : CE_RESAMPLE_CONTEXT;
+
+				edge->head_ready = edge->tail_ready = TRUE;
+				edge->frames = frames;
+				edge->channels = channels;
+				edge->rate = rate;
+				edge->head_frames = edge->tail_frames = count;
+				memcpy(edge->head, samples, (size_t)count * (size_t)channels * sizeof(short));
+				memcpy(edge->tail, samples + (size_t)(frames - count) * (size_t)channels,
+					(size_t)count * (size_t)channels * sizeof(short));
+			}
+			/* (one at twice the rate it is played at, or half it, brought
+			to it: ce_vorbis_resample, told once a map) */
+			if (frames > 0 && channels == (job->encoding ? 2 : 1) && rate != job->played_rate)
+			{
+				short const *before_samples, *after_samples;
+				int before_frames, after_frames;
+				boolean joined;
+				int resampled;
+
+				/* (with the permutations played before and after it: a
+				long sound is split into several, and the filter reaches
+				across the joins) */
+				ce_permutation_context(range, permutations, permutation_count, permutation, is_looped, channels,
+					rate, edges, sounds_map, map_file, job->indexed, &before_samples, &before_frames,
+					&after_samples, &after_frames, &joined);
+				resampled = ce_vorbis_resample_piece(&samples, frames, channels, rate, job->played_rate,
+					before_samples, before_frames, after_samples, after_frames);
+				if (resampled > 0 && joined)
+				{
+					counts->resampled_joined++;
+					counts->resampled_looped += is_looped;
+				}
+
+				if (resampled > 0)
+				{
+					if (!counts->resampled_told)
+					{
+						error(_error_silent, "Custom Edition maps: %s: Ogg Vorbis samples at %d Hz, played at %d Hz: "
+							"resampled (any more like it are too)", ce_loaded_tag_name(job->instance), rate,
+							job->played_rate);
+						counts->resampled_told = TRUE;
+					}
+					frames = resampled;
+					rate = job->played_rate;
+					counts->resampled++;
+				}
+			}
+			/* (and no more than the sound cache could hold of it) */
+			if (frames <= 0 || channels != (job->encoding ? 2 : 1) || rate != job->played_rate || frames > 0x1000000)
+			{
+				error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis permutation of %d channels at %d Hz "
+					"in a sound of %d at %d Hz; it does not play", ce_loaded_tag_name(job->instance),
+					channels, rate, job->encoding ? 2 : 1, job->played_rate);
+				opensauce_survey_note_resource_miss("sound (Ogg Vorbis permutation that does not play)",
+					ce_loaded_tag_name(job->instance));
+				ce_vorbis_free(samples);
+				result = _ce_sound_failed;
+				break;
+			}
+			bytes = (unsigned long)frames * (unsigned long)channels * sizeof(short);
+			if (bytes > room - used)
+			{
+				ce_vorbis_free(samples);
+				result = _ce_sound_full;
+				break;
+			}
+			if (!ce_sound_write(writer, samples, bytes))
+			{
+				ce_vorbis_free(samples);
+				result = _ce_sound_failed;
+				break;
+			}
+			ce_vorbis_free(samples);
+			(*decoded)[*decoded_count].range = pitch_range;
+			(*decoded)[*decoded_count].index = permutation;
+			(*decoded)[*decoded_count].offset = used;
+			(*decoded)[*decoded_count].size = bytes;
+			(*decoded_count)++;
+		}
+	}
+	if (edges)
+		free(edges);
+	if (order)
+		free(order);
+	return result;
+}
+
+/* a sound's job's pitch ranges and permutations (struct ce_sound_job): on the
+desktop copies, kept to decode it again; on a console its own blocks */
+static boolean ce_sound_job_blocks(
+	struct ce_sound_job *job,
+	byte *pitch_ranges)
+{
+	unsigned long pitch_range;
+
+	job->ranges = NULL;
+	job->permutations = NULL;
+	job->permutation_counts = NULL;
+	if (!job->range_count)
+		return TRUE;
+	job->permutations = malloc(job->range_count * sizeof(*job->permutations));
+	job->permutation_counts = malloc(job->range_count * sizeof(*job->permutation_counts));
+#ifdef HALO_CONSOLE
+	job->ranges = pitch_ranges;
+#else
+	job->ranges = malloc(job->range_count * CE_SOUND_PITCH_RANGE_SIZE);
+#endif
+	if (!job->permutations || !job->permutation_counts || !job->ranges)
+		return FALSE;
+#ifndef HALO_CONSOLE
+	memcpy(job->ranges, pitch_ranges, job->range_count * CE_SOUND_PITCH_RANGE_SIZE);
+	for (pitch_range = 0; pitch_range < job->range_count; pitch_range++)
+		job->permutations[pitch_range] = NULL;
+#endif
+	for (pitch_range = 0; pitch_range < job->range_count; pitch_range++)
+	{
+		unsigned long count;
+		byte *permutations = ce_sound_block(pitch_ranges + pitch_range * CE_SOUND_PITCH_RANGE_SIZE +
+			CE_PITCH_RANGE_PERMUTATIONS_OFFSET, CE_SOUND_PERMUTATION_SIZE, &count);
+
+		job->permutation_counts[pitch_range] = count;
+#ifdef HALO_CONSOLE
+		job->permutations[pitch_range] = permutations;
+#else
+		job->permutations[pitch_range] = malloc(count ? count * CE_SOUND_PERMUTATION_SIZE : 1);
+		if (!job->permutations[pitch_range])
+			return FALSE;
+		if (count)
+			memcpy(job->permutations[pitch_range], permutations, count * CE_SOUND_PERMUTATION_SIZE);
+#endif
+	}
+	return TRUE;
+}
+
+static void ce_sound_job_free(
+	struct ce_sound_job *job)
+{
+	/* (the game's free takes no NULL) */
+#ifndef HALO_CONSOLE
+	unsigned long pitch_range;
+
+	for (pitch_range = 0; job->permutations && pitch_range < job->range_count; pitch_range++)
+	{
+		if (job->permutations[pitch_range])
+			free(job->permutations[pitch_range]);
+	}
+	if (job->ranges)
+		free(job->ranges);
+#endif
+	if (job->permutations)
+		free(job->permutations);
+	if (job->permutation_counts)
+		free(job->permutation_counts);
+	job->ranges = NULL;
+	job->permutations = NULL;
+	job->permutation_counts = NULL;
+}
+
+#ifndef HALO_CONSOLE
+/* the most offset a decoded sound's tags read it at: past the file's budget
+for one that did not fit at the map's load (its tags' offsets are signed) */
+#define CE_DECODED_SOUNDS_PLACED_MOST 0x7fff0000UL
+
+boolean sound_definition_playing(long definition_index);
+
+static void ce_sound_entries_free(
+	void)
+{
+	long entry;
+
+	for (entry = 0; entry < ce_sound_entry_count; entry++)
+		ce_sound_job_free(&ce_sound_jobs[entry]);
+	if (ce_sound_jobs)
+		free(ce_sound_jobs);
+	if (ce_sound_pool)
+		free(ce_sound_pool);
+	if (ce_sound_bases)
+		free(ce_sound_bases);
+	if (ce_sound_entry_by_tag)
+		free(ce_sound_entry_by_tag);
+	ce_sound_jobs = NULL;
+	ce_sound_pool = NULL;
+	ce_sound_bases = NULL;
+	ce_sound_entry_by_tag = NULL;
+	ce_sound_entry_tag_count = 0;
+	ce_sound_entry_count = ce_sound_entry_capacity = 0;
+}
+
+/* a decoded sound kept: its entry, or NONE (no room to keep it) */
+static long ce_sound_entry_add(
+	struct ce_sound_job const *job,
+	unsigned long placed,
+	unsigned long length,
+	boolean resident,
+	unsigned long base)
+{
+	long entry;
+
+	if (ce_sound_entry_count == ce_sound_entry_capacity)
+	{
+		long capacity = ce_sound_entry_capacity ? ce_sound_entry_capacity * 2 : 256;
+		struct ce_sound_job *jobs = realloc(ce_sound_jobs, (size_t)capacity * sizeof(*jobs));
+		struct ce_sound_pool_entry *pool;
+		unsigned long *bases;
+
+		if (!jobs)
+			return NONE;
+		ce_sound_jobs = jobs;
+		pool = realloc(ce_sound_pool, (size_t)capacity * sizeof(*pool));
+		if (!pool)
+			return NONE;
+		ce_sound_pool = pool;
+		bases = realloc(ce_sound_bases, (size_t)capacity * sizeof(*bases));
+		if (!bases)
+			return NONE;
+		ce_sound_bases = bases;
+		ce_sound_entry_capacity = capacity;
+	}
+	entry = ce_sound_entry_count++;
+	ce_sound_jobs[entry] = *job;
+	ce_sound_pool[entry].base = base;
+	ce_sound_pool[entry].length = length;
+	ce_sound_pool[entry].last_used = 0;
+	ce_sound_pool[entry].resident = resident;
+	ce_sound_pool[entry].in_flight = 0;
+	ce_sound_pool[entry].failed = FALSE;
+	ce_sound_bases[entry] = placed;
+	return entry;
+}
+
+/* whether a decoded sound may not be moved out of the file now: playing
+(one with a read of it in flight never is: ce_sound_pool_place) */
+static int ce_sound_entry_busy(
+	long entry,
+	void *context)
+{
+	(void)context;
+	return sound_definition_playing((long)ce_sound_jobs[entry].instance->tag_index);
+}
+
+/* a decoded sound not in the file decoded into it again, where room is made
+for it (ce_sound_pool_place: the sounds read longest ago that are not
+busy moved out) */
+static boolean ce_sound_entry_load(
+	long entry)
+{
+	struct ce_sound_job const *job = &ce_sound_jobs[entry];
+	struct ce_sound_decode_counts counts;
+	struct ce_decoded_permutation *decoded = NULL;
+	unsigned long decoded_count = 0, decoded_capacity = 0;
+	struct ce_sound_writer writer;
+	long base, evicted = 0;
+	int result;
+
+	if (!ce_decoded_sounds_file)
+		return FALSE;
+	base = ce_sound_pool_place(ce_sound_pool, ce_sound_entry_count, entry, CE_MAXIMUM_DECODED_SOUNDS_SIZE,
+		ce_sound_entry_busy, NULL, &evicted);
+	ce_sound_evictions += evicted;
+	if (base < 0)
+	{
+		if (!ce_sound_no_room_told)
+		{
+			error(_error_silent, "Custom Edition maps: %s: no room in the decoded sounds' file (%lu MB) while the "
+				"sounds in it play; it does not play now", ce_loaded_tag_name(job->instance),
+				(unsigned long)CE_MAXIMUM_DECODED_SOUNDS_SIZE >> 20);
+			ce_sound_no_room_told = TRUE;
+		}
+		return FALSE;
+	}
+	memset(&counts, 0, sizeof(counts));
+	counts.resampled_told = TRUE;
+	writer.file = ce_decoded_sounds_file;
+	writer.position = (unsigned long)base;
+	ce_read_positioned = TRUE;
+	result = ce_sound_job_decode(job, &writer, ce_sound_pool[entry].length, &decoded, &decoded_count,
+		&decoded_capacity, &counts);
+	ce_read_positioned = FALSE;
+	if (decoded)
+		free(decoded);
+	if (result != _ce_sound_decoded || writer.position - (unsigned long)base != ce_sound_pool[entry].length)
+	{
+		/* (not tried again until the next map: said once) */
+		ce_sound_pool[entry].resident = FALSE;
+		ce_sound_pool[entry].failed = TRUE;
+		error(_error_silent, "Custom Edition maps: %s: its samples could not be decoded again; it does not play "
+			"on this map", ce_loaded_tag_name(job->instance));
+		return FALSE;
+	}
+	ce_sound_reloads++;
+	if (evicted && !ce_sound_evicted_told)
+	{
+		error(_error_silent, "Custom Edition maps: the decoded sounds' file is full: the sounds played longest ago "
+			"are moved out of it for the ones played now (first %s)", ce_loaded_tag_name(job->instance));
+		ce_sound_evicted_told = TRUE;
+	}
+	return TRUE;
+}
+#endif
+
+/* where a decoded sound's samples are read from (cache_files_windows.c): the
+offset its tags give made its place in the decoded sounds' file, the sound
+decoded into it first if it is not there (desktop). FALSE if it cannot be
+read: outside its sound's samples, or past the end of the file. *read is
+given for the read's end to be told (ce_resources_sound_read_finished), or
+NONE: until then the sound stays in the file */
+boolean ce_resources_sound_read(
+	long tag_index,
+	long *offset,
+	long size,
+	long *read)
+{
+	*read = NONE;
+#ifndef HALO_CONSOLE
+	{
+		long index = tag_index & 0xffff, entry;
+		unsigned long at;
+
+		if (tag_index == NONE || index >= ce_indexed_tag_count || !ce_indexed_tags ||
+			ce_indexed_tags[index] != CE_DECODED_SOUND)
+		{
+			return TRUE;
+		}
+		entry = ce_sound_entry_by_tag && index < ce_sound_entry_tag_count ? ce_sound_entry_by_tag[index] : NONE;
+		/* (one kept with no entry: its samples where its tags say, all in
+		the file) */
+		if (entry == NONE)
+			return ce_sound_pool_read_within(0, ce_decoded_sounds_size, *offset, size, NULL);
+		if (ce_sound_pool[entry].failed ||
+			!ce_sound_pool_read_within(ce_sound_bases[entry], ce_sound_pool[entry].length, *offset, size, &at))
+		{
+			return FALSE;
+		}
+		if (!ce_sound_pool[entry].resident && !ce_sound_entry_load(entry))
+			return FALSE;
+		ce_sound_pool[entry].last_used = system_milliseconds();
+		*offset = (long)(ce_sound_pool[entry].base + at);
+		ce_sound_pool_read_issued(&ce_sound_pool[entry]);
+		*read = (ce_sound_generation << 16) | entry;
+	}
+#else
+	(void)tag_index;
+	(void)offset;
+	(void)size;
+#endif
+	return TRUE;
+}
+
+/* a read ce_resources_sound_read gave finished (on the cache's thread),
+done or failed: its sound may be moved out of the file again. A read of an
+earlier map's is let be */
+void ce_resources_sound_read_finished(
+	long read)
+{
+#ifndef HALO_CONSOLE
+	long entry = read & 0xffff;
+
+	if (read == NONE || (read >> 16) != __atomic_load_n(&ce_sound_generation, __ATOMIC_SEQ_CST) ||
+		entry >= ce_sound_entry_count || !ce_sound_pool)
+	{
+		return;
+	}
+	ce_sound_pool_read_finished(&ce_sound_pool[entry]);
+#else
+	(void)read;
+#endif
+}
+
 /* Halo PC's Ogg Vorbis sounds made the engine's 16-bit PCM ones (which it
 plays on PCM channels: sound_preferences.c), those whose samples are in
 sounds.map and those whose samples are in the map itself (kokiriforest's and
@@ -2765,37 +3449,57 @@ own sound of another compression with samples in both files, which the
 engine reads from one file, has them copied as they are into the same file
 (ce_custom_sound). (The sounds' blocks and samples were checked:
 ce_resources_check; their compression first made their permutations':
-ce_sound_compression_repair.) */
+ce_sound_compression_repair.) The file holds no more than
+CE_MAXIMUM_DECODED_SOUNDS_SIZE. On the desktop a sound that does not fit
+when the map loads is measured, its tags given offsets past that, and it is
+decoded when it is first read, moving out sounds played longest ago that are
+not playing (ce_resources_sound_read); on a console it does not play. */
 static void ce_sounds_decode(
 	void *tag_instances,
 	long tag_count)
 {
 	HANDLE custom_sounds_map = ce_resource_maps[_ce_resource_sounds].file;
-	HANDLE map_file = cache_files_ce_map_file();
 	char path[256];
 	HANDLE file = NULL;
 	unsigned long written = 0;
-	long sounds = 0, in_map = 0, permutations_decoded = 0, repaired = 0, copied = 0, resampled_count = 0;
-	long resampled_joined = 0, resampled_looped = 0, streamed_count = 0, split_count = 0, flags_cleared = 0;
-	boolean resampled_told = FALSE;
+#ifndef HALO_CONSOLE
+	/* (where the next sound's tags read it: written, until one did not fit
+	at load) */
+	unsigned long placed = 0;
+	boolean load_full = FALSE;
+	long deferred = 0;
+#endif
+	long sounds = 0, in_map = 0, permutations_decoded = 0, repaired = 0, copied = 0;
+	long split_count = 0, flags_cleared = 0;
+	boolean full_told = FALSE;
+	struct ce_sound_decode_counts counts;
 	int played_rate;
 	long index;
 	/* (a sound's decoded permutations, changed once all of them are) */
 	struct ce_decoded_permutation *decoded = NULL;
-	unsigned long decoded_count, decoded_capacity = 0;
-	/* (the looped sounds, and the pitch range being decoded's permutations'
-	edges, read once one of them is brought to another rate) */
+	unsigned long decoded_count = 0, decoded_capacity = 0;
+	/* (the looped sounds) */
 	long looped_count = 0;
 	unsigned long *looped = ce_looped_sounds(tag_instances, tag_count, &looped_count);
-	struct ce_permutation_edges *edges = NULL;
-	unsigned long *order = NULL;
 
+	memset(&counts, 0, sizeof(counts));
 	if (ce_decoded_sounds_file)
 	{
 		CloseHandle(ce_decoded_sounds_file);
 		ce_decoded_sounds_file = NULL;
 		DeleteFileA(ce_decoded_sounds_path);
 	}
+#ifndef HALO_CONSOLE
+	__atomic_store_n(&ce_sound_generation, (ce_sound_generation + 1) & 0x7fff, __ATOMIC_SEQ_CST);
+	ce_decoded_sounds_size = 0;
+	ce_sound_entries_free();
+	ce_sound_full_told = ce_sound_evicted_told = ce_sound_no_room_told = FALSE;
+	ce_sound_reloads = ce_sound_evictions = 0;
+	ce_sound_entry_by_tag = tag_count > 0 ? malloc((size_t)tag_count * sizeof(*ce_sound_entry_by_tag)) : NULL;
+	for (index = 0; ce_sound_entry_by_tag && index < tag_count; index++)
+		ce_sound_entry_by_tag[index] = NONE;
+	ce_sound_entry_tag_count = ce_sound_entry_by_tag ? tag_count : 0;
+#endif
 	/* (the loader's split flag, sound_definitions.h's
 	SOUND_DEFINITION_SPLIT_BY_LOADER_FLAG, is the loader's alone: cleared on
 	every sound before any is split, so no map's sound plays a chain of its
@@ -2822,9 +3526,16 @@ static void ce_sounds_decode(
 			index * CE_TAG_INSTANCE_SIZE);
 		byte *sound, *pitch_ranges;
 		unsigned long pitch_range_count, pitch_range;
-		unsigned long sound_start, decoded_index;
+		unsigned long decoded_index, length;
+		struct ce_sound_job job;
+		struct ce_sound_writer writer;
+		int result;
+		long looped_index;
+#ifndef HALO_CONSOLE
+		boolean resident = FALSE;
+#endif
 		short encoding, sample_rate;
-		boolean all = TRUE, ogg, from_map = FALSE, from_sounds_map = FALSE;
+		boolean ogg, from_map = FALSE, from_sounds_map = FALSE;
 		HANDLE sounds_map = custom_sounds_map;
 
 		if (instance->group_tag != 'snd!')
@@ -2918,274 +3629,138 @@ static void ce_sounds_decode(
 		as the Xbox's channels have it; Halo PC's 44 kHz mono sounds are
 		decoded to it and made 22 kHz sounds) */
 		played_rate = encoding ? (sample_rate ? 44100 : 22050) : 22050;
+
+		/* (what decodes it, kept to decode it again on the desktop) */
+		memset(&job, 0, sizeof(job));
+		job.instance = instance;
+		job.sounds_map = sounds_map;
+		job.indexed = ce_indexed_tags[index] != 0;
+		job.ogg = ogg;
+		job.encoding = encoding;
+		job.played_rate = played_rate;
+		job.range_count = pitch_range_count;
+		for (looped_index = 0; looped_index < looped_count && !job.is_looped; looped_index++)
+			job.is_looped = looped[looped_index] == instance->tag_index;
+		if (!ce_sound_job_blocks(&job, pitch_ranges))
+		{
+			error(_error_silent, "Custom Edition maps: %s: no memory to decode it; left as it was",
+				ce_loaded_tag_name(instance));
+			ce_sound_job_free(&job);
+			continue;
+		}
 		/* (all or nothing: every permutation is decoded and written before
 		any is changed. A sound read from the decoded file with a permutation
 		left pointing into its own file, or the other way about, would play
 		the wrong samples. If one cannot be, the sound is left as it was and
 		what was written of it is written over by the next) */
-		decoded_count = 0;
-		sound_start = written;
-		for (pitch_range = 0; all && pitch_range < pitch_range_count; pitch_range++)
+		writer.file = file;
+		writer.position = written;
+#ifdef HALO_CONSOLE
+		result = ce_sound_job_decode(&job, &writer, CE_MAXIMUM_DECODED_SOUNDS_SIZE - written, &decoded,
+			&decoded_count, &decoded_capacity, &counts);
+#else
+		/* (one that does not fit, and every one after it, measured: decoded
+		when it is read, ce_resources_sound_read) */
+		result = _ce_sound_full;
+		if (!load_full)
 		{
-			byte *range = pitch_ranges + pitch_range * CE_SOUND_PITCH_RANGE_SIZE;
-			unsigned long permutation_count;
-			byte *permutations = ce_sound_block(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET, CE_SOUND_PERMUTATION_SIZE,
-				&permutation_count);
-			unsigned long permutation, step;
-
-			/* (an Ogg Vorbis sound's permutations each after the one played
-			before it, and their edges kept: ce_permutation_edges) */
-			if (ogg && permutation_count)
-			{
-				struct ce_permutation_edges *grown_edges = realloc(edges, permutation_count * sizeof(*edges));
-				unsigned long *grown_order = realloc(order, permutation_count * sizeof(*order));
-
-				/* (none, if there is no room for them) */
-				if (!grown_edges && edges)
-					free(edges);
-				if (!grown_order && order)
-					free(order);
-				edges = grown_edges;
-				order = grown_order;
-				if (edges)
-					memset(edges, 0, permutation_count * sizeof(*edges));
-				if (order)
-					ce_permutation_order(permutations, permutation_count, order);
-			}
-			for (step = 0; all && step < permutation_count; step++)
-			{
-				byte *at;
-				long size;
-				unsigned long offset;
-				HANDLE source;
-				unsigned char *data;
-				short *samples = NULL;
-				int channels = 0, rate = 0, frames;
-				unsigned long bytes, bytes_written = 0;
-				boolean is_looped;
-				long looped_index;
-
-				permutation = ogg && order ? order[step] : step;
-				at = permutations + permutation * CE_SOUND_PERMUTATION_SIZE;
-				size = *(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET);
-				offset = *(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8);
-				source = ce_indexed_tags[index] || ce_samples_external(at) ? sounds_map : map_file;
-				if (size <= 0)
-					continue;
-				if (!source)
-				{
-					all = FALSE;
-					break;
-				}
-				/* (another compression's samples stay in the sound's own file,
-				which a decoded sound is no longer read from) */
-				if (ogg && *(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
-				{
-					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis sound with a permutation of "
-						"another compression; left as it was", ce_loaded_tag_name(instance));
-					all = FALSE;
-					break;
-				}
-				if (decoded_count == decoded_capacity)
-				{
-					unsigned long capacity = decoded_capacity ? decoded_capacity * 2 : 64;
-					struct ce_decoded_permutation *grown = realloc(decoded, capacity * sizeof(*decoded));
-
-					if (!grown)
-					{
-						all = FALSE;
-						break;
-					}
-					decoded = grown;
-					decoded_capacity = capacity;
-				}
-				data = malloc((size_t)size);
-				if (!ogg)
-				{
-					/* (a sound with samples in both files: copied as they are) */
-					bytes = (unsigned long)size;
-					if (!data || !ce_read(source, offset, data, bytes) ||
-						bytes > CE_MAXIMUM_DECODED_SOUNDS_SIZE - written ||
-						!WriteFile(file, data, bytes, &bytes_written, NULL) || bytes_written != bytes)
-					{
-						error(_error_silent, "Custom Edition maps: %s: its samples in the map and sounds.map could not "
-							"be copied", ce_loaded_tag_name(instance));
-						if (data)
-							free(data);
-						all = FALSE;
-						break;
-					}
-					free(data);
-					decoded[decoded_count].permutation = at;
-					decoded[decoded_count].offset = written;
-					decoded[decoded_count].size = bytes;
-					decoded_count++;
-					written += bytes;
-					continue;
-				}
-				/* (a looped sound's: its pieces play round in a ring) */
-				is_looped = FALSE;
-				for (looped_index = 0; edges && looped_index < looped_count; looped_index++)
-					is_looped = is_looped || looped[looped_index] == instance->tag_index;
-#ifndef HALO_CONSOLE
-				/* (a long one decoded and written a piece at a time, not held
-				whole: ce_sound_stream; split once the sound is, if the cache
-				could not hold it, ce_sound_split) */
-				if (data && size > CE_SOUND_STREAM_OGG_BYTES && ce_read(source, offset, data, (unsigned long)size))
-				{
-					void *stream = ce_vorbis_stream_open(data, (int)size, &channels, &rate);
-
-					if (stream && channels == (encoding ? 2 : 1) &&
-						(rate == played_rate || rate == played_rate * 2 || rate * 2 == played_rate))
-					{
-						short const *before_samples = NULL, *after_samples = NULL;
-						int before_frames = 0, after_frames = 0;
-						boolean joined = FALSE, is_resampled = FALSE;
-
-						if (rate != played_rate)
-						{
-							ce_permutation_context(range, permutations, permutation_count, permutation, is_looped,
-								channels, rate, edges, sounds_map, map_file, ce_indexed_tags[index] != 0,
-								&before_samples, &before_frames, &after_samples, &after_frames, &joined);
-						}
-						bytes = ce_sound_stream(file, CE_MAXIMUM_DECODED_SOUNDS_SIZE - written, stream, channels, rate,
-							played_rate, before_samples, before_frames, after_samples, after_frames,
-							edges ? &edges[permutation] : NULL, &is_resampled);
-						ce_vorbis_stream_close(stream);
-						free(data);
-						if (!bytes)
-						{
-							error(_error_silent, "Custom Edition maps: %s: a long Ogg Vorbis permutation could not be "
-								"decoded; it does not play", ce_loaded_tag_name(instance));
-							spv3_mode_note_resource_miss("sound (Ogg Vorbis permutation that does not play)",
-								ce_loaded_tag_name(instance));
-							all = FALSE;
-							break;
-						}
-						if (is_resampled)
-						{
-							resampled_count++;
-							resampled_joined += joined;
-							resampled_looped += joined && is_looped;
-						}
-						streamed_count++;
-						decoded[decoded_count].permutation = at;
-						decoded[decoded_count].offset = written;
-						decoded[decoded_count].size = bytes;
-						decoded_count++;
-						written += bytes;
-						continue;
-					}
-					ce_vorbis_stream_close(stream);
-				}
-#endif
-				frames = data && ce_read(source, offset, data, (unsigned long)size) ?
-					ce_vorbis_decode(data, size, &channels, &rate, &samples) : -1;
-				if (data)
-					free(data);
-				/* (its edges, for its neighbors) */
-				if (edges && frames > 0 && samples && channels >= 1 && channels <= 2)
-				{
-					struct ce_permutation_edges *edge = &edges[permutation];
-					int count = frames < CE_RESAMPLE_CONTEXT ? frames : CE_RESAMPLE_CONTEXT;
-
-					edge->head_ready = edge->tail_ready = TRUE;
-					edge->frames = frames;
-					edge->channels = channels;
-					edge->rate = rate;
-					edge->head_frames = edge->tail_frames = count;
-					memcpy(edge->head, samples, (size_t)count * (size_t)channels * sizeof(short));
-					memcpy(edge->tail, samples + (size_t)(frames - count) * (size_t)channels,
-						(size_t)count * (size_t)channels * sizeof(short));
-				}
-				/* (one at twice the rate it is played at, or half it, brought
-				to it: ce_vorbis_resample, told once a map) */
-				if (frames > 0 && channels == (encoding ? 2 : 1) && rate != played_rate)
-				{
-					short const *before_samples, *after_samples;
-					int before_frames, after_frames;
-					boolean joined;
-					int resampled;
-
-					/* (with the permutations played before and after it: a
-					long sound is split into several, and the filter reaches
-					across the joins) */
-					ce_permutation_context(range, permutations, permutation_count, permutation, is_looped, channels,
-						rate, edges, sounds_map, map_file, ce_indexed_tags[index] != 0, &before_samples, &before_frames,
-						&after_samples, &after_frames, &joined);
-					resampled = ce_vorbis_resample_piece(&samples, frames, channels, rate, played_rate,
-						before_samples, before_frames, after_samples, after_frames);
-					if (resampled > 0 && joined)
-					{
-						resampled_joined++;
-						resampled_looped += is_looped;
-					}
-
-					if (resampled > 0)
-					{
-						if (!resampled_told)
-						{
-							error(_error_silent, "Custom Edition maps: %s: Ogg Vorbis samples at %d Hz, played at %d Hz: "
-								"resampled (any more like it are too)", ce_loaded_tag_name(instance), rate,
-								played_rate);
-							resampled_told = TRUE;
-						}
-						frames = resampled;
-						rate = played_rate;
-						resampled_count++;
-					}
-				}
-				/* (and no more than the sound cache could hold of it) */
-				if (frames <= 0 || channels != (encoding ? 2 : 1) || rate != played_rate || frames > 0x1000000)
-				{
-					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis permutation of %d channels at %d Hz "
-						"in a sound of %d at %d Hz; it does not play", ce_loaded_tag_name(instance),
-						channels, rate, encoding ? 2 : 1, played_rate);
-					spv3_mode_note_resource_miss("sound (Ogg Vorbis permutation that does not play)",
-						ce_loaded_tag_name(instance));
-					ce_vorbis_free(samples);
-					all = FALSE;
-					break;
-				}
-				bytes = (unsigned long)frames * (unsigned long)channels * sizeof(short);
-				if (bytes > CE_MAXIMUM_DECODED_SOUNDS_SIZE - written ||
-					!WriteFile(file, samples, bytes, &bytes_written, NULL) ||
-					bytes_written != bytes)
-				{
-					ce_vorbis_free(samples);
-					all = FALSE;
-					break;
-				}
-				ce_vorbis_free(samples);
-				decoded[decoded_count].permutation = at;
-				decoded[decoded_count].offset = written;
-				decoded[decoded_count].size = bytes;
-				decoded_count++;
-				written += bytes;
-			}
+			result = ce_sound_job_decode(&job, &writer, CE_MAXIMUM_DECODED_SOUNDS_SIZE - written, &decoded,
+				&decoded_count, &decoded_capacity, &counts);
+			load_full = result == _ce_sound_full;
 		}
-		if (!all)
+		resident = result == _ce_sound_decoded;
+		if (result == _ce_sound_full && ce_sound_entry_by_tag)
 		{
-			written = sound_start;
+			if (!ce_sound_full_told)
+			{
+				error(_error_silent, "Custom Edition maps: the decoded sounds' file is full (%lu MB) at %s: it and "
+					"the sounds after it are decoded when they play", (unsigned long)CE_MAXIMUM_DECODED_SOUNDS_SIZE >> 20,
+					ce_loaded_tag_name(instance));
+				ce_sound_full_told = TRUE;
+				full_told = TRUE;
+			}
+			writer.file = NULL;
+			writer.position = 0;
+			result = ce_sound_job_decode(&job, &writer, CE_DECODED_SOUNDS_PLACED_MOST - placed, &decoded,
+				&decoded_count, &decoded_capacity, &counts);
+		}
+#endif
+		length = writer.position - (writer.file ? written : 0);
+		if (result != _ce_sound_decoded)
+		{
+			if (result == _ce_sound_full)
+			{
+				if (!full_told)
+				{
+					error(_error_silent, "Custom Edition maps: the decoded sounds' file is full (%lu MB): %s and the "
+						"sounds after it that do not fit do not play", (unsigned long)CE_MAXIMUM_DECODED_SOUNDS_SIZE >> 20,
+						ce_loaded_tag_name(instance));
+					full_told = TRUE;
+				}
+				opensauce_survey_note_resource_miss("sound (no room in the decoded sounds' file)",
+					ce_loaded_tag_name(instance));
+			}
+			ce_sound_job_free(&job);
+#ifdef HALO_CONSOLE
 			if (SetFilePointer(file, (long)written, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
 			{
 				error(_error_silent, "Custom Edition maps: cannot seek %s; no more Ogg Vorbis sounds decoded",
 					path);
 				break;
 			}
+#endif
 			continue;
 		}
+#ifndef HALO_CONSOLE
+		/* (kept, before its tags are changed: one that cannot be, with no
+		memory for it, is left as it was, as one that does not fit on a
+		console is; its tags would read past the file's end) */
+		if (ce_sound_entry_by_tag)
+		{
+			long entry = ce_sound_entry_add(&job, placed, length, resident, written);
+
+			if (entry == NONE)
+			{
+				error(_error_silent, "Custom Edition maps: %s: no memory to keep its decoded samples; it does not "
+					"play", ce_loaded_tag_name(instance));
+				ce_sound_job_free(&job);
+				continue;
+			}
+			ce_sound_entry_by_tag[index] = entry;
+		}
+		else
+			ce_sound_job_free(&job);
+#endif
 		for (decoded_index = 0; decoded_index < decoded_count; decoded_index++)
 		{
-			byte *at = decoded[decoded_index].permutation;
+			struct ce_decoded_permutation const *done = &decoded[decoded_index];
+			unsigned long count;
+			byte *permutations = ce_sound_block(pitch_ranges + done->range * CE_SOUND_PITCH_RANGE_SIZE +
+				CE_PITCH_RANGE_PERMUTATIONS_OFFSET, CE_SOUND_PERMUTATION_SIZE, &count);
+			byte *at = permutations + done->index * CE_SOUND_PERMUTATION_SIZE;
+#ifdef HALO_CONSOLE
+			unsigned long base = written;
+#else
+			unsigned long base = placed;
+#endif
 
-			*(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET) = (long)decoded[decoded_index].size;
-			*(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8) = decoded[decoded_index].offset;
+			*(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET) = (long)done->size;
+			*(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8) = base + done->offset;
 			if (!ogg)
 				continue;
-			*(unsigned long *)(at + 0x38) = decoded[decoded_index].size;
+			*(unsigned long *)(at + 0x38) = done->size;
 			*(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) = CE_SOUND_COMPRESSION_NONE;
 		}
+#ifdef HALO_CONSOLE
+		ce_sound_job_free(&job);
+		written += length;
+#else
+		if (!resident)
+			deferred++;
+		placed += length;
+		if (resident)
+			written += length;
+#endif
 		ce_indexed_tags[index] = CE_DECODED_SOUND;
 		if (!ogg)
 		{
@@ -3214,23 +3789,29 @@ static void ce_sounds_decode(
 	never made the list) */
 	if (decoded)
 		free(decoded);
-	if (edges)
-		free(edges);
-	if (order)
-		free(order);
 	if (looped)
 		free(looped);
 	ce_decoded_sounds_file = file;
+#ifndef HALO_CONSOLE
+	ce_decoded_sounds_size = written;
+#endif
 	if (flags_cleared)
 		error(_error_silent, "Custom Edition maps: %ld sounds had the loader's split flag set: cleared", flags_cleared);
 	error(_error_silent, "Custom Edition maps: %ld long Ogg Vorbis permutations decoded a piece at a time, %ld "
 		"permutations of more samples than the sound cache holds split into ones played one after another",
-		streamed_count, split_count);
+		counts.streamed, split_count);
 	error(_error_silent, "Custom Edition maps: %ld Ogg Vorbis sounds decoded, %ld of them the map's (%ld permutations, "
 		"%lu bytes; %ld permutations resampled to their sounds' rate, %ld of them with the permutations played "
 		"next to them, %ld looped); %ld sounds given their permutations' compression; "
 		"%ld with samples in both the map and sounds.map copied", sounds, in_map, permutations_decoded, written,
-		resampled_count, resampled_joined, resampled_looped, repaired, copied);
+		counts.resampled, counts.resampled_joined, counts.resampled_looped, repaired, copied);
+#ifndef HALO_CONSOLE
+	if (deferred)
+	{
+		error(_error_silent, "Custom Edition maps: %ld sounds (%lu bytes) did not fit in the decoded sounds' file at "
+			"load: decoded when they play", deferred, placed - written);
+	}
+#endif
 }
 
 /* the resource map a tag's pixels or samples are read from (cache_files_windows.c),
@@ -3380,6 +3961,14 @@ void ce_resources_update(
 void ce_resources_tags_unloaded(
 	void)
 {
+#ifndef HALO_CONSOLE
+	if (ce_sound_reloads || ce_sound_evictions)
+	{
+		error(_error_silent, "Custom Edition maps: %ld sounds decoded into the decoded sounds' file as they played, "
+			"%ld moved out of it", ce_sound_reloads, ce_sound_evictions);
+	}
+	ce_sound_reloads = ce_sound_evictions = 0;
+#endif
 	ce_indexed_tag_count = 0;
 	ce_free_next = ce_free_end = 0;
 	ce_room_next = 0;

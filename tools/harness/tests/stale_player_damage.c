@@ -13,7 +13,8 @@ struct unit_datum
 	struct { long player_index, driver_object_index, gunner_object_index, killing_spree_last_time;
 		short killing_spree_count; struct unit_attacker attackers[MAXIMUM_ATTACKERS_PER_UNIT]; } unit;
 };
-struct player_datum { short identifier, local_player_index; long unit_index; boolean quit_out_of_game; };
+struct player_datum { short identifier, local_player_index; long unit_index; boolean quit_out_of_game;
+	struct { long machine_index; } network_player_data; };
 struct object_iterator { int absolute_index; unsigned long mask; };
 struct distributed_hit_report
 {
@@ -75,6 +76,12 @@ static void distributed_damage_from_data(struct damage_data const *damage, struc
 static void object_get_origin(long index, real_point3d *point) { memset(point, 0, sizeof(*point)); }
 static long distributed_latest_host_time(void) { return 10; }
 static void distributed_damage_material(struct damage_data *damage, long index, short material) { material_calls++; }
+static void *object_try_and_get(long index) { return index >= 0 && index < 12 ? &objects[index] : NULL; }
+/* (network_rules.h: this build's rules, every version's) */
+enum { NETWORK_RULES_STATIC_SHIELDS_VERSION = 34 };
+static boolean network_rules_of_version(long version) { return TRUE; }
+static boolean network_game_server_port_machine_is_virtual(long machine_index) { return FALSE; }
+static boolean network_game_server_machine_reports_static_damage(long machine_index) { return FALSE; }
 #define csmemset memset
 #include "under_test.inc"
 

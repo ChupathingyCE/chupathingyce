@@ -62,6 +62,8 @@ static void prep_present(void);
 /* the bgfx test backend in place of OpenGL (display.renderer = "bgfx";
 d3d8_bgfx.inl, at the end of this file, which shares the device's state) */
 static BOOL bg_initialize(void);
+/* (HALO_BGFX_SHADER_CHECK: d3d8_bgfx_check.inl) */
+static void bg_shader_check_if_asked(void);
 static BOOL bg_active(void);
 static BOOL bg_anti_alias_prepare(BOOL smaa);
 static void bg_anti_alias(BOOL smaa, short x0, short y0, short x1, short y1);
@@ -759,8 +761,9 @@ struct vertex_shader_object
 	GLuint plasma_shader[2], plasma_lit_shader[2];
 	unsigned char plasma_tried;
 #ifdef HALO_BGFX
-	/* as shader[], the bgfx backend's (d3d8_bgfx.inl) */
-	void *bg_shader[2];
+	/* as shader[], lit_shader[] and their Light effects forms, the bgfx
+	backend's (d3d8_bgfx.inl): [immediate + lit * 2 + plasma * 4] */
+	void *bg_shader[8];
 #endif
 #ifdef HALO_VULKAN
 	/* the Vulkan backend's name for its program: a hash of its instructions
@@ -2753,6 +2756,11 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 		}
 		viewport_update_constants();
 
+#ifdef HALO_BGFX
+		/* (HALO_BGFX_SHADER_CHECK: bgfx's shaders compiled for each of its
+		backends, and the game stops, before any window: CI's check) */
+		bg_shader_check_if_asked();
+#endif
 		/* (the dedicated server and a probe draw nothing: server/src) */
 		if (!config_boolean("debug.null_renderer") &&
 #ifdef HALO_GAME_BROWSER

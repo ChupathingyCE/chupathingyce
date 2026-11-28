@@ -501,12 +501,16 @@ static void actor_combat_get_firing_parameters(
 static struct projectile_definition *actor_get_grenade_definition(
 	short grenade_type_index)
 {
-	struct game_globals_grenade *grenade = TAG_BLOCK_GET_ELEMENT(
-		&scenario_get_game_globals()->grenades,
-		grenade_type_index,
-		struct game_globals_grenade);
+	struct tag_block *grenades = &scenario_get_game_globals()->grenades;
+	struct game_globals_grenade *grenade;
 	struct projectile_definition *projectile_definition = NULL;
 
+	/* port: none for a type past the globals' list (an OpenSauce map's actor
+	variant may name its third or fourth grenade where the map's globals list
+	two: port/linux/game/tag_schema_objects.c); the actor throws none */
+	if (grenade_type_index < 0 || grenade_type_index >= grenades->count)
+		return NULL;
+	grenade = TAG_BLOCK_GET_ELEMENT(grenades, grenade_type_index, struct game_globals_grenade);
 	if (grenade && grenade->projectile.index != NONE)
 	{
 		projectile_definition =
@@ -670,6 +674,9 @@ static boolean actor_combat_reaim_grenade(
 	boolean linear;
 	boolean result = FALSE;
 
+	/* port: no grenade of the type (actor_get_grenade_definition): no aim */
+	if (!projectile_definition)
+		return FALSE;
 	match_assert(
 		"c:\\halo\\SOURCE\\ai\\actor_combat.c",
 		1731,

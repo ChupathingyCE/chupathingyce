@@ -315,6 +315,17 @@ console's build, whichever switches it sets on its own */
 #define HALO_CONSOLE_SKIP_DARK_LIGHTS
 #endif
 
+/* each cluster's collideable objects that are not bipeds kept as a list of
+their own (port/linux/game/object_bounds_cache.c), for the vectors that test
+for no bipeds, with the changes to each cluster's list counted
+(cluster_partitions.c): the desktop builds and Android, on no console. From
+GulchCE by chestahh (granted 2026-11-26) */
+#if !(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_PORT_CLUSTER_OBJECT_LISTS)
+#define HALO_PORT_CLUSTER_OBJECT_LISTS 1
+#endif
+
 /* a map's navigation for computer-controlled characters (port/linux/game/
 ai_nav.c, port/linux/include/ai_nav.h): the desktop builds' and Android's,
 on no console (its walkable copy and search memory). HALO_AI_NAV is 1 or 0;

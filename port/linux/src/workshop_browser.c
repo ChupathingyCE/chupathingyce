@@ -759,6 +759,71 @@ static int bridge_state(struct workshop_browser_item *item, int folder_state)
 	}
 }
 
+/* ---------- items' whole descriptions */
+
+/* the whole descriptions Steam's details gave (an item keeps only their
+start): by id, on the heap, the one kept longest ago given up for a new one
+past DESCRIPTION_STORE. Under workshop_lock, from any thread */
+enum { DESCRIPTION_STORE = DETAILS_CACHE };
+static struct
+{
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	char *text;
+	unsigned long kept;
+} descriptions[DESCRIPTION_STORE];
+
+#ifdef HALO_GAME_BROWSER
+static unsigned long descriptions_kept;
+
+/* items' whole descriptions kept, under workshop_lock: each of full taken
+(left NULL), the caller frees what is left */
+static void descriptions_keep(const struct workshop_browser_item *items, char **full, int count)
+{
+	int index, slot;
+
+	for (index = 0; index < count; index++)
+	{
+		int oldest = 0;
+
+		if (!full[index] || !items[index].id[0])
+			continue;
+		for (slot = 0; slot < DESCRIPTION_STORE; slot++)
+		{
+			if (!strcmp(descriptions[slot].id, items[index].id) || !descriptions[slot].text)
+				break;
+			if (descriptions[slot].kept < descriptions[oldest].kept)
+				oldest = slot;
+		}
+		if (slot == DESCRIPTION_STORE)
+			slot = oldest;
+		free(descriptions[slot].text);
+		snprintf(descriptions[slot].id, sizeof(descriptions[slot].id), "%s", items[index].id);
+		descriptions[slot].text = full[index];
+		descriptions[slot].kept = ++descriptions_kept;
+		full[index] = NULL;
+	}
+}
+#endif
+
+int workshop_browser_description(const char *id, char *out, int size)
+{
+	int slot, found = 0;
+
+	if (!id || !id[0] || !out || size <= 0)
+		return 0;
+	pthread_mutex_lock(&workshop_lock);
+	for (slot = 0; slot < DESCRIPTION_STORE && !found; slot++)
+	{
+		if (descriptions[slot].text && !strcmp(descriptions[slot].id, id))
+		{
+			snprintf(out, (size_t)size, "%s", descriptions[slot].text);
+			found = 1;
+		}
+	}
+	pthread_mutex_unlock(&workshop_lock);
+	return found;
+}
+
 /* ---------- Steam's details */
 
 #ifdef HALO_GAME_BROWSER
@@ -766,8 +831,8 @@ static void *details_thread(void *context)
 {
 	char *body = context, *response = malloc(DETAILS_DOCUMENT + 1);
 	static struct workshop_browser_item found[DETAILS_BATCH];
-	char error[128];
-	int status = 0, count = -1;
+	char *full[DETAILS_BATCH], error[128];
+	int status = 0, count = -1, index;
 
 	error[0] = 0;
 	if (response)
@@ -775,7 +840,7 @@ static void *details_thread(void *context)
 		status = posix_browser_request_as(DETAILS_URL, body, "application/x-www-form-urlencoded",
 			build_identity_user_agent(), response, DETAILS_DOCUMENT + 1, error, sizeof(error));
 		if (status == 200)
-			count = workshop_browser_read_details(response, (int)strlen(response), found, DETAILS_BATCH);
+			count = workshop_browser_read_details_full(response, (int)strlen(response), found, DETAILS_BATCH, full);
 	}
 	if (count < 0)
 		platform_log("Workshop: Steam's item details could not be read (HTTP %d)", status);
@@ -784,10 +849,15 @@ static void *details_thread(void *context)
 	workshop.details_retry_after = retry_backoff_after(error);
 	workshop.details_answer_count = count;
 	if (count > 0)
+	{
 		memcpy(workshop.details_answer, found, sizeof(found[0]) * (size_t)count);
+		descriptions_keep(found, full, count);
+	}
 	workshop.details_answered = 1;
 	workshop.details_fetching = 0;
 	pthread_mutex_unlock(&workshop_lock);
+	for (index = 0; index < count; index++)
+		free(full[index]);
 	free(response);
 	free(body);
 	return NULL;
@@ -1229,7 +1299,7 @@ static void *preview_thread(void *context)
 	/* (an item the list hasn't shown: its picture's address from Steam's details) */
 	if (!pixels && !job->url[0] && job->ask_details)
 	{
-		static struct workshop_browser_item found;
+		struct workshop_browser_item found;
 		char *answer = malloc(DETAILS_DOCUMENT + 1), form[96], error[128];
 		int status = 0;
 
@@ -1643,6 +1713,7 @@ static void *web_thread(void *context)
 	static struct workshop_browser_item found[BROWSE_PAGE_ITEMS];
 	static char ids[BROWSE_PAGE_ITEMS][WORKSHOP_BROWSER_ID_SIZE];
 	static struct workshop_browser_author authors[BROWSE_PAGE_ITEMS];
+	char *full[BROWSE_PAGE_ITEMS] = {NULL};
 	char *response = malloc(BROWSE_PAGE_DOCUMENT + 1), *body = NULL, error[128];
 	int status = 0, count = -1, id_count = 0, author_count = 0, pages = 0, total = 0, index, length;
 	size_t size;
@@ -1674,7 +1745,8 @@ static void *web_thread(void *context)
 		status = posix_browser_request_as(DETAILS_URL, body, "application/x-www-form-urlencoded",
 			build_identity_user_agent(), response, BROWSE_PAGE_DOCUMENT + 1, error, sizeof(error));
 		if (status == 200)
-			count = workshop_browser_read_details(response, (int)strlen(response), found, BROWSE_PAGE_ITEMS);
+			count = workshop_browser_read_details_full(response, (int)strlen(response), found, BROWSE_PAGE_ITEMS,
+				full);
 	}
 	for (index = 0; index < count; index++)
 	{
@@ -1695,7 +1767,10 @@ static void *web_thread(void *context)
 	workshop.web_retry_after = retry_backoff_after(error);
 	workshop.answer_count = count;
 	if (count > 0)
+	{
 		memcpy(workshop.answer, found, sizeof(found[0]) * (size_t)count);
+		descriptions_keep(found, full, count);
+	}
 	workshop.answer_pages = pages;
 	workshop.answer_author_count = author_count;
 	if (author_count > 0)
@@ -1704,6 +1779,9 @@ static void *web_thread(void *context)
 	workshop.web_answer = 1;
 	workshop.fetching = 0;
 	pthread_mutex_unlock(&workshop_lock);
+	/* (what wasn't kept: Steam's 429 after all, or a page cut short) */
+	for (index = 0; index < BROWSE_PAGE_ITEMS; index++)
+		free(full[index]);
 	free(body);
 	free(response);
 	free(url);

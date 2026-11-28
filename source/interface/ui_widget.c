@@ -669,6 +669,9 @@ struct widget_instance;
 #include "networking/network_game_globals.h"
 #include "networking/network_server_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#ifdef HALO_CUSTOM_EDITION
+#include "opensauce.h" /* port: port/linux/game/opensauce_map.c */
+#endif
 #include "rasterizer/rasterizer.h"
 #include "saved games/player_profile.h"
 #include "saved games/playlist_profile.h"
@@ -695,6 +698,7 @@ struct widget_instance;
 #include "mcc_ui.h"
 #include "mcc_ui_network.h"
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 #include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #ifndef HALO_CONSOLE_NO_CONTROLS
 /* port: Controller Buttons asking for a button (menu_functions.c) */
@@ -1966,13 +1970,21 @@ void draw_bitmap_in_rect(
 		widescreen fix draws it for Custom Edition's players (a menu's
 		background, tint or fade), and the rest stays in the centered 640
 		columns. The menus are drawn shifted right by half the extra width
-		(halo_screen_ui_offset), so the bitmap reaches out that far each way */
+		(halo_screen_ui_offset), so the bitmap reaches out that far each way.
+		On an OpenSauce map, as OpenSauce's own widescreen scaling decides
+		it: only a bitmap 640 wide or 480 tall is the screen's; any other
+		stays in the centered columns, cut to its clip (SPV3's loadout
+		heading, a 1640x1480 box cut to the screen) */
 		{
 			long extra = halo_screen_width() - 640;
 
 			if (extra > 0 && CACHE_FILE_TAGS_ARE_CE() &&
 				rect->x0 <= 1 && rect->x1 >= 639 && rect->y0 <= 1 && rect->y1 >= 479 &&
-				(!clip_rect || (clip_rect->x0 <= 1 && clip_rect->x1 >= 639)))
+				(!clip_rect || (clip_rect->x0 <= 1 && clip_rect->x1 >= 639))
+#ifdef HALO_CUSTOM_EDITION
+				&& (!opensauce_map_active() || rectangle_width == 640 || rectangle_height == 480)
+#endif
+				)
 			{
 				points[0].x = points[3].x = (real)(rectangle_x0 - extra / 2);
 				points[1].x = points[2].x = (real)(rectangle_x0 + rectangle_width + (extra - extra / 2));
@@ -2782,6 +2794,27 @@ static void dispose_widget_stack(
 	return;
 }
 
+/* port: SPV3's menus name a script on one 'widget deleted' handler without
+the run-script flag, and only this one is run (by its name): closing the new
+profile's "Creating profile" box sets the mission (lvl_spv3a10) before the
+difficulty screen opens. It is the only thing that sets a new profile's first
+mission: without it the mission stays unset and the difficulty screen's
+LOADING never ends. SPV3 mode only (ui_widget_delete) */
+static void ui_widget_port_deleted_handler_script(
+	struct ui_widget_event_handler_reference const *handler)
+{
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE)
+	if (handler->event_type == _widget_event_deleted && !strcmp(handler->script, "lvl_spv3a10") &&
+		!TEST_FLAG(handler->flags, _event_handler_run_scenario_script_bit) && spv3_mode_active() &&
+		!hs_evaluate_by_name(handler->script))
+	{
+		error(_error_silent, "failed to run ui widget event script '%s'", handler->script);
+	}
+#else
+	(void)handler;
+#endif
+}
+
 void ui_widget_delete(
 	struct widget_instance *widget)
 {
@@ -2843,6 +2876,8 @@ void ui_widget_delete(
 				}
 			}
 		}
+		/* port: (SPV3's one script on a 'widget deleted' handler) */
+		ui_widget_port_deleted_handler_script(handler);
 	}
 	if (widget->pause_game_time == TRUE)
 	{
@@ -3080,6 +3115,70 @@ static boolean widget_instance_port_is_label(
 	return (!widget_instance_can_handle_events(widget) && !widget->child) || !widget->visible || widget->disabled;
 }
 
+/* port: an OpenSauce menu's list whose first item is a placeholder
+(widget_instance_port_hide_opensauce_placeholder) */
+static boolean widget_instance_port_has_opensauce_placeholder(
+	struct widget_instance *widget)
+{
+#ifdef HALO_CUSTOM_EDITION
+	return widget->type == _ui_widget_type_column_list && widget->child && !widget->child->visible &&
+		opensauce_map_active();
+#else
+	return FALSE;
+#endif
+}
+
+/* port: whether a list passes over its labels and hidden items: the PC
+version's lists (port/assets/menus), and an OpenSauce menu's list over its
+placeholder */
+static boolean widget_instance_port_skips_labels(
+	struct widget_instance *widget)
+{
+	return widget->type == _ui_widget_type_column_list &&
+		(pc_menu_tag(widget->definition_tag_index) || widget_instance_port_has_opensauce_placeholder(widget));
+}
+
+/* port: SPV3's main menu list (an OpenSauce menu, ui.yelo) starts with an
+unnamed second copy of its CAMPAIGN item, placed left of the others (the
+older list of the same menu names it "blank gearbox hack"), and the list's
+moving highlight (its extended description's picture, a frame for each
+item) has a blank first frame for it. Halo PC with SPV3 3.3.0 shows only the
+six centered items, opens on CONTINUE with the highlight behind it, and one
+Down goes to CAMPAIGN. So, in an OpenSauce menu's list, a first item that
+has no name and uses the widget of a later item, at another place across, is
+hidden and passed over; the items keep their places in the list, so each
+one's highlight frame stays its own. Any other menu is as it was. */
+static void widget_instance_port_hide_opensauce_placeholder(
+	struct widget_instance *widget,
+	struct ui_widget_definition *definition)
+{
+#ifdef HALO_CUSTOM_EDITION
+	struct ui_widget_child_reference *references;
+	long child_index;
+
+	if (widget->type != _ui_widget_type_column_list || !widget->child || definition->child_widgets.count < 2 ||
+		!opensauce_map_active())
+	{
+		return;
+	}
+	references = (struct ui_widget_child_reference *)xbox_pointer(definition->child_widgets.address);
+	if (references[0].name[0] || references[0].widget_tag.index == NONE)
+		return;
+	for (child_index = 1; child_index < definition->child_widgets.count; child_index++)
+	{
+		if (references[child_index].widget_tag.index == references[0].widget_tag.index &&
+			references[child_index].horizontal_offset != references[0].horizontal_offset)
+		{
+			widget_instance_set_visibility_recursive(widget->child, FALSE);
+			return;
+		}
+	}
+#else
+	(void)widget;
+	(void)definition;
+#endif
+}
+
 static struct widget_instance *widget_instance_find_by_tag_index_recursive(
 	struct widget_instance *widget,
 	long tag_index)
@@ -3296,8 +3395,7 @@ boolean widget_event_function_list_widget_goto_next_item(
 			/* port: the PC version's lists (port/assets/menus) pass over the
 			children that take no events (their labels and lines), as its
 			game does */
-			if (child && widget->type == _ui_widget_type_column_list &&
-				pc_menu_tag(widget->definition_tag_index))
+			if (child && widget_instance_port_skips_labels(widget))
 			{
 				long tries = 0;
 
@@ -3455,7 +3553,7 @@ boolean widget_event_function_list_widget_goto_previous_item(
 				}
 			}
 			/* port: as goto_next_item, over the PC version's labels */
-			if (widget->type == _ui_widget_type_column_list && pc_menu_tag(widget->definition_tag_index))
+			if (widget_instance_port_skips_labels(widget))
 			{
 				long tries = 0;
 
@@ -4985,6 +5083,7 @@ static boolean ui_widget_load_children_recursive(
 			ui_widget_add_child(widget, child);
 		}
 	}
+	widget_instance_port_hide_opensauce_placeholder(widget, definition);
 	if (widget->type == _ui_widget_type_column_list &&
 		definition->extended_description_widget.index != NONE)
 	{
@@ -5024,12 +5123,15 @@ static boolean ui_widget_load_children_recursive(
 			struct widget_instance *child;
 			/* port: the PC version's lists (port/assets/menus) start on their
 			first child that takes events, past their labels */
-			boolean skip_labels = widget->type == _ui_widget_type_column_list &&
-				pc_menu_tag(widget->definition_tag_index);
+			boolean skip_labels = widget_instance_port_skips_labels(widget);
 			short index = 0;
 
 			for (child = widget->child; child; child = child->next, index++)
 			{
+				/* port: (never an OpenSauce menu's placeholder, which takes
+				events like the item it copies) */
+				if (child == widget->child && widget_instance_port_has_opensauce_placeholder(widget))
+					continue;
 				if (((widget->type == _ui_widget_type_spinner_list ||
 					widget->type == _ui_widget_type_column_list) &&
 					(!skip_labels || !widget_instance_port_is_label(child))) ||
@@ -9956,8 +10058,7 @@ static void widget_instance_tab_to_next_valid_widget(
 			widget->type == _ui_widget_type_spinner_list ||
 			widget->type == _ui_widget_type_column_list) &&
 			/* port: over the PC version's labels and hidden rows */
-			!(widget->type == _ui_widget_type_column_list && pc_menu_tag(widget->definition_tag_index) &&
-				widget_instance_port_is_label(child)))
+			!(widget_instance_port_skips_labels(widget) && widget_instance_port_is_label(child)))
 		{
 			widget->focused_child = child;
 			break;
@@ -9998,8 +10099,7 @@ static void widget_instance_tab_to_previous_valid_widget(
 			widget->type == _ui_widget_type_spinner_list ||
 			widget->type == _ui_widget_type_column_list) &&
 			/* port: over the PC version's labels and hidden rows */
-			!(widget->type == _ui_widget_type_column_list && pc_menu_tag(widget->definition_tag_index) &&
-				widget_instance_port_is_label(child)))
+			!(widget_instance_port_skips_labels(widget) && widget_instance_port_is_label(child)))
 		{
 			widget->focused_child = child;
 			break;

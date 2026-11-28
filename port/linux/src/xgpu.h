@@ -368,6 +368,15 @@ BOOL xgpu_texture_bc7(const struct xgpu_texture_description *description);
 unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *description, unsigned long level);
 #endif
 
+#ifdef HALO_BGFX
+/* a DXT texture's level as 32-bit ARGB words, as xgpu_texture_decode_level
+gives the others: for bgfx, which has no channel swizzle of its own, to move
+a Halo PC texture's channels itself (d3d8_bgfx.inl's bg_texture_upload);
+FALSE if it is not DXT */
+BOOL xgpu_texture_dxt_decode_level(const struct xgpu_texture_description *description, unsigned long level,
+	const unsigned char *source, unsigned long *destination);
+#endif
+
 #ifdef HALO_VULKAN
 /* the Android app's Vulkan backend draws (display.renderer = "vulkan";
 d3d8_vk.inl): set as the window is made, so that nothing here makes an
@@ -401,6 +410,9 @@ BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int h
 /* the setup screen starts the game again for a setting: a Vulkan start's
 note goes (d3d8_bgfx.inl) */
 void xgpu_bgfx_start_note_clear(void);
+/* the player closes the game: a Vulkan start's note goes once the game has
+drawn enough frames (d3d8_bgfx.inl) */
+void xgpu_bgfx_closing(void);
 /* the overlay's quads (ui_overlay.c) over the window's picture at Present
 (plasma_shift: the plasma's second map's place, then its threads' color;
 cellwall: the cellwall's motion, side and front tints, ui_overlay_cellwall;
