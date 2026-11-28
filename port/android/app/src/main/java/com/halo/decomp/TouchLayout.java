@@ -17,6 +17,26 @@ final class TouchLayout {
     private static final float[] RADII = {
         36,32,34,32,39,35,32,32,27,29,28,28,25,25,25,25,64,39
     };
+    /**
+     * The layout for a small, wide screen (a 5.5 inch 960x480 Echo Show 5): the controls in
+     * pixels of that screen, listed in the full layout's y of 540 (y * 1.125) so the same scaling
+     * applies. The d-pad and the second Fire are hidden; the rest are larger where it matters
+     * (the stick, Fire, Jump) and put in the lower corners, leaving the middle and the top
+     * free for swipe aiming.
+     */
+    private static final float[][] COMPACT_DEFAULTS = {
+        {790,456}, {900,467}, {690,473}, {900,191}, {880,315}, {770,321},
+        {255,338}, {245,456}, {380,495}, {580,495}, {560,38}, {400,38},
+        {100,237}, {100,335}, {51,286}, {149,286}, {110,411}, {255,239}
+    };
+    private static final float[] COMPACT_RADII = {
+        42,38,36,34,54,40,34,34,30,30,28,28,25,25,25,25,62,39
+    };
+    private static final boolean[] COMPACT_SHOWN = {
+        true,true,true,true,true,true,true,true,true,true,true,true,
+        false,false,false,false,true,false
+    };
+    private final boolean compact;
     static final int BASE_COUNT = 18, MAX_CONTROLS = 64;
     private static final class Control {
         final int type;
@@ -44,12 +64,13 @@ final class TouchLayout {
     float savedX(int i) { return x(i) * 960 / width; }
     float savedY(int i) { return y(i) * 540 / height; }
 
-    TouchLayout() { resetDefaults(); }
+    TouchLayout() { this(false); }
+    TouchLayout(boolean compact) { this.compact = compact; resetDefaults(); }
     int size() { return controls.size(); }
     int type(int control) { return controls.get(control).type; }
     float x(int control) { return controls.get(control).x; }
     float y(int control) { return controls.get(control).y; }
-    float radius(int control) { return RADII[type(control)] * controls.get(control).size; }
+    float radius(int control) { return (compact ? COMPACT_RADII : RADII)[type(control)] * controls.get(control).size; }
     float sizeScale(int control) { return controls.get(control).size; }
     void setSize(int control, float size) {
         if (!Float.isFinite(size) || size < MIN_SIZE || size > MAX_SIZE)
@@ -62,8 +83,12 @@ final class TouchLayout {
 
     void resetDefaults() {
         controls.clear();
-        for (int i = 0; i < DEFAULTS.length; i++)
-            controls.add(new Control(i, DEFAULTS[i][0]*width/960, DEFAULTS[i][1]*height/540));
+        float[][] defaults = compact ? COMPACT_DEFAULTS : DEFAULTS;
+        for (int i = 0; i < defaults.length; i++) {
+            Control control = new Control(i, defaults[i][0]*width/960, defaults[i][1]*height/540);
+            if (compact) control.shown = COMPACT_SHOWN[i];
+            controls.add(control);
+        }
         for (int i = 0; i < size(); i++) move(i, x(i), y(i));
     }
 
@@ -122,7 +147,9 @@ final class TouchLayout {
         return Float.isFinite(value) && value >= 0.25f && value <= 4f;
     }
 
-    static Configuration importConfiguration(String text) {
+    static Configuration importConfiguration(String text) { return importConfiguration(text, false); }
+
+    static Configuration importConfiguration(String text, boolean compact) {
         if (text == null || text.length() > 65536) throw new IllegalArgumentException("Invalid layout file");
         Properties values = new Properties();
         try {
@@ -135,7 +162,7 @@ final class TouchLayout {
             float sensitivity = Float.parseFloat(values.getProperty("sensitivity"));
             if (count < BASE_COUNT || count > MAX_CONTROLS || !validSensitivity(sensitivity))
                 throw new IllegalArgumentException("Invalid layout settings");
-            TouchLayout layout = new TouchLayout();
+            TouchLayout layout = new TouchLayout(compact);
             layout.controls.clear();
             if ("2".equals(version)) {
                 layout.rumbleEnabled = readBoolean(values, "rumble");

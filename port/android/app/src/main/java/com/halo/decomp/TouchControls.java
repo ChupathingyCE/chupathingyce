@@ -78,7 +78,9 @@ public final class TouchControls extends View implements SensorEventListener, In
     private final SparseIntArray owners = new SparseIntArray();
     private final SparseArray<float[]> buttonTouches = new SparseArray<>();
     private final int[] axes = new int[6];
-    private TouchLayout layout = new TouchLayout();
+    private TouchLayout layout;
+    /** the compact layout of a small, wide screen, for an app that asks for it (compactLayoutWanted) */
+    private final boolean compactLayout;
     private final SharedPreferences preferences;
     private boolean editing, optionsOpen;
     private final SensorManager sensors;
@@ -144,6 +146,24 @@ public final class TouchControls extends View implements SensorEventListener, In
     private final boolean touchscreenFeature;
     private boolean controllerConnected, touchscreen;
 
+    /**
+     * The compact layout is for a small, wide screen (a 5.5 inch 960x480 smart display): the application's
+     * manifest meta-data "halo.compact_touch_layout" is true (the 32-bit app's; the other apps do not ask
+     * and keep the full layout) and the screen is 6.5 inches or less and at least 1.8 times as wide as high.
+     */
+    private static boolean compactLayoutWanted(Context context) {
+        try {
+            android.content.pm.ApplicationInfo application = context.getPackageManager()
+                .getApplicationInfo(context.getPackageName(), PackageManager.GET_META_DATA);
+            if (application.metaData == null || !application.metaData.getBoolean("halo.compact_touch_layout"))
+                return false;
+        } catch (PackageManager.NameNotFoundException e) { return false; }
+        android.util.DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+        double inches = Math.hypot(metrics.widthPixels / metrics.xdpi, metrics.heightPixels / metrics.ydpi);
+        return inches <= 6.5 && Math.max(metrics.widthPixels, metrics.heightPixels)
+            >= 1.8 * Math.min(metrics.widthPixels, metrics.heightPixels);
+    }
+
     public TouchControls(Context context) {
         super(context);
         sensors = (SensorManager) context.getSystemService(Context.SENSOR_SERVICE);
@@ -154,13 +174,19 @@ public final class TouchControls extends View implements SensorEventListener, In
             vibrator = manager == null ? null : manager.getDefaultVibrator();
         } else vibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
         inputManager = (InputManager) context.getSystemService(Context.INPUT_SERVICE);
-        touchscreenFeature = context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN);
+        compactLayout = compactLayoutWanted(context);
+        layout = new TouchLayout(compactLayout);
+        // (a television's box can claim a touchscreen of its remote's: its UI mode says what it is)
+        android.app.UiModeManager uiMode = (android.app.UiModeManager) context.getSystemService(Context.UI_MODE_SERVICE);
+        boolean television = uiMode != null
+            && uiMode.getCurrentModeType() == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
+        touchscreenFeature = !television && context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN);
         refreshInputDevices();
         preferences = context.getSharedPreferences("touch-layout-v1", Context.MODE_PRIVATE);
         String configuration = preferences.getString("configuration", null);
         if (configuration != null) {
             try {
-                TouchLayout.Configuration saved = TouchLayout.importConfiguration(configuration);
+                TouchLayout.Configuration saved = TouchLayout.importConfiguration(configuration, compactLayout);
                 layout = saved.layout; sensitivity = saved.sensitivity;
             } catch (IllegalArgumentException e) {
                 Toast.makeText(context, "Saved layout could not be loaded. Using defaults.", Toast.LENGTH_LONG).show();
@@ -472,7 +498,7 @@ public final class TouchControls extends View implements SensorEventListener, In
 
     public void importLayout(String text) {
         // Parse and save the entire configuration before replacing the live controls.
-        TouchLayout.Configuration imported = TouchLayout.importConfiguration(text);
+        TouchLayout.Configuration imported = TouchLayout.importConfiguration(text, compactLayout);
         imported.layout.bounds(logicalWidth, logicalHeight);
         String normalized = imported.layout.exportConfiguration(imported.sensitivity);
         if (!preferences.edit().putString("configuration", normalized)
