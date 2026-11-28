@@ -349,6 +349,25 @@ static long get_object_icon_text_index(
 		object_get(object_index)->definition_index)->object.icon_text_index;
 }
 
+/* port: a vehicle's name for its prompts: its icon text index where the
+hud's icon text has that string, else HUD_STATE_TEXT_GENERIC_VEHICLE
+("vehicle"), not "<missing string>": an MCC map's own vehicle can name one
+past the list (#1376). A retail map's vehicles all have theirs. */
+static short hud_vehicle_name_index(
+	long object_index)
+{
+	long list_index = hud_globals->messaging.alternate_icon_text.index;
+	long text_index = get_object_icon_text_index(object_index);
+	struct string_list const *list;
+
+	if (text_index == NONE || list_index == NONE)
+		return (short)text_index;
+	list = unicode_string_list_definition_get(list_index);
+	if (!list || !VALID_INDEX(text_index, list->strings.count))
+		return HUD_STATE_TEXT_GENERIC_VEHICLE;
+	return (short)text_index;
+}
+
 static void hud_show_action_response(
 	long player_index)
 {
@@ -461,7 +480,7 @@ static void hud_show_action_response(
 		hud_set_state_message_text(
 			render.local_player_index,
 			0,
-			(short)get_object_icon_text_index(unit->object.parent_object_index),
+			hud_vehicle_name_index(unit->object.parent_object_index),
 			FALSE);
 		return;
 	}
@@ -600,7 +619,7 @@ static void hud_show_action_response(
 		hud_set_state_message_text(
 			render.local_player_index,
 			1,
-			item_name_index,
+			hud_vehicle_name_index(player->action_object_index),
 			FALSE);
 		return;
 	}
@@ -612,7 +631,7 @@ static void hud_show_action_response(
 		hud_set_state_message_text(
 			render.local_player_index,
 			0,
-			(short)get_object_icon_text_index(player->action_object_index),
+			hud_vehicle_name_index(player->action_object_index),
 			FALSE);
 		return;
 

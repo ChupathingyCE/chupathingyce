@@ -110,6 +110,10 @@ void hud_messaging_update(
 void hud_set_state_message(
 	short local_player_index,
 	short message_index);
+/* port: a state message text's string index drawn as "vehicle": a vehicle
+prompt's name where the map's hud icon text has none for it (#1376) */
+#define HUD_STATE_TEXT_GENERIC_VEHICLE ((short)-2)
+
 void hud_set_state_message_text(
 	short local_player_index,
 	short custom_icon_index,
