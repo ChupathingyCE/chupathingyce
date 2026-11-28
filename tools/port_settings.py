@@ -1722,7 +1722,7 @@ HOST_OPTIONS = {
         ("FOLLOW CAMERA:", "network.allow_follow_camera", [("OFF", "false"), ("ALLOWED", "true")],
          "Let players watch others while they wait to respawn.", None),
         ("PORT:", "network.tunnel_port", [("RANDOM", "0")] + [(str(port), str(port)) for port in range(2302, 2311)],
-         "The UDP port for hosting. Forward it on your\nrouter if friends can't join.",
+         "The UDP port for hosting. Forward it if friends can't join.",
          None),
     ],
 }

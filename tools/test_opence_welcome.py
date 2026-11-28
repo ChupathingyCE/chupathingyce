@@ -89,7 +89,7 @@ def test_host_rules_row():
     """GAME SETUP's host rules have the row, read from and written to
     config.toml"""
     menus = MENUS_C.read_text(encoding="utf-8")
-    assert 'L"OPENCE WELCOME:"' in menus
+    assert 'L"LEGACY WELCOME:"' in menus
     assert 'host_write("network.opence_welcome", host_setup.opence_welcome ? "true" : "false");' in menus
     assert 'host_setup.opence_welcome = config_boolean("network.opence_welcome") != 0;' in menus
     assert "row <= _host_row_opence_welcome;" in menus

@@ -118,6 +118,13 @@ typedef char verify_game_globals_multiplayer_information_offset[
 /* game_engine_play_multiplayer_sound_immediate */
 static void _game_engine_play_multiplayer_sound(
 	long sound_index);
+#if defined(HALO_PORT_VOICE_AUDIO) && defined(HALO_CUSTOM_EDITION)
+/* port: the hit tone where the map has no ting (port/linux/game/hit_sound.c):
+read as the map loads and after a settings change, never at a hit */
+void hit_sound_map_loaded(boolean map_has_ting);
+void hit_sound_update(void);
+void hit_sound_play(void);
+#endif
 /* game_engine_queue_multiplayer_sound */
 static void push_queued_sound(
 	long sound_index,
@@ -196,6 +203,9 @@ void game_engine_update_multiplayer_sound(
 {
 	long i;
 
+#if defined(HALO_PORT_VOICE_AUDIO) && defined(HALO_CUSTOM_EDITION)
+	hit_sound_update();
+#endif
 	if (mp_sound_queue_count && --mp_sound_queue[0].delay_ticks == 0)
 	{
 		for (i = 1; i < mp_sound_queue_count; i++)
@@ -293,18 +303,23 @@ boolean game_engine_multiplayer_sound_exists(
 }
 #endif
 
+
 /* port: audio.hit_sounds' tone, played at once, never queued, at the tag's
 own gain: the globals' "ting" (sound 0x2B, which Halo PC's HUD played on a
 hit; Custom Edition's maps have it, at full gain), or, on the Xbox's maps,
-whose globals end at countdown_timer_end and have no ting, the countdown's
-tick, a short soft beep every map has. The damage code
-(source/objects/damage.c) asks for it. */
+whose globals end at countdown_timer_end and have no ting, hit_sound.c's
+(the ting of the player's own Custom Edition files, or a sound file of
+theirs, or none). The damage code (source/objects/damage.c) asks for it. */
 void game_engine_play_hit_sound(
 	void)
 {
 #ifdef HALO_GAME_BROWSER
-	_game_engine_play_multiplayer_sound(game_engine_multiplayer_sound_exists(_multiplayer_sound_ting) ?
-		_multiplayer_sound_ting : _multiplayer_sound_countdown_timer);
+	if (game_engine_multiplayer_sound_exists(_multiplayer_sound_ting))
+		_game_engine_play_multiplayer_sound(_multiplayer_sound_ting);
+#if defined(HALO_PORT_VOICE_AUDIO) && defined(HALO_CUSTOM_EDITION)
+	else
+		hit_sound_play();
+#endif
 #endif
 	return;
 }
@@ -319,6 +334,9 @@ void game_engine_intialize_queued_sounds(
 	mp_sound_queue_count = 1;
 	mp_sound_queue[0].sound_index = NONE;
 	mp_sound_queue[0].delay_ticks = MULTIPLAYER_SOUND_QUEUE_INITIAL_DELAY_TICKS;
+#if defined(HALO_PORT_VOICE_AUDIO) && defined(HALO_CUSTOM_EDITION)
+	hit_sound_map_loaded(game_engine_multiplayer_sound_exists(_multiplayer_sound_ting));
+#endif
 
 	return;
 }

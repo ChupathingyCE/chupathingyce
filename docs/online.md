@@ -141,7 +141,8 @@ allow each one in `config.toml`: `allow_player_names`,
 
 Your game also protects itself while others are in it:
 
-- Hits through walls are refused (`hit_line_of_sight`).
+- Hits that look like they went through a wall are written to your log,
+  and refused if you turn on `hit_line_of_sight` (off by default for now).
 - In a public internet game, your own console can't cheat or change the
   game (`host_cheats`). Online Games shows "Host cheats on" when you allow it.
 - The console and cheats can make only so many objects in each game

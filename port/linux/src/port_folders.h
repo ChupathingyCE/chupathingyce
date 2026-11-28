@@ -69,6 +69,11 @@ int port_folder_logs_override(const char *logs, const char *saves, char *path, u
 /* whether path is absolute: /..., \..., or a drive's (C:\..., C:/...) */
 int port_folder_absolute(const char *path);
 
+/* path whole: an absolute one as it is, a relative one (./logs, ., logs)
+in working (the working folder), without its leading ./ parts. 0, path
+empty, when working is not set or the path does not fit. */
+int port_folder_whole(const char *working, const char *value, char *path, unsigned long size);
+
 /* a file a setting names (display.high_res_font): an absolute path as it
 is, a relative one in folder. A relative one that would leave folder (a ..
 part) is refused. 0 when refused, empty, or too long. */
