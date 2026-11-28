@@ -238,6 +238,8 @@ long line_of_sight_explosion(void);
 long line_of_sight_explosion(void) { return 0; }
 long line_of_sight_shot(void);
 long line_of_sight_shot(void) { return 0; }
+long line_of_sight_verdict(void);
+long line_of_sight_verdict(void) { return 0; }
 long main_get_window_count(void);
 long main_get_window_count(void) { return 0; }
 long main_menu_is_active(void);
