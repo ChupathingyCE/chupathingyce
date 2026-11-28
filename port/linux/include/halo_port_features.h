@@ -373,8 +373,9 @@ HALO_CONSOLE_NO_RAGDOLLS */
 (port/linux/src/modern_lighting.c), their MODERN LIGHTING pages in Video
 Setup and the Guide's SETTINGS: the 64-bit desktop
 builds, where modern_lighting.c is (a machine without ray queries, or not
-on OpenGL, shows NOT SUPPORTED) */
-#if defined(HALO_64BIT) && !defined(HALO_SERVER) && !defined(HALO_ANDROID) && \
+on OpenGL, shows NOT SUPPORTED); not the Mac's or iOS's, whose OpenGL has
+none of it (modern_lighting.c's stubs) */
+#if defined(HALO_64BIT) && !defined(HALO_SERVER) && !defined(HALO_ANDROID) && !defined(__APPLE__) && \
 	!(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER))
 #define HALO_PORT_MODERN_LIGHTING
