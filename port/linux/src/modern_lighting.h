@@ -110,6 +110,12 @@ can't run at all (no Vulkan side path on the platform, no ray queries on
 the GPU, no GL-Vulkan sharing in the driver); shown, UNAVAILABLE, while
 bgfx draws (halo_ml_unavailable) */
 int halo_ml_ray_tracing_shown(void);
+/* whether the glow can be drawn: OpenGL 4.3's immutable textures and image
+copies (glTexStorage2D, glCopyImageSubData), 1; 0 on an older OpenGL (a 3.3
+driver), whose GLOW and GLOW STRENGTH rows say so in their help line
+(halo_ml_setting_note: GLOW: NEEDS OPENGL 4.3); -1 not known yet (no
+renderer) or bgfx's (halo_ml_unavailable says that) */
+int halo_ml_glow_support(void);
 /* whether the MODERN LIGHTING settings (ray tracing and glow) are
 UNAVAILABLE now: bgfx draws, which has none of their passes yet. Their rows
 show it and can't be changed; the setting keeps its value for OpenGL */

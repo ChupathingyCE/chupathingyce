@@ -99,6 +99,9 @@ const char *halo_ml_setting_note(const char *key)
 		reason = "NEEDS THE OPENGL RENDERER";
 	else if (traced)
 		reason = halo_ml_ray_tracing_reason();
+	/* (OpenGL older than 4.3: the glow's passes can't run) */
+	else if (halo_ml_glow_support() == 0)
+		reason = "NEEDS OPENGL 4.3";
 	/* (a map with its own post-processing: its bloom, not the glow) */
 	else
 		reason = opensauce_postprocess_drawn() ? "OFF, THE MAP HAS ITS OWN" : NULL;
@@ -2237,6 +2240,24 @@ int halo_ml_ray_tracing_shown(void)
 	return halo_ml_ray_tracing_support(TRUE) != 0 || ml.rt_reason == RT_WHY_RENDERER;
 }
 
+int halo_ml_glow_support(void)
+{
+	static int logged;
+	int support;
+
+	if (!halo_ml_renderer_ready() || halo_ml_renderer_bgfx())
+		return -1;
+	ext_load();
+	/* (halo_ml_bloom's own check) */
+	support = ext.TexStorage2D && glCopyImageSubData ? 1 : 0;
+	if (!support && !logged)
+	{
+		logged = 1;
+		platform_log("glow: not supported: OpenGL has no glTexStorage2D and glCopyImageSubData (OpenGL 4.3)");
+	}
+	return support;
+}
+
 static BOOL rt_start(void)
 {
 	unsigned char uuid[16];
@@ -2968,6 +2989,12 @@ const char *halo_ml_ray_tracing_reason(void)
 int halo_ml_ray_tracing_shown(void)
 {
 	return 0;
+}
+
+int halo_ml_glow_support(void)
+{
+	/* (no MODERN LIGHTING pages here: halo_port_features.h) */
+	return -1;
 }
 
 int halo_ml_rt_quality(void)
