@@ -89,8 +89,8 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "gametype_files.h" /* port: port/linux/game/gametype_files.c */
 #include "game/game_modes.h" /* port: the game modes layer's built-ins and further options */
-#include "../../port/linux/game/network_rules.h" /* port: the further options' defaults (every build's) */
 #endif
+#include "../../port/linux/game/network_rules.h" /* port: the further options' defaults (every build's) */
 /* the saved game file checksum is an XDK content signature. */
 #include <xtl.h>
 

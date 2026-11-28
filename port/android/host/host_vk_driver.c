@@ -129,8 +129,6 @@ static char opened_description[512];
 static char custom_file[256];
 /* what the player calls that driver (meta.json's name, else the archive's), for the main menu: host_vk_driver_name */
 static char custom_name[160];
-/* host_vk_driver_close() was called: no driver may be opened again in this process */
-static int closed;
 
 /* ---------- the zip reader: central directory, stored and deflated entries */
 
@@ -817,12 +815,6 @@ PFN_vkGetInstanceProcAddr host_vk_driver_open(const char *setting, char *descrip
 		snprintf(description, size, "%s", opened_description);
 		return opened_function;
 	}
-	if (closed)
-	{
-		snprintf(description, size, "the Vulkan driver was closed; it cannot be opened again in this process");
-		host_logf(HOST_LOG_ERROR, "vk driver: %s", description);
-		return NULL;
-	}
 	/* "auto": the archive the launcher chose for this phone's GPU (LauncherActivity, Updater.java), named in
 	vk_driver_auto.txt; the phone's own driver when it names none or the archive is not there */
 	if (setting && !strcmp(setting, "auto"))
@@ -914,17 +906,6 @@ int host_vk_driver_verify(char *text, size_t size)
 	snprintf(text, size, "%s is not loaded: the hook fell back to the phone's own driver (logcat tag hook_impl says why)",
 		custom_file);
 	return 0;
-}
-
-void host_vk_driver_close(void)
-{
-	if (opened_library)
-		dlclose(opened_library);
-	opened_library = NULL;
-	opened_function = NULL;
-	opened_description[0] = 0;
-	custom_file[0] = 0;
-	closed = 1;
 }
 
 /* the guest asks (the main menu, under the version number): the name of the driver archive in use into its buffer at out, of size

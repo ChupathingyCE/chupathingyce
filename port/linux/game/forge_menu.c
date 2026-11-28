@@ -27,13 +27,19 @@ its left (its title and the budget, the tabs, one list, the chosen row's
 box, the prompts):
 - OBJECTS (OBJECT BROWSER): the categories, A on one its objects (each
   with how many the layout has); A places one in the monitor's hand;
-- PROPERTIES: what is held (an object or marker the layout placed), its
+- PROPERTIES: what is held (an object or marker the layout placed), or
+  with nothing held what the crosshair was on as X opened the menu, its
   rows as SETTINGS' (left and right change a value);
 - LAYOUTS: SAVE (under the layout's title), SAVE AS NEW, then the map's
   layouts: A loads one (pressed twice: what isn't saved is lost), Y
   deletes one (pressed twice);
-- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, UNDO, REDO, NEW ROUND, PLAY AS
-  SPARTAN, and CONTROLS, the monitor's buttons and keys.
+- SKY AND FOG: SKY, FOG, FOG COLOR, FOG DENSITY, FOG START, FOG END (the
+  layout's sky and fog: forge_environment.inc), A or left and right steps
+  one.
+- OPTIONS: SNAP, MOVE SPEED, ROTATION SNAP, DELETE, GRAB RANGE, HELD
+  FACING, UNDO, REDO, NEW ROUND, CLEAR DEAD AI (the layout's dead AI
+  characters), CLEAR ALL AI (every one, pressed twice), PLAY AS SPARTAN, and
+  CONTROLS, the monitor's buttons and keys.
 X or B closes it. What it asks of the session is done by forge.c before the
 next tick (forge_menu_ask); what it shows is read from forge.c each frame
 (forge_menu_view_get) as it is input, and drawn from that.
@@ -69,6 +75,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 void platform_log(char const *format, ...);
 unsigned long system_milliseconds(void);
 char const *config_string(char const *name);
+int config_write(char const *name, char const *value);
 boolean main_menu_is_active(void);
 boolean cache_files_map_installed(char const *map_name);
 /* ui_widget.c's: the menus' sounds (its _ui_audio_feedback_*) */
@@ -140,8 +147,16 @@ enum
 	_game_tab_objects = 0,
 	_game_tab_properties,
 	_game_tab_layouts,
+	_game_tab_sky,
 	_game_tab_options,
 	NUMBER_OF_GAME_TABS
+};
+
+/* SKY AND FOG's rows: forge.h's _forge_environment_* (SKY, FOG, FOG COLOR,
+FOG DENSITY, FOG START, FOG END), the layout's sky and fog */
+static char const *const sky_labels[NUMBER_OF_FORGE_ENVIRONMENT_ROWS] =
+{
+	"SKY", "FOG", "FOG COLOR", "FOG DENSITY", "FOG START", "FOG END",
 };
 
 /* OPTIONS' rows */
@@ -150,9 +165,14 @@ enum
 	_option_snap = 0,
 	_option_speed,
 	_option_rotate_snap,
+	_option_delete,
+	_option_grab_range,
+	_option_held_facing,
 	_option_undo,
 	_option_redo,
 	_option_round,
+	_option_clear_dead_ai,
+	_option_clear_all_ai,
 	_option_spartan,
 	_option_controls,
 	NUMBER_OF_OPTIONS
@@ -176,7 +196,7 @@ enum
 };
 
 static char const *const lobby_tab_names[NUMBER_OF_LOBBY_TABS] = { "FORGE", "PLAY" };
-static char const *const game_tab_names[NUMBER_OF_GAME_TABS] = { "OBJECTS", "PROPERTIES", "LAYOUTS", "OPTIONS" };
+static char const *const game_tab_names[NUMBER_OF_GAME_TABS] = { "OBJECTS", "PROPERTIES", "LAYOUTS", "SKY AND FOG", "OPTIONS" };
 
 /* the game types a layout is played as (forge_play_start's words) */
 static struct
@@ -195,7 +215,8 @@ static struct
 
 static char const *const option_labels[NUMBER_OF_OPTIONS] =
 {
-	"SNAP", "MOVE SPEED", "ROTATION SNAP", "UNDO", "REDO", "NEW ROUND", "PLAY AS SPARTAN", "CONTROLS",
+	"SNAP", "MOVE SPEED", "ROTATION SNAP", "DELETE", "GRAB RANGE", "HELD FACING", "UNDO", "REDO", "NEW ROUND", "CLEAR DEAD AI",
+	"CLEAR ALL AI", "PLAY AS SPARTAN", "CONTROLS",
 };
 
 
@@ -630,6 +651,8 @@ static short game_list_rows(void)
 	case _game_tab_layouts:
 		return (short)(NUMBER_OF_LAYOUTS_ACTIONS + (forge_menu.view.map_index != NONE ?
 			map_entry_count(forge_menu.view.map_index) : 0));
+	case _game_tab_sky:
+		return NUMBER_OF_FORGE_ENVIRONMENT_ROWS;
 	case _game_tab_options:
 		return forge_menu.controls_shown ? 0 : NUMBER_OF_OPTIONS;
 	}
@@ -649,6 +672,54 @@ static void game_tab_go(short tab)
 		entries_read(forge_menu.view.map_index);
 }
 
+/* OPTIONS' DELETE: game.forge_hold_to_delete's values, in the row's order, and
+the row's words for them */
+static char const *const delete_modes[] = { "off", "controller", "all" };
+static char const *const delete_mode_names[] = { "PRESS", "HOLD: CONTROLLER", "HOLD: ALL" };
+
+static short delete_mode(void)
+{
+	char const *mode = config_string("game.forge_hold_to_delete");
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(delete_modes); index++)
+	{
+		if (mode && !strcmp(mode, delete_modes[index]))
+			return index;
+	}
+	return 0;
+}
+
+/* OPTIONS' GRAB RANGE: game.forge_grab_range's values, in the row's
+order, and the row's words for them */
+static char const *const grab_ranges[] = { "near", "medium", "far" };
+static char const *const grab_range_names[] = { "NEAR", "MEDIUM", "FAR" };
+
+static short grab_range(void)
+{
+	char const *range = config_string("game.forge_grab_range");
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(grab_ranges); index++)
+	{
+		if (range && !strcmp(range, grab_ranges[index]))
+			return index;
+	}
+	return (short)NUMBEROF(grab_ranges) - 1;
+}
+
+/* OPTIONS' HELD FACING: game.forge_held_facing's values, in the row's
+order, and the row's words for them */
+static char const *const held_facings[] = { "keep", "view" };
+static char const *const held_facing_names[] = { "KEEP", "FOLLOW VIEW" };
+
+static short held_facing(void)
+{
+	char const *facing = config_string("game.forge_held_facing");
+
+	return (short)(facing && !strcmp(facing, held_facings[1]) ? 1 : 0);
+}
+
 static void game_option_step(short row, short step)
 {
 	switch (row)
@@ -661,6 +732,23 @@ static void game_option_step(short row, short step)
 		break;
 	case _option_rotate_snap:
 		forge_menu_ask(_forge_menu_ask_rotate_snap, step, 0, NULL);
+		break;
+	case _option_delete:
+	{
+		short count = (short)NUMBEROF(delete_modes);
+
+		config_write("game.forge_hold_to_delete", delete_modes[(delete_mode() + count + (step < 0 ? -1 : 1)) % count]);
+		break;
+	}
+	case _option_grab_range:
+	{
+		short count = (short)NUMBEROF(grab_ranges);
+
+		config_write("game.forge_grab_range", grab_ranges[(grab_range() + count + (step < 0 ? -1 : 1)) % count]);
+		break;
+	}
+	case _option_held_facing:
+		config_write("game.forge_held_facing", held_facings[held_facing() ? 0 : 1]);
 		break;
 	default:
 		return;
@@ -675,6 +763,9 @@ static void game_option_choose(short row)
 	case _option_snap:
 	case _option_speed:
 	case _option_rotate_snap:
+	case _option_delete:
+	case _option_grab_range:
+	case _option_held_facing:
 		game_option_step(row, 1);
 		return;
 	case _option_undo:
@@ -686,6 +777,22 @@ static void game_option_choose(short row)
 	case _option_round:
 		forge_menu_ask(_forge_menu_ask_round, 0, 0, NULL);
 		close_screen();
+		break;
+	case _option_clear_dead_ai:
+		forge_menu_ask(_forge_menu_ask_clear_ai, 0, 0, NULL);
+		break;
+	case _option_clear_all_ai:
+		/* (pressed twice, as a layout's DELETE) */
+		if (!armed(row, GUIDE_INPUT_A))
+		{
+			forge_menu.armed_tab = forge_menu.tab;
+			forge_menu.armed_row = row;
+			forge_menu.armed_button = GUIDE_INPUT_A;
+			sound(SOUND_CURSOR);
+			return;
+		}
+		disarm();
+		forge_menu_ask(_forge_menu_ask_clear_ai, 1, 0, NULL);
 		break;
 	case _option_spartan:
 		forge_menu_ask(_forge_menu_ask_spartan, 0, 0, NULL);
@@ -842,6 +949,13 @@ static void game_handle(unsigned int pressed)
 			game_layouts_choose(*row, GUIDE_INPUT_A);
 		else if (pressed & GUIDE_INPUT_Y)
 			game_layouts_choose(*row, GUIDE_INPUT_Y);
+		break;
+	case _game_tab_sky:
+		if (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT | GUIDE_INPUT_A))
+		{
+			forge_menu_ask(_forge_menu_ask_environment, *row, (short)((pressed & GUIDE_INPUT_LEFT) ? -1 : 1), NULL);
+			sound(SOUND_CURSOR);
+		}
 		break;
 	case _game_tab_options:
 		if (forge_menu.controls_shown)
@@ -1189,6 +1303,28 @@ static void upper(char *text)
 	}
 }
 
+/* (AI on a multiplayer map) where its characters came from, in a line:
+"Missing: Flood, Sentinels", or "From your campaign maps" */
+static void ai_sources_text(short category, char *text, int size)
+{
+	short faction;
+	boolean any_missing = FALSE;
+
+	snprintf(text, (size_t)size, "%s", "Missing: ");
+	for (faction = 0; faction < forge_ai_faction_lines(category); faction++)
+	{
+		char line[64];
+		boolean missing;
+
+		if (!forge_ai_faction_line(category, faction, line, sizeof(line), &missing) || !missing)
+			continue;
+		snprintf(text + strlen(text), (size_t)size - strlen(text), "%s%s", any_missing ? ", " : "", line);
+		any_missing = TRUE;
+	}
+	if (!any_missing)
+		snprintf(text, (size_t)size, "%s", "From your campaign maps");
+}
+
 static void render_objects(void)
 {
 	short chosen = forge_menu.list_row[_game_tab_objects], index, shown = side_rows_shown(), first;
@@ -1198,7 +1334,8 @@ static void render_objects(void)
 	if (!forge_menu.pane)
 	{
 		side_heading("OBJECTS");
-		for (index = 0; index < NUMBER_OF_FORGE_CATEGORIES && index < shown; index++)
+		first = forge_menu.list_first = scrolled(forge_menu.list_first, chosen, NUMBER_OF_FORGE_CATEGORIES, shown);
+		for (index = first; index < NUMBER_OF_FORGE_CATEGORIES && index < first + shown; index++)
 		{
 			snprintf(tag, sizeof(tag), "%d", forge_category_item_count(index));
 			side_row(y, index == chosen, forge_category_name(index), tag, FALSE, _target_list, index);
@@ -1206,6 +1343,16 @@ static void render_objects(void)
 		}
 		snprintf(line, sizeof(line), "%d to place", forge_category_item_count(chosen));
 		snprintf(tag, sizeof(tag), "Placed: %d", forge_group_placed_count(chosen));
+		/* (AI on a multiplayer map: brought from the campaign maps, and the
+		factions none of whose campaign maps is there) */
+		if (forge_ai_faction_lines(chosen) > 0)
+		{
+			char sources[96];
+
+			ai_sources_text(chosen, sources, sizeof(sources));
+			side_box(forge_category_name(chosen), line, tag, sources);
+			return;
+		}
 		side_box(forge_category_name(chosen), line, tag, NULL);
 		return;
 	}
@@ -1214,8 +1361,26 @@ static void render_objects(void)
 		short items = forge_category_item_count(chosen);
 		struct forge_item item;
 
+		short notes = 0;
+
+		/* (AI on a multiplayer map: the factions with no campaign map, a row
+		each after the characters, shown with the last of them) */
+		{
+			short faction;
+
+			for (faction = 0; faction < forge_ai_faction_lines(chosen); faction++)
+			{
+				char text[64];
+				boolean missing;
+
+				if (forge_ai_faction_line(chosen, faction, text, sizeof(text), &missing) && missing)
+					notes++;
+			}
+		}
 		side_heading(forge_category_name(chosen));
 		first = forge_menu.pane_first = scrolled(forge_menu.pane_first, forge_menu.pane_row, items, shown);
+		if (notes && forge_menu.pane_row >= items - 1)
+			first = forge_menu.pane_first = (short)MAX(0, items + notes - shown);
 		for (index = first; index < items && index < first + shown; index++)
 		{
 			if (!forge_category_item(chosen, index, &item))
@@ -1226,15 +1391,40 @@ static void render_objects(void)
 			side_row(y, index == forge_menu.pane_row, item.name, tag, FALSE, _target_pane, index);
 			y += SIDE_ROW_HEIGHT + SIDE_ROW_GAP;
 		}
-		if (!items)
+		/* (AI on a multiplayer map: a row for each faction none of whose
+		campaign maps is there, after the characters) */
+		if (forge_ai_faction_lines(chosen) > 0)
+		{
+			short faction;
+
+			for (faction = 0; faction < forge_ai_faction_lines(chosen) && index >= items && index < first + shown; faction++)
+			{
+				char text[64];
+				boolean missing;
+
+				if (!forge_ai_faction_line(chosen, faction, text, sizeof(text), &missing) || !missing)
+					continue;
+				snprintf(line, sizeof(line), "%s", text);
+				upper(line);
+				side_row(y, FALSE, line, "NO MAP", TRUE, _target_pane, NONE);
+				y += SIDE_ROW_HEIGHT + SIDE_ROW_GAP;
+				index++;
+			}
+		}
+		else if (!items)
 			ui_style_text(UI_TEXT_LABEL, SIDE_LEFT + 10, y + 4, UI_ALIGN_LEFT, "None on this map");
 		if (forge_category_item(chosen, forge_menu.pane_row, &item))
 		{
+			char from[96];
+
 			snprintf(name, sizeof(name), "%s", item.name);
 			upper(name);
 			snprintf(line, sizeof(line), "%s", forge_category_name(chosen));
 			snprintf(tag, sizeof(tag), "Placed: %d", item.placed);
-			side_box(name, tag, NULL, NULL);
+			from[0] = 0;
+			if (item.from[0])
+				snprintf(from, sizeof(from), "From %s", item.from);
+			side_box(name, tag, item.faction, from);
 		}
 	}
 }
@@ -1311,7 +1501,7 @@ static void render_layouts(void)
 			snprintf(title, sizeof(title), "%s", forge_menu.view.save_title);
 		else
 			new_title(title, sizeof(title));
-		snprintf(line, sizeof(line), "Placed: %d of %d", forge_menu.view.objects, FORGE_MAXIMUM_OBJECTS);
+		snprintf(line, sizeof(line), "Placed: %d of %d", forge_menu.view.objects, forge_objects_budget());
 		side_box(title, line, side_status(), NULL);
 	}
 	else
@@ -1346,11 +1536,29 @@ static void option_row_text(short row, char *label, int label_size, char *value,
 	case _option_rotate_snap:
 		snprintf(value, (size_t)value_size, "%s", view->rotate_snap);
 		break;
+	case _option_delete:
+		snprintf(value, (size_t)value_size, "%s", delete_mode_names[delete_mode()]);
+		break;
+	case _option_grab_range:
+		snprintf(value, (size_t)value_size, "%s", grab_range_names[grab_range()]);
+		break;
+	case _option_held_facing:
+		snprintf(value, (size_t)value_size, "%s", held_facing_names[held_facing()]);
+		break;
 	case _option_undo:
 		snprintf(label, (size_t)label_size, "UNDO (%d)", view->undo);
 		break;
 	case _option_redo:
 		snprintf(label, (size_t)label_size, "REDO (%d)", view->redo);
+		break;
+	case _option_clear_dead_ai:
+		snprintf(label, (size_t)label_size, "CLEAR DEAD AI (%d)", view->ai_dead);
+		break;
+	case _option_clear_all_ai:
+		if (armed(row, GUIDE_INPUT_A))
+			snprintf(label, (size_t)label_size, "%s", "CONFIRM CLEAR ALL AI");
+		else
+			snprintf(label, (size_t)label_size, "CLEAR ALL AI (%d)", view->ai_alive + view->ai_dead + view->ai_waiting);
 		break;
 	}
 }
@@ -1416,9 +1624,29 @@ static void render_options(void)
 	}
 }
 
+static void render_sky(void)
+{
+	short chosen = forge_menu.list_row[_game_tab_sky], row, shown = side_rows_shown(), first;
+	float y = SIDE_LIST_Y;
+	char value[64];
+
+	side_heading("SKY AND FOG");
+	first = forge_menu.list_first = scrolled(forge_menu.list_first, chosen, NUMBER_OF_FORGE_ENVIRONMENT_ROWS, shown);
+	for (row = first; row < NUMBER_OF_FORGE_ENVIRONMENT_ROWS && row < first + shown; row++)
+	{
+		value[0] = 0;
+		forge_environment_text(row, value, sizeof(value));
+		side_setting(y, row == chosen, sky_labels[row], value[0] ? value : NULL, row);
+		y += SIDE_ROW_HEIGHT + SIDE_ROW_GAP;
+	}
+	value[0] = 0;
+	forge_environment_text(chosen, value, sizeof(value));
+	side_box(sky_labels[chosen], value, side_status(), NULL);
+}
+
 static void render_game(void)
 {
-	static char const *const titles[NUMBER_OF_GAME_TABS] = { "OBJECT BROWSER", "PROPERTIES", "LAYOUTS", "OPTIONS" };
+	static char const *const titles[NUMBER_OF_GAME_TABS] = { "OBJECT BROWSER", "PROPERTIES", "LAYOUTS", "SKY AND FOG", "OPTIONS" };
 	struct ui_style_prompt prompts[5];
 	float starts[5], ends[5], tab_starts[NUMBER_OF_GAME_TABS], tab_ends[NUMBER_OF_GAME_TABS];
 	short prompt_count = 0, index;
@@ -1427,7 +1655,7 @@ static void render_game(void)
 
 	ui_style_panel(SIDE_X, SIDE_Y, SIDE_WIDTH, SIDE_HEIGHT, 1.0f);
 	/* (the title, as the Guide's card's, and the budget) */
-	snprintf(budget, sizeof(budget), "%d / %d", forge_menu.view.objects, FORGE_MAXIMUM_OBJECTS);
+	snprintf(budget, sizeof(budget), "%d / %d", forge_menu.view.objects, forge_objects_budget());
 	{
 		/* (as large as fits left of the budget) */
 		float room = SIDE_RIGHT - SIDE_LEFT - ui_overlay_text_width(UI_FONT_MENU, 10.0f, budget) - 10.0f, size = 12.0f;
@@ -1466,6 +1694,11 @@ static void render_game(void)
 			prompt_add(prompts, &prompt_count, UI_BUTTON_A, "ENTER", armed(row, GUIDE_INPUT_A) ? "CONFIRM" : "LOAD");
 			prompt_add(prompts, &prompt_count, UI_BUTTON_Y, "TAB", armed(row, GUIDE_INPUT_Y) ? "CONFIRM" : "DELETE");
 		}
+		prompt_add(prompts, &prompt_count, UI_BUTTON_B, "ESC", "CLOSE");
+		break;
+	case _game_tab_sky:
+		render_sky();
+		prompt_add(prompts, &prompt_count, UI_BUTTON_A, "ENTER", "CHANGE");
 		prompt_add(prompts, &prompt_count, UI_BUTTON_B, "ESC", "CLOSE");
 		break;
 	case _game_tab_options:
@@ -1727,6 +1960,10 @@ void forge_menu_pointer(
 			break;
 		}
 		case _target_pane:
+			/* (a row that says something - a faction with no campaign map -
+			is no choice) */
+			if (forge_menu.targets[index].index < 0)
+				break;
 			if (forge_menu.pane && forge_menu.pane_row == forge_menu.targets[index].index)
 			{
 				handle(GUIDE_INPUT_A);
@@ -1847,6 +2084,21 @@ void forge_menu_draw_prompts(
 	}
 }
 
+/* (forge.c's forge_draw) the delete held (game.forge_hold_to_delete): a bar over
+the crosshair that fills as it is held */
+void forge_menu_draw_hold(
+	float fraction)
+{
+	float width = 56.0f, height = 5.0f, x = 320.0f - width * 0.5f, y = 222.0f;
+
+	if (!ui_overlay_available() || forge_menu.screen != _screen_none)
+		return;
+	fraction = fraction < 0.0f ? 0.0f : fraction > 1.0f ? 1.0f : fraction;
+	ui_overlay_layer(0);
+	ui_overlay_rect(x - 1.0f, y - 1.0f, width + 2.0f, height + 2.0f, 2.0f, 0x000000A0);
+	ui_overlay_rect(x, y, width * fraction, height, 2.0f, 0xE8553DFF);
+}
+
 #else
 
 void forge_menu_open_lobby(void) { }
@@ -1859,5 +2111,6 @@ void forge_menu_process(void) { }
 void forge_menu_pointer(struct halo_ui_pointer const *pointer) { (void)pointer; }
 void forge_menu_render(void) { }
 void forge_menu_draw_prompts(struct forge_hud_prompt const *prompts, short count) { (void)prompts; (void)count; }
+void forge_menu_draw_hold(float fraction) { (void)fraction; }
 
 #endif

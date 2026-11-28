@@ -366,6 +366,15 @@ HALO_CONSOLE_MARKER_LOOKUPS
 	when the marker it names bears the name asked for, and they are
 	forgotten as a map's tags go (scenario_tags_unload), so the answers
 	are the search's own. From Lord BirchWood's work
+HALO_CONSOLE_COLLISION_CACHES
+	the collision tests' caches (#1559), with the same answers: a
+	location's weather and water read from a table by cluster, made once a
+	bsp (scenario_get_current, source/scenario/wind.c, #1620); the sound
+	obstruction rays stop at the first thing they meet and keep a repeated
+	ray's structure test (collision_test_vector_obstructed,
+	source/physics/collisions.c, #1624; its memo 21 KB of statics). The
+	desktop builds read the tags and test every ray in full until they opt
+	in. From Lord BirchWood's Vita port
 HALO_CONSOLE_XBOX_MAP_SIZES
 	a console that plays the Xbox's own maps only (no Custom Edition or
 	Halo PC maps): tables the desktop builds size for those maps are sized
@@ -511,6 +520,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
 #endif
 
 /* (xbox_address.h read first, with the window at its default: the units
@@ -542,6 +552,7 @@ would disagree about where the heap starts) */
 #define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
 #endif
 
 #if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
@@ -591,6 +602,7 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_ANIMATION_FRAMES 1
 #define HALO_CONSOLE_FEWER_WALKS 1
 #define HALO_CONSOLE_MARKER_LOOKUPS 1
+#define HALO_CONSOLE_COLLISION_CACHES 1
 /* (its shadow maps: 512x512 at most, beside the screen in its 10 MB of EDRAM;
 d3d8_gl.c) */
 #define HALO_CONSOLE_SHADOW_MAP_MAXIMUM 512
@@ -657,6 +669,14 @@ builds alone for now, not the consoles */
 #define HALO_CONSOLE_NO_STUBBS 1
 #endif
 
+/* Stubbs mode's counts past Halo's, in the builds that have Stubbs mode (the
+desktop's): 35 material types where Halo has 33 (source/game/game_globals.h).
+Halo's maps are still checked against Halo's own counts, so they play as
+before; a console keeps Halo's counts and builds as before */
+#if !defined(HALO_CONSOLE_NO_STUBBS) && !defined(HALO_STUBBS_LIMITS)
+#define HALO_STUBBS_LIMITS 1
+#endif
+
 /* the medals' icons (port/assets/medals, tools/medal_assets.py: the site's
 medals), in the kill feed (display.medals) and DELTA's SERVICE RECORD: the
 game list's builds with a player (HALO_GAME_BROWSER: the desktops and the
@@ -711,6 +731,15 @@ checks its players' proofs and keeps the revocation list; the consoles
 leave it out with the rest of HALO_CONSOLE_NO_DELTA_IDENTITY */
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_IDENTITY)
 #define HALO_DELTA_PEER_IDENTITY 1
+#endif
+/* a verified developer's blue flame (port/linux/game/developer_flames.c,
+display.developer_flames): the builds that check verified names in games and
+draw them. The consoles don't offer verified names yet, so they have no card
+to draw one from, and leave it out with HALO_CONSOLE_NO_DELTA_IDENTITY; the
+dedicated server draws nothing */
+#if defined(HALO_DELTA_PEER_IDENTITY) && !defined(HALO_SERVER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE) && \
+	!defined(HALO_CONSOLE_NO_DEVELOPER_FLAMES)
+#define HALO_DEVELOPER_FLAMES 1
 #endif
 
 /* (the Xbox 360 and the Wii U, whose maps folders often lack loading.tga,

@@ -36,17 +36,6 @@ static short hud_button_control_slot(short index, long frame)
     return -1;
 }
 
-static char const *hud_button_control_name(short slot)
-{
-    static char const *names[] = {
-        "ui\\hud\\buttons\\trigger_left", "ui\\hud\\buttons\\trigger_right",
-        "ui\\hud\\buttons\\thumbstick_left", "ui\\hud\\buttons\\thumbstick_right",
-        "ui\\hud\\buttons\\thumbstick-halfway_left", "ui\\hud\\buttons\\thumbstick-halfway_right",
-        "ui\\hud\\buttons\\thumbstick-full_left", "ui\\hud\\buttons\\thumbstick-full_right"
-    };
-    return slot >= 6 && slot < 14 ? names[slot - 6] : 0;
-}
-
 /* Original combined HUD sheet: triggers have a 44x33 visible face and
  * both sticks have 32x34 in all three frames. Exclude texture padding. */
 static void hud_button_control_bounds(short slot, real *x, real *y, real *width, real *height)

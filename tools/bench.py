@@ -109,15 +109,16 @@ def median_of(runs):
     return {key: statistics.median(run[key] for run in runs) for key in runs[0]}
 
 
-def record(binary, maps, work, ticks, seed):
+def record(binary, maps, work, ticks, seed, game_map=determinism.DEFAULT_MAP):
     """Records the benchmark's game (headless, the scripted bot playing)."""
     inputs = os.path.join(os.path.abspath(work), "inputs.bin")
     determinism.log("bench: recording the game")
-    determinism.play(binary, maps, work, "record", "record", inputs, determinism.DEFAULT_MAP, ticks, seed)
+    determinism.play(binary, maps, work, "record", "record", inputs, game_map, ticks, seed)
     return inputs
 
 
-def run(binary, maps, work, name, inputs, renderer, ticks, seed, size, settings=None):
+def run(binary, maps, work, name, inputs, renderer, ticks, seed, size, settings=None,
+        game_map=determinism.DEFAULT_MAP):
     """Plays the recording once in a window on a renderer; returns the frame
     log's path and whether the renderer asked for was the one that drew."""
     folder = os.path.join(work, name)
@@ -128,7 +129,7 @@ def run(binary, maps, work, name, inputs, renderer, ticks, seed, size, settings=
         "HALO_DISPLAY_MODE": "windowed",
         "HALO_WINDOW_SIZE": size,
         "HALO_RESOLUTION_SCALING": "native",
-        "HALO_ANTI_ALIASING": "msaa2x",  # (bgfx has MSAA, not FXAA or SMAA)
+        "HALO_ANTI_ALIASING": "msaa2x",
         "HALO_NO_VSYNC": "1",
         "HALO_MAX_FPS": "-1",
         "HALO_VRR": "off",
@@ -140,11 +141,15 @@ def run(binary, maps, work, name, inputs, renderer, ticks, seed, size, settings=
     def windowed(folder_path, maps_path, address):
         environment = original(folder_path, maps_path, address)
         environment.pop("SDL_VIDEO_DRIVER", None)
+        # (Linux: the display to draw on, an Xvfb one in a test run)
+        for name in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "VK_ICD_FILENAMES"):
+            if name in os.environ:
+                environment[name] = os.environ[name]
         return environment
 
     determinism.copy_environment = windowed
     try:
-        determinism.play(binary, maps, work, name, "replay", inputs, determinism.DEFAULT_MAP, ticks, seed,
+        determinism.play(binary, maps, work, name, "replay", inputs, game_map, ticks, seed,
             bot=False, extra_env=extra)
     finally:
         determinism.copy_environment = original
@@ -161,6 +166,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--binary", action="append", help="a build to measure (more than once: each)")
     parser.add_argument("--maps", required=True, help="a folder of the stock Xbox maps (NTSC)")
+    parser.add_argument("--map", default=determinism.DEFAULT_MAP,
+        help="the Xbox multiplayer map the game is played on (default bloodgulch)")
     parser.add_argument("--renderer", action="append", choices=["gl", "bgfx", "d3d11"],
         help="the renderer(s) to measure (default: gl and bgfx)")
     parser.add_argument("--runs", type=int, default=1)
@@ -177,15 +184,15 @@ def main():
     settings = dict(item.split("=", 1) for item in args.env)
     binaries = args.binary or [default_binary()]
     renderers = args.renderer or ["gl", "bgfx"]
-    if not os.path.exists(os.path.join(args.maps, f"{determinism.DEFAULT_MAP}.map")):
-        determinism.log(f"bench: no {determinism.DEFAULT_MAP}.map in {args.maps}")
+    if not os.path.exists(os.path.join(args.maps, f"{args.map}.map")):
+        determinism.log(f"bench: no {args.map}.map in {args.maps}")
         return 1
     if args.warmup >= args.ticks:
         determinism.log("bench: --warmup must be under --ticks")
         return 1
     os.makedirs(args.work, exist_ok=True)
     try:
-        inputs = args.inputs or record(binaries[0], args.maps, args.work, args.ticks, args.seed)
+        inputs = args.inputs or record(binaries[0], args.maps, args.work, args.ticks, args.seed, args.map)
         results = []
         for build_index, binary in enumerate(binaries):
             for renderer in renderers:
@@ -198,7 +205,7 @@ def main():
                         shutil.rmtree(os.path.join(args.work, name), ignore_errors=True)
                         try:
                             frame_log, fell = run(binary, args.maps, args.work, name, inputs, renderer,
-                                args.ticks, args.seed, args.size, settings)
+                                args.ticks, args.seed, args.size, settings, args.map)
                         except RuntimeError as error:
                             determinism.log(f"bench: {error}{': again' if not attempt else ': left out'}")
                             continue
@@ -225,7 +232,7 @@ def main():
         print(f"build {index}: {binary}")
     if args.json:
         with open(args.json, "w") as file:
-            json.dump({"inputs": inputs, "ticks": args.ticks, "warmup": args.warmup, "size": args.size,
+            json.dump({"map": args.map, "inputs": inputs, "ticks": args.ticks, "warmup": args.warmup, "size": args.size,
                 "settings": settings, "results": results}, file, indent=2)
     return 0
 

@@ -155,9 +155,9 @@
 		<string text="Choose the audio output device."/>
 		<string text="Stereo or surround. Takes effect on restart."/>
 		<string text="3D sound as on the Xbox. Turn off for speakers."/>
-		<string text="Room echo, and muffled sound behind walls."/>
+		<string text="Echo that matches the place you are in."/>
 		<string text="Pitch shift of moving sounds, as on the Xbox."/>
 		<string text="A tone when your shot hits another player."/>
-		<string text="Sound tags from the mods folder replace a map's.\nLocal games only; see docs/mods.md."/>
+		<string text="Sound tags from the mods folder replace a map's.\nLocal games only."/>
 	</strings>
 </menus>

@@ -132,15 +132,6 @@ void *mcc_texture_bridge_register_linear(void const *bitmap,unsigned long format
     return mcc_texture_register(bitmap,format,0,pixels,bytes,width,height,pitch);
 }
 
-/* Metadata-only lookup for loading-time shader selection. No texture upload. */
-BOOL xgpu_mcc_texture_describe(DWORD const *resource,struct xgpu_texture_description *description)
-{
-    struct mcc_gpu_texture *entry;
-    for (entry=mcc_gpu_hardware[mcc_texture_bucket(resource)];entry;entry=entry->hardware_next)
-        if (entry->header==resource) {*description=entry->description;return TRUE;}
-    return FALSE;
-}
-
 BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
     GLuint *texture,GLenum *target,struct xgpu_texture_description *description)
 {
@@ -249,7 +240,7 @@ void mcc_texture_bridge_dispose(void)
 
 unsigned long mcc_texture_bridge_prepare(void const *bitmap, unsigned long budget)
 {
-#ifndef HALO_GLES
+#ifndef HALO_GL_ES
     struct mcc_gpu_texture *entry;
     for (entry=mcc_gpu_textures[mcc_texture_bucket(bitmap)];entry;entry=entry->next) {
         struct xgpu_texture_description const *description=&entry->description;

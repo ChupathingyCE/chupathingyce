@@ -87,6 +87,10 @@ long delta_compat_join_mark(void);
 long delta_compat_join_mark(void) { return 0; }
 long delta_compat_opence_server(void);
 long delta_compat_opence_server(void) { return 0; }
+long delta_compat_read_project(void);
+long delta_compat_read_project(void) { return 0; }
+long delta_compat_project_name(void);
+long delta_compat_project_name(void) { return 0; }
 long delta_legacy_maximum(void);
 long delta_legacy_maximum(void) { return 0; }
 long delta_legacy_minimum(void);
@@ -168,6 +172,13 @@ long global_network_game_server_get(void);
 long global_network_game_server_get(void) { return 0; }
 long late_join_player_added(void);
 long late_join_player_added(void) { return 0; }
+/* (network co-op's campaign progress: port/linux/game/coop_progress.c) */
+long coop_progress_client_level_started(void);
+long coop_progress_client_level_started(void) { return 0; }
+long coop_progress_client_round_ended(void);
+long coop_progress_client_round_ended(void) { return 0; }
+long coop_progress_client_lobby_map(void);
+long coop_progress_client_lobby_map(void) { return 0; }
 long local_player_get_next(void);
 long local_player_get_next(void) { return 0; }
 long local_player_set_player_index(void);

@@ -5,7 +5,7 @@ Tests of the handler of halo:// links (port/linux/src/link_register.c): the
 desktop entry written into a scratch folder (as
 ~/.local/share/applications), the user's default read from a mimeapps.list,
 and the Windows registry's keys through a fake registry. Another program's
-handler is never replaced. Built and run by tools/test_link_register.py
+handler is never replaced. Built and run by tools/test_c_units.py
 with a scratch folder as its argument; exits nonzero on a failure.
 */
 

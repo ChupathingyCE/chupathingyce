@@ -42,6 +42,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <math.h>
 #include <string.h>
+#include "content_bytes.h"
 
 /* (cache_files.c) */
 boolean tag_index_is_group(long tag_index, long group_tag);
@@ -127,24 +128,6 @@ static long vegetation_of_definition(
 	return NONE;
 }
 
-static real vegetation_read_real(
-	byte const *address)
-{
-	real value;
-
-	memcpy(&value, address, 4);
-	return value;
-}
-
-static long vegetation_read32(
-	byte const *address)
-{
-	int value;
-
-	memcpy(&value, address, 4);
-	return value;
-}
-
 /* a hash of two whole numbers to [0, 1) */
 static real vegetation_hash(
 	unsigned int a,
@@ -183,15 +166,15 @@ static short vegetation_patch(
 	if (patch_count >= MAXIMUM_PATCHES || !tag_index_is_group(vegetation_index, VEGETATION_TAG))
 		return NONE;
 	vegetation = (byte const *)tag_get(VEGETATION_TAG, vegetation_index);
-	model_index = vegetation_read32(vegetation + VEGETATION_MODEL_OFFSET + TAG_REFERENCE_INDEX_OFFSET);
+	model_index = content_s32(vegetation + VEGETATION_MODEL_OFFSET + TAG_REFERENCE_INDEX_OFFSET);
 	if (model_index == NONE || !tag_index_is_group(model_index, MODELS_GROUP_TAG))
 		return NONE;
-	spacing_x = vegetation_read_real(vegetation + VEGETATION_ROW_SPACING_OFFSET);
-	spacing_y = vegetation_read_real(vegetation + VEGETATION_ROW_SPACING_OFFSET + 4);
+	spacing_x = content_f32(vegetation + VEGETATION_ROW_SPACING_OFFSET);
+	spacing_y = content_f32(vegetation + VEGETATION_ROW_SPACING_OFFSET + 4);
 	if (!(spacing_x >= 0.1f && spacing_x <= 16.0f) || !(spacing_y >= 0.1f && spacing_y <= 16.0f))
 	{
-		spacing_x = vegetation_read_real(vegetation + VEGETATION_SPACING_OFFSET);
-		spacing_y = vegetation_read_real(vegetation + VEGETATION_SPACING_OFFSET + 4);
+		spacing_x = content_f32(vegetation + VEGETATION_SPACING_OFFSET);
+		spacing_y = content_f32(vegetation + VEGETATION_SPACING_OFFSET + 4);
 		if (!(spacing_x >= 0.5f && spacing_x <= 16.0f) || !(spacing_y >= 0.5f && spacing_y <= 16.0f))
 			spacing_x = spacing_y = 4.0f;
 	}

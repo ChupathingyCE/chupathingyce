@@ -12,6 +12,7 @@
 #include "mcc_resources.h"
 #include "mcc_vorbis.h"
 #include "mcc_loading.h"
+#include "content_audio.h"
 #include <stdlib.h>
 #include <string.h>
 #include "mcc_host_memory.h"
@@ -31,33 +32,16 @@ struct mcc_audio_tags {
 struct mcc_pcm { short *samples; uint32_t frames, rate; int channels, vorbis_owned; };
 struct mcc_ima { int value, step; };
 
-/* The IMA ADPCM quantizer tables are part of the public codec format. */
-static int const mcc_ima_steps[89] = {
-    7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,
-    80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,449,
-    494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,
-    2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,
-    8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,
-    27086,29794,32767
-};
-static int const mcc_ima_changes[8] = {-1,-1,-1,-1,2,4,6,8};
-
+/* (the IMA ADPCM step and its tables, part of the public codec format:
+content_audio.c) */
 static int mcc_ima_advance(struct mcc_ima *state, unsigned code)
 {
-    int quantizer=mcc_ima_steps[state->step];
-    int delta=quantizer/8;
-    if (code&1) delta+=quantizer/4;
-    if (code&2) delta+=quantizer/2;
-    if (code&4) delta+=quantizer;
-    state->value+=(code&8) ? -delta : delta;
-    state->value=PIN(state->value,-32768,32767);
-    state->step=PIN(state->step+mcc_ima_changes[code&7],0,88);
-    return state->value;
+    return content_ima_expand((int)(code&15),&state->value,&state->step);
 }
 
 static unsigned mcc_ima_quantize(struct mcc_ima *state, int sample)
 {
-    int error=sample-state->value, divisor=mcc_ima_steps[state->step];
+    int error=sample-state->value, divisor=content_ima_steps[state->step];
     unsigned code=error<0 ? 8 : 0, bit;
     if (error<0) error=-error;
     for (bit=4; bit; bit>>=1,divisor>>=1) {
@@ -339,12 +323,6 @@ int mcc_audio_contains(struct mcc_runtime *runtime,long tag,uint32_t offset,uint
     struct mcc_audio_storage *storage=mcc_audio_tag_storage(runtime,tag);
     return storage && offset>=MCC_AUDIO_BASE && offset-MCC_AUDIO_BASE<=storage->used &&
         bytes<=storage->used-(offset-MCC_AUDIO_BASE);
-}
-
-uint32_t mcc_audio_stream_end(struct mcc_runtime *runtime)
-{
-    struct mcc_audio_tags *audio=runtime->audio;
-    return audio && audio->stream_end ? MCC_AUDIO_BASE+audio->stream_end : (uint32_t)runtime->source.size;
 }
 
 void mcc_audio_dispose(struct mcc_runtime *runtime)

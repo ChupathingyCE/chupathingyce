@@ -95,7 +95,7 @@ def test_steam_content(tmp_path):
 
 
 def test_steam_content_fuzz(tmp_path):
-    """the fuzz target, from seeds of the fixtures, for a short while"""
+    """the fuzz target on seeds of the fixtures (and fuzzing from them, with HALO_FUZZ_SECONDS)"""
     cc = fuzz_support.libfuzzer_compiler()
     if not cc:
         fuzz_support.skip("no clang with libFuzzer")
@@ -110,14 +110,14 @@ def test_steam_content_fuzz(tmp_path):
     for name, size in (("chunk_lzma.bin", 6000), ("chunk_zstd.bin", 3000)):
         (seeds / name).write_bytes(b"\x03" + bytes([size & 255, size >> 8]) + (fixtures / name).read_bytes())
     (seeds / "proto").write_bytes(b"\x00\x0a\x04\x08\x96\x01\x10\x05")
-    result = fuzz_support.run_fuzzer(binary, tmp_path, int(os.environ.get("HALO_FUZZ_SECONDS", "20")), seeds=[seeds],
+    result = fuzz_support.run_fuzzer(binary, tmp_path, fuzz_support.fuzz_seconds(), seeds=[seeds],
                                      max_len=65536)
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]
 
 
 def test_steam_net_fuzz(tmp_path):
     """the HTTP and WebSocket readers under libFuzzer, fed over a local
-    socket pair, for a short while"""
+    socket pair, on its seeds (and fuzzing from them, with HALO_FUZZ_SECONDS)"""
     cc = fuzz_support.libfuzzer_compiler()
     if not cc or os.name == "nt":
         fuzz_support.skip("no clang with libFuzzer")
@@ -132,7 +132,7 @@ def test_steam_net_fuzz(tmp_path):
     (seeds / "frames").write_bytes(b"\x02\x82\x05hello\x82\x7e\x00\x04abcd\x88\x00")
     (seeds / "upgrade").write_bytes(b"\x01HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
                                     b"Connection: Upgrade\r\nSec-WebSocket-Accept: x\r\n\r\n\x82\x01a")
-    result = fuzz_support.run_fuzzer(binary, tmp_path, int(os.environ.get("HALO_FUZZ_SECONDS", "20")), seeds=[seeds],
+    result = fuzz_support.run_fuzzer(binary, tmp_path, fuzz_support.fuzz_seconds(), seeds=[seeds],
                                      max_len=8192)
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]
 

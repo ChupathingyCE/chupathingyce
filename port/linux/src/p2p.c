@@ -1201,7 +1201,7 @@ static void peer_heard(struct peer *peer, unsigned long address, unsigned short 
 		peer->endpoint.port = port;
 		peer->endpoint_heard_time = now;
 		platform_log("Internet play: connected to %s %s at %s", peer->is_host ? "host" : "player", peer->name,
-			log_address_ipv4(address, port, text, sizeof(text)));
+			log_address_ipv4_peer(address, port, text, sizeof(text)));
 		if (peer->is_host)
 		{
 			if (p2p.joining && !memcmp(p2p.join_host, peer->identifier, P2P_IDENTIFIER_SIZE))
@@ -1361,8 +1361,15 @@ static void public_update(void)
 	if (!address)
 	{
 		/* (the one found before stays) */
+		/* (a host name of this machine's own leads to it: a tag, as
+		log_address_name writes it) */
 		if (!p2p.public_address)
-			platform_log("Internet play: cannot look up network.public_address's host %s", p2p.public_host);
+		{
+			char tag[LOG_ADDRESS_SIZE];
+
+			platform_log("Internet play: cannot look up network.public_address's host %s",
+				log_address_name(p2p.public_host, tag, sizeof(tag)));
+		}
 		return;
 	}
 	if (!p2p.public_logged || address != p2p.public_address)
@@ -1859,6 +1866,32 @@ int p2p_incoming(int stream, unsigned long *address, unsigned short *port)
 	if (!result)
 		result = find_closed(stream, address, port);
 	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+int p2p_spoofed_source(unsigned long address)
+{
+	int result;
+
+	/* (every datagram the game receives asks: a peer's come from the local
+	address, which is no virtual one, so the lock is not taken for them) */
+	if (!p2p.running || !is_virtual_address(address))
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	result = find_peer_by_address(address) != NULL || address_retired(address);
+	pthread_mutex_unlock(&p2p_lock);
+	if (result)
+	{
+		static unsigned long logged_time;
+
+		/* (once in 10 seconds at most: they can come as fast as anyone sends
+		them) */
+		if (elapsed(logged_time, 10000))
+		{
+			platform_log("Internet play: dropped traffic to the game's port that claimed to come from a peer");
+			logged_time = p2p_now() | 1;
+		}
+	}
 	return result;
 }
 
@@ -2846,6 +2879,16 @@ int p2p_hosting_public_game(void)
 
 	pthread_mutex_lock(&p2p_lock);
 	result = p2p.running && p2p.hosting && p2p_lobby_hosting_open();
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+int p2p_hosting_internet(void)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = !p2p.hosting_lan_only;
 	pthread_mutex_unlock(&p2p_lock);
 	return result;
 }

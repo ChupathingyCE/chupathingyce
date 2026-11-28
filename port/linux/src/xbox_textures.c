@@ -386,16 +386,27 @@ static BOOL decode_level(const struct xgpu_texture_description *description, uns
 		pitch * height bytes; the rest of such a row is black (a YUV texel
 		reads its pair's four bytes) */
 		unsigned long row_texels = information.bytes ? pitch / information.bytes : 0;
+		/* and only the rows the level's bytes hold (level_bytes, what the
+		texture cache maps): a Halo PC one's rows are a level's width
+		apart, which a Size word's pitch narrower than that (or a linear
+		volume's slices past the first) would read past (#1836's fuzz
+		target); the texels past them are black too */
+		unsigned long available = level_bytes(description, level);
 
-		if (information.kind == _texel_yuy2 || information.kind == _texel_uyvy)
-			row_texels &= ~1UL;
 		for (z = 0; z < depth; z++)
 		for (y = 0; y < height; y++)
 		{
-			const unsigned char *row = source + (z * height + y) * pitch;
+			unsigned long start = (z * height + y) * pitch;
+			const unsigned char *row = source + start;
+			unsigned long texels = start < available && information.bytes ?
+				(available - start) / information.bytes : 0;
 
+			if (texels > row_texels)
+				texels = row_texels;
+			if (information.kind == _texel_yuy2 || information.kind == _texel_uyvy)
+				texels &= ~1UL;
 			for (x = 0; x < width; x++)
-				destination[(z * height + y) * width + x] = x < row_texels ?
+				destination[(z * height + y) * width + x] = x < texels ?
 					convert_texel(information.kind, row + x * information.bytes, palette, x, row) : 0;
 		}
 		return TRUE;
@@ -854,6 +865,13 @@ static void texture_dump(GLenum target, const struct xgpu_texture_description *d
 BOOL xgpu_texture_decode_level(const struct xgpu_texture_description *description, unsigned long level,
 	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination)
 {
+	/* (a BC7 one decoded as the OpenGL upload decodes it) */
+	if (format_information(description->format).kind == _texel_bc7)
+	{
+		bc7_decode_level(source, level_dimension(description->width, level), level_dimension(description->height, level),
+			level_dimension(description->depth, level), destination);
+		return TRUE;
+	}
 	return decode_level(description, level, source, palette, destination);
 }
 
@@ -868,9 +886,28 @@ int xgpu_texture_dxt(const struct xgpu_texture_description *description)
 	}
 }
 
+BOOL xgpu_texture_bc7(const struct xgpu_texture_description *description)
+{
+	return format_information(description->format).kind == _texel_bc7;
+}
+
 unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *description, unsigned long level)
 {
 	return level_bytes(description, level);
+}
+#endif
+
+#if defined(HALO_BGFX) && (defined(HALO_GL_ES) || !defined(HALO_CONSOLE_NO_GUIDE))
+BOOL xgpu_texture_dxt_decode_level(const struct xgpu_texture_description *description, unsigned long level,
+	const unsigned char *source, unsigned long *destination)
+{
+	unsigned char kind = format_information(description->format).kind;
+
+	if (kind != _texel_dxt1 && kind != _texel_dxt3 && kind != _texel_dxt5)
+		return FALSE;
+	dxt_decode_level(kind, source, level_dimension(description->width, level),
+		level_dimension(description->height, level), level_dimension(description->depth, level), destination);
+	return TRUE;
 }
 #endif
 
@@ -913,21 +950,15 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 			channels[2] = GL_RED;
 		}
 #endif
-		/* a Halo PC HUD meter: its fill order (alpha) sampled as the color,
-		its shape (the color) as alpha, as the Xbox's meter shader reads
-		them (D3DCOMMON_PORT_PC_METER) */
-		if (description->pc_meter)
-		{
-			GLint red = channels[0];
-
-			channels[0] = channels[1] = channels[2] = channels[3];
-			channels[3] = red;
-		}
+		/* (a Halo PC HUD meter's bitmap is sampled as it is: the meter
+		shader reads its fill order and shape where Halo PC keeps them,
+		rasterizer_xbox_dynavobgeom.c, and a static element drawing the
+		same bitmap needs its own colors) */
 		/* a Halo PC multipurpose map: specular (blue), self-illumination
 		(green), color change (alpha) and the auxiliary mask (red) sampled
 		where the Xbox's model shaders read them, red, green, blue and alpha
 		(D3DCOMMON_PORT_PC_MULTIPURPOSE) */
-		else if (description->pc_multipurpose)
+		if (description->pc_multipurpose)
 		{
 			GLint red = channels[0];
 

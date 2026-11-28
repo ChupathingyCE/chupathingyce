@@ -19,6 +19,9 @@ the steps it is given, in order, and prints what each did:
 	              (network_rules.c): "layout V settings S options O shield E
 	              dropped K,K learned L refused R facts F"
 	wait S        until the serial in use is S (up to ten seconds)
+	cached        until the cache holds the signed table in use (up to ten
+	              seconds; the loader writes it after it takes the table):
+	              "cached 1" if it does
 	sleep MS      that many milliseconds
 
 The save root (where the cache is) is $DELTA_CHECK_ROOT, the local override
@@ -238,6 +241,27 @@ int main(int count, char **arguments)
 			for (tries = 0; tries < 1000 && delta_legacy_serial() != serial; tries++)
 				usleep(10000);
 			printf("wait %d\n", delta_legacy_serial() == serial);
+		}
+		else if (!strcmp(arguments[index], "cached"))
+		{
+			static char in_use[DELTA_LEGACY_SIGNED_SIZE];
+			char path[1100];
+			int tries, used, same = 0;
+
+			snprintf(path, sizeof(path), "%s/delta_legacy.signed", platform_save_root());
+			for (tries = 0; tries < 1000; tries++)
+			{
+				size_t size = 0;
+				char *file = config_file_read(path, &size);
+
+				used = delta_legacy_signed(in_use, (int)sizeof(in_use));
+				same = file && used > 0 && size == (size_t)used && !memcmp(file, in_use, size);
+				free(file);
+				if (same)
+					break;
+				usleep(10000);
+			}
+			printf("cached %d\n", same);
 		}
 		else if (!strcmp(arguments[index], "sleep") && index + 1 < count)
 			usleep((useconds_t)strtoul(arguments[++index], NULL, 10) * 1000);

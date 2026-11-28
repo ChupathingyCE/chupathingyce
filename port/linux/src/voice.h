@@ -79,8 +79,6 @@ int voice_microphone(void);
 VOICE_TALKING_TIME), and a speaker heard now */
 int voice_talking(unsigned long now);
 int voice_speaker_talking(unsigned long now, int speaker_machine);
-/* the channel a speaker was last heard on (0: none) */
-int voice_speaker_channel(int speaker_machine);
 /* the input's level now, 0 to 1 (for Settings' meter) */
 float voice_input_level(void);
 /* the channels this copy hears (DELTA_VOICE_*: those whose volume isn't 0,

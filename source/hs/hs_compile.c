@@ -428,10 +428,10 @@ symbols in this file:
 extern boolean cache_file_tags_are_ce(void);
 /* (port/linux/game/stubbs_mode.c) */
 extern boolean stubbs_mode_active(void);
-/* port: SPV3 mode's log of what its maps' scripts name that the game lacks
-(port/linux/game/spv3_mode.c) */
-#include "spv3_mode.h"
 #endif
+/* port: an OpenSauce map's log of what its scripts name that the game lacks
+(port/linux/game/opensauce_survey.c) */
+#include "opensauce_survey.h"
 
 /* ---------- constants */
 
@@ -1242,7 +1242,7 @@ static boolean hs_parse_variable(
 	}
 	else if (hs_compile_globals.variables_predetermined)
 	{
-		spv3_mode_note_missing_global(hs_compile_globals.compiled_source + expression->source_offset);
+		opensauce_survey_note_missing_global(hs_compile_globals.compiled_source + expression->source_offset);
 		hs_compile_globals.error = "this is not a valid variable name.";
 		hs_compile_globals.error_offset = expression->source_offset;
 		result = FALSE;
@@ -2689,7 +2689,7 @@ static boolean hs_compile_postprocess_drop_failed(
 		scenario->hs_scripts.count,
 		dropped_globals,
 		scenario->hs_globals.count);
-	spv3_mode_scripts_summary(dropped_scripts, scenario->hs_scripts.count, dropped_globals, scenario->hs_globals.count);
+	opensauce_survey_scripts_summary(dropped_scripts, scenario->hs_scripts.count, dropped_globals, scenario->hs_globals.count);
 
 	return success;
 }
@@ -2977,7 +2977,7 @@ boolean hs_compile_postprocess(
 					else
 					{
 						hs_compile_globals.error = "missing function (you need to recompile scripts.)";
-						spv3_mode_note_missing_function(hs_compile_globals.compiled_source + predicate->source_offset);
+						opensauce_survey_note_missing_function(hs_compile_globals.compiled_source + predicate->source_offset);
 #ifdef HALO_CUSTOM_EDITION
 						/* (a Halo PC map's: its name, logged) */
 						if (drop_failed)

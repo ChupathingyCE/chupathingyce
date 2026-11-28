@@ -26,7 +26,8 @@ Linux is Linux, whoever made the build; a platform has a number of its own
 only where it has a build of its own (SteamOS, 5; old Windows, Legacy PC,
 18). A fork or another project sends its platform's number and tells
 itself apart by its build name (HELLO's build text, the game list's
-`build`) and, where it has one, its wire. A web build is a platform like
+`build`) and, when it hosts with Delta, its project number
+([Projects](#projects)). A web build is a platform like
 any other: it gets its number by pull request when someone asks for it.
 The First port column names the port a number was first given for.
 
@@ -111,9 +112,9 @@ A wire ID names a revision of Chupathingy's game code
 ([versioning.md](versioning.md#wire-compatibility-ranges)). The `chupa-*`
 wire IDs are Chupathingy's own: they are listed here so others can read
 them, but Chupathingy assigns them, not this registry's process. Another
-implementation leaves the tag out ([ports.md](ports.md#the-advertisement)),
-or uses a prefix of its own once the wire rule for other implementations is
-settled. The current one
+implementation never writes one: its host leaves the tag out, or writes a
+layout 2 tag with its project number ([Projects](#projects),
+[ports.md](ports.md#if-you-host-games-from-your-port)). The current one
 is `chupa-44b`. The console floor, the oldest wire every
 newer one must still play with, is `chupa-32a`. The first
 wire hosts advertised is `chupa-29a`.
@@ -133,6 +134,38 @@ wire hosts advertised is `chupa-29a`.
 | `chupa-43a` | development builds before 0.9.1 (no release) | `chupa-28a` | 43 |
 | `chupa-44a` | 0.9.1, 0.9.1a | `chupa-28a` | 44 |
 | `chupa-44b` | 0.9.2 (in development) | `chupa-28a` | 44 |
+
+## Projects
+
+Whose game code a host runs, as a Delta tag of layout 2 names it
+([peer.md](peer.md#the-tag)). A host of Chupathingy's code writes layout 1,
+its wire, and never layout 2; a host of any other project's code that
+answers HELLO writes layout 2 with its project's number
+([ports.md](ports.md#if-you-host-games-from-your-port)). So a layout 2 tag
+names 2 or later, and one that says 0 or 1 is no tag. The two bytes after
+the number are that project's own version, which the project defines;
+another project's reader shows it and never joins by it.
+
+A number is for a project (its game code), not for a platform: a project's
+builds on every platform send the same number, and their platform keys say
+the platform. Ask for one the way you ask for a platform number
+([How to ask for a number](#how-to-ask-for-a-number)), with your project's
+name and link, before your host writes a tag. Until then, host without a
+tag.
+
+| Number | Key | Name | For | Status |
+| --- | --- | --- | --- | --- |
+| 0 | `none` |  |  | never in a tag |
+| 1 | `chupathingy` | Chupathingy | Chupathingy | in use: writes layout 1 alone |
+| 2 | `content_evolved` | Content Evolved | [Content Evolved (Watanoge)](https://github.com/Watanoge/halo-content-evolved) | in use |
+| 3 | `gulchce` | GulchCE | [GulchCE (chester)](https://github.com/chestahh/GulchCE) | in progress |
+
+The tag's layouts:
+
+| Layout | Name | Meaning |
+| --- | --- | --- |
+| 1 | `wire` | a build of Chupathingy's game code: its wire and its oldest compatible wire ([Wire IDs](#wire-ids)) |
+| 2 | `project` | a host of another project's code: its project number, that project's own version (2 bytes, little-endian), a reserved byte (0); joined by its network version alone |
 
 ## Platform floors
 
@@ -166,6 +199,47 @@ Numbers seen in the wild:
 | 43 | OpenCE's 43 hosts; `chupa-43a`'s hosts of MCC maps (development builds, no release) |
 | 44 | current: announced when the signed table's row for a wire lists it for hosting (with no row, a desktop build or server hosts 41 and a console 32; the number built into the code is 32). From `chupa-44a`, the number a host plays an MCC map's game at ([peer.md](peer.md), HOST_NUMBER) |
 | version with bit 15 set (0x8000) | a GOAT H1 host closed to other builds: closed, never joinable |
+| 0xFF00 to 0xFFFF | Content Evolved's modded games ([Content Evolved (Watanoge)](https://github.com/Watanoge/halo-content-evolved)): 0xFF00 plus the mod version (0xFF70 is mod version 112). All 26 of the advertisement's reserved bytes are then Content Evolved's ([LAN advertisement](#lan-advertisement)). Bit 15 is set here too: never joinable by another build |
+
+## LAN advertisement
+
+The 26 reserved bytes of a host's game advertisement
+([peer.md](peer.md#the-advertisement)). The version word in bytes 0 and 1
+says whose layout the rest is.
+
+### Stock layout
+
+A version word below 0xFF00: a network version.
+
+| Bytes | Value | Name | Meaning | For | Status |
+| --- | --- | --- | --- | --- | --- |
+| 0, 1 |  | `version` | the network version the host announces (little-endian) | the game protocol | in use |
+| 2 | 0x01 | `distributed` | the distributed netcode (always set) | the game protocol | in use |
+| 2 | 0x02 | `in_progress` | the game is under way | the game protocol | in use |
+| 2 | 0x04 | `dedicated` | a dedicated server (version 39 and later); the old Delta layout's flag before that | the game protocol | in use |
+| 2 | 0x08 | `mcc` | the host plays the MCC network protocol's join and settings record ([peer.md](peer.md#mcc-games)) | the MCC network protocol (from GulchCE) | reserved: used by older GulchCE builds; no current build sets them |
+| 3 |  | `kind` | the game's kind (version 37 and later), 0 before | the game protocol | in use |
+| 4 |  | `mcc_version` | with the flag 0x08, the MCC network protocol's version | the MCC network protocol (from GulchCE) | reserved: used by older GulchCE builds; no current build sets them |
+| 5 to 16 |  |  | zero, but for the old Delta layout ([peer.md](peer.md#the-old-layout)) |  | reserved |
+| 17 to 25 |  | `delta_tag` | the Delta tag ([peer.md](peer.md#the-tag)): layout 1 a build of Chupathingy's code and its wire, layout 2 another project's host ([Projects](#projects)) | Delta | in use |
+
+### Content Evolved's modded games
+
+A version word of 0xFF00 to 0xFFFF: a Content Evolved modded game
+([peer.md](peer.md#content-evolveds-modded-games)). All 26 bytes are
+Content Evolved's ([Content Evolved (Watanoge)](https://github.com/Watanoge/halo-content-evolved)).
+Another reader reads none of its own meanings from them (no MCC flag or
+version, no kind, no Delta tag) and shows the game as one it can't play.
+
+Content Evolved's layout, for information; it is theirs to change:
+
+| Bytes | Meaning |
+| --- | --- |
+| 0, 1 | 0xFF00 plus the mod version (little-endian) |
+| 2 | flags, among them 0x08 skulls, 0x10 skull drops, 0x20 the randomizer, 0x40 a Tag Injector share |
+| 3 to 14 | the randomizer's setup |
+| 15 to 22 | the skulls, a bitmask |
+| 24, 25 | the host's real network version |
 
 ## Platform key flags
 
@@ -187,27 +261,28 @@ same listing, so its flags and stamp are shared with them.
 
 The listing's flags byte. A browser ignores a flag it doesn't know.
 
-| Value | Name | Meaning | Status |
-| --- | --- | --- | --- |
-| 1 | `open` | the game takes joins now | in use |
-| 2 | `in_progress` | a game is under way | in use |
-| 4 | `teams` | a team game | in use |
-| 8 | `closed` | the host stopped: this listing ends its game (a tombstone) | in use |
-| 16 | `password` | the invite's token is sealed with a password's key | in use |
-| 32 | `dedicated_opence` | a dedicated server's game, as OpenCE's network version 39 says it ([versioning.md](versioning.md#legacy-versions)); a dedicated server that announces 39 or later sets it with 128 | in use |
-| 64 |  | reserved for Content Evolved | reserved, pending its pull request |
-| 128 | `dedicated` | a dedicated server's game, nobody playing at the host (Chupathingy's); either 32 or 128 lists a game as dedicated | in use |
+| Value | Name | Meaning | For | Status |
+| --- | --- | --- | --- | --- |
+| 1 | `open` | the game takes joins now |  | in use |
+| 2 | `in_progress` | a game is under way |  | in use |
+| 4 | `teams` | a team game |  | in use |
+| 8 | `closed` | the host stopped: this listing ends its game (a tombstone) |  | in use |
+| 16 | `password` | the invite's token is sealed with a password's key |  | in use |
+| 32 | `dedicated_opence` | a dedicated server's game, as OpenCE's network version 39 says it ([versioning.md](versioning.md#legacy-versions)); a dedicated server that announces 39 or later sets it with 128 |  | in use |
+| 64 | `modded` | a Content Evolved modded game: stamp byte 1 is its mod version ([LAN advertisement](#content-evolveds-modded-games)). Content Evolved lists it in its listing format 2, which OpenCE's and Chupathingy's builds don't read; a browser that reads it without the same mod version shows it as not playable | Content Evolved (Watanoge) | in use |
+| 128 | `dedicated` | a dedicated server's game, nobody playing at the host (Chupathingy's); either 32 or 128 lists a game as dedicated |  | in use |
 
 ### Listing stamp
 
 The 8 bytes before the listing's signature. The signature covers them, so
 a browser keeps every byte as it came, including the ones it doesn't read.
 
-| Byte | Name | Meaning | Status |
-| --- | --- | --- | --- |
-| 0 | `kind` | the game's kind, from network version 37: an OpenCE game type in the low seven bits and Hardcore in bit 7 ([versioning.md](versioning.md#legacy-versions)). A host that announces an older number, and a closed listing, send 0 | in use |
-| 1 |  | reserved for Content Evolved | reserved, pending its pull request |
-| 2 to 7 |  | none yet: a host sends 0 | reserved |
+| Byte | Name | Meaning | For | Status |
+| --- | --- | --- | --- | --- |
+| 0 | `kind` | the game's kind, from network version 37: an OpenCE game type in the low seven bits and Hardcore in bit 7 ([versioning.md](versioning.md#legacy-versions)). A host that announces an older number, and a closed listing, send 0 | OpenCE | in use |
+| 1 | `mod_version` | with flag 64, Content Evolved's mod version, the low byte of its advertisement's version word; 0 otherwise | Content Evolved (Watanoge) | in use |
+| 2 | `map_source` | Content Evolved's map source: where the host's map comes from, in Content Evolved's own numbering (its documentation is the reference); 0 from every other host | Content Evolved (Watanoge) | in use |
+| 3 to 7 |  | none yet: a host sends 0 |  | reserved |
 
 ### How to ask for a flag or a stamp byte
 
@@ -344,6 +419,14 @@ Unknown bits are ignored.
 | 0x08 | `moderate` | sign in to moderation; the server still checks the role |
 | 0x10 | `social` | friends, presence, invites |
 | 0x20 | `devices` | approve another device's code, revoke another device of the account |
+
+Account marks: the top byte of the capabilities field, facts the issuing
+network vouches for about the account. A mark grants nothing and counts only
+for a certificate that chains to the root keys of the network that set it.
+
+| Mark | Name | Meaning |
+| --- | --- | --- |
+| 0x01000000 | `developer` | a developer of the issuing network's project |
 
 ## Report reasons
 

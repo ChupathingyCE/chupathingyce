@@ -1,6 +1,13 @@
 """What the fuzz and sanitizer tests share: finding a clang with libFuzzer,
 skipping (or, where HALO_SANITIZERS_REQUIRED=1, failing) without one, and
-running a fuzzer for a bounded time on its seeds and saved regressions.
+running a fuzzer on its saved regressions and seeds, and then for a
+bounded time (fuzz_seconds()).
+
+A pull request's tests only replay: each regression and seed once, which
+is quick and gives the same answer every time, so a crash an old bug
+leaves for random fuzzing to find never fails someone else's change.
+The random fuzzing runs every night (.github/workflows/fuzz.yml, which sets
+HALO_FUZZ_SECONDS), and by hand: HALO_FUZZ_SECONDS=60 python3 -m pytest ...
 
 CI sets HALO_SANITIZERS_REQUIRED=1 on the Linux job, which installs clang's
 runtimes (libclang-rt-dev): there, a test that would build unsanitized or
@@ -60,6 +67,15 @@ def libfuzzer_compiler(*preferred):
     return None
 
 
+def fuzz_seconds(*names):
+    """the seconds of random fuzzing a test gets: HALO_FUZZ_SECONDS (or an
+    older name of the test's own), 0 by default (replay only)"""
+    for name in (*names, "HALO_FUZZ_SECONDS"):
+        if os.environ.get(name):
+            return int(os.environ[name])
+    return 0
+
+
 FUZZ_ENVIRONMENT = {
     # (leaks only on Linux: on macOS libFuzzer's own threads are reported at exit)
     "ASAN_OPTIONS": f"detect_leaks={0 if sys.platform == 'darwin' else 1}:abort_on_error=0:allocator_may_return_null=1",
@@ -71,9 +87,10 @@ def run_fuzzer(binary, workdir, seconds, seeds=(), regressions=None, max_len=409
                corpus=None, jobs=1):
     """binary's regressions (each input once), then seconds of fuzzing from
     its seeds (a corpus folder kept in corpus, else one in workdir): the
-    completed process of the first that failed, else of the fuzzing. A hang
-    (an input over timeout_per_input seconds) fails as a crash does; each
-    process has a hard limit of its own besides."""
+    completed process of the first that failed, else of the fuzzing. With
+    seconds 0, the seeds' inputs run once each instead, and nothing is
+    fuzzed. A hang (an input over timeout_per_input seconds) fails as a
+    crash does; each process has a hard limit of its own besides."""
     workdir = Path(workdir)
     environment = dict(os.environ, **FUZZ_ENVIRONMENT)
     if regressions and Path(regressions).is_dir():
@@ -84,6 +101,14 @@ def run_fuzzer(binary, workdir, seconds, seeds=(), regressions=None, max_len=409
                                     timeout=60 + timeout_per_input * len(inputs))
             if result.returncode != 0:
                 return result
+    if int(seconds) <= 0:
+        inputs = sorted(str(path) for seed in seeds if Path(seed).is_dir() for path in Path(seed).rglob("*")
+                        if path.is_file())
+        if not inputs:
+            return subprocess.CompletedProcess([str(binary)], 0, "", "no seeds to replay\n")
+        return subprocess.run([str(binary), f"-timeout={timeout_per_input}", f"-max_len={max_len}", *extra, *inputs],
+                              capture_output=True, text=True, cwd=workdir, env=environment,
+                              timeout=60 + timeout_per_input * len(inputs))
     corpus = Path(corpus) if corpus else workdir / "corpus"
     corpus.mkdir(parents=True, exist_ok=True)
     folders = [str(corpus)] + [str(seed) for seed in seeds if Path(seed).is_dir()]

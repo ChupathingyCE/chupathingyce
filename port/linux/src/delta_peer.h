@@ -251,6 +251,14 @@ struct delta_peer_identity
 	int platform;
 	int flags;
 	delta_u32 capabilities;
+	/* the network the certificate belongs to (delta-spec's link.md,
+	"Networks": the one whose root key signed its issuer certificate), its
+	domain ("chupathingy.org"; empty where the checker doesn't say), and
+	whether it is another network than this machine's own: such a player
+	shows as Name:domain, and gets no role, ban or site card. The account
+	is the pair of network and account */
+	char network[254];
+	int other_network;
 	/* the proof said the challenge was bound to the host its player
 	connected to (DELTA_WIRE_IDENTITY_BOUND): only such a player's account
 	is given roles or bans; any other shows a name, and nothing more */
@@ -1428,9 +1436,6 @@ int delta_peer_game_machine_lacks(int machine_index, int capability);
 /* ... and the game modes its HELLO said it plays (delta_peer_machine_modes;
 0 while this host has no Delta, or the machine no session) */
 unsigned delta_peer_game_machine_modes(int machine_index);
-/* (the client's) the game modes its host's WELCOME said it plays (0: none,
-or not a client of a Delta host) */
-unsigned delta_peer_game_host_modes(void);
 /* whether a player's machine agreed to a capability with the host, as this
 machine knows it (its own, the host's, the roster's); none for a player
 without one */
@@ -1452,11 +1457,6 @@ int delta_peer_game_machine_platform(int machine_index);
 table in use, by the network version its HELLO says: a host of ours drops
 it, so it joins no Delta host (and the floor, through *oldest, if asked) */
 int delta_peer_game_under_floor(int *oldest);
-/* the game's room: delta_peer_room_has and _room_limit of the session */
-int delta_peer_game_room_has(int capability);
-int delta_peer_game_room_limit(int limit);
-/* the client's handshake (enum delta_peer_client_state) */
-int delta_peer_game_client_state(void);
 
 /* team changes (port/linux/game/team_change.c): the host's team host (NULL:
 none); the client's request for its player (the game's player list index)
@@ -1505,11 +1505,6 @@ int delta_peer_game_objects_ready(void);
 int delta_peer_game_send_object_names(int machine_index, const struct delta_wire_object_names *names);
 void delta_peer_game_set_objects_client(const struct delta_peer_objects_client *client);
 
-/* server badges: the client's check with its host (enum
-delta_peer_badge_state; the answer in badge, the host's address in
-host_ipv4, and the milliseconds since the handshake began in waited) */
-int delta_peer_game_client_badge(struct delta_wire_badge *badge, delta_u32 *host_ipv4, delta_u32 *waited);
-
 /* voice (port/linux/game/voice_game.c): the host's rules (NULL: none),
 its game's players each frame, its own player's frames and what it hears;
 the client's frames, what it hears and its host's rules; where frames heard
@@ -1522,7 +1517,6 @@ int delta_peer_game_voice_say(int channel, unsigned short sequence, const unsign
 /* (client) the host's voice rules (0: none: the host has no Delta voice);
 (host) its own, 1 */
 int delta_peer_game_voice_config(struct delta_wire_voice_config *config);
-int delta_peer_game_voice_talking(int machine_index);
 
 /* ---------- what Delta List says of a hosted game (browser.c's
 announcement; docs/delta/list.md, Delta List) */

@@ -20,6 +20,7 @@ ATTRACT_MODE.C
 #ifdef HALO_MAP_LIST
 #include "halo_map_packs.h"
 #endif
+#include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 
 /* ---------- constants */
 
@@ -52,7 +53,10 @@ boolean attract_mode_should_start(
 		cache_files_precache_map_end();
 	}
 
+	/* port: SPV3's menus are Halo PC's, which have no attract mode: its own
+	scripts play its movies (opensauce_scripts.c, play_bink_movie) */
 	if (main_menu_screen_is_active() &&
+		!spv3_mode_active() &&
 		!cache_files_precache_in_progress() &&
 		!network_game_is_active() &&
 		!bink_playback_active())
@@ -171,6 +175,14 @@ const char *attract_mode_get_localized_movie_path(
 		the pack's own movie, from the bink folder beside its ui.map, when it
 		has one; else the game's, as always (halo_map_packs.h) */
 		if (!attempted_languages && map_pack_menus_movie_path(bss_00453ae8, bss_00453ae8, NUMBEROF(bss_00453ae8)))
+		{
+			break;
+		}
+		/* port: SPV3's startup film is its attract.bik (what its initc.txt
+		plays at startup, as SPV3's launcher writes it): in SPV3 mode it is
+		the intro, from maps_spv3\bink\, when SPV3 has no intro.bik of its own */
+		if (!attempted_languages && movie==_bink_intro_movie && spv3_mode_active() &&
+			map_pack_menus_movie_path("d:\\bink\\attract.bik", bss_00453ae8, NUMBEROF(bss_00453ae8)))
 		{
 			break;
 		}

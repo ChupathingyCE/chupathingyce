@@ -9,8 +9,13 @@ docs/delta/ports.md. Python 3 alone, nothing to install.
         datagrams the port sent to a host's Delta port (5160): a file of hex,
         one datagram a line (spaces and "0x" allowed, # starts a comment), or
         a .bin file of one datagram
+    conformance.py check --host FILE...
+        the same, for datagrams a port's host sent its clients (WELCOME,
+        LEGACY, ROSTER, BYE)
     conformance.py advert HEX
-        a hosted game's 26 reserved advertisement bytes, as hex
+        a hosted game's 26 reserved advertisement bytes, as hex: OpenCE's
+        fields alone, or with a port host's tag (layout 2, docs/delta/ports.md "If you
+        host games from your port")
     conformance.py announce FORM
         the form a host posts to /v1/announce (or just its Delta fields)
     conformance.py listen [--port 5160] [--seconds 60]
@@ -19,15 +24,34 @@ docs/delta/ports.md. Python 3 alone, nothing to install.
         checks everything the port sends, and says at the end whether the
         port passed. It plays no game: point the port's Delta socket at it
         by hand. For the real thing, run loopback_host.sh.
+    conformance.py listen --project N [--project-version V] [--announce 44]
+        the same stand-in, as a port host of project N (docs/delta/registry.md,
+        "Projects"): it prints the advertisement bytes such a host writes,
+        to feed a client's advertisement reader, and its WELCOME names no
+        Chupathingy build.
+    conformance.py layout N [--table legacy.json --wire W]
+        the layout facts of network version N (layouts.json, versioning.md
+        "Layout facts by network version"), and with a signed table's
+        document its "layouts" for a wire applied past 44
+    conformance.py record N FILE [--options BYTES]
+        a game settings record (a .bin file) a port read or made for a host
+        of network version N: its size, its counts and its further options
+        (--options: another project's row, Content Evolved's 88 at 44)
+    conformance.py convert FROM TO IN OUT [--expect FILE]
+        the record of version FROM's layout in IN made TO's, written to OUT,
+        as delta_layout.c makes it; with --expect, a port's own conversion
+        compared with it byte for byte (the first difference named by field)
 
 Exit status 0 when everything passed, 1 when something failed. Warnings
 (things a port may do but should know about) don't fail."""
 import argparse
+import json
 import re
 import socket
 import struct
 import sys
 import time
+from pathlib import Path
 
 MAJOR = 1
 HEADER = 12
@@ -60,6 +84,36 @@ PLATFORMS = _platform_keys()
 LEGACY_OLDEST = 11
 LEGACY_NEWEST_KNOWN = 45
 DELTA_FIELDS = ("delta", "platform_key", "arch", "build", "capabilities")
+# the tag at the advertisement's tail (docs/delta/peer.md, "The tag"): layout 1 is a
+# build of Chupathingy's code (a wire), layout 2 a port host (a project)
+TAG_OFFSET = 17
+TAG_LAYOUT_WIRE = 1
+TAG_LAYOUT_PROJECT = 2
+MODDED_VERSION = 0xFF00
+# host-to-client types a port's host sends in the minimum kit
+HOST_TYPES = {2, 3, 4, 5}
+
+
+def _projects():
+    import json, pathlib
+    path = pathlib.Path(__file__).resolve().parent.parent.parent / "docs" / "delta" / "registry.json"
+    rows = json.loads(path.read_text(encoding="utf-8"))["projects"]["list"]
+    return {int(row["number"]): row["name"] for row in rows if row["name"]}
+
+
+PROJECTS = _projects()
+
+
+def tag_check(tag):
+    check = 0xA5
+    for byte in tag[:8]:
+        check ^= byte
+    return check
+
+
+def project_tag(project, version):
+    tag = bytes([0x44, 0x4C, MAJOR, TAG_LAYOUT_PROJECT, project, version & 0xFF, version >> 8, 0])
+    return tag + bytes([tag_check(tag)])
 
 
 class Report:
@@ -209,11 +263,93 @@ def read_datagrams(path):
     return datagrams
 
 
+def check_host_datagram(report, where, data):
+    """one datagram from a port's host to a client: its header, then its
+    message (WELCOME, LEGACY, ROSTER or BYE)"""
+    if len(data) < HEADER or data[:2] != b"DP":
+        report.fail(where, "not a Delta Peer datagram (the magic, or under the 12-byte header)")
+        return
+    if len(data) > MAXIMUM_DATAGRAM:
+        report.fail(where, f"{len(data)} bytes: over the {MAXIMUM_DATAGRAM} a datagram may be")
+    major, kind, length, reserved, session = struct.unpack_from("<BBHHI", data, 2)
+    payload = data[HEADER:]
+    if length != len(payload):
+        report.fail(where, f"payload length {length}, but {len(payload)} bytes follow the header")
+        return
+    if reserved:
+        report.fail(where, f"header bytes 6 and 7 are 0x{reserved:04x}, not 0")
+    if not session:
+        report.fail(where, "session 0: a host answers with the client's own session, never 0")
+    if kind == 3:
+        if payload:
+            report.warn(where, f"LEGACY with {len(payload)} payload bytes (it has none)")
+        report.ok(where, f"LEGACY of major {major}")
+        return
+    if major != MAJOR:
+        report.fail(where, f"major {major}, not {MAJOR} (only LEGACY goes out under another major)")
+    if kind not in HOST_TYPES:
+        name = TYPES.get(kind)
+        if name:
+            report.fail(where, f"{name} is a client's to send, not a host's")
+        else:
+            report.warn(where, f"message type {kind}: not in the minimum kit (fine if you built that feature)")
+        return
+    if kind == 5:
+        report.ok(where, "BYE")
+        return
+    failed = report.failed
+    if kind == 2:
+        if len(payload) < 24:
+            report.fail(where, f"WELCOME payload of {len(payload)} bytes, under its 24 fixed ones")
+            return
+        offered, agreed, legacy, machine, size, serial = struct.unpack_from("<IIHBBI", payload)
+        if size > BUILD_MOST or len(payload) < 24 + size:
+            report.fail(where, f"build length {size}: at most {BUILD_MOST}, and the bytes must follow")
+            return
+        build = payload[24:24 + size]
+        if agreed & ~offered:
+            report.fail(where, f"agreed 0x{agreed:08x} has bits the host didn't offer (0x{offered:08x})")
+        for bit, name in NEVER_SAID.items():
+            if offered & (1 << bit):
+                report.fail(where, f"capability bit {bit}, {name}, in a WELCOME")
+        if offered & ~1:
+            report.warn(where, f"capabilities past platform (0x{offered:08x}): agree only to what you speak in full")
+        if any(byte < 0x20 or byte > 0x7E for byte in build):
+            report.fail(where, f"build text {build!r} is not printable ASCII")
+        if build.lower().startswith(b"chupa-") or b"chupathingy" in build.lower():
+            report.fail(where, f"build text {build!r} names Chupathingy: say your own project and version")
+        if legacy < LEGACY_OLDEST:
+            report.fail(where, f"network version {legacy}: our builds play {LEGACY_OLDEST} and later")
+        if serial != 0xFFFFFFFF:
+            report.warn(where, f"legacy table serial {serial}: 0xFFFFFFFF unless your host checks signed tables")
+        key_text = check_key(report, where, payload[16:24])
+        (report.ok if report.failed == failed else report.seen)(where, f"WELCOME: build "
+            f"{build.decode('ascii', 'replace')!r}, network version {legacy}, host machine {machine}, offered "
+            f"0x{offered:08x}, agreed 0x{agreed:08x}; {key_text}")
+        return
+    if len(payload) < 12:
+        report.fail(where, f"ROSTER payload of {len(payload)} bytes, under its 12 fixed ones")
+        return
+    room, players, count = struct.unpack_from("<IB3xB", payload)
+    if count > 32 or len(payload) < 12 + 36 * count:
+        report.fail(where, f"ROSTER of {count} entries in {len(payload)} bytes: at most 32, 36 bytes each")
+        return
+    for index in range(count):
+        machine, flags = payload[12 + 36 * index], payload[13 + 36 * index]
+        if flags & ~0x07:
+            report.fail(where, f"entry {index} (machine {machine}): flags 0x{flags:02x}, only 0x01 to 0x04 exist")
+    (report.ok if report.failed == failed else report.seen)(where, f"ROSTER: {count} machine(s), room "
+        f"capabilities 0x{room:08x}, room's player limit {players or 'none said'}")
+
+
 def command_check(args):
     report = Report()
     for path in args.files:
         session = None
         for number, data in enumerate(read_datagrams(path), 1):
+            if args.host:
+                check_host_datagram(report, f"{path}:{number}", data)
+                continue
             result = check_datagram(report, f"{path}:{number}", data, session)
             if result and result.get("type") == 1:
                 session = result["session"]
@@ -228,6 +364,10 @@ def command_advert(args):
         report.fail(where, f"{len(data)} bytes, not the 26 (0x1A) reserved bytes")
         return report
     version, flags, kind = struct.unpack_from("<HBB", data)
+    if version >= MODDED_VERSION:
+        report.ok(where, f"version word 0x{version:04x}: a Content Evolved modded game, whose 26 bytes are its "
+                  "own (nothing else checked)")
+        return report
     if version < LEGACY_OLDEST:
         report.fail(where, f"network version {version}: our clients join {LEGACY_OLDEST} and later")
     if flags & ~0x07:
@@ -239,12 +379,37 @@ def command_advert(args):
                     "or later sets it")
     if kind and version < 37:
         report.fail(where, f"game kind {kind} below version 37 (the byte was zero then)")
-    if any(data[17:26]):
-        report.fail(where, "bytes 17 to 25 (Delta's tag) are not zero: a port has no wire ID of its own, so it "
-                    "writes no tag")
-    if any(data[4:17]):
+    tag = data[TAG_OFFSET:]
+    said = "no Delta tag: our clients join by your number and say no HELLO"
+    if any(tag):
+        said = "the tag is not valid"
+        if tag[:2] != b"DL":
+            report.fail(where, "bytes 17 to 25 are neither zero nor a tag ('D', 'L' first)")
+        elif tag[8] != tag_check(tag):
+            report.fail(where, f"the tag's check is 0x{tag[8]:02x}, not 0x{tag_check(tag):02x} (0xA5 xor the "
+                        "eight bytes before)")
+        elif tag[3] == TAG_LAYOUT_WIRE:
+            report.fail(where, "a layout 1 tag names a wire, a revision of Chupathingy's own game code: a port "
+                        "host writes layout 2, with its project")
+        elif tag[3] != TAG_LAYOUT_PROJECT:
+            report.fail(where, f"tag layout {tag[3]}: a port host writes layout {TAG_LAYOUT_PROJECT}")
+        else:
+            project, project_version, spare = tag[4], tag[5] | tag[6] << 8, tag[7]
+            if tag[2] != MAJOR:
+                report.fail(where, f"the tag's major is {tag[2]}, not {MAJOR}: say the major you answer HELLO with")
+            if project <= 1:
+                report.fail(where, f"project {project}: {'none' if not project else 'Chupathingy, whose builds write layout 1'}; "
+                            "ask for your project's number (docs/delta/registry.md, Projects)")
+            elif project not in PROJECTS:
+                report.fail(where, f"project {project} is not in the registry: ask for a number, never pick one")
+            if spare:
+                report.fail(where, f"tag byte 7 (byte 24) is 0x{spare:02x}: reserved, write 0")
+            said = (f"a port host's tag: project {project} ({PROJECTS.get(project, 'not in the registry')}), its "
+                    f"version {project_version}; our clients say HELLO and join by your number")
+    if any(data[4:TAG_OFFSET]):
         report.warn(where, "bytes 4 to 16 are not zero (nothing is defined there for a port)")
-    report.ok(where, f"network version {version}, flags 0x{flags:02x}, kind {kind}")
+    (report.ok if not report.failed else report.seen)(where, f"network version {version}, flags 0x{flags:02x}, "
+                                                        f"kind {kind}; {said}")
     return report
 
 
@@ -278,10 +443,8 @@ def command_announce(args):
     return report
 
 
-def welcome(session, capabilities, legacy):
-    build = b"conformance host"
+def welcome(session, capabilities, legacy, build=b"conformance host", host_caps=0x03FBEDDF):
     key = bytes([3, 1, 0x02, 16, 128, 128, 12, 0])
-    host_caps = 0x03FBEDDF
     payload = struct.pack("<IIHBBI", host_caps, host_caps & capabilities & 1, legacy, 0xFF, len(build), 0xFFFFFFFF)
     payload += key + build + struct.pack("<I", 0)
     return struct.pack("<2sBBHHI", b"DP", MAJOR, 2, len(payload), 0, session) + payload
@@ -298,6 +461,20 @@ def command_listen(args):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("127.0.0.1", args.port))
     sock.settimeout(0.25)
+    build = b"conformance host"
+    offered = 0x03FBEDDF
+    if args.project is not None:
+        if args.project <= 1 or args.project > 255 or not 0 <= args.project_version <= 0xFFFF:
+            report.fail("listen", "--project is 2 to 255 (docs/delta/registry.md, Projects), --project-version 0 to 65535")
+            sock.close()
+            return report
+        name = PROJECTS.get(args.project, f"project {args.project}")
+        reserved = struct.pack("<HBB", args.announce, 0x01, 0) + bytes(13) + project_tag(args.project,
+                                                                                        args.project_version)
+        build = f"{name} test host {args.project_version}".encode("ascii", "replace")[:BUILD_MOST]
+        offered = 1
+        print(f"as a port host of {name} (project {args.project}), announcing {args.announce}; its advertisement's "
+              f"reserved bytes:\n{reserved.hex()}")
     print(f"listening on 127.0.0.1:{args.port} for {args.seconds} s (this machine only)")
     sessions = {}
     end = time.monotonic() + args.seconds
@@ -324,7 +501,7 @@ def command_listen(args):
             known = (source, result["session"]) in sessions
             sessions[(source, result["session"])] = {"machine": result["machine"], "key": key, "roster": 0.0,
                                                      "capabilities": result["capabilities"]}
-            sock.sendto(welcome(result["session"], result["capabilities"], result["legacy"]), source)
+            sock.sendto(welcome(result["session"], result["capabilities"], result["legacy"], build, offered), source)
             if not known:
                 welcomed += 1
         elif result["type"] == 5:
@@ -337,10 +514,244 @@ def command_listen(args):
     return report
 
 
+# ---------- layout facts by network version (layouts.json, delta_layout.c)
+
+LAYOUT_HEAD = 0x3320
+LAYOUT_OPTIONS = 0x1C
+LAYOUT_EXTENDED = 16
+LAYOUT_MAXIMUM = 13136 + 128
+LAYOUT_OPTIONS_MAXIMUM = 0x2C + 128
+EXTENDED_DEFAULTS = bytes([0, 0, 1, 150, 200, 5, 10, 1, 0, 1, 0, 0, 0, 0, 0, 0])
+
+
+def layouts_file(path=None):
+    if path:
+        return Path(path)
+    here = Path(__file__).resolve().parent
+    for candidate in (here.parent / "layouts.json", here.parent.parent / "docs" / "delta" / "layouts.json"):
+        if candidate.exists():
+            return candidate
+    raise SystemExit("conformance.py: no layouts.json beside the spec (give --layouts)")
+
+
+def load_layouts(path=None):
+    return json.loads(layouts_file(path).read_text())
+
+
+def table_facts(document, wire):
+    """a signed table's document's layouts for a wire, as (version, fact) oldest first"""
+    row = document.get("wires", {}).get(wire, {})
+    return sorted(((int(version), fact) for version, fact in row.get("layouts", {}).items()), key=lambda item: item[0])
+
+
+def layout_of(layouts, version, facts=()):
+    """a version's layout: layouts.json's (past its presumed, the newest's), then a table's facts past the
+    newest within delta_layout.c's limits; None before the oldest"""
+    newest_fact = max([v for v, _ in facts if v > layouts["newest"]] or [0])
+    if version < layouts["oldest"] or version > max(layouts["presumed"], newest_fact + 1):
+        return None
+    key = str(min(version, layouts["newest"])) if version > layouts["presumed"] else str(version)
+    layout = json.loads(json.dumps(layouts["versions"][key]))
+    layout["version"] = version
+    layout["refused"] = 0
+    if version <= layouts["newest"]:
+        return layout
+    for fact_version, fact in facts:
+        if fact_version <= layouts["newest"] or fact_version > version:
+            continue
+
+        def take(ok, field, value):
+            if ok:
+                layout[field] = value
+            else:
+                layout["refused"] += 1
+        if fact.get("options_size"):
+            growth = fact["options_size"] - layout["options_size"]
+            ok = growth >= 0 and fact["options_size"] <= LAYOUT_OPTIONS_MAXIMUM and \
+                layout["settings_size"] + growth <= LAYOUT_MAXIMUM
+            take(ok, "options_size", fact["options_size"])
+            if ok:
+                layout["settings_size"] += growth
+        if fact.get("settings_size"):
+            size = fact["settings_size"]
+            take(layout["settings_size"] <= size <= LAYOUT_MAXIMUM, "settings_size", size)
+        if fact.get("shield_effects_maximum"):
+            value = fact["shield_effects_maximum"]
+            take(layout["shield_effects_maximum"] <= value <= 15, "shield_effects_maximum", value)
+        if "join_request_extra" in fact:
+            ok = fact.get("join_request_fill", "zeros") == "zeros" and 0 <= fact["join_request_extra"] <= 1024
+            take(ok, "join_request_extra", fact["join_request_extra"])
+            at = layout["join_request_version_at"]
+            if ok and at is not None and at + 2 > layout["join_request_extra"]:
+                layout["join_request_version_at"] = None
+        if "join_request_version_at" in fact:
+            at = fact["join_request_version_at"]
+            take(isinstance(at, int) and 0 <= at and at + 2 <= layout["join_request_extra"], "join_request_version_at", at)
+        if fact.get("header_extra"):
+            value = fact["header_extra"]
+            take(value <= 8 and not (layout["epoch_kind"] and value < 4), "header_extra", value)
+        if fact.get("epoch_kind"):
+            value = fact["epoch_kind"]
+            take(layout["header_extra"] >= 4 and 93 <= value <= 255, "epoch_kind", value)
+        for part in fact.get("unit_state_parts", []):
+            ok = part.get("bit", 0) in (6, 7) and 1 <= part.get("size", 0) <= 64 and part.get("at") in ("after_up", "last")
+            if ok:
+                layout["unit_state_parts"] = [p for p in layout["unit_state_parts"] if p["bit"] != part["bit"]] + [part]
+            else:
+                layout["refused"] += 1
+        if fact.get("rider_ejection_up"):
+            value = fact["rider_ejection_up"]
+            take(value <= 999, "rider_ejection_up", value)
+        layout["dropped_messages"] = sorted(set(layout["dropped_messages"]) |
+                                            {kind for kind in fact.get("dropped_messages", []) if 1 <= kind <= 255})
+    layout["local_data_offset"] = LAYOUT_HEAD + layout["options_size"]
+    layout["trailing_size"] = layout["settings_size"] - layout["local_data_offset"] - 4
+    return layout
+
+
+def sanitize_extended(extended):
+    """delta_layout_extended_sanitize"""
+    out = bytearray(extended[:LAYOUT_EXTENDED])
+    out[0] = out[0] if out[0] <= 3 else 0
+    for index in (1, 7, 9):
+        out[index] = 1 if out[index] else 0
+    for index, (least, most, default) in {2: (1, 16, 1), 3: (100, 200, 150), 4: (100, 250, 200), 5: (1, 30, 5),
+                                          6: (0, 30, 10)}.items():
+        out[index] = out[index] if least <= out[index] <= most else default
+    out[8] = out[8] if out[8] <= 2 else 0
+    for index in range(10, LAYOUT_EXTENDED):
+        out[index] = 0
+    return bytes(out)
+
+
+def record_fits(size, options):
+    return LAYOUT_OPTIONS <= options <= LAYOUT_OPTIONS_MAXIMUM and LAYOUT_HEAD + options + 4 <= size <= LAYOUT_MAXIMUM
+
+
+def convert_record(record, from_options, to_size, to_options):
+    """delta_layout_convert: (the record made the other layout, the source's further options sanitized)"""
+    if not record_fits(len(record), from_options) or not record_fits(to_size, to_options):
+        return None, None
+    options = record[LAYOUT_HEAD:LAYOUT_HEAD + from_options]
+    extended = bytes(options[LAYOUT_OPTIONS + index] if LAYOUT_OPTIONS + index < from_options else EXTENDED_DEFAULTS[index]
+                     for index in range(LAYOUT_EXTENDED))
+    new_options = bytes(options[index] if index < from_options else
+                        EXTENDED_DEFAULTS[index - LAYOUT_OPTIONS] if LAYOUT_OPTIONS <= index < LAYOUT_OPTIONS + LAYOUT_EXTENDED
+                        else 0 for index in range(to_options))
+    local = record[LAYOUT_HEAD + from_options:LAYOUT_HEAD + from_options + 4]
+    tail = record[LAYOUT_HEAD + from_options + 4:]
+    to_tail = to_size - LAYOUT_HEAD - to_options - 4
+    out = record[:LAYOUT_HEAD] + new_options + local + (tail[:to_tail] + bytes(max(0, to_tail - len(tail))))
+    return out, sanitize_extended(extended)
+
+
+def record_field(layouts, layout, offset):
+    for field in layouts["record"]["fields"]:
+        if field["offset"] <= offset < field["offset"] + field["size"]:
+            extra = ""
+            if "element_size" in field:
+                extra = f"[{(offset - field['offset']) // field['element_size']}]"
+            return f"{field['name']}{extra} (+0x{offset - field['offset']:x})"
+    if offset < layout["local_data_offset"]:
+        return f"variant_options (+0x{offset - LAYOUT_HEAD:x})"
+    if offset < layout["local_data_offset"] + 4:
+        return "local_data"
+    return f"trailing (+{offset - layout['local_data_offset'] - 4})"
+
+
+def facts_for(args):
+    if not getattr(args, "table", None):
+        return ()
+    document = json.loads(Path(args.table).read_text())
+    return table_facts(document, args.wire)
+
+
+def command_layout(args):
+    report = Report()
+    layouts = load_layouts(args.layouts)
+    layout = layout_of(layouts, args.version, facts_for(args))
+    if layout is None:
+        report.fail("layout", f"network version {args.version} is before {layouts['oldest']}, which no reader joins")
+        return report
+    print(json.dumps(layout, indent=1))
+    if layout["refused"]:
+        report.warn("layout", f"{layout['refused']} table fact field(s) past the limits, not taken")
+    return report
+
+
+def command_record(args):
+    report = Report()
+    layouts = load_layouts(args.layouts)
+    layout = layout_of(layouts, args.version, facts_for(args))
+    where = f"record of {args.version}"
+    if layout is None:
+        report.fail(where, f"version {args.version} is before {layouts['oldest']}")
+        return report
+    record = Path(args.file).read_bytes()
+    options = args.options or layout["options_size"]
+    size = layout["settings_size"] + options - layout["options_size"]
+    if len(record) != size:
+        report.fail(where, f"{len(record)} bytes, not {size} (options 0x{options:x}, local data at {LAYOUT_HEAD + options})")
+        return report
+    report.ok(where, f"{size} bytes: options 0x{options:x} at 0x{LAYOUT_HEAD:x}, local data at {LAYOUT_HEAD + options}, "
+              f"{size - LAYOUT_HEAD - options - 4} trailing")
+    machines, players, maximum = struct.unpack_from("<h", record, 0x112)[0], struct.unpack_from("<h", record, 0x2314)[0], \
+        record[0x10E]
+    for name, value in (("machine_count", machines), ("player_count", players), ("maximum_players", maximum)):
+        if not 0 <= value <= 128:
+            report.fail(where, f"{name} {value}, outside 0 to 128")
+    if options >= LAYOUT_OPTIONS + LAYOUT_EXTENDED:
+        extended = record[LAYOUT_HEAD + LAYOUT_OPTIONS:LAYOUT_HEAD + LAYOUT_OPTIONS + LAYOUT_EXTENDED]
+        clean = sanitize_extended(extended)
+        if clean != extended:
+            names = [byte["name"] for byte in layouts["record"]["extended_options"]["bytes"]]
+            bad = [names[min(index, len(names) - 1)] for index in range(LAYOUT_EXTENDED) if clean[index] != extended[index]]
+            report.warn(where, f"further options out of range ({', '.join(sorted(set(bad)))}): a reader takes "
+                        "them sanitized")
+        else:
+            report.ok(where, f"further options: mode {extended[0]}, hardcore {extended[1]}")
+    trailing = record[LAYOUT_HEAD + options + 4:]
+    if trailing and any(trailing) and len(trailing) >= 64:
+        report.seen(where, "the trailing bytes carry MCC digests (an MCC map's game)")
+    return report
+
+
+def command_convert(args):
+    report = Report()
+    layouts = load_layouts(args.layouts)
+    facts = facts_for(args)
+    source, target = layout_of(layouts, args.source, facts), layout_of(layouts, args.target, facts)
+    where = f"{args.source} to {args.target}"
+    if source is None or target is None:
+        report.fail(where, "a version before the oldest")
+        return report
+    record = Path(args.input).read_bytes()
+    from_options = args.options or source["options_size"]
+    out, extended = convert_record(record, from_options, target["settings_size"], target["options_size"])
+    if out is None:
+        report.fail(where, f"{len(record)} bytes is not a record with options 0x{from_options:x}")
+        return report
+    Path(args.output).write_bytes(out)
+    report.ok(where, f"{len(record)} bytes to {len(out)}; further options mode {extended[0]}, hardcore {extended[1]}")
+    if args.expect:
+        theirs = Path(args.expect).read_bytes()
+        if len(theirs) != len(out):
+            report.fail(where, f"the port's record is {len(theirs)} bytes, not {len(out)}")
+        else:
+            differ = next((index for index in range(len(out)) if out[index] != theirs[index]), None)
+            if differ is None:
+                report.ok(where, "the port's conversion matches byte for byte")
+            else:
+                report.fail(where, f"the port's conversion differs first at {differ}, "
+                            f"{record_field(layouts, target, differ)}: 0x{theirs[differ]:02x}, not 0x{out[differ]:02x}")
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser("check")
+    check.add_argument("--host", action="store_true", help="the datagrams are a host's, to its clients")
     check.add_argument("files", nargs="+")
     advert = sub.add_parser("advert")
     advert.add_argument("hex")
@@ -349,9 +760,31 @@ def main():
     listen = sub.add_parser("listen")
     listen.add_argument("--port", type=int, default=5160)
     listen.add_argument("--seconds", type=float, default=60.0)
+    listen.add_argument("--project", type=int, help="act as a port host of this project (docs/delta/registry.md, Projects)")
+    listen.add_argument("--project-version", type=int, default=0)
+    listen.add_argument("--announce", type=int, default=44, help="the network version its advertisement says")
+    for name in ("layout", "record", "convert"):
+        command = sub.add_parser(name)
+        if name == "convert":
+            command.add_argument("source", type=int)
+            command.add_argument("target", type=int)
+            command.add_argument("input")
+            command.add_argument("output")
+            command.add_argument("--expect", help="a port's own conversion, to compare")
+        else:
+            command.add_argument("version", type=int)
+            if name == "record":
+                command.add_argument("file")
+        if name != "layout":
+            command.add_argument("--options", type=lambda text: int(text, 0), help="the source's options' bytes, "
+                                 "for another project's row (Content Evolved's 0x58 at 44)")
+        command.add_argument("--layouts", help="layouts.json (the spec's, by default)")
+        command.add_argument("--table", help="a signed table's document (legacy.json), for its layouts")
+        command.add_argument("--wire", default="chupa-44b", help="the table's wire whose layouts to apply")
     args = parser.parse_args()
     report = {"check": command_check, "advert": command_advert, "announce": command_announce,
-              "listen": command_listen}[args.command](args)
+              "listen": command_listen, "layout": command_layout, "record": command_record,
+              "convert": command_convert}[args.command](args)
     print(f"{'FAILED' if report.failed else 'passed'}: {report.failed} failure(s), {report.warned} warning(s)")
     return 1 if report.failed else 0
 

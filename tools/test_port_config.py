@@ -153,7 +153,7 @@ NEW = {"display.menus": "chupathingy"}
 # the macros each kind of build is compiled with; the others are not macOS
 # (whose own defaults the native build checks on a Mac)
 DEFINES = {
-	"desktop": ["-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
+	"desktop": ["-DHALO_64BIT", "-DHALO_GAME_BROWSER", "-DHALO_BGFX"],
 	"desktop32": ["-U__APPLE__", "-DHALO_GAME_BROWSER"],
 	"android": ["-U__APPLE__", "-DHALO_ANDROID", "-DHALO_GAME_BROWSER"],
 	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
@@ -239,6 +239,7 @@ def build(cc, kind, directory):
 	shutil.copy(ROOT / "port/linux/src/port_config.c", source)
 	shutil.copy(ROOT / "port/linux/src/port_config.h", source)
 	shutil.copy(ROOT / "port/linux/src/packaged_install.h", source)
+	shutil.copy(ROOT / "port/linux/src/config_template_repair.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_limits.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_capacity.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_features.h", source)
@@ -941,6 +942,34 @@ def test_interrupted_write(program, directory, defaults, kind):
 	check(not (case.folder / "config.toml.new").exists(), "after: config.toml.new left beside the file")
 
 
+def test_long_string_write(program, directory, defaults, kind):
+	"""a string value is written whole, its quotes and backslashes escaped,
+	however many it has (the longest taken, all quotes, twice as long in the
+	file); a longer one is refused, said in the log, and the file stays as
+	it was"""
+	if kind not in ("desktop", "desktop32"):
+		return
+	case = Case(program, directory / "long_string")
+	fresh_file(case, kind)
+	longest = '"\\' * 128
+	values, output = case.run("write", "display.window_size", longest)
+	check("write failed" not in output, f"long string: the longest value was refused: {output[-200:]}")
+	check(values["display.window_size"] == longest, "long string: the value read back differs")
+	written, _ = value_lines(case.text(), "window_size")
+	check(written == ['window_size = "' + longest.replace("\\", "\\\\").replace('"', '\\"') + '"'],
+		f"long string: the file's line is {[line[:80] for line in written]}")
+	values, _ = case.get("display.window_size", "display.vsync")
+	check(values["display.window_size"] == longest, "long string: the value read again differs")
+	before = case.text()
+	for length in (257, 4000):
+		values, output = case.run("write", "display.window_size", "x" * length)
+		check("write failed" in output, f"too long ({length}): the value was taken")
+		check(f"display.window_size not written: its value is {length} characters" in output,
+			f"too long ({length}): nothing said in the log")
+		check(case.text() == before, f"too long ({length}): config.toml changed")
+		check(values["display.window_size"] == longest, f"too long ({length}): the value changed")
+
+
 def test_layout(program, directory, defaults, kind):
 	"""A new file's layout: the top block, each section once with its note,
 	the everyday sections first, and the advanced ones ([debug], and
@@ -1186,6 +1215,31 @@ def test_follow_file(program, directory, defaults, kind):
 	# (generous: a call is a few nanoseconds; a clock call or a file look
 	# on every call would be many times this)
 	check(float(match.group(1)) < 200.0, f"follow/{kind}: config_changes takes {match.group(1)} ns a call")
+
+
+def test_renderer_round_trip(program, directory, defaults, kind):
+	"""The renderer the setup screen chooses (display.renderer, written as
+	its RENDERER row writes it) is what the next start reads (#1665: the
+	setup screen starts the game again for it, a new process), and choosing
+	OpenGL again goes back the same way."""
+	# (the bgfx builds': DEFINES' desktop has HALO_BGFX, as the Windows,
+	# Mac and Linux 64-bit builds do)
+	if kind != "desktop":
+		return
+	case = Case(program, directory / "renderer")
+	fresh_file(case, kind)
+	values, _ = case.get("display.renderer")
+	check(values["display.renderer"] == "gl", f"renderer/{kind}: the default is {values['display.renderer']}")
+	for chosen in ("bgfx", "d3d11", "gl"):
+		case.run("write", "display.renderer", chosen)
+		values, _ = case.get("display.renderer")
+		check(values["display.renderer"] == chosen, f"renderer/{kind}: wrote {chosen}, read {values['display.renderer']}")
+		lines, _ = value_lines(case.text(), "renderer")
+		check(lines == [f'renderer = "{chosen}"'], f"renderer/{kind}: {chosen}: the file has {lines}")
+		# (and the question about new defaults leaves the player's choice)
+		case.run("answer", "new")
+		values, _ = case.get("display.renderer")
+		check(values["display.renderer"] == chosen, f"renderer/{kind}: {chosen} became {values['display.renderer']}")
 
 
 # the [tuning] lines (port_config.c's config_tuning_apply): short, stable,
@@ -1459,6 +1513,30 @@ def test_xbox_tuning(program, directory):
 		f"xbox/tuning: particles {values} {tuning_lines(output)}")
 
 
+def test_xbox_retired_console_settings(program, directory):
+	"""console.simulate_64mb and console.large_caches, retired with nothing
+	in their place (config_renamed in port_config.c): a new Xbox file does not
+	list them, and an older one that has them loads without a word about an
+	unknown setting, their lines (help text too) taken out once."""
+	case = Case(program, directory / "xbox_retired")
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	check("simulate_64mb" not in text and "large_caches" not in text, "xbox/retired: a new file lists them")
+	old = ("\n# No longer used. A devkit gets 64 MB from the XBE's own flag now, set\n"
+		"# with tools/xbox_package.py --devkit-64mb.\nsimulate_64mb = true\n"
+		"\n# No longer used. A console with 128 MB or more gets the larger caches\n"
+		"# on its own now (console.memory_class).\n# large_caches = false\n")
+	check("\n[console]\n" in text, "xbox/retired: no [console]")
+	case.path.write_text(text.replace("\n[console]\n", "\n[console]\n" + old, 1))
+	values, output = case.get("console.debug_geometry")
+	check("unknown setting" not in output and "cannot be read" not in output, f"xbox/retired: {output}")
+	after = case.text()
+	check("simulate_64mb" not in after and "large_caches" not in after and "No longer used" not in after,
+		"xbox/retired: the old lines stay")
+	case.get("console.debug_geometry")
+	check(case.text() == after, "xbox/retired: the file changed on the next start")
+
+
 def test_xbox_follows_new_defaults(program, directory):
 	"""The original Xbox has no screen to ask about new defaults on: a file it
 	wrote before one changed, the setting commented out at the old default,
@@ -1498,7 +1576,7 @@ def main():
 	with tempfile.TemporaryDirectory() as directory:
 		directory = Path(directory)
 		program = build(arguments.cc, "xbox", directory / "xbox")
-		for test in (test_xbox_follows_new_defaults, test_xbox_tuning):
+		for test in (test_xbox_follows_new_defaults, test_xbox_tuning, test_xbox_retired_console_settings):
 			try:
 				test(program, directory / "xbox" / "cases")
 				print(f"ok   xbox: {test.__name__}")
@@ -1513,8 +1591,8 @@ def main():
 			for test in (test_unique_settings, test_new_file, test_previous_release_file, test_answered_first_question,
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
-				test_retired_setting, test_delta_renamed, test_interrupted_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
-				test_server_file, test_follow_file, test_tuning, test_tuning_drawing_knobs):
+				test_retired_setting, test_delta_renamed, test_interrupted_write, test_long_string_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
+				test_server_file, test_follow_file, test_tuning, test_tuning_drawing_knobs, test_renderer_round_trip):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

@@ -154,6 +154,12 @@ static void _game_engine_play_multiplayer_sound(
 
 	global_scenario_get();
 	game_globals = (struct game_globals_multiplayer_sound_view *)scenario_get_game_globals();
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: a campaign mission's globals have no multiplayer information (a
+	Forge game on one, port/linux/game/forge_ai.inc): no announcer */
+	if (game_globals->multiplayer_information.count <= 0)
+		return;
+#endif
 	multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 		&game_globals->multiplayer_information,
 		0,
@@ -211,6 +217,11 @@ static long get_sound_length_in_ticks(
 
 	global_scenario_get();
 	game_globals = (struct game_globals_multiplayer_sound_view *)scenario_get_game_globals();
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: none on a campaign mission (above) */
+	if (game_globals->multiplayer_information.count <= 0)
+		return 0;
+#endif
 	multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 		&game_globals->multiplayer_information,
 		0,

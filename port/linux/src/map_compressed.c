@@ -30,6 +30,7 @@ SPDX-License-Identifier: GPL-3.0-only
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../game/content_bytes.h"
 
 /* ---------- constants */
 
@@ -48,12 +49,6 @@ enum
 #define COMPRESSED_VERSION_MARK 0x861A0000u
 
 /* ---------- private code */
-
-static unsigned int little_long(const unsigned char *bytes)
-{
-	return (unsigned int)bytes[0] | ((unsigned int)bytes[1] << 8) | ((unsigned int)bytes[2] << 16) |
-		((unsigned int)bytes[3] << 24);
-}
 
 static void set_little_long(unsigned char *bytes, unsigned int value)
 {
@@ -87,9 +82,9 @@ unsigned int map_compressed_version(const unsigned char *header)
 {
 	unsigned int version;
 
-	if (!header || little_long(header) != HEADER_SIGNATURE)
+	if (!header || content_u32le(header) != HEADER_SIGNATURE)
 		return 0;
-	version = little_long(header + HEADER_VERSION_OFFSET);
+	version = content_u32le(header + HEADER_VERSION_OFFSET);
 	if ((version & COMPRESSED_VERSION_MARK) != COMPRESSED_VERSION_MARK)
 		return 0;
 	version &= ~COMPRESSED_VERSION_MARK;
@@ -116,9 +111,9 @@ int map_compressed_expand(const struct map_compressed_io *io, unsigned int maxim
 	if (io->compressed_size < MAP_COMPRESSED_HEADER_SIZE || !io->read(io->context, 0, header, sizeof(header)))
 		return refuse(error, error_size, "it is too short to be a map");
 	version = map_compressed_version(header);
-	if (!version || little_long(header + FOOTER_OFFSET) != FOOTER_SIGNATURE)
+	if (!version || content_u32le(header + FOOTER_OFFSET) != FOOTER_SIGNATURE)
 		return refuse(error, error_size, "it is not a compressed Custom Edition or Halo PC map");
-	stated_size = little_long(header + HEADER_FILE_SIZE_OFFSET);
+	stated_size = content_u32le(header + HEADER_FILE_SIZE_OFFSET);
 	if (stated_size <= MAP_COMPRESSED_HEADER_SIZE)
 		stated_size = 0;
 	if (stated_size > maximum_size)

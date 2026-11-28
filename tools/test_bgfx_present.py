@@ -5,8 +5,17 @@ frame's transient vertices. A busy view could use those up first, and the
 present then showed only its clear: the whole window, HUD included, went
 black for as long as that view lasted. The present's quad and the channel
 clear's are vertex buffers of their own now, made once, so a frame that runs
-out of transient room loses some of its draws but still shows its picture,
-and the draws it loses are counted (debug.gpu_stats) and logged once.
+out of transient room still shows its picture.
+
+A draw past the frame's transient vertices or indices (SPV3's b30, #1801)
+is drawn from buffers of its own, made for it and let go after its submit,
+rather than left out; only a draw bgfx has no buffer left for is left out.
+Both are counted (debug.gpu_stats) and logged once. What ran them out there:
+the vertex cache kept one copy of a range, and a level whose passes draw
+the same range with different values in the registers its streams leave out
+had it converted again each pass, which the rewrite count took for a range
+the game keeps writing, and the whole level streamed. A range now keeps a
+few such copies (BG_VERTEX_VARIANTS), and bgfx has room for more buffers.
 """
 from pathlib import Path
 
@@ -57,3 +66,57 @@ def test_overlay_room_left_by_the_scene():
 	assert "#define BG_OVERLAY_RESERVE_VERTICES" in source
 	draw = function_body(source, "static void bg_draw(")
 	assert "vertex_count + BG_OVERLAY_RESERVE_VERTICES" in draw
+
+
+def test_draws_past_transient_room_get_their_own_buffers():
+	"""#1801: a dense map's draws past the transient buffers are drawn, from
+	buffers of their own, rather than dropped"""
+	draw = function_body(read(), "static void bg_draw(")
+	short = draw.index("bgfx_get_avail_transient_vertex_buffer((uint32_t)(vertex_count + BG_OVERLAY_RESERVE_VERTICES)")
+	made = draw.index("own_vertices = bgfx_create_vertex_buffer(memory, &bg.layout, BGFX_BUFFER_NONE);")
+	assert short < made
+	assert draw.index("own_indices = bgfx_create_index_buffer(memory, BGFX_BUFFER_NONE);") > short
+	# (immediate vertices copied, a stream's converted, as the transient path's)
+	assert "memcpy(memory->data, device.immediate_vertices, vertex_count * BG_VERTEX_BYTES);" in draw
+	assert "bg_vertices_convert(memory->data, declaration, first, vertex_count);" in draw
+	assert "bg_indices(type, indices, indices ? index_count : vertex_count, rebase, (WORD *)memory->data);" in draw
+	# (set in the transient ones' place, and let go after the submit)
+	assert "bgfx_set_vertex_buffer(0, own_vertices, 0, (uint32_t)vertex_count);" in draw
+	assert "bgfx_set_index_buffer(own_indices, 0, (uint32_t)generated);" in draw
+	submit = draw.index("bgfx_submit(bg.view, handle, 0, BGFX_DISCARD_ALL);")
+	assert draw.index("bgfx_destroy_vertex_buffer(own_vertices);", submit) > submit
+	assert draw.index("bgfx_destroy_index_buffer(own_indices);", submit) > submit
+	# (left out only when no buffer could be made; one made is let go then)
+	starved = draw.index("if (starved)")
+	assert starved < draw.index("bg.stat_starved++;", starved) < draw.index("return;", starved)
+	assert draw.index("bgfx_destroy_vertex_buffer(own_vertices);", starved) < draw.index("return;", starved)
+	assert "bg.stat_overflow++;" in draw
+	assert "bg.stat_overflow / 60" in function_body(read(), "static void bg_present(")
+
+
+def test_transient_size_for_tests():
+	start = function_body(read(), "static BOOL bg_start(")
+	assert "init.limits.maxTransientVbSize = 64u << 20;" in start
+	assert 'getenv("HALO_BGFX_TRANSIENT_MB")' in start
+
+
+def test_vertex_cache_keeps_copies_for_left_out_registers():
+	source = read()
+	assert "#define BG_VERTEX_VARIANTS 4" in source
+	get = function_body(source, "static bgfx_vertex_buffer_handle_t bg_vertex_cache_get(")
+	# (a match needs the same values; another copy until there are as many
+	# as allowed, then the least used is converted again)
+	assert "if (bg_vertex_attributes_match(entry, provided))" in get
+	assert "if (!entry && variants >= BG_VERTEX_VARIANTS)" in get
+	assert "entry = least_used;" in get
+	# (a new copy starts with the values it is made with: not a rewrite)
+	made = get.index("entry = calloc(1, sizeof(*entry));")
+	assert get.index("memcpy(entry->attributes[index], device.attributes[index], 4 * sizeof(float));", made) > made
+	match = function_body(source, "static BOOL bg_vertex_attributes_match(")
+	assert "!(provided & (1U << index))" in match
+
+
+def test_bgfx_has_room_for_the_buffers():
+	build = (ROOT / "tools" / "bgfx_build.py").read_text(encoding="utf-8")
+	assert '"-DBGFX_CONFIG_MAX_VERTEX_BUFFERS=16384"' in build
+	assert '"-DBGFX_CONFIG_MAX_INDEX_BUFFERS=16384"' in build

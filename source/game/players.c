@@ -1504,7 +1504,14 @@ static void player_spawn(
 				struct game_globals_player_information);
 			if (player_information->player_unit.index != NONE)
 			{
+#ifndef HALO_CONSOLE_NO_FORGE
+				/* port: a campaign mission's globals have no multiplayer
+				information (a Forge game on one, port/linux/game/forge_ai.inc):
+				its players are the campaign's unit */
+				if (game_engine_running() && game_globals->multiplayer_information.count > 0)
+#else
 				if (game_engine_running())
+#endif
 				{
 					multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 						&game_globals->multiplayer_information,
@@ -4533,7 +4540,8 @@ void player_add_equipment(
 	if (unit_index != NONE && starting_profile_index != NONE)
 	{
 		unit = unit_try_and_get(unit_index);
-		if (unit->unit.player_index != NONE)
+		/* port: a unit deleted since the script had it is none (#1861) */
+		if (unit && unit->unit.player_index != NONE)
 		{
 			scenario = global_scenario_get();
 			starting_profile = TAG_BLOCK_GET_ELEMENT(

@@ -69,6 +69,9 @@ enum join_reason
 #define JOIN_REASON_NOT_OPEN "Not taking players right now."
 #define JOIN_REASON_FULL "Game is full."
 #define JOIN_REASON_PASSWORD "Password needed."
+/* a game with a password joined by its address (Direct IP), which has no
+password to give: what the player can do */
+#define JOIN_REASON_PASSWORD_INVITE "This game has a password. Join it from its invite."
 #define JOIN_REASON_NO_ANSWER "The host didn't answer."
 #define JOIN_REASON_NO_CONNECTION "Couldn't connect to the host."
 #define JOIN_REASON_CONSOLE_FULL "This game has more players than this console can hold."
@@ -116,6 +119,9 @@ state: -1 older, 1 newer) */
 #define JOIN_HINT_UPDATE "Update Chupathingy to join this game."
 #define JOIN_HINT_HOST_UPDATE "Ask the host to update."
 #define JOIN_HINT_NO_CONNECTION "The host can forward its UDP port or turn on UPnP."
+/* another project's game this build doesn't play (network_rules.h, "other
+projects' hosts": the reason is its own sentence), whose plain games it does */
+#define JOIN_HINT_FORK_PLAIN "Ask the host for a plain game."
 /* a failed connection's reason and hint, as one line */
 #define JOIN_REASON_NO_CONNECTION_LINE JOIN_REASON_NO_CONNECTION " " JOIN_HINT_NO_CONNECTION
 

@@ -672,7 +672,7 @@
      "art": "hud__bitmaps__combined__hud_ammo_type_icons__1.png",
      "source_scale": 4,
      "source": [
-      1,
+      0,
       0
      ],
      "clip": [
@@ -707,7 +707,7 @@
      "source_scale": 4,
      "source": [
       0,
-      1
+      0
      ],
      "clip": [
       0,
@@ -740,8 +740,8 @@
      "art": "hud__bitmaps__combined__hud_ammo_type_icons__3.png",
      "source_scale": 4,
      "source": [
-      -1,
-      -1
+      0,
+      0
      ],
      "clip": [
       0,
@@ -774,7 +774,7 @@
      "art": "hud__bitmaps__combined__hud_ammo_type_icons__4.png",
      "source_scale": 4,
      "source": [
-      1,
+      0,
       0
      ],
      "clip": [
@@ -830,7 +830,7 @@
      "art": "hud__bitmaps__combined__hud_counter_numbers.png",
      "source_scale": 4,
      "source": [
-      1,
+      0,
       96
      ],
      "clip": [
@@ -852,7 +852,7 @@
      "art": "hud__bitmaps__combined__hud_counter_numbers.png",
      "source_scale": 4,
      "source": [
-      2,
+      0,
       0
      ],
      "clip": [
@@ -874,7 +874,7 @@
      "art": "hud__bitmaps__combined__hud_counter_numbers.png",
      "source_scale": 4,
      "source": [
-      145,
+      144,
       0
      ],
      "clip": [
@@ -896,7 +896,7 @@
      "art": "hud__bitmaps__combined__hud_counter_numbers.png",
      "source_scale": 4,
      "source": [
-      1,
+      0,
       48
      ],
      "clip": [
@@ -918,7 +918,7 @@
      "art": "hud__bitmaps__combined__hud_counter_numbers.png",
      "source_scale": 4,
      "source": [
-      289,
+      288,
       0
      ],
      "clip": [
@@ -940,7 +940,7 @@
      "art": "hud__bitmaps__combined__hud_counter_numbers.png",
      "source_scale": 4,
      "source": [
-      218,
+      216,
       0
      ],
      "clip": [
@@ -962,8 +962,8 @@
      "art": "hud__bitmaps__combined__hud_counter_numbers.png",
      "source_scale": 4,
      "source": [
-      286,
-      49
+      288,
+      48
      ],
      "clip": [
       288,
@@ -1006,7 +1006,7 @@
      "art": "hud__bitmaps__combined__hud_counter_numbers.png",
      "source_scale": 4,
      "source": [
-      361,
+      360,
       0
      ],
      "clip": [
@@ -1028,8 +1028,8 @@
      "art": "hud__bitmaps__combined__hud_counter_numbers.png",
      "source_scale": 4,
      "source": [
-      213,
-      50
+      216,
+      48
      ],
      "clip": [
       216,
@@ -1050,8 +1050,8 @@
      "art": "hud__bitmaps__combined__hud_counter_numbers.png",
      "source_scale": 4,
      "source": [
-      431,
-      52
+      432,
+      48
      ],
      "clip": [
       432,
@@ -1072,8 +1072,8 @@
      "art": "hud__bitmaps__combined__hud_counter_numbers.png",
      "source_scale": 4,
      "source": [
-      368,
-      49
+      360,
+      48
      ],
      "clip": [
       360,

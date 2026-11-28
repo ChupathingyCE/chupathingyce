@@ -34,6 +34,7 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #ifdef HALO_DELTA_PEER_IDENTITY
 #include "identity.h"
 #include "identity_key.h"
+#include "networks_game.h"
 #include "delta_profile.h"
 #include <time.h>
 /* (port/linux/game/profile_names.c's: the account a local player of this
@@ -447,9 +448,15 @@ static void identity_revoked_changed(void)
 	static int changes;
 	int now_changes = browser_identity_revoked_changes();
 
-	if (now_changes != changes)
+	static unsigned long networks_seen;
+	unsigned long networks_now = networks_generation();
+
+	/* (and a newer list of networks: a network no longer trusted shows its
+	players by their game names again) */
+	if (now_changes != changes || networks_now != networks_seen)
 	{
 		changes = now_changes;
+		networks_seen = networks_now;
 		delta_peer_identity_recheck(&delta_game.peer);
 	}
 #endif
@@ -465,9 +472,10 @@ static int game_identity_check(void *context, const struct delta_wire_id_proof *
 	const char *binding, int binding_length, int machine_index, unsigned long age, struct delta_peer_identity *identity)
 {
 	struct identity_device device;
-	unsigned char message[IDENTITY_PROOF_MESSAGE_MOST];
+	unsigned char message[IDENTITY_PROOF_MESSAGE_MOST], roots[NETWORKS_ROOTS_MOST][NETWORKS_KEY_SIZE];
+	char network[NETWORKS_DOMAIN_SIZE];
 	time_t now = time(NULL);
-	int size;
+	int size, root_count = 0, which;
 
 	(void)context;
 	/* (signed lately by the signer's clock, as this machine's has it: an old
@@ -478,16 +486,28 @@ static int game_identity_check(void *context, const struct delta_wire_id_proof *
 	{
 		return 0;
 	}
+	/* (its network: the trusted one whose root key signed its issuer
+	certificate, the home network's first; then the chain checked as ever,
+	with that network's root keys alone. Today's certificates are the home
+	network's, checked against its built-in keys exactly as before) */
+	which = networks_check_issuer(proof->issuer, machine_index, (unsigned long)now, network, roots, &root_count);
+	if (!which)
+		return 0;
 	size = identity_proof_message(nonce, binding, binding_length, machine_index, proof->local_player, device.serial,
 		proof->flags, proof->time, proof->tag, proof->tag_length, message);
 	if (size <= 0 || identity_check_proof(proof->issuer, IDENTITY_ISSUER_SIZE, proof->certificate,
-		proof->certificate_length, identity_root_keys, IDENTITY_ROOT_KEY_COUNT, NULL, (unsigned long)now, message,
-		size, proof->signature, &device) != IDENTITY_OK ||
-		browser_identity_revoked(device.device_id))
+		proof->certificate_length, (const unsigned char (*)[IDENTITY_KEY_SIZE])roots, root_count, NULL,
+		(unsigned long)now, message, size, proof->signature, &device) != IDENTITY_OK)
 	{
 		return 0;
 	}
+	/* (the home network's revocation list; another network's isn't read in
+	this version: its 7-day certificates are the limit) */
+	if (which == 1 && browser_identity_revoked(device.device_id))
+		return 0;
 	memset(identity, 0, sizeof(*identity));
+	snprintf(identity->network, sizeof(identity->network), "%s", network);
+	identity->other_network = which == 2;
 	memcpy(identity->account, device.account, sizeof(identity->account));
 	memcpy(identity->device_id, device.device_id, sizeof(identity->device_id));
 	memcpy(identity->device_key, device.public_key, sizeof(identity->device_key));
@@ -1386,8 +1406,10 @@ int delta_peer_game_machine_identity_text(int machine_index, char *text, int siz
 	text[0] = 0;
 	for (local = 0; local < DELTA_WIRE_IDENTITY_LOCAL_PLAYERS; local++)
 	{
+		/* (another network's player: never a ban of an account here, whose
+		IDs are this network's) */
 		if (!delta_peer_game_player_identity(machine_index, local, &identity) || !identity.bound ||
-			used + 40 >= size)
+			identity.other_network || used + 40 >= size)
 		{
 			continue;
 		}
@@ -1479,16 +1501,6 @@ unsigned delta_peer_game_machine_modes(int machine_index)
 	return (unsigned)delta_peer_machine_modes(&delta_game.peer, machine_index);
 }
 
-unsigned delta_peer_game_host_modes(void)
-{
-	if (!delta_game.ready || delta_game.role != _role_client ||
-		delta_game.peer.client_state != _delta_peer_client_delta)
-	{
-		return 0;
-	}
-	return (unsigned)delta_game.peer.welcome.modes;
-}
-
 int delta_peer_game_player_has(int player_index, int capability)
 {
 	struct delta_peer_machine machine;
@@ -1549,23 +1561,6 @@ int delta_peer_game_under_floor(int *oldest)
 	if (oldest)
 		*oldest = delta_platform_floor(platform);
 	return delta_platform_floor_refuses(platform, (int)network_rules_layout_newest());
-}
-
-int delta_peer_game_room_has(int capability)
-{
-	return delta_game.ready && delta_game.role != _role_none && delta_peer_room_has(&delta_game.peer, capability);
-}
-
-int delta_peer_game_room_limit(int limit)
-{
-	return delta_game.ready && delta_game.role != _role_none ? delta_peer_room_limit(&delta_game.peer, limit) :
-		DELTA_PEER_NO_LIMIT;
-}
-
-int delta_peer_game_client_state(void)
-{
-	return delta_game.ready && delta_game.role == _role_client ? delta_game.peer.client_state :
-		_delta_peer_client_off;
 }
 
 /* ---------- Delta List (browser.c) */
@@ -1778,13 +1773,6 @@ int delta_peer_game_chat_ready(void)
 	return delta_game.ready && delta_game.role == _role_client && delta_peer_client_chat_ready(&delta_game.peer);
 }
 
-int delta_peer_game_chat_server_messages(void)
-{
-	return delta_game.ready && delta_game.role == _role_client &&
-		delta_game.peer.client_state == _delta_peer_client_delta &&
-		(delta_game.peer.agreed & ((delta_u32)1 << _delta_capability_server_messages));
-}
-
 unsigned int delta_peer_game_chat_say(int scope, const char *text, int length)
 {
 	if (!delta_game.ready || delta_game.role != _role_client)
@@ -1897,12 +1885,6 @@ int delta_peer_game_voice_config(struct delta_wire_voice_config *config)
 	if (delta_game.role == _role_client)
 		return delta_peer_client_voice_config(&delta_game.peer, GetTickCount(), config);
 	return 0;
-}
-
-int delta_peer_game_voice_talking(int machine_index)
-{
-	return delta_game.ready && delta_game.role == _role_host &&
-		delta_peer_voice_talking(&delta_game.peer, GetTickCount(), machine_index);
 }
 
 void delta_peer_game_set_team_host(const struct delta_peer_team_host *host)
@@ -2060,17 +2042,3 @@ void delta_peer_game_set_objects_client(const struct delta_peer_objects_client *
 	delta_peer_set_objects_client(&delta_game.peer, client);
 }
 
-int delta_peer_game_client_badge(struct delta_wire_badge *badge, delta_u32 *host_ipv4, delta_u32 *waited)
-{
-	delta_u32 start = 0;
-	int state;
-
-	if (!delta_game.ready || delta_game.role != _role_client)
-		return _delta_peer_badge_none;
-	state = delta_peer_client_badge(&delta_game.peer, badge, &start);
-	if (host_ipv4)
-		*host_ipv4 = delta_game.peer.host_ipv4;
-	if (waited)
-		*waited = GetTickCount() - start;
-	return state;
-}

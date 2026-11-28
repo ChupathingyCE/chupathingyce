@@ -63,6 +63,10 @@ symbols in this file:
 #include "interface/terminal.h"
 #include "math/real_math.h"
 #include "lua_scripting.h"
+#ifdef HALO_GAME_BROWSER
+/* port: connect (port/linux/game/direct_join.c) */
+void direct_join_console(char const *arguments);
+#endif
 
 /* ---------- constants */
 
@@ -516,6 +520,35 @@ static boolean console_process_command(
 	}
 #endif
 
+#ifdef HALO_GAME_BROWSER
+	/* port: connect <address>[:port], Halo PC's, joins the game there
+	(port/linux/game/direct_join.c). An address typed is input only: the
+	scrollback shows the command without it, and the history (kept in a
+	file) leaves the line out */
+	{
+		char const *trimmed = command;
+
+		while (*trimmed == ' ' || *trimmed == '(')
+			trimmed++;
+		if (!strncmp(trimmed, "connect", 7) && (trimmed[7] == ' ' || trimmed[7] == '\t' || !trimmed[7]))
+		{
+			char arguments[300];
+			long length;
+
+			csstrncpy(arguments, trimmed + 7, sizeof(arguments) - 1);
+			arguments[sizeof(arguments) - 1] = 0;
+			for (length = (long)strlen(arguments); length > 0 &&
+				(arguments[length - 1] == ')' || arguments[length - 1] == ' '); length--)
+			{
+				arguments[length - 1] = 0;
+			}
+			terminal_echo_command(arguments[strspn(arguments, " \t")] ? "connect ..." : "connect");
+			direct_join_console(arguments);
+			csmemset(arguments, 0, sizeof(arguments));
+			return TRUE;
+		}
+	}
+#endif
 	newest_previous_command_index = (console_globals.newest_previous_command_index + 1) % MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS;
 
 	console_globals.newest_previous_command_index = newest_previous_command_index;

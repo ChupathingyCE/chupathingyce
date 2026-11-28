@@ -1,9 +1,11 @@
-"""SPV3 mode's map survey (port/linux/game/spv3_mode.c, spv3_mode_survey) on
-tag data no map tool would write: a tag count whose size wraps in 32 bits, a
-tag index, scenario, structure BSPs or script nodes outside the tag data, and
-a BSP whose end wraps. The survey reads only inside the tag data and says
-where it stopped. spv3_mode.c is compiled alone through the 64-bit builds'
-rewrite of long (tools/lp64_rewrite.py: an unsigned long is 32 bits there, as
+"""The survey of an OpenSauce map (port/linux/game/opensauce_survey.c,
+opensauce_survey_map), which SPV3 mode also runs on every map, on tag data
+no map tool would write: a tag count whose size wraps in 32 bits, a tag
+index, scenario, structure BSPs or script nodes outside the tag data, and a
+BSP whose end wraps. The survey reads only inside the tag data and says
+where it stopped. Outside SPV3 mode it logs a map with OpenSauce's header
+("opensauce:") and not one without. opensauce_survey.c and spv3_mode.c are
+compiled alone through the 64-bit builds' rewrite of long (tools/lp64_rewrite.py: an unsigned long is 32 bits there, as
 on Windows and the 32-bit builds), with the sanitizers where the compiler has
 them, and stand-ins for the game's headers."""
 import shutil
@@ -32,8 +34,19 @@ HARNESS = r"""#include <stdarg.h>
 #include <stdlib.h>
 #include "cseries.h"
 #include "cseries/cseries_windows.h"
+#include "opensauce_maps.h"
+#include "opensauce_survey.h"
 #include "spv3_mode.h"
-char const *map_pack_menus(void) { return "spv3"; }
+/* (argv[2]: the pack whose menus are played, "spv3" for SPV3 mode) */
+static char const *pack_menus;
+char const *map_pack_menus(void) { return pack_menus; }
+boolean opensauce_map_active(void) { return FALSE; }
+/* (OpenSauce's larger window, opensauce_maps.c: not mapped here) */
+unsigned long opensauce_maps_header_tag_cache_size(void const *cache_header, unsigned long custom_edition_size)
+{
+	(void)cache_header;
+	return custom_edition_size;
+}
 void error(int priority, char const *format, ...)
 {
 	va_list arguments;
@@ -49,11 +62,14 @@ HANDLE CreateFileA(char const *path, unsigned long access, unsigned long share, 
 	return INVALID_HANDLE_VALUE;
 }
 int CloseHandle(HANDLE file) { return 1; }
-/* argv[1]: the tag data, as written by the test */
+/* argv[1]: the tag data, as written by the test; argv[2]: the pack; argv[3]:
+"yelo" for OpenSauce's header */
 int main(int argc, char **argv)
 {
 	static unsigned char header[0x800];
 	FILE *file = fopen(argv[1], "rb");
+
+	pack_menus = argc > 2 && argv[2][0] ? argv[2] : NULL;
 	unsigned char *tags;
 	long size;
 
@@ -67,9 +83,14 @@ int main(int argc, char **argv)
 	memcpy(header, "daeh", 4);
 	header[4] = 0x61; /* 609 */
 	header[5] = 0x02;
-	memcpy(header + 0x70, "oley", 4);
-	header[0x76] = 1;
-	spv3_mode_survey("hostile", header, tags, (unsigned long)size, 0x10000);
+	if (argc <= 3 || !strcmp(argv[3], "yelo"))
+	{
+		memcpy(header + 0x70, "oley", 4);
+		header[0x76] = 1;
+	}
+	opensauce_survey_map("hostile", header, tags, (unsigned long)size, 0x10000);
+	opensauce_survey_checked("hostile", NULL);
+	opensauce_survey_note_correction("after the checks");
 	free(tags);
 	puts("survey done");
 	return 0;
@@ -92,20 +113,22 @@ def survey(tmp_path_factory):
     (stubs / "harness.c").write_text(HARNESS)
     for name in ("cseries.h", "cseries/cseries_windows.h", "errors.h", "halo_map_packs.h", "harness.c"):
         rewrite(stubs / name, work / name)
-    rewrite(ROOT / "port/linux/include/spv3_mode.h", work / "spv3_mode.h")
-    rewrite(ROOT / "port/linux/game/spv3_mode.c", work / "spv3_mode.c")
+    for name in ("spv3_mode.h", "opensauce.h", "opensauce_maps.h", "opensauce_survey.h"):
+        rewrite(ROOT / "port/linux/include" / name, work / name)
+    for name in ("spv3_mode.c", "opensauce_survey.c"):
+        rewrite(ROOT / "port/linux/game" / name, work / name)
     binary = work / "survey"
     command = [cc, "-std=gnu99", "-Wall", "-Werror", "-Wno-unused-variable", "-Wno-unused-function", "-Wno-format",
-               "-DHALO_MAP_LIST", "-DHALO_64BIT", "-g", "-I", str(work), str(work / "harness.c"), str(work / "spv3_mode.c"),
-               "-o", str(binary)]
+               "-DHALO_MAP_LIST", "-DHALO_64BIT", "-DHALO_CUSTOM_EDITION", "-g", "-I", str(work),
+               str(work / "harness.c"), str(work / "spv3_mode.c"), str(work / "opensauce_survey.c"), "-o", str(binary)]
     sanitized = command + ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
     if subprocess.run(sanitized, capture_output=True).returncode != 0:
         subprocess.run(command, check=True)
 
-    def run(tags):
+    def run(tags, pack="spv3", header="yelo"):
         path = work / "tags.bin"
         path.write_bytes(bytes(tags))
-        result = subprocess.run([str(binary), str(path)], capture_output=True, text=True)
+        result = subprocess.run([str(binary), str(path), pack, header], capture_output=True, text=True)
         assert result.returncode == 0, result.stdout + result.stderr
         assert "survey done" in result.stdout
         return result.stdout
@@ -170,6 +193,30 @@ def test_bsp_end_that_wraps(survey):
 @pytest.mark.parametrize("syntax", [0, BASE + SIZE - 4, 0xFFFFFFFF])
 def test_script_nodes_outside(survey, syntax):
     assert "0 nodes" in survey(tag_data(syntax=syntax))
+
+
+def test_spv3_mode_lines(survey):
+    out = survey(tag_data())
+    assert "spv3: ---- hostile: map survey ----" in out
+    assert "opensauce:" not in out
+    # (SPV3 mode surveys a map without the header too, as it always did)
+    assert "spv3: hostile: no OpenSauce header" in survey(tag_data(), header="none")
+
+
+def test_opensauce_map_outside_spv3_mode(survey):
+    out = survey(tag_data(), pack="")
+    assert "opensauce: ---- hostile: map survey ----" in out
+    assert "opensauce: hostile: tag group yelo (project_yellow): 1 tags" in out
+    assert "spv3:" not in out
+    # (once its checks are done, the map's log follows the module, which is
+    # off in this harness)
+    assert "after the checks" not in out
+
+
+def test_custom_edition_map_outside_spv3_mode(survey):
+    out = survey(tag_data(), pack="", header="none")
+    assert "survey" not in out.replace("survey done", "")
+    assert "spv3:" not in out and "opensauce:" not in out
 
 
 if __name__ == "__main__":

@@ -715,6 +715,37 @@ static BOOL address_reserved(void *address)
 		information.State != MEM_FREE;
 }
 
+/* (mmap_last_error's: the Windows error behind this thread's last failed
+mapping call) */
+static __thread DWORD mman_windows_error;
+
+/* errno for a mapping call Windows refused, its own error kept */
+static int mman_error(void)
+{
+	mman_windows_error = GetLastError();
+	return errno_from_windows_error(mman_windows_error);
+}
+
+unsigned long mmap_last_error(char *text, size_t size)
+{
+	DWORD length = 0;
+
+	if (size && mman_windows_error)
+	{
+		length = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL,
+			mman_windows_error, 0, text, (DWORD)size, NULL);
+		/* (its line ends dropped) */
+		while (length && (text[length - 1] == '\r' || text[length - 1] == '\n' || text[length - 1] == '.' ||
+			text[length - 1] == ' '))
+		{
+			length--;
+		}
+	}
+	if (size)
+		text[length] = 0;
+	return mman_windows_error;
+}
+
 void *mmap(void *address, size_t length, int protection, int flags, int descriptor, long offset)
 {
 	void *result;
@@ -723,6 +754,7 @@ void *mmap(void *address, size_t length, int protection, int flags, int descript
 	(void)offset;
 	if (!(flags & MAP_ANONYMOUS))
 	{
+		mman_windows_error = 0;
 		errno = ENODEV;
 		return MAP_FAILED;
 	}
@@ -733,7 +765,7 @@ void *mmap(void *address, size_t length, int protection, int flags, int descript
 			/* give pages inside a reservation back */
 			if (!VirtualFree(address, length, MEM_DECOMMIT))
 			{
-				errno = errno_from_windows_error(GetLastError());
+				errno = mman_error();
 				return MAP_FAILED;
 			}
 			return address;
@@ -753,7 +785,7 @@ void *mmap(void *address, size_t length, int protection, int flags, int descript
 	}
 	if (!result)
 	{
-		errno = errno_from_windows_error(GetLastError());
+		errno = mman_error();
 		return MAP_FAILED;
 	}
 	return result;
@@ -765,19 +797,20 @@ int munmap(void *address, size_t length)
 
 	if (!VirtualQuery(address, &information, sizeof(information)))
 	{
+		mman_windows_error = 0;
 		errno = EINVAL;
 		return -1;
 	}
 	if (information.AllocationBase == address &&
 		!VirtualFree(address, 0, MEM_RELEASE))
 	{
-		errno = errno_from_windows_error(GetLastError());
+		errno = mman_error();
 		return -1;
 	}
 	if (information.AllocationBase != address &&
 		!VirtualFree(address, length, MEM_DECOMMIT))
 	{
-		errno = errno_from_windows_error(GetLastError());
+		errno = mman_error();
 		return -1;
 	}
 	return 0;
@@ -789,7 +822,7 @@ int mprotect(void *address, size_t length, int protection)
 
 	if (!VirtualProtect(address, length, windows_protection(protection), &previous))
 	{
-		errno = errno_from_windows_error(GetLastError());
+		errno = mman_error();
 		return -1;
 	}
 	return 0;

@@ -91,7 +91,7 @@ struct prep_pending
 	/* bgfx: the key's, until both are made */
 	struct vertex_shader_object *object;
 	double started;
-	BOOL immediate;
+	BOOL immediate, lit, plasma;
 	int flags;
 	struct nv2a_pixel_shader_key key;
 #endif
@@ -428,33 +428,6 @@ static BOOL prep_start(const struct xgpu_program_key *recorded)
 	key.count_samples = 0;
 #endif
 	memset(&pending, 0, sizeof(pending));
-#ifdef HALO_BGFX
-	if (bg_active())
-	{
-		int flags = recorded->flags & _xgpu_key_depth_bias_bit ? _bg_shader_depth_bias : 0;
-		struct bg_shader *vertex, *fragment;
-
-		/* (bgfx lights each vertex, without the Light effects) */
-		key.per_pixel_lighting = 0;
-		key.plasma_model = 0;
-		vertex = bg_vertex_shader(object, immediate);
-		fragment = bg_fragment_shader(&key, flags);
-		if (vertex && fragment)
-		{
-			/* (both in the cache, or made before) */
-			bg_program_get(vertex, fragment);
-			prep.made++;
-			return TRUE;
-		}
-		pending.object = object;
-		pending.started = prep_seconds();
-		pending.immediate = immediate;
-		pending.flags = flags;
-		pending.key = key;
-		prep_pending_add(&pending);
-		return TRUE;
-	}
-#endif
 	/* (as prepare_draw draws it here: the Light effects' form only of a
 	program they light, per-pixel lighting only where it is on) */
 	if (plasma && (!object->plasma_model || object->plasma_lighting_failed))
@@ -468,6 +441,32 @@ static BOOL prep_start(const struct xgpu_program_key *recorded)
 		key.per_pixel_lighting = 0;
 		key.plasma_model = 0;
 	}
+#ifdef HALO_BGFX
+	if (bg_active())
+	{
+		int flags = recorded->flags & _xgpu_key_depth_bias_bit ? _bg_shader_depth_bias : 0;
+		struct bg_shader *vertex, *fragment;
+
+		vertex = bg_vertex_shader(object, immediate, lit, plasma);
+		fragment = bg_fragment_shader(&key, flags);
+		if (vertex && fragment)
+		{
+			/* (both in the cache, or made before) */
+			bg_program_get(vertex, fragment);
+			prep.made++;
+			return TRUE;
+		}
+		pending.object = object;
+		pending.started = prep_seconds();
+		pending.immediate = immediate;
+		pending.lit = lit;
+		pending.plasma = plasma;
+		pending.flags = flags;
+		pending.key = key;
+		prep_pending_add(&pending);
+		return TRUE;
+	}
+#endif
 	pending.vertex_shader = vertex_shader_make(object, immediate, lit, plasma, recorded->packed_mask, TRUE);
 	pending.fragment_shader = fragment_shader_make(&key, TRUE);
 	if (!pending.vertex_shader || !pending.fragment_shader || program_find(pending.vertex_shader, pending.fragment_shader))
@@ -497,7 +496,8 @@ static void prep_collect(double deadline, BOOL wait)
 #ifdef HALO_BGFX
 		if (pending->object)
 		{
-			struct bg_shader *vertex = wait ? NULL : bg_vertex_shader(pending->object, pending->immediate);
+			struct bg_shader *vertex = wait ? NULL : bg_vertex_shader(pending->object, pending->immediate,
+				pending->lit, pending->plasma);
 			struct bg_shader *fragment = wait ? NULL : bg_fragment_shader(&pending->key, pending->flags);
 
 			if (vertex && fragment)

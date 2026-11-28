@@ -721,12 +721,6 @@ int mcc_bitmaps_read(struct mcc_runtime *runtime,long tag,uint32_t offset,uint32
     return 0;
 }
 
-uint32_t mcc_bitmaps_stream_end(struct mcc_runtime *runtime)
-{
-    struct mcc_textures *textures=runtime->bitmaps;
-    return textures && textures->stream_end ? MCC_BITMAP_BASE+textures->stream_end : (uint32_t)runtime->source.size;
-}
-
 int mcc_bitmaps_contains(struct mcc_runtime *runtime,uint32_t offset,uint32_t bytes)
 {
     struct mcc_textures *textures=runtime->bitmaps;
@@ -808,7 +802,7 @@ int mcc_bitmaps_source_crc(struct mcc_runtime *runtime,struct bitmap_data const 
     return 0;
 }
 
-#ifndef HALO_GLES
+#ifndef HALO_GL_ES
 static int mcc_bitmap_prepare_order(void const *left,void const *right)
 {
     struct mcc_texture const *a=*(struct mcc_texture const *const *)left;
@@ -821,7 +815,7 @@ static int mcc_bitmap_prepare_order(void const *left,void const *right)
  * Register through the existing adapter; no Xbox/CE bitmap cache is touched. */
 void mcc_bitmaps_prepare_gpu(struct mcc_runtime *runtime)
 {
-#ifndef HALO_GLES
+#ifndef HALO_GL_ES
     struct mcc_textures *textures=runtime ? runtime->bitmaps : NULL;
     struct mcc_texture **ordered;
     long megabytes=config_integer("display.mcc_texture_prepare_mb");

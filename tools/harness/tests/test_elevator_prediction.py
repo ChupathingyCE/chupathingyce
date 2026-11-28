@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from harness import CHECK_FAILED, build, function, mutated, read, run, structure  # noqa: E402
 
 SOURCE = "port/linux/game/network_distributed.c"
-CASES = ["riding-up", "elevator-at-rest", "stopped-elevator-standing", "stopped-elevator-left", "on-foot"]
+CASES = ["mcc-host-movement", "riding-up", "elevator-at-rest", "stopped-elevator-standing", "stopped-elevator-left", "on-foot"]
 FUNCTIONS = ("distributed_floor_elevator", "distributed_riding_elevator", "distributed_take_prediction")
 
 # a fault in network_distributed.c, the function it is in, and the case that must catch it
@@ -22,6 +22,8 @@ NEGATIVE_CONTROLS = {
                              "if (0)\n\t\tposition.z"), "distributed_take_prediction", "riding-up"),
     "remembered-elevator-rides": (("distributed_floor_elevator(unit_index) != NONE)", "1)"),
                                   "distributed_riding_elevator", "stopped-elevator-left"),
+    "mcc-movement-taken": (("if (mcc_script_effects_host_movement())", "if (0)"), "distributed_take_prediction",
+                           "mcc-host-movement"),
 }
 
 
@@ -31,6 +33,13 @@ def generated(fault=None, faulty_function=None):
     assert tolerance, f"HOST_ACCEPT_TOLERANCE not found in {SOURCE}"
     config = f"#define HOST_ACCEPT_TOLERANCE {tolerance.group(1)}\n"
     config += structure(source, "distributed_on_foot_bound") + "\n"
+    # (the rules it asks, from network_rules.c, and the contact counter they compare with)
+    rules = read("port/linux/game/network_rules.c")
+    contact = re.search(r"^#define NETWORK_RULES_ELEVATOR_CONTACT_TICKS\s+\S+", read("port/linux/game/network_rules.h"), re.M)
+    assert contact, "NETWORK_RULES_ELEVATOR_CONTACT_TICKS not found in network_rules.h"
+    config += contact.group(0) + "\n"
+    for name in ("network_rules_floor_contact", "network_rules_riding_elevator"):
+        config += function(rules, name) + "\n"
     text = ""
     for name in FUNCTIONS:
         code = function(source, name)

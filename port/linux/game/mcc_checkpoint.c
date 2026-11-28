@@ -28,6 +28,7 @@
 #define MCC_CHECKPOINT_FOOTER_BYTES 96u
 #define MCC_CHECKPOINT_SLOT_BYTES (MCC_CHECKPOINT_TOTAL_PAYLOAD + MCC_CHECKPOINT_FOOTER_BYTES)
 #include "mcc_checkpoint_footer.inl"
+#include "content_bytes.h"
 
 /* Reserve below every supported name/inventory slot, aligned for thread data. */
 void *mcc_checkpoint_script_storage(void *image, unsigned long used,
@@ -49,12 +50,6 @@ static struct {
     unsigned char *original, *address;
     unsigned long bytes;
 } mcc_checkpoint_names_owner;
-
-static uint32_t mcc_checkpoint_word(void const *data)
-{
-    unsigned char const *p = data;
-    return p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-}
 
 static void mcc_checkpoint_put(void *data, uint32_t value)
 {
@@ -123,7 +118,7 @@ static int mcc_checkpoint_units(void const *image, void const *current,
     if (!headers) return 0;
     for (i = 0; i < count; ++i) {
         unsigned char const *record = payload + 8 + i * 8;
-        uint32_t handle = mcc_checkpoint_word(record), index = handle & 0xFFFFu;
+        uint32_t handle = content_u32le(record), index = handle & 0xFFFFu;
         struct object_header_datum const *object;
         if (index >= (unsigned)array->count) return 0;
         object = headers + index;
@@ -185,8 +180,8 @@ static int mcc_checkpoint_names_validate(void const *image, void const *current,
     tail = mcc_checkpoint_names_tail(image, used, capacity, bytes);
     current_tail = mcc_checkpoint_names_tail(current, used, capacity, bytes);
     if (!tail || !current_tail || memcmp(tail, "MCCN", 4) ||
-        mcc_checkpoint_word(tail + 4) != 1 || mcc_checkpoint_word(tail + 8) != bytes ||
-        mcc_checkpoint_word(tail + 12) != mcc_checkpoint_checksum(tail + 16, bytes) ||
+        content_u32le(tail + 4) != 1 || content_u32le(tail + 8) != bytes ||
+        content_u32le(tail + 12) != mcc_checkpoint_checksum(tail + 16, bytes) ||
         !mcc_object_names_validate(tail + 16, bytes)) return 0;
     array = mcc_checkpoint_incoming(image, current, used, object_header_data, sizeof(*array));
     if (!array || !array->valid || array->size != sizeof(*headers) || array->count < 0 ||
@@ -195,7 +190,7 @@ static int mcc_checkpoint_names_validate(void const *image, void const *current,
         (unsigned long)array->count * sizeof(*headers));
     if (!headers) return 0;
     for (i = 0; i < bytes; i += 4) {
-        uint32_t handle = mcc_checkpoint_word(tail + 16 + i), index = handle & 0xFFFFu;
+        uint32_t handle = content_u32le(tail + 16 + i), index = handle & 0xFFFFu;
         struct object_header_datum const *object;
         if (handle == 0xFFFFFFFFu) continue;
         if (index >= (unsigned)array->count) return 0;
@@ -214,7 +209,7 @@ static int mcc_checkpoint_campaign(unsigned char const *payload, unsigned long b
     unsigned char const *footer, int restore)
 {
     unsigned char state[MCC_CAMPAIGN_SNAPSHOT_BYTES];
-    bytes = mcc_checkpoint_campaign_unpack(mcc_checkpoint_word(footer+4), payload, bytes, footer, state);
+    bytes = mcc_checkpoint_campaign_unpack(content_u32le(footer+4), payload, bytes, footer, state);
     if (!bytes) return 0;
     return restore ? mcc_campaign_restore(state,bytes) : mcc_campaign_validate(state,bytes);
 }
@@ -268,9 +263,9 @@ int mcc_checkpoint_validate(void const *image, unsigned long total,
         !mcc_checkpoint_identity(current) || strcmp(header->map_name, current->map_name) ||
         header->cache_file_checksum != current->cache_file_checksum) goto failed;
     footer = tail + MCC_CHECKPOINT_TOTAL_PAYLOAD;
-    bytes = mcc_checkpoint_word(footer + 8);
-    version = mcc_checkpoint_word(footer + 4);
-    campaign_bytes = mcc_checkpoint_word(footer + 20);
+    bytes = content_u32le(footer + 8);
+    version = content_u32le(footer + 4);
+    campaign_bytes = content_u32le(footer + 20);
     /* The footer stays at the same CPU address. Version 1 had only inventory;
      * those maps could not use these formerly unsupported campaign functions. */
     if (version == 1) tail += MCC_CHECKPOINT_CAMPAIGN_BYTES;
@@ -282,11 +277,11 @@ int mcc_checkpoint_validate(void const *image, unsigned long total,
             (campaign_bytes != MCC_CHECKPOINT_CAMPAIGN_BYTES && campaign_bytes != MCC_CAMPAIGN_SNAPSHOT_V4_BYTES &&
              campaign_bytes != MCC_CAMPAIGN_SNAPSHOT_V1_BYTES)) ||
         bytes < 8 + campaign_bytes || bytes - campaign_bytes > MCC_CHECKPOINT_PAYLOAD_LIMIT ||
-        mcc_checkpoint_word(footer + 12) != mcc_checkpoint_checksum(tail, bytes) ||
-        mcc_checkpoint_word(footer + 16) != (uint32_t)header->cache_file_checksum ||
+        content_u32le(footer + 12) != mcc_checkpoint_checksum(tail, bytes) ||
+        content_u32le(footer + 16) != (uint32_t)header->cache_file_checksum ||
         (version>=3 ? (campaign_bytes!=MCC_CHECKPOINT_CAMPAIGN_BYTES ||
-            mcc_checkpoint_word(footer+92)!=mcc_checkpoint_checksum(footer,92)) :
-            (mcc_checkpoint_word(footer+88) || mcc_checkpoint_word(footer+92))) ||
+            content_u32le(footer+92)!=mcc_checkpoint_checksum(footer,92)) :
+            (content_u32le(footer+88) || content_u32le(footer+92))) ||
         !mcc_checkpoint_footer_name_matches(version, footer, header->map_name) ||
         !mcc_grenades_snapshot_validate(tail, bytes - campaign_bytes) ||
         (campaign_bytes && !mcc_checkpoint_campaign(tail + bytes - campaign_bytes, campaign_bytes, footer, 0)) ||
@@ -315,9 +310,9 @@ int mcc_checkpoint_restore(void const *image, unsigned long total,
     }
     tail = mcc_checkpoint_tail(image, total, used, capacity);
     footer=tail+MCC_CHECKPOINT_TOTAL_PAYLOAD;
-    bytes = mcc_checkpoint_word(footer + 8);
-    campaign_bytes = mcc_checkpoint_word(tail + MCC_CHECKPOINT_TOTAL_PAYLOAD + 20);
-    version = mcc_checkpoint_word(tail + MCC_CHECKPOINT_TOTAL_PAYLOAD + 4);
+    bytes = content_u32le(footer + 8);
+    campaign_bytes = content_u32le(tail + MCC_CHECKPOINT_TOTAL_PAYLOAD + 20);
+    version = content_u32le(tail + MCC_CHECKPOINT_TOTAL_PAYLOAD + 4);
     if (version == 1) tail += MCC_CHECKPOINT_CAMPAIGN_BYTES;
     else if (version == 2 && (campaign_bytes == MCC_CAMPAIGN_SNAPSHOT_V1_BYTES ||
         campaign_bytes == MCC_CAMPAIGN_SNAPSHOT_V4_BYTES))

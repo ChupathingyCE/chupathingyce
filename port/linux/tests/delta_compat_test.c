@@ -686,6 +686,144 @@ static void test_join_mark(void)
 	}
 }
 
+/* another project's modded advertisement (a version word of 0xFF00 or
+more: Content Evolved's mark, network_rules.h): its bytes are its own, never
+a Delta tag, an old layout's slot or range, or an OpenCE server's flag */
+static void test_another_project(void)
+{
+	unsigned char reserved[RESERVED];
+	struct delta_wire_id wire, oldest;
+	int major;
+
+	host(reserved, "chupa-32a");
+	CHECK(delta_compat_speaks_delta(reserved, RESERVED));
+	reserved[0] = 0x70;
+	reserved[1] = 0xFF;
+	reserved[2] = 0x01 | 0x04 | 0x08;
+	CHECK(!delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest));
+	CHECK(!delta_compat_speaks_delta(reserved, RESERVED));
+	CHECK(!delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire));
+	CHECK(!delta_compat_opence_server(reserved, RESERVED));
+	CHECK(!delta_compat_read_range(reserved, RESERVED, &wire, &oldest));
+	{
+		int project, project_version;
+
+		CHECK(!delta_compat_read_project(reserved, RESERVED, &major, &project, &project_version));
+	}
+	/* (0xFEFF and under as ever: an OpenCE number's) */
+	host(reserved, "chupa-32a");
+	reserved[0] = 0xFF;
+	reserved[1] = 0xFE;
+	CHECK(delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest));
+}
+
+/* a port host's advertisement (docs/delta/peer.md, "The tag", layout 2):
+version, flags (the dedicated flag too, at 39 and later, when dedicated),
+kind, zeros, then the project's tag */
+static void port_host(unsigned char *reserved, int version, int flags, int kind, int project, int project_version)
+{
+	unsigned char *tag = reserved + DELTA_ADVERTISED_TAG_OFFSET;
+
+	memset(reserved, 0, RESERVED);
+	reserved[0] = (unsigned char)(version & 0xFF);
+	reserved[1] = (unsigned char)(version >> 8);
+	reserved[DELTA_ADVERTISED_FLAGS_OFFSET] = (unsigned char)flags;
+	reserved[3] = (unsigned char)kind;
+	tag[0] = 'D';
+	tag[1] = 'L';
+	tag[2] = DELTA_MAJOR;
+	tag[3] = DELTA_ADVERTISED_TAG_VERSION_PROJECT;
+	tag[4] = (unsigned char)project;
+	tag[5] = (unsigned char)(project_version & 0xFF);
+	tag[6] = (unsigned char)(project_version >> 8);
+	reseal(reserved);
+}
+
+static void test_project_tag(void)
+{
+	/* (peer.md's example_advert_project: Content Evolved, its version 3,
+	announcing 44) */
+	static const unsigned char example[RESERVED] = {
+		0x2c, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x44, 0x4c, 0x01, 0x02, 0x02, 0x03, 0x00, 0x00, 0xaf
+	};
+	static const char *const owns[] = { "chupa-29a", "chupa-32a", "chupa-38a", "chupa-41a", "chupa-44a", DELTA_WIRE };
+	unsigned char reserved[RESERVED];
+	struct delta_wire_id wire, oldest;
+	char theirs[24];
+	int major, project, project_version, index, kind;
+
+	port_host(reserved, 44, 0x01, 0, 2, 3);
+	CHECK(!memcmp(reserved, example, RESERVED));
+	CHECK(delta_compat_read_project(example, RESERVED, &major, &project, &project_version) && major == DELTA_MAJOR &&
+		project == 2 && project_version == 3);
+	CHECK(delta_compat_project_name(2) && !strcmp(delta_compat_project_name(2), "Content Evolved"));
+	CHECK(delta_compat_project_name(1) && !strcmp(delta_compat_project_name(1), "Chupathingy"));
+	CHECK(!delta_compat_project_name(0) && !delta_compat_project_name(200));
+	/* (it speaks Delta, so a client says HELLO and marks its join; it has
+	no wire, so every wire goes by its number, and it is never a Legacy
+	server) */
+	CHECK(delta_compat_speaks_delta(example, RESERVED));
+	CHECK(!delta_compat_read_tag(example, RESERVED, &major, &wire, &oldest));
+	CHECK(!delta_compat_host_wire(example, RESERVED, DELTA_MAJOR, &wire));
+	CHECK(!delta_compat_opence_server(example, RESERVED));
+	for (index = 0; index < (int)(sizeof(owns) / sizeof(owns[0])); index++)
+	{
+		CHECK(delta_compat_decide(example, RESERVED, DELTA_MAJOR, owns[index], theirs, (int)sizeof(theirs)) == -1);
+		CHECK(!theirs[0]);
+		/* (the readers before layout 2 see no Delta: by its number, no HELLO) */
+		CHECK(old_exact(example, DELTA_MAJOR, owns[index]) == -1 && old_ranged(example, owns[index]) == -1);
+	}
+	/* (a dedicated server's at 39 on, of every kind: still no wire, and the
+	old readers find no slot; nor does a reader of the range bytes) */
+	for (kind = 0; kind < 256; kind += 17)
+	{
+		port_host(reserved, 44, 0x05, kind, 2, 0xBEEF);
+		CHECK(delta_compat_speaks_delta(reserved, RESERVED) && !delta_compat_opence_server(reserved, RESERVED));
+		CHECK(decide(reserved, DELTA_WIRE) == -1 && decide(reserved, "chupa-32a") == -1);
+		CHECK(!delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire));
+		CHECK(!delta_compat_read_range(reserved, RESERVED, &wire, &oldest));
+		CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-32a") == -1 && old_ranged(reserved, "chupa-32a") == -1);
+		CHECK(delta_compat_read_project(reserved, RESERVED, &major, &project, &project_version) &&
+			project_version == 0xBEEF);
+	}
+	/* (another major: it speaks Delta, and LEGACY answers) */
+	port_host(reserved, 44, 0x01, 0, 2, 3);
+	reserved[DELTA_ADVERTISED_TAG_OFFSET + 2] = DELTA_MAJOR + 1;
+	reseal(reserved);
+	CHECK(delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, DELTA_WIRE) == -1);
+	/* (no tag: projects 0 and 1, a wrong check, a layout this build doesn't
+	know, too few bytes, a Content Evolved modded game's version word) */
+	for (project = 0; project <= DELTA_PROJECT_OURS; project++)
+	{
+		port_host(reserved, 44, 0x01, 0, project, 3);
+		CHECK(!delta_compat_read_project(reserved, RESERVED, &major, &index, &project_version));
+		CHECK(!delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, DELTA_WIRE) == -1);
+	}
+	port_host(reserved, 44, 0x01, 0, 2, 3);
+	reserved[RESERVED - 1] ^= 1;
+	CHECK(!delta_compat_read_project(reserved, RESERVED, &major, &project, &project_version));
+	CHECK(!delta_compat_speaks_delta(reserved, RESERVED));
+	port_host(reserved, 44, 0x01, 0, 2, 3);
+	reserved[DELTA_ADVERTISED_TAG_OFFSET + 3] = 3;
+	reseal(reserved);
+	CHECK(!delta_compat_read_project(reserved, RESERVED, &major, &project, &project_version));
+	CHECK(!delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, DELTA_WIRE) == -1);
+	CHECK(!delta_compat_read_project(example, RESERVED - 1, &major, &project, &project_version));
+	port_host(reserved, 0xFF70, 0x2D, 0, 2, 3);
+	CHECK(!delta_compat_read_project(reserved, RESERVED, &major, &project, &project_version));
+	CHECK(!delta_compat_speaks_delta(reserved, RESERVED));
+	/* (the reserved byte is the check's, and read as nothing) */
+	port_host(reserved, 44, 0x01, 0, 2, 3);
+	reserved[DELTA_ADVERTISED_TAG_OFFSET + 7] = 0x5A;
+	reseal(reserved);
+	CHECK(delta_compat_read_project(reserved, RESERVED, &major, &project, &project_version) && project == 2);
+	/* (a layout 1 tag is never read as a project's, nor the other way) */
+	host(reserved, DELTA_WIRE);
+	CHECK(!delta_compat_read_project(reserved, RESERVED, &major, &project, &project_version));
+	CHECK(decide(reserved, DELTA_WIRE) == 1);
+}
+
 int main(void)
 {
 	test_join_mark();
@@ -701,6 +839,8 @@ int main(void)
 	test_tag();
 	test_both_layouts();
 	test_opence_server();
+	test_another_project();
+	test_project_tag();
 	if (failures)
 	{
 		fprintf(stderr, "delta_compat_test: %d failures\n", failures);

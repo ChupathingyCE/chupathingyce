@@ -73,6 +73,13 @@ int main(int count, char **arguments)
 			printf("%d\n", config_environment_set(arguments[index]));
 		return 0;
 	}
+	if (count > 1 && !strcmp(arguments[1], "names"))
+	{
+		int index;
+		for (index = 2; index < count; index++)
+			printf("%s\n", log_address_name(arguments[index], text, sizeof(text)));
+		return 0;
+	}
 	whole = count > 1 && !strcmp(arguments[1], "whole");
 	{
 		int index;
@@ -95,6 +102,15 @@ int main(int count, char **arguments)
 	v6[15] = 7;
 	printf("%s\n", log_address(v6, 16, 5160, text, sizeof(text)));
 	printf("said %d\n", said);
+	printf("%s\n", log_address_name("halo.example.com", text, sizeof(text)));
+	printf("%s\n", log_address_name("localhost", text, sizeof(text)));
+	printf("%s\n", log_address_name("HALO.example.com", text, sizeof(text)));
+	printf("%s\n", log_address_name("halo.example.com", text, sizeof(text)));
+	/* (an internet play peer's: a local network's a tag too) */
+	{
+		unsigned int value = (unsigned int)network;
+		printf("%s\n", log_address_ipv4_peer(value, port, text, sizeof(text)));
+	}
 	return 0;
 }
 """
@@ -169,8 +185,64 @@ def test_whole_only_when_asked(program):
     assert lines[3] == "[2601:0:0:0:0:0:0:7]:5160"
     # (the log says once why it has them)
     assert lines[4] == "said 1"
+    assert lines[5] == "halo.example.com"
+    assert lines[6] == "localhost"
+
+
+def test_host_names_are_tags(program):
+    """A host name typed to join a game by (Direct IP) is a tag in the log,
+    the same tag for the same name; localhost is as it is."""
+    lines = run(program, "tags", "203", "0", "113", "45")
+    assert re.fullmatch(r"name#[0-9a-f]{6}", lines[5])
+    assert lines[6] == "localhost"
+    assert lines[8] == lines[5]
+    assert lines[7] != lines[5]
+    assert not any("example" in line for line in lines)
+
+
+def test_odd_names_are_tags(program):
+    """Text that is not a plain host name (a link, a port too many, IPv6-like
+    text, a link with a port, a long line) is a tag too, never written as
+    typed, though each holds an address."""
+    odd = ["http://203.0.113.45", "1.2.3.4:5:6", "2001:db8::1", "[2001:db8::1]:2302",
+           "http://203.0.113.45:2302", "203.0.113.45:2302:1", "a" * 300 + " 203.0.113.45"]
+    lines = run(program, "names", *odd)
+    assert len(lines) == len(odd)
+    for line in lines:
+        assert re.fullmatch(r"name#[0-9a-f]{6}", line), line
+        assert "203" not in line and "2001" not in line
+    # (different text, different tags)
+    assert len(set(lines)) == len(lines)
 
 
 def test_environment_false_values_do_not_set(program):
     values = ["1", "true", "yes", "on", "anything", "0", "false", "FALSE", "no", "Off", ""]
     assert run(program, "environment", *values) == ["1"] * 5 + ["0"] * 6
+
+
+def test_public_address_host_is_a_tag():
+    """network.public_address's host name (often a name that leads to the
+    player's own home) is never logged whole: p2p.c logs it only through
+    log_address_name."""
+    source = (SOURCE / "p2p.c").read_text()
+    calls = re.findall(r"platform_log\((.*?)\);", source, re.S)
+    for call in calls:
+        if "public_host" in call:
+            assert "log_address_name(p2p.public_host" in call, call
+
+
+def test_peer_addresses_hide_local_networks(program):
+    """An internet play peer's address (p2p.c's "connected to player ... at")
+    is a tag even in a local network's range: someone's own LAN address. Only
+    this machine's own (loopback) is whole, and every address with
+    debug.log_addresses."""
+    for address in (["192", "168", "1", "20"], ["10", "0", "0", "5"], ["100", "64", "0", "9"],
+                    ["172", "16", "3", "4"], ["203", "0", "113", "45"]):
+        lines = run(program, "tags", *address)
+        assert re.fullmatch(r"addr#[0-9a-f]{6}:2302", lines[9]), lines[9]
+        assert ".".join(address) not in lines[9]
+    # (the same address, the same tag as the log's other lines give it)
+    lines = run(program, "tags", "203", "0", "113", "45")
+    assert lines[9] == lines[0]
+    assert run(program, "tags", "127", "0", "0", "2")[9] == "127.0.0.2:2302"
+    assert run(program, "whole", "192", "168", "1", "20")[9] == "192.168.1.20:2302"

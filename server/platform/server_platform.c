@@ -33,6 +33,7 @@ never hosts.
 #include "p2p.h"
 #include "halo_port_limits.h"
 #include "delta.h"
+#include "networks_game.h"
 #include "server_control.h"
 
 #include <signal.h>
@@ -347,6 +348,10 @@ static void server_arguments(void)
 	server_check_data();
 	/* (the legacy table: a newer one fetched meanwhile) */
 	delta_legacy_start();
+#ifdef HALO_DELTA_PEER_IDENTITY
+	/* (the networks whose players' names are checked: networks_game.h) */
+	networks_start();
+#endif
 #ifdef _WIN32
 	/* Ctrl+C, Ctrl+Break and the window closed stop it at the next frame
 	(Windows has no SIGPIPE: a closed connection's write fails) */

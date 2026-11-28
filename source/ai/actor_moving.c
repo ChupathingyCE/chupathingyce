@@ -234,6 +234,9 @@ symbols in this file:
 #include "objects/object_types.h"
 #include "objects/objects.h"
 #include "physics/collision_model_definitions.h"
+#ifndef HALO_CONSOLE_NO_FORGE
+#include "forge.h" /* port: port/linux/game/forge_ai_move.inc */
+#endif
 #undef PATH_EXTERNAL_FLEE_ROUTINES
 #undef REAL_MATH_EXTERNAL_POINT_FROM_LINE3D
 
@@ -2066,6 +2069,11 @@ boolean actor_path_refresh(
 						&input,
 						&path_state,
 						ai_debug_get_path_storage(actor_index));
+#ifndef HALO_CONSOLE_NO_FORGE
+					/* port: a Forge character searches the AI navigation's copy of the
+					walkable surfaces (port/linux/game/forge_ai_move.inc) */
+					forge_ai_move_path_structure(actor_index, &path_state);
+#endif
 					path_state_destination(
 						&path_state,
 						&actor->control.path.destination.point,

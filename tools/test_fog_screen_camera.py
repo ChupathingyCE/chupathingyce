@@ -7,6 +7,7 @@ global_rasterizer_model_ambient_reflection_tint, which sits right after the
 array, and the next model draw read through the camera's position (a30,
 Windows and Linux 0.9.1a). The Xbox indexes the array itself."""
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -58,13 +59,76 @@ def fog_compile_command():
     return None
 
 
+# the flags that name a file the compile reads, and a system root it needs
+# (an include folder that isn't there the compiler passes over)
+FILE_FLAGS = ("-include", "-imacros")
+FOLDER_FLAGS = ("--sysroot", "-isysroot")
+
+
+def flag_paths(command):
+    """(flag, path) for each file or folder the command names by a flag:
+    "-include path" or "--sysroot=path" """
+    words = shlex.split(command)
+    flags = FILE_FLAGS + FOLDER_FLAGS
+    for index, word in enumerate(words):
+        flag = next((flag for flag in flags if word.startswith(flag)), None)
+        if not flag:
+            continue
+        if word == flag:
+            if index + 1 < len(words):
+                yield flag, words[index + 1]
+        else:
+            yield flag, word[len(flag):].removeprefix("=")
+
+
+def ninja_inputs(output):
+    """the inputs ninja lists for an output, explicit and implicit (not the
+    order-only ones, which a compile doesn't read)"""
+    ninja = shutil.which("ninja")
+    if not ninja:
+        return []
+    result = subprocess.run([ninja, "-C", str(ROOT), "-t", "query", output], capture_output=True, text=True)
+    if result.returncode != 0:
+        return []
+    inputs, section = [], None
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("input:"):
+            section = "input"
+        elif stripped.startswith("outputs:") or stripped.startswith("validations:"):
+            section = None
+        elif section == "input" and line.startswith("    ") and not stripped.startswith("||"):
+            path = stripped.lstrip("|").strip()
+            if path:
+                inputs.append(path)
+    return inputs
+
+
+def missing_inputs(command, source):
+    """what the fog file's compile needs that this checkout's build doesn't
+    have (a build downloaded or made only in part): the generated source, the
+    files it includes by flag (the prefix header), its system root, and the
+    inputs ninja lists for its object"""
+    missing = [] if (ROOT / source).is_file() else [source]
+    for flag, path in flag_paths(command):
+        found = (ROOT / path).is_file() if flag in FILE_FLAGS else (ROOT / path).is_dir()
+        if not found:
+            missing.append(path)
+    output = re.search(r" -o (\S+)", command)
+    if output:
+        missing += [path for path in ninja_inputs(output.group(1)) if not (ROOT / path).exists()]
+    return sorted(set(missing))
+
+
 def test_no_shadowed_array_when_compiled():
     command = fog_compile_command()
     if not command:
         pytest.skip("no configured build (build.ninja with a desktop target)")
     source = re.search(r" -c (\S+)", command).group(1)
-    if not (ROOT / source).is_file():
-        pytest.skip(f"{source} not generated yet (build the game first)")
+    missing = missing_inputs(command, source)
+    if missing:
+        pytest.skip(f"the build is incomplete (build the game first): missing {', '.join(missing[:5])}"
+                    + (f" and {len(missing) - 5} more" if len(missing) > 5 else ""))
     command = re.sub(r" -MMD -MF \S+", "", command)
     command = re.sub(r" -o \S+", "", command)
     command = command.replace("-Wno-everything", "")

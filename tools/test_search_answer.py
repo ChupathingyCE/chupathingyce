@@ -105,6 +105,49 @@ def test_game_searches_still_broadcast():
     assert "broadcast_game_search.port = NETWORK_GAME_CLIENT_PORT;" in before
 
 
+def _dangling_else(text):
+    """the #if blocks that start a new if and are followed, after their
+    #endif, by an else: that else, written for the if before the block,
+    binds to the block's if instead whenever the block is compiled in"""
+    found = []
+    for block in re.finditer(r"^[ \t]*#if(?:def|ndef)?\b[^\n]*\n(.*?)^[ \t]*#endif[^\n]*\n", text, re.S | re.M):
+        body = re.sub(r"/\*.*?\*/", " ", block.group(1), flags=re.S).strip()
+        if "#if" in body or "#else" in body or "#elif" in body:
+            continue
+        after = re.sub(r"/\*.*?\*/", " ", text[block.end():block.end() + 400], flags=re.S).lstrip()
+        if re.match(r"if\s*\(", body) and re.match(r"else\b", after):
+            found.append(text.count("\n", 0, block.start()) + 1)
+    return found
+
+
+def test_search_send_keeps_its_else():
+    """the broadcast search's failure is logged when its write fails, and
+    only then: the Direct IP search to an address comes after the whole
+    if/else, never between them"""
+    client = CLIENT_MANAGER_C.read_text(encoding="utf-8")
+    assert re.search(
+        r'network_event\("sent out a broadcast game search packet"\);\s*'
+        r"client->last_broadcast_search_time = now;\s*\}\s*else\s*\{\s*"
+        r'network_event\("network_game_client_write\(\) failed while sending a message_client_broadcast_game_search',
+        client)
+    assert _dangling_else(client) == []
+
+
+def test_dangling_else_check_finds_one():
+    """the check above finds the mistake it is for"""
+    bad = ("\tif (success == TRUE)\n\t{\n\t\tsent();\n\t}\n#ifdef HALO_GAME_BROWSER\n"
+           "\t/* to the address */\n\tif (success == TRUE && target)\n\t{\n\t\tsend();\n\t}\n#endif\n"
+           "\telse\n\t{\n\t\tfailed();\n\t}\n")
+    assert _dangling_else(bad) == [5]
+    good = ("\tif (a)\n\t{\n\t}\n#ifdef X\n\telse if (b)\n\t{\n\t}\n#endif\n\telse\n\t{\n\t}\n")
+    assert _dangling_else(good) == []
+
+
+def test_networking_has_no_dangling_else():
+    for path in sorted((ROOT / "source/networking").glob("*.c")):
+        assert _dangling_else(path.read_text(encoding="utf-8", errors="replace")) == [], path
+
+
 def test_online_games_pings_are_not_game_searches():
     """Online Games' pings and the game list's are the probe's own messages
     (p2p_probe.c), which a dedicated server answers whatever this setting"""

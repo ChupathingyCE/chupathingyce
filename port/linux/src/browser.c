@@ -54,7 +54,7 @@ with it under the lock.
 #endif
 #ifdef HALO_DELTA_PEER_IDENTITY
 #include "identity.h"
-#include "identity_key.h"
+#include "networks_game.h"
 #endif
 
 #include <stdarg.h>
@@ -752,14 +752,16 @@ static int take_certificate(const unsigned char *certificate, int certificate_si
 {
 	unsigned char seed[IDENTITY_SEED_SIZE], public_key[IDENTITY_KEY_SIZE], id[IDENTITY_ID_SIZE];
 	struct identity_device device;
+	const unsigned char (*roots)[NETWORKS_KEY_SIZE];
 	unsigned long now = identity_clock();
-	int reason;
+	int reason, root_count;
 
 	if (!device_key(seed, public_key, id))
 		return 0;
 	identity_wipe(seed, sizeof(seed));
-	reason = identity_accept(certificate, certificate_size, issuer, issuer_size, identity_root_keys,
-		IDENTITY_ROOT_KEY_COUNT, public_key, now, &device);
+	roots = networks_home_roots(&root_count);
+	reason = identity_accept(certificate, certificate_size, issuer, issuer_size, roots, root_count, public_key, now,
+		&device);
 	if (reason == IDENTITY_OK)
 	{
 		identity_have_certificate(&identity, &device, refresh_after, now);
@@ -777,8 +779,8 @@ static int take_certificate(const unsigned char *certificate, int certificate_si
 	when it was issued; one that doesn't check is as none, and enrolls) */
 	if (saved && (reason == IDENTITY_EXPIRED || reason == IDENTITY_NOT_YET) &&
 		identity_parse_device(certificate, certificate_size, &device) &&
-		identity_accept(certificate, certificate_size, issuer, issuer_size, identity_root_keys,
-			IDENTITY_ROOT_KEY_COUNT, public_key, device.issued, &device) == IDENTITY_OK)
+		identity_accept(certificate, certificate_size, issuer, issuer_size, roots, root_count, public_key,
+			device.issued, &device) == IDENTITY_OK)
 	{
 		identity_have_certificate(&identity, &device, 0, now);
 		identity.refresh_at = 0;
@@ -1199,17 +1201,17 @@ static int take_revoked(const unsigned char *list, int list_size, const unsigned
 	struct identity_revoked parsed;
 	time_t now = time(NULL);
 	int taken = 0;
-
-	int issuer_check;
+	const unsigned char (*roots)[NETWORKS_KEY_SIZE];
+	int issuer_check, root_count;
 
 	/* (an issuer past its dates still vouches for the list this copy kept,
 	taken while it was good: an old list is better than none, and is said
 	to be stale. One fetched is taken only from an issuer within its dates:
 	a key past them is no longer looked after, and a list it signed could
 	take revoked devices off) */
+	roots = networks_home_roots(&root_count);
 	issuer_check = list_size > REVOKED_BYTES ? IDENTITY_MALFORMED :
-		identity_check_issuer(issuer_data, issuer_size, identity_root_keys, IDENTITY_ROOT_KEY_COUNT,
-			now > 0 ? (unsigned long)now : 0, &issuer);
+		identity_check_issuer(issuer_data, issuer_size, roots, root_count, now > 0 ? (unsigned long)now : 0, &issuer);
 	if (!identity_revoked_issuer_usable(issuer_check, !save) ||
 		identity_check_revoked(list, list_size, &issuer, &parsed) != IDENTITY_OK)
 	{
@@ -4429,11 +4431,6 @@ static int json_name(char *out, int size, const unsigned short *name, int length
 	return game_report_json_name(out, size, name, length);
 }
 
-int browser_json_name(char *out, int size, const unsigned short *name, int length)
-{
-	return json_name(out, size, name, length);
-}
-
 /* a line's tag: its player's address's hash with the invite (the host's
 own report) */
 static int report_line_tag(const struct browser_report_player *player, void *context, char *tag)
@@ -5359,23 +5356,6 @@ void browser_follow_listings(int on)
 		browser.anchors_wanted = 1;
 		pthread_mutex_unlock(&browser_lock);
 	}
-}
-
-int browser_game_peer(const char *invite, unsigned long *address)
-{
-	unsigned char identifier[P2P_IDENTIFIER_SIZE];
-	int index;
-
-	/* (the invite: the host's identifier, then the token) */
-	for (index = 0; index < P2P_IDENTIFIER_SIZE; index++)
-	{
-		unsigned int byte;
-
-		if (sscanf(invite + 2 * index, "%2x", &byte) != 1)
-			return 0;
-		identifier[index] = (unsigned char)byte;
-	}
-	return p2p_peer_address(identifier, address);
 }
 
 int browser_join(const char *invite, int open)

@@ -125,7 +125,7 @@ enum
 	SOUND_CACHE_PAGE_SIZE_BITS = 12,
 	SOUND_CACHE_PAGE_COUNT = SOUND_CACHE_SIZE >> SOUND_CACHE_PAGE_SIZE_BITS,
 	SOUND_CACHE_MAXIMUM_PAGE_COUNT = SOUND_CACHE_PAGE_COUNT,
-	SOUND_CACHE_SOUND_COUNT = 512,
+	SOUND_CACHE_SOUND_COUNT = SOUND_CACHE_MAXIMUM_SOUNDS,
 };
 #else
 /* (a console's cache follows its memory class, physical_memory_map.h's
@@ -582,6 +582,53 @@ static const char *cache_block_get_sound_permutation_name(
 	return xbox_sound_cache_globals.debug_block_name;
 }
 
+/* port: what filled the cache when a sound didn't fit, said with the
+"SOUND CACHE BLOWN" line: its pages in use and in play (locked: playing, or
+used this frame, so not let go), the largest run of free pages, and the
+sounds held against the most it holds */
+static void sound_cache_report_blown(
+	long size)
+{
+	struct lruv_cache *cache = xbox_sound_cache_globals.cache;
+	long block_index;
+	long page_index = 0;
+	long used_pages = 0;
+	long locked_pages = 0;
+	long largest_hole = 0;
+	long blocks = 0;
+
+	for (block_index = cache->first_block_index; block_index != NONE;)
+	{
+		struct lruv_cache_block *block = datum_get(cache->blocks, block_index);
+
+		largest_hole = MAX(largest_hole, block->first_page_index - page_index);
+		used_pages += block->page_count;
+		if ((unsigned long)block->last_used_tick == (unsigned long)cache->tick ||
+			(cache->locked_block_proc && cache->locked_block_proc(block_index)))
+		{
+			locked_pages += block->page_count;
+		}
+		page_index = block->first_page_index + block->page_count;
+		block_index = block->next_block_index;
+		blocks++;
+	}
+	largest_hole = MAX(largest_hole, cache->page_count - page_index);
+	error(
+		_error_silent,
+		"sound cache: %ld bytes (%ld pages) asked; %ld of %ld pages used, %ld of them playing; "
+		"largest free run %ld pages; %ld of %ld sounds held",
+		size,
+		(size + (1 << SOUND_CACHE_PAGE_SIZE_BITS) - 1) >> SOUND_CACHE_PAGE_SIZE_BITS,
+		used_pages,
+		cache->page_count,
+		locked_pages,
+		largest_hole,
+		blocks,
+		(long)SOUND_CACHE_SOUND_COUNT);
+
+	return;
+}
+
 static void sound_cache_start_loading_sound(
 	struct sound_permutation *sound)
 {
@@ -677,6 +724,7 @@ static void sound_cache_start_loading_sound(
 		error(
 			_error_silent,
 			"SOUND CACHE BLOWN!!!! double-click \"GETSTABBED.BAT\" on your PC now!!!");
+		sound_cache_report_blown(sound->samples.size);
 		/* (port: chatter, shown as config.toml's game.console_log says) */
 		if (terminal_shows(_terminal_message_chatter))
 		{

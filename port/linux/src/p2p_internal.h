@@ -172,8 +172,6 @@ it was not started */
 void p2p_signal_doorbell(const char *doorbell);
 /* the rings heard since the last call */
 int p2p_signal_doorbell_rings(void);
-/* whether any broker is connected */
-int p2p_signal_connected(void);
 /* every broker's connection made anew at once: after the p2p thread was
 stopped (the process was suspended, or the machine slept), the old ones
 may carry nothing, and would be noticed only at their silence timeout */

@@ -44,6 +44,29 @@ bytes. */
 #define DELTA_ADVERTISED_TAG_FIRST 'D'
 #define DELTA_ADVERTISED_TAG_SECOND 'L'
 #define DELTA_ADVERTISED_TAG_VERSION 1
+/* The tag's layout 2 (docs/delta/peer.md, "The tag"): a host of another
+project's game code that answers HELLO. Its four bytes after the layout are
+the project's number (DELTA_PROJECTS, 2 on: 0 and 1 make no tag), that
+project's own version (2, little-endian) and a reserved byte; the check is
+layout 1's. Such a host has no wire: a client says HELLO and marks its join,
+and joins it by its network number alone (delta_compat_read_project). This
+build never writes layout 2. Builds before it read layout 1 alone, so to them
+it is no tag. */
+#define DELTA_ADVERTISED_TAG_VERSION_PROJECT 2
+/* ... and a version word from here on is a Content Evolved modded game,
+whose 26 bytes are all its own (docs/delta/registry.md, "Network versions"):
+no project tag is read from it */
+#define DELTA_ADVERTISED_MODDED_VERSION 0xFF00
+
+/* The projects a layout 2 tag names (docs/delta/registry.md, "Projects";
+tools/test_delta_registry.py checks them): X(symbol, number, key, name).
+1 is ours, which writes layout 1 alone. New numbers come from the
+registry. */
+#define DELTA_PROJECT_OURS 1
+#define DELTA_PROJECTS(X) \
+	X(_delta_project_chupathingy, 1, "chupathingy", "Chupathingy") \
+	X(_delta_project_content_evolved, 2, "content_evolved", "Content Evolved") \
+	X(_delta_project_gulchce, 3, "gulchce", "GulchCE")
 
 /* The old layout, which hosts before the tag wrote (0.7.5a to 0.8.0h, wires
 to chupa-38a) and which readers still take when there is no tag, so that a

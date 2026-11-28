@@ -48,7 +48,8 @@ boolean mcc_pause_build(long first_index, short first_salt, struct mcc_pause_ass
 long mcc_pause_tag_count(void);
 struct mcc_pause_tag const *mcc_pause_tag_at(long ordinal);
 boolean mcc_pause_owns(long handle);
-/* Only these owned paragraph widgets need wrapping within their own bounds. */
+/* Only these owned paragraph widgets need wrapping within their own bounds,
+ * and on an MCC map, the objective's text box of the map's own pause screen. */
 boolean mcc_pause_text_wrap_needed(long handle);
 long mcc_pause_select(boolean campaign, boolean network, boolean host, boolean teams,
     short local_count, boolean first_player);

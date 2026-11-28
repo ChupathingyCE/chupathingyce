@@ -41,7 +41,7 @@ sit in the spec pages; they are about this implementation only.
 - **[peer.md Reports](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#reports).** The game's side is `port/linux/game/report_player.c` (the Delta Guide's PLAYERS HERE and the scoreboard's REPORT), the dedicated server's `server/src/server_reports.c` (`sv_reports`, the control panel's Reports).
 - **[peer.md Server badges](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#server-badges).** The game's side is `port/linux/src/server_badge.c` and `port/linux/src/delta_peer_game.c`; the dedicated server's certificate is `server_badge.cert` in its data folder.
 - **[peer.md Voice](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#voice).** The game's side is `port/linux/game/voice_game.c` (the channels, the host's rules and its view of the game), `port/linux/src/voice.c` (the microphone, Opus and the voices' playback, through the game's mixer, `dsound_sdl.c`) and `port/linux/src/voice_jitter.c`; Delta Peer's checks and routing are in `delta_peer.c`, all tested in `delta_test.c` and `voice_test.c`. A dedicated server relays without any audio or Opus of its own. The consoles leave voice out for now: a console is never sent any.
-- **[peer.md Party teams](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#party-teams).** The host's side is `port/linux/game/party_teams.c` (which change: the plan in `port/linux/src/party_teams_plan.c`, tested by `tools/test_party_teams.py`); the members' tag comes from `port/linux/game/guide.c`.
+- **[peer.md Party teams](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#party-teams).** The host's side is `port/linux/game/party_teams.c` (which change: the plan in `port/linux/src/party_teams_plan.c`, tested by `tools/test_c_units.py`); the members' tag comes from `port/linux/game/guide.c`.
 - **[peer.md Object sync](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#object-sync).** It is offered by the builds with the game list (`HALO_GAME_BROWSER`: the desktop builds, Android, the Switch and the dedicated server), not by the original Xbox's. The game's side is `port/linux/game/network_objects.c`.
 - **[stats.md Medals](https://github.com/ChupathingyCE/delta-spec/blob/main/stats.md#medals).** The names and icons are the site's too, one set for both. `tools/medal_assets.py`, run by hand with a checkout of ChupathingyCE/puma, reads `site.js`'s tables (`MEDALS`, `TIERS`, `SHAPES`, `GLYPHS`), draws each icon as the site's `medalSVG` does, and writes `port/assets/medals` (`medals.json` and an atlas of 64 pixels a medal, which the builds embed, and one of 32 for a console later) and `port/linux/src/medal_icons.h`. puma's `test_medals_sync.py` keeps the digest of the tables the game was made from, so a change on the site says to run it again; `tools/test_medal_rules.py` checks every key of `medal_rules.h` has its entry and icon.
 - **[list.md Pings before joining](https://github.com/ChupathingyCE/delta-spec/blob/main/list.md#pings-before-joining).** `port/linux/tests/ping_test.c` tests the formats with hostile input, the host's limits, the prober's measuring, the anchors and the Ping column's order; `HALO_NETWORK_TEST=browse` opens Online Games and logs each game's ping, for two copies on one machine.
@@ -64,6 +64,12 @@ Slayer); `delta_compat_decide` is a client's join decision, by
 `DELTA_WIRE_COMPATIBILITY`'s ranges; `delta_compat_join_mark` and
 `delta_compat_join_marked` write and read the join mark. The consoles take
 the same path (`HALO_CONSOLE_DELTA` or `HALO_CONSOLE_ONLINE_GAMES`).
+`delta_compat_read_project` reads the tag's layout 2, a host of another
+project's code (`DELTA_PROJECTS` in `delta.h`): such a host speaks Delta, so
+the client says HELLO and marks its join, but `delta_compat_decide` leaves
+it to the network number, and the system link list shows the project's
+name (`network_game_client_advertised_game_project`). This build never
+writes layout 2.
 
 ## The protocol setting
 
@@ -129,6 +135,44 @@ in use ... announcing 38", and `sv_status` "Following OpenCE network version
 setting once a published table announces the number. From auto-announce on (below),
 a server follows the signed table's newest hosting number by itself, and
 `HALO_NET_ANNOUNCE` pins an older one: a local table is for tests.
+
+## Networks
+
+The game's side of [federation](delta/federation.md): which network a
+player's certificate belongs to, and showing it. The formats are
+delta-spec's `link.md`, "Networks". Nothing on the wire changes and no
+certificate changes: a certificate's network is the one whose root key
+signed its issuer certificate, so today's read as `chupathingy.org`.
+
+- `port/linux/src/networks.c`: domains, `handle:domain` names, the signed
+  list of networks (read strictly: the size, the signature, then the JSON)
+  and the networks a game trusts. No SDL, so its tests
+  (`tools/test_networks.py`, with delta-spec's test vectors in
+  `port/linux/tests/federation_vectors.json`) build anywhere; it is also a
+  fuzz target (`tools/tests/host_fuzz/networks`).
+- `port/linux/src/networks_game.c`: the home network (`identity_key.h`'s
+  domain and root keys, which nothing changes), the newest signed list
+  (cached as `delta_networks.signed` in the save root, fetched from
+  `network.browser_url`'s `/v1/delta/networks` and `.sig` every few hours),
+  and `network.networks_trust` and `network.networks_block`. The list has
+  its own keys (`networks_key.h`), never the legacy table's. While they are
+  all zero no list is taken or fetched, and a game trusts its home network
+  and its local additions alone.
+- `delta_peer_game.c`'s proof check finds the network first (home first),
+  then checks the chain as before with that network's root keys alone. The
+  home network's revocation list applies to its own players; other
+  networks' aren't read in this version (their 7-day certificates are the
+  limit).
+- A player of another network shows as `Name:domain` wherever verified
+  names show (`profile_names.c`: scoreboard, lobby, chat, postgame, the
+  Guide); where a column is too narrow, as the name alone and a `:`.
+  They get no site card, clan tag, role or ban (moderation hears only of
+  the home network's bound proofs), and no ADD FRIEND in the Guide. One identity is one player by device, or by network and account
+  together.
+- A fork with its own network builds with
+  `-DIDENTITY_HOME_DOMAIN='"its.domain"'` and its own `identity_key.h`.
+- Consoles leave Delta identity out for now
+  (`HALO_CONSOLE_NO_DELTA_IDENTITY`), so this too.
 
 ## In the code
 

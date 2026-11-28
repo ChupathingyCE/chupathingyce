@@ -645,6 +645,7 @@ symbols in this file:
 
 #include "cseries.h"
 #include "opensauce.h" /* port: port/linux/game/opensauce_map.c */
+#include "opensauce_transforms.h" /* port: port/linux/game/opensauce_transforms.c */
 #include "units.h"
 #include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 
@@ -1068,8 +1069,13 @@ void units_dispose(
 void unit_kill(
 	long unit_index)
 {
-	struct unit_datum *unit = unit_get(unit_index);
+	struct unit_datum *unit;
 
+	/* port: none, or a unit deleted since the script had it, is passed
+	over rather than halting the game (#1861) */
+	if (!object_try_and_get(unit_index))
+		return;
+	unit = unit_get(unit_index);
 	SET_FLAG(unit->object.damage_flags, _object_die_act_of_god_bit, TRUE);
 
 	return;
@@ -1078,8 +1084,13 @@ void unit_kill(
 void unit_kill_silent(
 	long unit_index)
 {
-	struct unit_datum *unit = unit_get(unit_index);
+	struct unit_datum *unit;
 
+	/* port: none, or a unit deleted since the script had it, is passed
+	over rather than halting the game (#1861) */
+	if (!object_try_and_get(unit_index))
+		return;
+	unit = unit_get(unit_index);
 	SET_FLAG(unit->object.damage_flags, _object_die_act_of_god_silent_bit, TRUE);
 
 	return;
@@ -1520,7 +1531,8 @@ void unit_set_enterable_by_player(
 	long unit_index,
 	boolean enterable_by_player)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 		SET_FLAG(unit->unit.flags, _unit_not_enterable_by_player_bit, !enterable_by_player);
@@ -1533,7 +1545,8 @@ void unit_aim_without_turning(
 	long unit_index,
 	boolean aim_without_turning)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 		SET_FLAG(unit->unit.flags, _unit_aim_without_turning_bit, aim_without_turning);
@@ -1568,7 +1581,8 @@ void unit_scripting_can_blink(
 	long unit_index,
 	boolean can_blink)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -1582,7 +1596,8 @@ void unit_set_desired_flashlight_state(
 	long unit_index,
 	boolean desired_state)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -1691,7 +1706,8 @@ long unit_scripting_unit_riders(
 {
 	long object_list_index = NONE;
 
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -1730,7 +1746,8 @@ boolean unit_scripting_vehicle_test_seat_list(
 {
 	boolean result = FALSE;
 
-	if (vehicle_index!=NONE)
+	/* port: a vehicle deleted since the script had it is none (#1861) */
+	if (object_try_and_get(vehicle_index))
 	{
 		short seat_index;
 		struct unit_datum *vehicle = unit_get(vehicle_index);
@@ -1785,7 +1802,8 @@ boolean unit_scripting_vehicle_test_seat(
 {
 	boolean result = FALSE;
 
-	if (vehicle_index!=NONE && unit_index!=NONE)
+	/* port: a vehicle or unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(vehicle_index) && object_try_and_get(unit_index))
 	{
 		short seat_index;
 		struct unit_datum *vehicle = unit_get(vehicle_index);
@@ -2172,17 +2190,29 @@ short unit_add_grenade_type_to_inventory(
 	if (mcc_grenades_active()) return mcc_grenades_add(unit_index, grenade_type, grenade_count);
 	struct unit_datum *unit = unit_get(unit_index);
 
-	/* port: OpenSauce's maps may give an actor variant one of its four
-	grenade types; in SPV3 mode the two Halo has are taken and the others
-	passed over, logged (port/linux/game/spv3_mode.c) */
-	if (spv3_mode_active() && !VALID_INDEX(grenade_type, NUMBER_OF_UNIT_GRENADE_TYPES))
+#ifdef HALO_CUSTOM_EDITION
+	/* port: an OpenSauce map may give an actor variant one of its four
+	grenade types. With its globals listing them, the extra types' layer
+	above has them (port/linux/game/mcc_grenades.c); without, a third or
+	fourth is given none, logged (in SPV3 mode as its correction:
+	port/linux/game/spv3_mode.c) */
+	if (opensauce_map_active() && !VALID_INDEX(grenade_type, NUMBER_OF_UNIT_GRENADE_TYPES))
 	{
+		static boolean opensauce_grenade_type_logged = FALSE;
 		char what[80];
 
-		snprintf(what, sizeof(what), "grenade type %d (OpenSauce has four, Halo two) not given", grenade_type);
-		spv3_mode_note_correction(what);
+		snprintf(what, sizeof(what), "grenade type %d (OpenSauce has four, the map's globals two) not given",
+			grenade_type);
+		if (spv3_mode_active())
+			spv3_mode_note_correction(what);
+		else if (!opensauce_grenade_type_logged)
+		{
+			opensauce_grenade_type_logged = TRUE;
+			error(_error_silent, "OpenSauce map: %s", what);
+		}
 		return 0;
 	}
+#endif
 	match_assert("c:\\halo\\SOURCE\\units\\units.c", 7309, grenade_count>=0);
 	match_assert("c:\\halo\\SOURCE\\units\\units.c", 7310, (grenade_type >= 0) && (grenade_type < NUMBER_OF_UNIT_GRENADE_TYPES));
 
@@ -2338,7 +2368,8 @@ void unit_scripting_set_emotion_animation(
 	long unit_index,
 	char const *animation_name)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 		short animation_index = animation_graph_get_animation_by_name(unit->object.animation.animation_graph_index, animation_name);
@@ -2362,7 +2393,8 @@ void unit_scripting_suspended(
 {
 	/* port: co-op players the scripts can't name go with player0 */
 	coop_scripts_suspend_followers(unit_index, suspended);
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -3691,7 +3723,8 @@ void unit_scripting_set_seat(
 	long unit_index,
 	char const *seat_label)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 		unit->unit.magic_seat_index = seat_label_to_base_seat_index(seat_label);
@@ -4015,7 +4048,8 @@ boolean unit_get_current_flashlight_state(
 {
 	boolean flashlight_on = FALSE;
 
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		flashlight_on = TEST_FLAG(unit_get(unit_index)->unit.flags, _unit_integrated_light_on_bit);
 	}
@@ -4103,7 +4137,8 @@ void unit_set_emotion(
 	long unit_index,
 	word emotion_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		unit_get(unit_index)->unit.animation.emotion_index = emotion_index;
 		object_start_interpolation(unit_index, 6);
@@ -4115,7 +4150,8 @@ void unit_set_emotion(
 boolean unit_is_playing_custom_animation(
 	long unit_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		return unit_get(unit_index)->unit.animation.state==_unit_state_user_animation;
 	}
@@ -4126,7 +4162,8 @@ boolean unit_is_playing_custom_animation(
 short unit_get_custom_animation_time(
 	long unit_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -4149,7 +4186,8 @@ boolean unit_start_user_animation(
 {
 	boolean animation_started = FALSE;
 
-	if (unit_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		if (animation_graph_index != NONE)
 		{
@@ -4285,7 +4323,8 @@ boolean unit_flying_through_air(
 void unit_stop_custom_animation(
 	long unit_index)
 {
-	if (unit_index!=NONE && unit_get(unit_index)->unit.animation.state==_unit_state_user_animation)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index) && unit_get(unit_index)->unit.animation.state==_unit_state_user_animation)
 	{
 		unit_animation_set_state(unit_index, _unit_state_idle);
 		network_coop_note_unit_animation(unit_index, NONE, NONE, FALSE);
@@ -4380,6 +4419,22 @@ void unit_port_play_user_animation(
 	if (frame_index > 0 && frame_index < animation->frame_count)
 		unit->object.animation.state.frame_index = frame_index;
 	object_compute_node_matrices_recursive(unit_index);
+}
+
+/* port: an OpenSauce map's actor variant transforms
+(port/linux/game/opensauce_transforms.c), as OpenSauce's do: the new actor's
+unit readies its weapon at once (an energy sword not readied goes off), and
+a rider moved to the new unit stands idle */
+void unit_port_ready_desired_weapon(
+	long unit_index)
+{
+	unit_ready_desired_weapon(unit_index, TRUE);
+}
+
+void unit_port_animation_set_idle(
+	long unit_index)
+{
+	unit_animation_set_state(unit_index, _unit_state_idle);
 }
 
 boolean unit_melee_attack_begin(
@@ -4855,7 +4910,8 @@ void unit_scripting_enter_vehicle(
 	long vehicle_index,
 	char const *seat_name)
 {
-	if (unit_index!=NONE && vehicle_index!=NONE && csstrlen(seat_name)>0)
+	/* port: a unit or vehicle deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index) && object_try_and_get(vehicle_index) && csstrlen(seat_name)>0)
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 
@@ -4969,7 +5025,8 @@ short vehicle_scripting_unload(
 {
 	long unloaded_count = 0;
 
-	if (vehicle_index!=NONE)
+	/* port: a vehicle deleted since the script had it is none (#1861) */
+	if (object_try_and_get(vehicle_index))
 	{
 		struct unit_datum *vehicle = unit_get(vehicle_index);
 		struct unit_definition *vehicle_definition = unit_definition_get(vehicle->definition_index);
@@ -5009,7 +5066,8 @@ short vehicle_scripting_unload(
 void unit_scripting_exit_vehicle(
 	long unit_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
 		long vehicle_index = unit->object.parent_object_index;
@@ -5443,7 +5501,8 @@ short vehicle_scripting_load_magic(
 {
 	long loaded_count = 0;
 
-	if (vehicle_index!=NONE)
+	/* port: a vehicle deleted since the script had it is none (#1861) */
+	if (object_try_and_get(vehicle_index))
 	{
 		struct unit_datum *vehicle = unit_get(vehicle_index);
 		struct unit_definition *vehicle_definition = unit_definition_get(vehicle->definition_index);
@@ -5467,9 +5526,10 @@ short vehicle_scripting_load_magic(
 
 		while (unit_index!=NONE)
 		{
-			struct object_datum *object = object_get(unit_index);
+			/* port: a listed object deleted since is passed over (#1861) */
+			struct object_datum *object = object_try_and_get(unit_index);
 
-			if (TEST_FLAG(_object_mask_unit, object->object.type) &&
+			if (object && TEST_FLAG(_object_mask_unit, object->object.type) &&
 				!TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit))
 			{
 				struct unit_datum *unit = (struct unit_datum *)object;
@@ -5535,7 +5595,7 @@ short vehicle_scripting_load_magic(
 			unit_index != NONE;
 			unit_index = object_list_get_next(object_list_index, &reference_index))
 		{
-			if (object_get(unit_index)->object.parent_object_index == vehicle_index)
+			if (object_try_and_get(unit_index) && object_get(unit_index)->object.parent_object_index == vehicle_index)
 				coop_scripts_board_followers(unit_index, vehicle_index, seat_name);
 		}
 	}
@@ -5546,7 +5606,8 @@ short vehicle_scripting_load_magic(
 void unit_open(
 	long unit_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		network_coop_note_unit_open(unit_index, TRUE);
 		unit_animation_set_state(unit_index, _unit_state_opening);
@@ -5558,7 +5619,8 @@ void unit_open(
 void unit_close(
 	long unit_index)
 {
-	if (unit_index!=NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		network_coop_note_unit_open(unit_index, FALSE);
 		unit_animation_set_state(unit_index, _unit_state_closing);
@@ -10372,7 +10434,14 @@ static short unit_animation_update(
 	struct animation_state *animation)
 {
 	long sound_index;
-	short result = animation_update_internal(
+	short result;
+
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: Stubbs's animations' effects (Stubbs mode only: port/linux/game/stubbs_engine.c) */
+	if (stubbs_mode_active())
+		stubbs_engine_animation_effect(unit_index, animation_graph_index, animation);
+#endif
+	result = animation_update_internal(
 		1,
 		animation_graph_index,
 		animation,
@@ -10555,6 +10624,11 @@ short unit_update_animation(
 			case _unit_state_throw_grenade:
 				unit_throw_grenade_release(unit_index, FALSE);
 				break;
+			case _unit_state_user_animation:
+				/* port: an OpenSauce transform's key frame actions (only on
+				an OpenSauce map: port/linux/game/opensauce_transforms.c) */
+				opensauce_transforms_unit_animation_event(unit_index, FALSE);
+				break;
 			case _unit_state_melee_attack:
 			case _unit_state_melee_airborne:
 			case _unit_state_leap_melee:
@@ -10575,6 +10649,12 @@ short unit_update_animation(
 		{
 			switch (unit->unit.animation.state)
 			{
+			case _unit_state_user_animation:
+				/* port: an OpenSauce transform's stage ends with its
+				animation (port/linux/game/opensauce_transforms.c) */
+				opensauce_transforms_unit_animation_event(unit_index, TRUE);
+				break;
+
 			case _unit_state_leap_start:
 				result = TRUE;
 				desired_state = _unit_state_leap_airborne;

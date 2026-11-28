@@ -4,7 +4,7 @@ DELTA_COMPAT_FUZZ.C
 libFuzzer's entry for the join's reserved bytes (tools/test_host_fuzz.py
 builds it): an advertisement's reserved bytes, at the length the input has
 (in an allocation of its own, so that a read past it is caught) through the
-tag, range, decision and wire readers; and a machine name of the join
+tag (both layouts), range, decision and wire readers; and a machine name of the join
 request, whose first byte picks how many 16-bit characters it holds, through
 the join mark's reader and writer.
 */
@@ -22,7 +22,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	unsigned char *reserved;
 	unsigned short *name;
 	char theirs[24];
-	int major, count, index;
+	int major, count, index, project, project_version;
 
 	if (!size)
 		return 0;
@@ -32,6 +32,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	memcpy(reserved, data, size);
 	delta_compat_read_tag(reserved, (int)size, &major, &wire, &oldest);
 	delta_compat_read_range(reserved, (int)size, &wire, &oldest);
+	if (delta_compat_read_project(reserved, (int)size, &major, &project, &project_version))
+		delta_compat_project_name(project);
 	delta_compat_speaks_delta(reserved, (int)size);
 	delta_compat_opence_server(reserved, (int)size);
 	delta_compat_host_wire(reserved, (int)size, data[0], &wire);

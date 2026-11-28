@@ -1,0 +1,82 @@
+name: Renderer gate
+
+# bgfx against OpenGL on pictures (tools/renderer_gate.py, docs/renderer-gate.md),
+# weekly on main and by hand, on a Linux machine that has the maps: bgfx on
+# Mesa's software Vulkan (lavapipe) and OpenGL on llvmpipe, each on its own
+# Xvfb display. Software rendering says nothing about frame time, so this is
+# the looks half only; frame time is measured on real GPUs before a default
+# changes. GitHub's own runners have no maps (never cached, uploaded or
+# fetched here), so the job runs only on the runner the repository variable
+# RENDERER_GATE_RUNNER names, as runs-on labels in JSON
+# (["self-hosted", "linux", "halo-maps"]), and is skipped while it is unset.
+# That runner sets HALO_GATE_MAPS (the stock Xbox maps' folder) and
+# HALO_DATA_ROOT_SCRIPT (a script that makes a data root of links to them);
+# HALO_GATE_MAPS_CE (Custom Edition maps) is optional. Every copy of the
+# game runs off the network with its own home, save and data folders.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      maps:
+        description: Only these maps' views, split by spaces (empty, all of them)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renderer-gate
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    if: vars.RENDERER_GATE_RUNNER != ''
+    runs-on: ${{ fromJSON(vars.RENDERER_GATE_RUNNER || '["ubuntu-24.04"]') }}
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          python3 configure.py --pgo=off
+          ninja linux64
+
+      - name: Pictures, bgfx against OpenGL
+        env:
+          MAPS_WANTED: ${{ inputs.maps }}
+        run: |
+          # (tools/renderer_gate.py makes each copy's data root with the
+          # runner's HALO_DATA_ROOT_SCRIPT, passed through to it as it is)
+          [ -n "${HALO_GATE_MAPS:-}" ] && [ -n "${HALO_DATA_ROOT_SCRIPT:-}" ] ||
+            { echo "::error::the runner sets HALO_GATE_MAPS and HALO_DATA_ROOT_SCRIPT"; exit 1; }
+          export HALO_DATA_ROOT_SCRIPT
+          # (an X display no one else on the runner has)
+          display=90
+          while [ -e "/tmp/.X$display-lock" ] || [ -e "/tmp/.X11-unix/X$display" ]; do display=$((display + 1)); done
+          set -- --binary build/linux64/chupathingy --out "$RUNNER_TEMP/gate" --xvfb ":$display" \
+            --env HALO_VULKAN_BLOCKLIST=false --maps "$HALO_GATE_MAPS" --repeat-first \
+            --platform "Linux (bgfx on lavapipe, OpenGL on llvmpipe)"
+          [ -n "${HALO_GATE_MAPS_CE:-}" ] && set -- "$@" --maps-ce "$HALO_GATE_MAPS_CE"
+          for map in $MAPS_WANTED; do set -- "$@" --map "$map"; done
+          python3 tools/renderer_gate.py "$@"
+
+      - name: Summary
+        if: always()
+        run: |
+          [ -f "$RUNNER_TEMP/gate/report.md" ] && cat "$RUNNER_TEMP/gate/report.md" >> "$GITHUB_STEP_SUMMARY" || true
+
+      # (the pictures and the report: screenshots of the game, never a map's file)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderer-gate-linux
+          path: |
+            ${{ runner.temp }}/gate/*.md
+            ${{ runner.temp }}/gate/*.html
+            ${{ runner.temp }}/gate/*.json
+            ${{ runner.temp }}/gate/**/*.png
+          if-no-files-found: ignore
+          retention-days: 14

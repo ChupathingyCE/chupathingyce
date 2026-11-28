@@ -19,7 +19,4 @@ MSVC low-level I/O for game code, mapped onto POSIX.
 #define _unlink unlink
 #define _access access
 
-long _filelength(int handle);
-int _chsize(int handle, long size);
-
 #endif

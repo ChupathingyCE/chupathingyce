@@ -1578,9 +1578,11 @@ static void validate_value(
 	{
 		long value = integer_get(address, field->size, is_unsigned);
 		long none = integer_none(field->size, is_unsigned);
-		long maximum = field->target_offset &&
+		/* (Halo PC's count, in its layout; or the layout's own where it has
+		one, field_maximum: OpenSauce's four grenade types) */
+		long maximum = field_maximum(field, field->target_offset &&
 			TEST_FLAG(tag_validate_globals.layout->flags, _tag_schema_layout_pc_shader_types_bit) ?
-			field->target_offset : field->maximum;
+			field->target_offset : field->maximum);
 
 		if ((value >= 0 && value < maximum && value != none) || (none_allowed && value == none))
 			break;
@@ -1950,7 +1952,8 @@ boolean tag_validate_tags(
 	long file_length,
 	char const *map_name)
 {
-	return tag_validate_tags_layout(&tag_schema_xbox_layout, tag_header, tag_data_size, file_length, map_name);
+	return tag_validate_tags_layout(stubbs_mode_active() ? &tag_schema_stubbs_layout : &tag_schema_xbox_layout,
+		tag_header, tag_data_size, file_length, map_name);
 }
 
 static boolean validate_tags_once(
@@ -2009,6 +2012,90 @@ boolean tag_validate_tags_layout(
 
 	return valid;
 }
+
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_NO_FORGE)
+/* port: another map's tags (Forge's AI characters on the multiplayer maps,
+port/linux/game/forge_ai_tags.c), checked as tag_validate_tags checks a
+map's, with what the loaded map's check keeps for its structure bsps (its
+header, the claims, the shared extents) put back after */
+struct tag_validate_kept_state
+{
+	__typeof__(tag_validate_globals) globals;
+	struct shared_extent shared_tags[SHARED_EXTENT_TAG_ENTRIES];
+	struct shared_extent shared_bsp[SHARED_EXTENT_BSP_ENTRIES];
+	struct shared_overlap overlaps[MAXIMUM_SHARED_OVERLAPS];
+	long overlap_count;
+	long tag_overlap_count;
+	long as_others[MAXIMUM_SHARED_AS_OTHERS];
+	long as_other_count;
+	long tag_as_other_count;
+	unsigned long claims[CLAIM_WORDS];
+	unsigned long shared_roots[0x10000 / CLAIM_BITS];
+	__typeof__(tag_validate_copies) copies;
+};
+
+/* (while another map's tags are checked) where the loaded map's check
+state waits: made by tag_validate_other_tags_room, before the other tags
+take their memory */
+static struct tag_validate_kept_state *tag_validate_kept;
+
+boolean tag_validate_other_tags_room(
+	boolean wanted)
+{
+	if (wanted && !tag_validate_kept)
+		tag_validate_kept = malloc(sizeof(*tag_validate_kept));
+	else if (!wanted && tag_validate_kept)
+	{
+		free(tag_validate_kept);
+		tag_validate_kept = NULL;
+	}
+	return !wanted || tag_validate_kept != NULL;
+}
+
+boolean tag_validate_other_tags(
+	void *tag_header,
+	long tag_data_size,
+	long file_length,
+	char const *map_name)
+{
+	struct tag_validate_kept_state *kept = tag_validate_kept;
+	boolean valid;
+
+	if (!kept)
+	{
+		error(_error_silent, "the map '%s''s tags cannot be checked: no room for the loaded map's check (%lu KB)",
+			map_name, (unsigned long)(sizeof(*kept) >> 10));
+		return FALSE;
+	}
+	kept->globals = tag_validate_globals;
+	memcpy(kept->shared_tags, tag_validate_shared_tags, sizeof(kept->shared_tags));
+	memcpy(kept->shared_bsp, tag_validate_shared_bsp, sizeof(kept->shared_bsp));
+	memcpy(kept->overlaps, tag_validate_overlaps, sizeof(kept->overlaps));
+	kept->overlap_count = tag_validate_overlap_count;
+	kept->tag_overlap_count = tag_validate_tag_overlap_count;
+	memcpy(kept->as_others, tag_validate_as_others, sizeof(kept->as_others));
+	kept->as_other_count = tag_validate_as_other_count;
+	kept->tag_as_other_count = tag_validate_tag_as_other_count;
+	memcpy(kept->claims, tag_validate_claims, sizeof(kept->claims));
+	memcpy(kept->shared_roots, tag_validate_shared_roots, sizeof(kept->shared_roots));
+	kept->copies = tag_validate_copies;
+	valid = tag_validate_tags_layout(stubbs_mode_active() ? &tag_schema_stubbs_layout : &tag_schema_xbox_layout,
+		tag_header, tag_data_size, file_length, map_name);
+	tag_validate_globals = kept->globals;
+	memcpy(tag_validate_shared_tags, kept->shared_tags, sizeof(kept->shared_tags));
+	memcpy(tag_validate_shared_bsp, kept->shared_bsp, sizeof(kept->shared_bsp));
+	memcpy(tag_validate_overlaps, kept->overlaps, sizeof(kept->overlaps));
+	tag_validate_overlap_count = kept->overlap_count;
+	tag_validate_tag_overlap_count = kept->tag_overlap_count;
+	memcpy(tag_validate_as_others, kept->as_others, sizeof(kept->as_others));
+	tag_validate_as_other_count = kept->as_other_count;
+	tag_validate_tag_as_other_count = kept->tag_as_other_count;
+	memcpy(tag_validate_claims, kept->claims, sizeof(kept->claims));
+	memcpy(tag_validate_shared_roots, kept->shared_roots, sizeof(kept->shared_roots));
+	tag_validate_copies = kept->copies;
+	return valid;
+}
+#endif
 
 static boolean validate_tags_once(
 	struct tag_schema_layout const *layout,

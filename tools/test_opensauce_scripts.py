@@ -79,3 +79,25 @@ def test_sets_take_only_numbers_and_writable_fields():
             '\t\t!strcmp(name, "center");') in text
     assert "short_field = &unit->unit.current_weapon_index;\n" in text
     assert "scale < 0.f || scale > OPENSAUCE_MAXIMUM_GRAVITY_SCALE" in text
+
+
+def test_scripted_widgets_open_only_listed_definitions():
+    """display_scripted_ui_widget opens only a ui_widget_definition the map's
+    project_yellow (then project_yellow_globals) lists under the name, its
+    list read within the map's tags; none on the dedicated server"""
+    text = source()
+    call = text[text.index('else if (!strcmp(name, "display_scripted_ui_widget"))'):]
+    call = call[:call.index('else if (!strcmp(name, "physics_set_gravity"))')]
+    assert "opensauce_map_scripted_widget(widget_name)" in call
+    assert "ui_widget_load_by_name_or_tag(NULL, tag_index, NULL, NONE, NONE, NONE, NONE)" in call
+    assert "if (tag_index != NONE)" in call
+    assert text[:text.index(call)].rstrip().endswith("#ifndef HALO_SERVER")
+    lookup = (ROOT / "port/linux/game/opensauce_map.c").read_text(encoding="utf-8")
+    body = lookup[lookup.index("static long opensauce_scripted_widget_in("):]
+    body = body[:body.index("\n}\n")]
+    assert "ce_loaded_pointer(content_u32(root + offset + 4), (unsigned long)count * SCRIPTED_WIDGET_SIZE)" in body
+    assert "'DeLa'" in body and "UI_WIDGET_DEFINITION_SIZE" in body
+    find = lookup[lookup.index("long opensauce_map_scripted_widget("):]
+    find = find[:find.index("\n}\n")]
+    assert find.index("YELO_SCRIPTED_WIDGETS_OFFSET") < find.index("GELO_SCRIPTED_WIDGETS_OFFSET")
+    assert "opensauce_globals.tag_instances = NULL;" in lookup

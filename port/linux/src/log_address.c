@@ -67,10 +67,25 @@ int log_address_local(const unsigned char *bytes, int length)
 	return (length == 4 || length == 16) && local_address(bytes, length);
 }
 
-const char *log_address(const unsigned char *bytes, int length, int port, char *text, int size)
+/* whether an address is this machine's own (loopback or unspecified): one
+written as it is even where a local network's are tagged */
+static int own_address(const unsigned char *bytes, int length)
+{
+	static const unsigned char zero[15] = { 0 };
+
+	if (length == 4)
+		return bytes[0] == 0 || bytes[0] == 127;
+	return !memcmp(bytes, zero, 15) && bytes[15] <= 1;
+}
+
+/* an address as the log may show it; local_whole: a local network's (and
+the other ranges local_address names) as it is, else as a tag too */
+static const char *write_address(const unsigned char *bytes, int length, int port, char *text, int size,
+	int local_whole)
 {
 	char address[48];
 	int used;
+	int whole;
 
 	if (!text || size <= 0)
 		return "";
@@ -79,9 +94,10 @@ const char *log_address(const unsigned char *bytes, int length, int port, char *
 		snprintf(text, (size_t)size, "unknown");
 		return text;
 	}
-	if (local_address(bytes, length) || config_boolean("debug.log_addresses"))
+	whole = local_whole ? local_address(bytes, length) : own_address(bytes, length);
+	if (whole || config_boolean("debug.log_addresses"))
 	{
-		if (!local_address(bytes, length))
+		if (!whole)
 			pthread_once(&whole_once, say_whole);
 		if (length == 4)
 		{
@@ -123,6 +139,11 @@ const char *log_address(const unsigned char *bytes, int length, int port, char *
 	return text;
 }
 
+const char *log_address(const unsigned char *bytes, int length, int port, char *text, int size)
+{
+	return write_address(bytes, length, port, text, size, 1);
+}
+
 const char *log_address_ipv4(unsigned long network_address, unsigned short network_port, char *text, int size)
 {
 	/* (the 32 bits of a sockaddr_in's address, in its byte order) */
@@ -133,4 +154,50 @@ const char *log_address_ipv4(unsigned long network_address, unsigned short netwo
 	memcpy(bytes, &value, 4);
 	memcpy(port, &network_port, 2);
 	return log_address(bytes, 4, network_port ? (port[0] << 8 | port[1]) : -1, text, size);
+}
+
+const char *log_address_ipv4_peer(unsigned long network_address, unsigned short network_port, char *text, int size)
+{
+	unsigned int value = (unsigned int)network_address;
+	unsigned char bytes[4];
+	unsigned char port[2];
+
+	memcpy(bytes, &value, 4);
+	memcpy(port, &network_port, 2);
+	return write_address(bytes, 4, network_port ? (port[0] << 8 | port[1]) : -1, text, size, 0);
+}
+
+const char *log_address_name(const char *name, char *text, int size)
+{
+	unsigned char data[SALT_SIZE + 1 + 256];
+	unsigned char digest[P2P_SHA256_SIZE];
+	char tag[2 * TAG_SIZE + 1];
+	size_t length;
+
+	if (!text || size <= 0)
+		return "";
+	if (!name || !*name)
+	{
+		snprintf(text, (size_t)size, "unknown");
+		return text;
+	}
+	length = strlen(name);
+	if (!strcmp(name, "localhost") || config_boolean("debug.log_addresses"))
+	{
+		if (strcmp(name, "localhost"))
+			pthread_once(&whole_once, say_whole);
+		snprintf(text, (size_t)size, "%s", name);
+		return text;
+	}
+	if (length > 256)
+		length = 256;
+	pthread_once(&salt_once, make_salt);
+	memcpy(data, salt, SALT_SIZE);
+	/* (a name's tag apart from an address's of the same bytes) */
+	data[SALT_SIZE] = 0xFF;
+	memcpy(data + SALT_SIZE + 1, name, length);
+	p2p_sha256(data, SALT_SIZE + 1 + (int)length, digest);
+	p2p_hex(digest, TAG_SIZE, tag);
+	snprintf(text, (size_t)size, "name#%s", tag);
+	return text;
 }

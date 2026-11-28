@@ -1124,17 +1124,9 @@ boolean network_game_server_send_game_settings_to_client_machine(
 	void const *game,
 	long game_size)
 {
-#ifdef HALO_MCC_NETWORK
-	struct network_game mcc_settings; /* port: fingerprint extension, no host record mutation */
-#endif
 	long options = 0;
 	long size = network_game_server_settings_layout(server, machine, &options);
 	long slot;
-
-#ifdef HALO_MCC_NETWORK
-	game = mcc_identity_host_settings(game, game_size, &mcc_settings); /* port: MCC admission */
-	if (!game) return FALSE;
-#endif
 
 	/* (waited for: sent once its size is known) */
 	if (!size)
@@ -1479,18 +1471,10 @@ boolean network_game_server_send_game_settings_to_all_machines(
 	void const *game,
 	long game_size)
 {
-#ifdef HALO_MCC_NETWORK
-	struct network_game mcc_settings; /* port: fingerprint extension, no host record mutation */
-#endif
 	long machine_index;
 	long wire_size = game_size;
 	void const *wire;
 	boolean result = TRUE;
-
-#ifdef HALO_MCC_NETWORK
-	game = mcc_identity_host_settings(game, game_size, &mcc_settings); /* port: MCC admission */
-	if (!game) return FALSE;
-#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\networking\\network_server_message_handler.c",
@@ -2159,6 +2143,22 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 				config_boolean("network.direct_ip_host"), (uint32_t)now, &search_budget)))
 		{
 			return TRUE;
+		}
+
+		/* port: a search from the client port of an internet address (a
+		player joining this host by its address, Direct IP:
+		port/linux/game/direct_join.c), which the broadcast never reaches, is
+		answered at its address by the same rule, on the same budget: only
+		when the host allows it (network.direct_ip_host; off, the player
+		still joins, after direct_join.c's DIRECT_JOIN_AFTER). Left
+		unanswered, it takes the broadcast's answer as ever */
+		if (!direct && source_address->port && source_address->address_length == IPV4_ADDRESS_LENGTH &&
+			source_address->address.long_words[0] && source_address->address.long_words[0] != NONE &&
+			!network_rules_address_joins_as_lan((uint32_t)source_address->address.long_words[0]) &&
+			network_rules_search_answered((uint32_t)source_address->address.long_words[0],
+				config_boolean("network.direct_ip_host"), (uint32_t)now, &search_budget))
+		{
+			direct = TRUE;
 		}
 
 		/* (the time taken only by a search answered) */

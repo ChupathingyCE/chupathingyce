@@ -388,11 +388,6 @@ void sc_close(struct sc_connection *connection)
 	free(connection);
 }
 
-const char *sc_connection_host(const struct sc_connection *connection)
-{
-	return connection->host;
-}
-
 int sc_send_all(struct sc_connection *connection, const void *data, size_t length)
 {
 	const unsigned char *at = (const unsigned char *)data;

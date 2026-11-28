@@ -56,8 +56,63 @@ takes the address as a hint, which every caller here checks it got) */
 #include <stdlib.h>
 #include <SDL3/SDL.h>
 
-/* what a 32-bit Windows is told, where the window can't be reserved */
-#define XBOX_MEMORY_NEEDS_64_BIT "This build needs 64-bit Windows. For 32-bit systems, use Chupathingy32."
+#ifdef HALO_WINDOW_REBASE
+/* what the player is told where the window fits nowhere (Chupathingy32's
+Windows build: below) */
+#define XBOX_MEMORY_NO_ROOM "Chupathingy can't start: Windows has no room for the game's memory. " \
+	"Restart your PC and try again."
+#else
+/* what a 32-bit Windows is told, where the window can't be reserved, and
+where to get the build that runs there */
+#define XBOX_MEMORY_CHUPATHINGY32 "github.com/ChupathingyCE/chupathingy32/releases"
+#define XBOX_MEMORY_NEEDS_64_BIT "This build needs 64-bit Windows. For a 32-bit PC, get Chupathingy32: " \
+	XBOX_MEMORY_CHUPATHINGY32
+#endif
+#endif
+
+#if defined(_WIN32) && defined(HALO_WINDOW_REBASE)
+/* Chupathingy32's Windows build (configure.py --window-rebase). 32-bit
+Windows keeps 0x80000000 up for itself (unless it was started with
+IncreaseUserVA), so the window is wherever it fits: at its linked address
+where there is room (64-bit Windows gives this large-address-aware program
+the whole 4 GB), and else at the first other whole number of its size that
+is free, from the bottom (the executable and the heaps are below
+0x20000000, the system's libraries near the top of the lower 2 GB). A base
+that would cover Custom Edition maps' tag cache (0x40440000, platform.h)
+is tried last: those maps would not load there, the Xbox's still would.
+The base is at least the window's size, as PLATFORM_PHYSICAL_TO_VIRTUAL
+needs, and the window ends below 4 GB, so that its end is a 32-bit
+address. Returns the reservation, or MAP_FAILED. */
+static void *window_reserve_anywhere(void)
+{
+	unsigned long long size = PLATFORM_CONTIGUOUS_SIZE;
+	int pass;
+
+	for (pass = 0; pass < 2; pass++)
+	{
+		unsigned long long base;
+
+		for (base = size; base + size < 0x100000000ULL; base += size)
+		{
+			int covers_ce_cache = base < PLATFORM_CE_TAG_CACHE_BASE + PLATFORM_CE_TAG_CACHE_SIZE +
+				PLATFORM_CE_CONVERSION_ROOM_SIZE && PLATFORM_CE_TAG_CACHE_BASE < base + size;
+			void *result;
+
+			if (base == XBOX_WINDOW_LINKED_BASE || covers_ce_cache != pass)
+				continue;
+			result = mmap((void *)(uintptr_t)base, (size_t)size, PROT_NONE,
+				MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
+			if (result == (void *)(uintptr_t)base)
+			{
+				platform_contiguous_base = (unsigned long)base;
+				return result;
+			}
+			if (result != MAP_FAILED)
+				munmap(result, (size_t)size);
+		}
+	}
+	return MAP_FAILED;
+}
 #endif
 
 #ifdef HALO_64BIT
@@ -153,10 +208,6 @@ void xbox_address_out_of_range(void const *pointer)
 	abort();
 }
 
-void platform_xbox_window_ensure(void)
-{
-	xbox_address_space_reserve();
-}
 #else
 __attribute__((constructor(101)))
 #ifdef HALO_64BIT
@@ -172,15 +223,25 @@ static void contiguous_arena_reserve(void)
 #else
 #if defined(HALO_WINDOW_REBASE) && !defined(HALO_ANDROID)
 	/* the Linux build's test of a moved window: HALO_WINDOW_BASE, in hex,
-	on a whole number of the window's size; unset, the linked address */
+	on a whole number of the window's size; unset, the linked address (on
+	Windows, wherever it fits: window_reserve_anywhere; set, there and
+	nowhere else, to test a moved window on a 64-bit Windows) */
 	const char *setting = getenv("HALO_WINDOW_BASE");
+#ifdef _WIN32
+	BOOL window_base_forced = FALSE;
+#endif
 
 	if (setting && *setting)
 	{
 		unsigned long base = strtoul(setting, NULL, 16);
 
 		if (base && !(base % PLATFORM_CONTIGUOUS_SIZE) && base <= 0xffffffffUL - PLATFORM_CONTIGUOUS_SIZE + 1)
+		{
 			platform_contiguous_base = base;
+#ifdef _WIN32
+			window_base_forced = TRUE;
+#endif
+		}
 		else
 			platform_log("HALO_WINDOW_BASE=%s is not a multiple of %#lx: the window stays at %#lx", setting,
 				(unsigned long)PLATFORM_CONTIGUOUS_SIZE, platform_contiguous_base);
@@ -205,6 +266,36 @@ static void contiguous_arena_reserve(void)
 	void *wanted = (void *)PLATFORM_CONTIGUOUS_BASE;
 	void *result = mmap(wanted, PLATFORM_CONTIGUOUS_SIZE, PROT_NONE,
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
+#if defined(_WIN32) && defined(HALO_WINDOW_REBASE)
+	if (result != wanted && !window_base_forced)
+	{
+		if (result != MAP_FAILED)
+			munmap(result, PLATFORM_CONTIGUOUS_SIZE);
+		platform_log("no room for the window at %08lx: looking for another place", platform_contiguous_base);
+		result = window_reserve_anywhere();
+		if (result != MAP_FAILED)
+		{
+			wanted = result;
+			platform_log("contiguous window at %08lx, %lu MB", platform_contiguous_base,
+				platform_contiguous_size >> 20);
+		}
+	}
+	/* The linked addresses, which xbox_pointer moves into the window
+	wherever it is (cseries/xbox_address.h): kept free where the system lets
+	a program have them (64-bit Windows; 32-bit Windows keeps them for
+	itself), so that no pointer of the host's is ever one of them */
+	if (result == wanted && platform_contiguous_base != XBOX_WINDOW_LINKED_BASE)
+	{
+		void *guard = mmap((void *)XBOX_WINDOW_LINKED_BASE, XBOX_WINDOW_LINKED_SIZE, PROT_NONE,
+			MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
+
+		if (guard == (void *)XBOX_WINDOW_LINKED_BASE)
+			platform_log("the window's linked addresses (%08lx, %lu MB) kept free", XBOX_WINDOW_LINKED_BASE,
+				XBOX_WINDOW_LINKED_SIZE >> 20);
+		else if (guard != MAP_FAILED)
+			munmap(guard, XBOX_WINDOW_LINKED_SIZE);
+	}
+#endif
 #endif
 
 #ifdef HALO_64BIT
@@ -290,11 +381,31 @@ static void contiguous_arena_reserve(void)
 			munmap(result, PLATFORM_CONTIGUOUS_SIZE);
 		platform_log("cannot reserve the Xbox contiguous memory window at %p (%s)",
 			wanted, strerror(errno));
-#if defined(_WIN32) && !defined(HALO_SERVER)
+#if defined(_WIN32) && !defined(HALO_SERVER) && defined(HALO_WINDOW_REBASE)
+		/* (nowhere in the address space: the system's libraries or another
+		program's hooks are spread over it) */
+		platform_log("%s", XBOX_MEMORY_NO_ROOM);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", XBOX_MEMORY_NO_ROOM, NULL);
+		exit(EXIT_FAILURE);
+#elif defined(_WIN32) && !defined(HALO_SERVER)
 		/* (32-bit Windows gives a program 2 GB, all below the window: the
 		game would only run out of memory as it starts) */
-		platform_log("%s", XBOX_MEMORY_NEEDS_64_BIT);
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", XBOX_MEMORY_NEEDS_64_BIT, NULL);
+		{
+			/* (SDL_OpenURL itself: platform_open_url leaves the page for the
+			main loop, which never runs past here) */
+			static const SDL_MessageBoxButtonData buttons[] =
+			{
+				{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Quit" },
+				{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Open page" },
+			};
+			SDL_MessageBoxData box = { SDL_MESSAGEBOX_ERROR, NULL, "Chupathingy", XBOX_MEMORY_NEEDS_64_BIT,
+				SDL_arraysize(buttons), buttons, NULL };
+			int answer = 0;
+
+			platform_log("%s", XBOX_MEMORY_NEEDS_64_BIT);
+			if (SDL_ShowMessageBox(&box, &answer) && answer == 1 && !SDL_OpenURL("https://" XBOX_MEMORY_CHUPATHINGY32))
+				platform_log("could not open the web browser: %s", SDL_GetError());
+		}
 		exit(EXIT_FAILURE);
 #endif
 #endif
@@ -334,6 +445,7 @@ static void contiguous_arena_reserve(void)
 	}
 #endif
 #ifdef HALO_64BIT
+#ifndef _WIN32
 	/* (no swap reserved for these, as for the heap, xbox_heap.c: pages are
 	backed when touched, and a small machine refuses the whole window
 	otherwise) */
@@ -343,6 +455,15 @@ static void contiguous_arena_reserve(void)
 		platform_log("cannot commit the Xbox contiguous memory window (%s)", strerror(errno));
 		abort();
 	}
+#else
+	/* Windows has no MAP_NORESERVE: a read-write mapping is committed whole,
+	against memory and the page file. The window stays as the address
+	space's reservation left it, and a block's pages are committed as it is
+	allocated (clear_block's mapping: win32_posix.c's mmap commits inside a
+	reservation), so the commit charge follows the blocks the game has
+	taken, not the window's size. Nothing reads or writes the window
+	outside a block. */
+#endif
 	/* Custom Edition maps' tag cache, and the room above it (platform.h) */
 	if (mmap(xbox_pointer(PLATFORM_CE_TAG_CACHE_BASE), PLATFORM_CE_TAG_CACHE_SIZE + PLATFORM_CE_CONVERSION_ROOM_SIZE,
 		PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) !=
@@ -442,8 +563,10 @@ which zeroes them without touching them: the memory is taken only once the
 game writes there (a 128 MB texture cache that a map fills a fifth of, or a
 dedicated server's, which draws nothing). Those pages are free until the
 block takes them, so read-write, as a fresh mapping is. The host pages it
-shares with a neighbour are cleared. */
-static void clear_block(void *address, size_t size)
+shares with a neighbour are cleared. On Windows the mapping is what commits
+the block (the window is only reserved): if Windows refuses, nothing is
+touched, it is said, and the block is not made (FALSE). */
+static BOOL clear_block(void *address, size_t size)
 {
 	uintptr_t mask = platform_host_page_size - 1;
 	uintptr_t start = ((uintptr_t)address + mask) & ~mask;
@@ -452,11 +575,22 @@ static void clear_block(void *address, size_t size)
 	if (end <= start || mmap((void *)start, end - start, PROT_READ | PROT_WRITE,
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) != (void *)start)
 	{
+#ifdef _WIN32
+		/* (Windows' own reason: errno has only a few of them) */
+		char reason[160];
+		unsigned long error = mmap_last_error(reason, sizeof(reason));
+
+		platform_log("not enough memory: Windows would not commit %lu KB for a block of the Xbox's memory "
+			"(error %lu: %s)", (unsigned long)(size >> 10), error, reason[0] ? reason : strerror(errno));
+		return FALSE;
+#else
 		memset(address, 0, size);
-		return;
+		return TRUE;
+#endif
 	}
 	memset(address, 0, start - (uintptr_t)address);
 	memset((void *)end, 0, (uintptr_t)address + size - end);
+	return TRUE;
 }
 
 static BOOL pages_free(unsigned int first, unsigned int count)
@@ -543,7 +677,12 @@ void *platform_contiguous_alloc(unsigned long size, unsigned long alignment,
 	/* a block starts out zeroed (its pages still free, so read-write), then
 	takes its protection */
 	reprotect_host_pages(address, count * PAGE_SIZE_BYTES);
-	clear_block(address, count * PAGE_SIZE_BYTES);
+	if (!clear_block(address, count * PAGE_SIZE_BYTES))
+	{
+		/* (its pages still free: none was marked) */
+		pthread_mutex_unlock(&arena_lock);
+		return NULL;
+	}
 #else
 	/* map fresh zeroed pages over the reservation */
 	if (mmap(address, count * PAGE_SIZE_BYTES, protection_to_host(protect),

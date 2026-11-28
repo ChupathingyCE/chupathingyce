@@ -21,7 +21,8 @@ platform key and the advertisement: [ports.md](ports.md) walks through them.
   is the same: client to host, and the host relays what others need.
 - A host that speaks Delta says so with a tag in its advertisement
   ([The advertisement](#the-advertisement)), only while its Delta socket is
-  open. A host that can't open 5160 (another copy of the game on the same
+  open: a build of Chupathingy's code with its wire, a host of another
+  project's code with that project's number ([The tag](#the-tag)). A host that can't open 5160 (another copy of the game on the same
   address holds it) hosts without Delta and leaves the tag out. Machines
   without Delta ignore the tag, and the game's own messages are not changed
   by it.
@@ -411,39 +412,110 @@ Delta tag of wire `chupa-44b` ([The advertisement](#the-advertisement)):
 9e                                    check: 0xa5 xor the eight bytes before
 ```
 
+A port host's reserved bytes, announcing 44 with a tag of layout 2: project
+2 (Content Evolved), that project's version 3
+([The tag](#the-tag)). Written by the reference client's
+`dref_advert_write_project`, not by Chupathingy's code, which never writes
+layout 2:
+
+```hex example_advert_project
+2c 00                                 network version 44
+01                                    flags: distributed netcode
+00                                    the game's kind: none
+00 00 00 00 00 00 00 00 00 00 00 00 00   bytes 4 to 16: zero
+44 4c                                 the tag: 'D' 'L'
+01                                    Delta major 1
+02                                    the tag's layout version: 2, a project
+02                                    the host's project: Content Evolved
+03 00                                 that project's own version: 3
+00                                    reserved
+af                                    check: 0xa5 xor the eight bytes before
+```
+
 ## The advertisement
 
 A host's game advertisement (the legacy protocol's, on a LAN and through
-the internet tunnel) has 26 (0x1A) reserved bytes. The game protocol fills
-them from the front, Delta from the back:
+the internet tunnel) has 26 (0x1A) reserved bytes. Their first two say
+whose layout the rest is:
+
+- **A network version** (below 0xFF00): the stock layout. The game protocol
+  fills the bytes from the front, Delta from the back, as below.
+- **0xFF00 to 0xFFFF**: a Content Evolved modded game. All 26 bytes are
+  Content Evolved's ([below](#content-evolveds-modded-games)).
+
+The stock layout:
 
 | Bytes | Meaning |
 | --- | --- |
 | 0, 1 | the network version the host announces (little-endian) |
-| 2 | flags: 0x01 the distributed netcode (always set), 0x02 the game is under way, 0x04 a dedicated server (version 39 and later) |
+| 2 | flags: 0x01 the distributed netcode (always set), 0x02 the game is under way, 0x04 a dedicated server (version 39 and later), 0x08 the MCC network protocol ([below](#mcc-games)) |
 | 3 | the game's kind (version 37 and later: a game type in the low seven bits, 0 none, 1 SWAT, 2 Infection, 3 Gun Game; Hardcore in bit 7); 0 before 37 |
-| 4 to 16 | zero, but for the old layout below |
+| 4 | with the flag 0x08, the MCC network protocol's version; otherwise zero, but for the old layout below |
+| 5 to 16 | zero, but for the old layout below |
 | 17 to 25 | the Delta tag, when the host speaks Delta |
 
 ### The tag
+
+Its first four bytes are the same in every layout:
 
 | Byte | Meaning |
 | --- | --- |
 | 17, 18 | the tag, `'D'`, `'L'` |
 | 19 | the host's Delta major |
-| 20 | the tag's layout version, 1 |
-| 21, 22 | the host's own wire: its number and its letter (44, 'b') |
-| 23, 24 | its oldest compatible wire: number and letter (28, 'a') |
+| 20 | the tag's layout version: 1 or 2 |
+| 21 to 24 | the layout's own bytes, below |
 | 25 | a check: 0xA5 xor the eight bytes before |
 
-A reader knows a Delta host by a valid tag: both tag bytes, layout 1, the
-check, letters `a` to `z`, numbers from 1, and the oldest wire no newer than
-the host's own. Never by a flag bit. Machines without Delta leave and ignore
-the bytes. A wire ID names a revision of Chupathingy's game code
-([versioning.md](versioning.md#wire-compatibility-ranges)), so a tag
-belongs to a build of that code; a port of other code that hosts is joined
-by its number instead
-([ports.md](ports.md#if-you-host-games-from-your-port)).
+**Layout 1, a wire**: a build of Chupathingy's game code.
+
+| Byte | Meaning |
+| --- | --- |
+| 21, 22 | the host's own wire: its number and its letter (44, 'b') |
+| 23, 24 | its oldest compatible wire: number and letter (28, 'a') |
+
+**Layout 2, a project**: a host of another project's code that answers
+HELLO ([ports.md](ports.md#if-you-host-games-from-your-port)).
+
+| Byte | Meaning |
+| --- | --- |
+| 21 | the host's project ([registry.md](registry.md#projects)): 2 or later |
+| 22, 23 | that project's own version (little-endian): the project says what it means |
+| 24 | reserved: 0 written, nothing read |
+
+A reader knows a Delta host by a valid tag, never by a flag bit: both tag
+bytes, the check, and
+
+- for layout 1, letters `a` to `z`, numbers from 1, and the oldest wire no
+  newer than the host's own;
+- for layout 2, a project of 2 or later. A layout 2 tag that says 0 or 1 is
+  no tag: 1 is Chupathingy's, whose builds write layout 1 alone.
+
+A layout the reader doesn't know is no tag to it. Machines without Delta
+leave and ignore the bytes.
+
+**What a reader does with each.** A wire ID names a revision of
+Chupathingy's game code
+([versioning.md](versioning.md#wire-compatibility-ranges)), so only a build
+of that code writes layout 1, and only a reader of that code joins by it.
+A host with a layout 2 tag speaks Delta Peer but has no wire: a client says
+HELLO to it (and may mark its join, [The join mark](#the-join-mark)), and
+joins it **by its network version alone**, as it joins a host without
+Delta: an exact match, or the range of numbers its own code plays
+([versioning.md](versioning.md#the-legacy-number)). It never reads a wire
+into a layout 2 tag, never takes the project's version for one, and
+assumes nothing a WELCOME doesn't agree to. The project's version is that
+project's: a reader of the same project may go by it under that project's
+own rules; any other reader shows the project's name and nothing more.
+
+**Older readers.** Every reader before layout 2 requires layout 1, so to
+them a layout 2 tag is no tag: they say no HELLO, don't mark their join,
+and join the host by its number, exactly as they join a host without Delta.
+The old layout's range bytes (below) can't be read into it either: their
+first byte, byte 20, must be 1, where layout 2 has 2. And the old layout
+needs the flag 0x04 below version 39, or a wire ID in bytes 4 to 19, and a
+port host writes neither: byte 3 stays the game's kind, bytes 4 to 16 zero,
+and the flag 0x04 a dedicated server's, set only at 39 and later, as the
+game protocol says.
 
 The tag sits at the tail because the front is the game protocol's: byte 3
 became the game's kind at version 37, and the flag 0x04 a dedicated server
@@ -501,6 +573,50 @@ announces 32. **The transition has no end date.** Hosts write the old layout
 where it fits for as long as released builds need it, and new builds read
 it. Stopping either is a deliberate decision
 ([versioning.md](versioning.md#principles), "Never drop an old protocol").
+
+### MCC games
+
+The flag 0x08 and byte 4 belong to the MCC network protocol that came from
+GulchCE: the flag says the host plays an MCC map's game with that
+protocol's join and settings record, and byte 4 is the protocol's version
+(65 in Chupathingy's copy). Chupathingy carries that code but builds it
+into none of its releases: its MCC games go over Delta Peer (`mcc_maps`,
+HOST_NUMBER), so its hosts never set the flag or the byte, and its clients
+don't read them. A reader that doesn't play that protocol ignores both.
+Current GulchCE builds no longer set them either; only older GulchCE
+hosts do. Both stay reserved, never given another meaning, so a reader
+still reads those older hosts safely.
+
+### Content Evolved's modded games
+
+A version word of 0xFF00 to 0xFFFF, 0xFF00 plus a mod version (0xFF70 is
+mod version 112), is a Content Evolved modded game: a randomized campaign,
+skulls, or a Tag Injector profile. Builds without Content Evolved's mod
+can't play it. All 26 reserved bytes then belong to Content Evolved
+([registry.md](registry.md#network-versions)):
+
+- **Another reader reads none of its own meanings from them**: no MCC flag
+  or version, no game kind, no Delta tag, no old layout. It shows the game
+  as one it can't play.
+- **Chupathingy's clients** refuse it before joining and say what it plays
+  ("Content Evolved's Firefight isn't playable here yet."), and play
+  Content Evolved's plain games
+  ([versioning.md](versioning.md#other-projects-hosts)).
+- **A reader that doesn't know the range** sees a network version it
+  doesn't play, which comes to the same thing. Bit 15 is set, as in a GOAT
+  H1 host's closed number ([registry.md](registry.md#network-versions)):
+  never joinable by another build either way.
+
+Content Evolved's layout, for information. It is Content Evolved's to
+change, and its own documentation is the reference:
+
+| Bytes | Meaning |
+| --- | --- |
+| 0, 1 | 0xFF00 plus the mod version (little-endian) |
+| 2 | flags, among them 0x08 skulls, 0x10 skull drops, 0x20 the randomizer, 0x40 a Tag Injector share |
+| 3 to 14 | the randomizer's setup |
+| 15 to 22 | the skulls, a bitmask |
+| 24, 25 | the host's real network version |
 
 ## The join mark
 
@@ -1406,6 +1522,11 @@ and show their handle until their owner picks its capitals.
   "▲ Milenko" all show as "Milenko" (and as "Player N" next to a verified
   Milenko). A player who isn't connected to Delta (no
   linked profile, or a guest) never has the mark.
+- **Account marks** ([link.md](link.md#device-identity)): a client may draw
+  a mark the certificate carries (a developer's flame, say) on or beside a
+  verified player of its home network, from a bound proof, only where that
+  player shows by their verified name, and lets the viewer turn it off. A
+  mark is never a role or a ban.
 - **The same name everywhere.** The scoreboard, the postgame report, the
   lobby, the Delta Guide, chat, the kill feed, the corner score, the names
   above heads, the game types' lines (Slayer's target, Oddball, King of the

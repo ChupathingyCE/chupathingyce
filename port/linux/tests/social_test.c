@@ -3,7 +3,7 @@ SOCIAL_TEST.C
 
 Tests of the Guide's data (port/linux/src/social.c): its rows and their
 cache, the polling schedule and presence's, and the site's friends (read
-by delta_profile.c). Built and run by tools/test_social.py with
+by delta_profile.c). Built and run by tools/test_c_units.py with
 discord_activity.c and delta_profile.c; exits nonzero on a failure.
 */
 
@@ -898,7 +898,7 @@ static void test_recent(void)
 
 /* every action /v1/party takes, with a value of its kind, makes fields (a
 table, so DELTA's actions and the request builder can't drift apart:
-tools/test_social.py checks guide.c's against social_party_actions) */
+tools/test_c_units.py checks guide.c's against social_party_actions) */
 static void test_party_actions(void)
 {
 	static const struct

@@ -338,6 +338,8 @@ extern struct tag_schema_group const tag_schema_scenario_groups[];
 
 /* the Xbox's maps' layout (tag_schema_groups.c): tag_schema_group_lists */
 extern struct tag_schema_layout const tag_schema_xbox_layout;
+/* Stubbs mode's maps, rewritten in the Xbox layout (tag_schema_groups.c) */
+extern struct tag_schema_layout const tag_schema_stubbs_layout;
 
 #ifdef HALO_CUSTOM_EDITION
 /* Halo PC's (Custom Edition's and HaloMD's maps), tag_schema_pc.c: its own
@@ -386,6 +388,21 @@ boolean tag_validate_tags_layout(
 	long tag_data_size,
 	long file_length,
 	char const *map_name);
+
+/* (port/linux/game/forge_ai_tags.c, desktop builds) another map's tags, of
+the Xbox's layout, at tag_header (copied off the tag cache, their pointers
+moved there), checked as tag_validate_tags checks a map's, with the loaded
+map's check state (for its structure bsps) kept as it was */
+boolean tag_validate_other_tags(
+	void *tag_header,
+	long tag_data_size,
+	long file_length,
+	char const *map_name);
+/* the room tag_validate_other_tags keeps the loaded map's check state in,
+made (wanted) before the other tags are read, let go (not wanted) after:
+FALSE if it could not be made */
+boolean tag_validate_other_tags_room(
+	boolean wanted);
 
 /* the layout of the tags being checked (for checks: what differs between
 them, tag_schema_layout_flags) */

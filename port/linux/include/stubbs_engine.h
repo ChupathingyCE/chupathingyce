@@ -109,6 +109,11 @@ period */
 void stubbs_engine_special_attack_credit(long unit_index, real credit);
 void stubbs_engine_special_attack_set_count(long unit_index, short special_attack, short count);
 void stubbs_engine_player_move_origin(long from_unit_index, long to_unit_index);
+/* an animation's effect where Halo would play its sound, this frame (state:
+before it advances; units.c): Stubbs's graphs name effects there
+(stubbs_mode.c keeps them) */
+struct animation_state;
+void stubbs_engine_animation_effect(long object_index, long animation_graph_index, struct animation_state const *state);
 
 #else
 /* (a console leaves Stubbs mode out: each hook is an empty one here) */
@@ -134,6 +139,10 @@ static __inline void stubbs_engine_special_attack_set_count(long unit_index, sho
 { (void)unit_index; (void)special_attack; (void)count; }
 static __inline void stubbs_engine_player_move_origin(long from_unit_index, long to_unit_index)
 { (void)from_unit_index; (void)to_unit_index; }
+struct animation_state;
+static __inline void stubbs_engine_animation_effect(long object_index, long animation_graph_index,
+	struct animation_state const *state)
+{ (void)object_index; (void)animation_graph_index; (void)state; }
 #endif
 
 #endif

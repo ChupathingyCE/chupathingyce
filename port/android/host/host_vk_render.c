@@ -211,17 +211,6 @@ static uint32_t retired_locked(void)
 	return (uint32_t)B.retired;
 }
 
-/* the guest asks (phase 3's locks); the fences tell without waiting */
-uint32_t host_vk_retired(void)
-{
-	uint32_t result;
-
-	pthread_mutex_lock(&B.lock);
-	result = retired_locked();
-	pthread_mutex_unlock(&B.lock);
-	return result;
-}
-
 /* ---------- the game's render targets */
 
 static void barrier_image(VkCommandBuffer command, VkImage image, VkImageAspectFlags aspect, VkImageLayout from,

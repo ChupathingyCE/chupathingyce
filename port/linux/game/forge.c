@@ -1,7 +1,8 @@
 /*
 FORGE.C
 
-Forge: a sandbox editor in a multiplayer map, played by the local player
+Forge: a sandbox editor in a multiplayer map (or a campaign mission, for
+its AI characters: forge_ai.inc), played by the local player
 (split screen's first) in a local game. The player is the monitor, flying,
 and spawns, grabs, moves, turns and deletes the map's objects within a
 budget, places the layout's own player spawn points, teleporters and game
@@ -49,12 +50,14 @@ the mouse looks:
   click, nudge mode instead (forge_precision.inc);
 - right trigger: grab the object or marker under the crosshair, and let
   go of the one held (it falls where it is let go);
-- Y: delete the object held, or the one under the crosshair;
+- Y: delete the object held, or the one under the crosshair (held half a
+  second instead, with game.forge_hold_to_delete: forge_delete_asked);
 - X: the Forge menu (forge_menu.c): OBJECTS (the map's objects by
   category, the one chosen spawned in the monitor's hand), PROPERTIES (of
-  what is held: it opens there), LAYOUTS (save, save as new, load, delete)
-  and OPTIONS (snap, speed, rotation snap, undo, redo, new round, Spartan,
-  the controls); what it asks is done here (forge_menu_link.inc);
+  what is held, or with nothing held of the layout's object or marker the
+  crosshair is on: it opens there), LAYOUTS (save, save as new, load, delete)
+  and OPTIONS (snap, speed, rotation snap, delete, grab range, held facing,
+  undo, redo, new round, Spartan, the controls); what it asks is done here (forge_menu_link.inc);
 - B: a copy of the object held or under the crosshair, held;
 - White: the movement speed (slow, normal, fast); in rotate mode, its
   snapping;
@@ -111,15 +114,21 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
   forge spawn <name>       the first palette tag with name in its readable
                            name or its tag's, spawned in front of the
                            camera and held
-  forge marker respawn|initial|sender|receiver|flag|hill|oddball|race
-                           a marker placed and held
+  forge marker respawn|initial|sender|receiver|flag|hill|oddball|race|
+                           route|area|kill|damage|gravity  a marker (or a
+                           volume) placed and held
+  forge effect|decal <name>  the first of the map's effects or decals with
+                           name in its name or path placed and held
   forge grab [#id] | drop  the object or marker under the crosshair (or
                            the layout's of that id) grabbed, the held one
                            let go
   forge turn <degrees>     the held (or aimed at) object turned about up
-  forge property team|respawn|start|yaw|pitch|roll|resetrot|physics [-]
+  forge property team|respawn|start|yaw|pitch|roll|resetrot|physics|
+                           aiteam|ai|behavior|route|vehicles [-]
                            the held object's property stepped (back with -)
   forge distance <wu>      the held object that far from the camera
+  forge environment sky|fog|color|density|start|end [-]
+                           the layout's sky and fog's option stepped
   forge snap [on|off]      snapping (the grid), flipped or set
   forge delete             the held (or aimed at) object deleted
   forge deleteall <cat>    every object of a category deleted
@@ -129,7 +138,14 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
   forge press <buttons> [frames] | stick lx ly rx ry [frames] | look y p
                            the tests' controller
   forge menu open|close    the Forge menu opened or closed, as X does
-  forge where | budget | objects | spawns | netflags  the state in the log
+  forge clearai dead|all   the layout's dead AI characters, or all of
+                           them, cleared (the Forge menu's CLEAR DEAD AI,
+                           CLEAR ALL AI)
+  forge kill #<id>         (tests) a layout's AI character killed
+  forge board #<id>        (tests) the Spartan into a layout's vehicle;
+                           "#<id> walk <seat>" at a seat's way in
+  forge where | budget | objects | spawns | netflags | ai [move]  the state
+                           in the log
   forge map [category]     the map's own objects the editor can take, and
                            the ones the layout takes away, in the log
   forge shot               (tests) a screenshot, as the screenshot key
@@ -142,10 +158,21 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "cseries.h"
 #include "cseries/cseries_windows.h"
 #include "real_math.h"
+#include "ai/actor_definitions.h"
+#include "ai/actors.h"
+#include "ai/ai.h"
+#include "ai/ai_script.h"
+#include "ai/props.h"
 #include "cache/cache_files.h"
 #include "camera/observer.h"
 #include "devices/device_controls.h"
 #include "devices/device_definitions.h"
+#include "devices/device_light_fixtures.h"
+#include "models/model_definitions.h"
+#include "effects/decal_definitions.h"
+#include "effects/decals.h"
+#include "effects/effect_definitions.h"
+#include "effects/effects.h"
 #include "game/game.h"
 #include "game/game_allegiance.h"
 #include "game/game_engine.h"
@@ -164,12 +191,14 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "objects/objects.h"
 #include "objects/object_types.h"
 #include "physics/collisions.h"
+#include "physics/physics.h"
 #include "rasterizer/rasterizer.h"
 #include "rasterizer/rasterizer_geometry.h"
 #include "rasterizer/xbox/rasterizer_xbox_draw_primitives.h"
 #include "render/render.h"
 #include "render/render_cameras_internal.h"
 #include "scenario/scenario.h"
+#include "scenario/sky_definitions.h"
 #include "scenario/scenario_definitions.h"
 #include "structures/structure_bsp_definitions.h"
 #include "tag_files/tag_files.h"
@@ -177,6 +206,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "text/draw_string.h"
 #include "text/font_group.h"
 #include "units/unit_control_data.h"
+#include "units/bipeds.h"
 #include "units/units.h"
 #include "units/vehicle_definitions.h"
 #include "units/unit_definitions.h"
@@ -186,6 +216,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/forge_store.h"
 #include "../src/ui_overlay.h"
 #include "forge_menu.h"
+#include "forge_ai_tags.h"
+#include "halo_port_features.h"
+#include "ai_nav.h" /* port: port/linux/game/ai_nav.c */
 #include "halo_keyboard.h"
 
 #include <math.h>
@@ -208,6 +241,10 @@ void platform_log(const char *format, ...);
 int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch);
 /* port_config.c's */
 int config_boolean(char const *name);
+long config_integer(char const *name);
+char const *config_string(char const *name);
+/* ui_overlay.c's: the keyboard and mouse used last (else a controller) */
+int ui_overlay_keyboard(void);
 long hud_get_font_index(void);
 unsigned long system_milliseconds(void);
 /* ui_widget.c's: a menu, or a screen of code over them, takes the input */
@@ -225,7 +262,7 @@ struct game_variant *build_game_variant_race(struct game_variant *variant);
 enum
 {
 	/* the palette's most tags (a multiplayer map has some 60 of these
-	groups' tags) */
+	groups' tags, a campaign mission some 300) */
 	MAXIMUM_FORGE_PALETTE_TAGS = 512,
 	/* the movement speeds (White) */
 	_forge_speed_slow = 0,
@@ -255,6 +292,10 @@ enum
 #define FORGE_CAMERA_THRUST 4.f
 #define FORGE_CAMERA_LOOK_RATE 2.5f
 #define FORGE_PICK_RANGE 60.f
+/* (game.forge_grab_range) how far the crosshair takes an object or a
+marker: "near", "medium", or "far" (FORGE_PICK_RANGE, the default) */
+#define FORGE_GRAB_RANGE_NEAR 20.f
+#define FORGE_GRAB_RANGE_MEDIUM 35.f
 /* (forge_markers.inc) where the crosshair takes a marker: a sphere at just
 over its ring */
 #define FORGE_MARKER_PICK_RADIUS 0.45f
@@ -265,6 +306,8 @@ over its ring */
 #define FORGE_MINIMUM_HOLD_DISTANCE 0.5f
 #define FORGE_MAXIMUM_HOLD_DISTANCE 40.f
 #define FORGE_STICK_DEAD_ZONE 0.15f
+/* (game.forge_hold_to_delete) how long the delete button is held to delete */
+#define FORGE_DELETE_HOLD_MILLISECONDS 500
 /* a placed object's respawn time unless its properties say */
 #define FORGE_DEFAULT_RESPAWN_SECONDS 30
 /* how far outside the structure's world bounds a layout's object may be
@@ -334,29 +377,47 @@ enum
 /* the Forge menu's categories' names (forge.h's order) */
 static char const *const forge_category_names[NUMBER_OF_FORGE_CATEGORIES] =
 {
-	"VEHICLES", "WEAPONS", "EQUIPMENT", "SCENERY", "TELEPORTERS", "OBJECTIVES", "SPAWNING",
+	"VEHICLES", "WEAPONS", "EQUIPMENT", "SCENERY", "AI", "CAMPAIGN VEHICLES", "CAMPAIGN OBJECTS", "TELEPORTERS",
+	"OBJECTIVES", "SPAWNING", "AI ROUTES", "VOLUMES", "EFFECTS", "DECALS",
 };
 /* (the log's and the console's) */
 static char const *const forge_category_log_names[NUMBER_OF_FORGE_CATEGORIES] =
 {
-	"vehicles", "weapons", "equipment", "scenery", "teleporters", "objectives", "spawning",
+	"vehicles", "weapons", "equipment", "scenery", "ai", "campaign_vehicles", "campaign_objects", "teleporters",
+	"objectives", "spawning", "ai_routes", "volumes", "effects", "decals",
 };
 /* (forge_spawns.inc) the markers' categories' items (SPAWNING's,
 TELEPORTERS', OBJECTIVES'), its kinds' names */
 static char const *const forge_spawn_kind_names[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
 	"Respawn Point", "Initial Spawn", "Teleporter Sender", "Teleporter Receiver",
-	"CTF Flag", "Hill Point", "Oddball Spawn", "Race Checkpoint",
+	"CTF Flag", "Hill Point", "Oddball Spawn", "Race Checkpoint", "AI Go Here", "Patrol Area", "Kill Volume", "Damage Volume",
+	"Gravity Volume", "Effect", "Decal",
 };
 static char const *const forge_spawn_kind_log_names[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
 	"respawn point", "initial spawn", "teleporter sender", "teleporter receiver",
-	"ctf flag", "hill point", "oddball spawn", "race checkpoint",
+	"ctf flag", "hill point", "oddball spawn", "race checkpoint", "ai route point", "patrol area", "kill volume", "damage volume",
+	"gravity volume", "effect", "decal",
 };
 /* (the console's "forge marker <word>") */
 static char const *const forge_spawn_kind_words[NUMBER_OF_FORGE_MARKER_KINDS] =
 {
-	"respawn", "initial", "sender", "receiver", "flag", "hill", "oddball", "race",
+	"respawn", "initial", "sender", "receiver", "flag", "hill", "oddball", "race", "route", "area", "kill", "damage", "gravity",
+	"effect", "decal",
+};
+/* (forge_ai_move.inc) a patrol area's radius by its size (world units), a
+route stop's wait (seconds), and their words */
+static real const forge_ai_area_radii[FORGE_FILE_AI_AREA_SIZES] = { 3.f, 5.f, 8.f, 12.f, 20.f };
+static short const forge_ai_stop_seconds[NUMBER_OF_FORGE_FILE_ROUTE_STOPS] = { 0, 5, 15, 5 };
+static char const *const forge_ai_behavior_names[NUMBER_OF_FORGE_FILE_AI_BEHAVIORS] = { "HOLD", "PATROL", "PURSUE" };
+static char const *const forge_ai_behavior_log_names[NUMBER_OF_FORGE_FILE_AI_BEHAVIORS] = { "hold", "patrol", "pursue" };
+static char const *const forge_ai_stop_names[NUMBER_OF_FORGE_FILE_ROUTE_STOPS] = { "NONE", "WAIT 5 S", "WAIT 15 S", "LAND" };
+/* (forge_environment.inc, the console's "forge environment <word>") the sky
+and fog's options, SKY AND FOG's rows' order (forge.h) */
+static char const *const forge_environment_row_words[NUMBER_OF_FORGE_ENVIRONMENT_ROWS] =
+{
+	"sky", "fog", "color", "density", "start", "end",
 };
 /* a markers' category's first kind and its kinds (NONE: not one) */
 static short forge_marker_category_first(
@@ -364,7 +425,9 @@ static short forge_marker_category_first(
 {
 	return category == _forge_category_spawning ? _forge_spawn_respawn :
 		category == _forge_category_teleporters ? _forge_spawn_teleporter_sender :
-		category == _forge_category_objectives ? _forge_spawn_flag : NONE;
+		category == _forge_category_objectives ? _forge_spawn_flag :
+		category == _forge_category_ai_routes ? _forge_spawn_ai_route :
+		category == _forge_category_volumes ? _forge_spawn_volume_kill : NONE;
 }
 
 static short forge_marker_category_count(
@@ -372,15 +435,19 @@ static short forge_marker_category_count(
 {
 	return category == _forge_category_spawning ? NUMBER_OF_FORGE_SPAWN_KINDS :
 		category == _forge_category_teleporters ? FORGE_TELEPORTER_KINDS :
-		category == _forge_category_objectives ? FORGE_OBJECTIVE_KINDS : 0;
+		category == _forge_category_objectives ? FORGE_OBJECTIVE_KINDS :
+		category == _forge_category_ai_routes ? FORGE_AI_ROUTE_KINDS :
+		category == _forge_category_volumes ? FORGE_VOLUME_KINDS : 0;
 }
 
-/* the maps Forge edits: the Xbox's multiplayer maps (their short names
-are the layouts' map names: forge_files.h) */
+/* the maps Forge edits: the Xbox's multiplayer maps, then the campaign
+missions (for their AI characters: forge_ai.inc). Their short names are
+the layouts' map names (forge_files.h) */
 static struct
 {
 	char const *path;
 	char const *name;
+	boolean campaign;
 } const forge_maps[] =
 {
 	{ "levels\\test\\beavercreek\\beavercreek", "Battle Creek" },
@@ -396,6 +463,16 @@ static struct
 	{ "levels\\test\\wizard\\wizard", "Wizard" },
 	{ "levels\\test\\putput\\putput", "Chiron TL-34" },
 	{ "levels\\test\\longest\\longest", "Longest" },
+	{ "levels\\a10\\a10", "Pillar of Autumn", TRUE },
+	{ "levels\\a30\\a30", "Halo", TRUE },
+	{ "levels\\a50\\a50", "Truth and Reconciliation", TRUE },
+	{ "levels\\b30\\b30", "The Silent Cartographer", TRUE },
+	{ "levels\\b40\\b40", "Assault on the Control Room", TRUE },
+	{ "levels\\c10\\c10", "343 Guilty Spark", TRUE },
+	{ "levels\\c20\\c20", "The Library", TRUE },
+	{ "levels\\c40\\c40", "Two Betrayals", TRUE },
+	{ "levels\\d20\\d20", "Keyes", TRUE },
+	{ "levels\\d40\\d40", "The Maw", TRUE },
 };
 
 /* our own names for the multiplayer maps' objects, by the last part of
@@ -417,6 +494,34 @@ static struct
 	{ "wraith", "Wraith" },
 	{ "pelican", "Pelican" },
 	{ "c_dropship", "Covenant Dropship" },
+	/* (the campaign's objects, brought in from its maps: forge_ai_tags.c) */
+	{ "c_storage", "Covenant Crate" },
+	{ "c_storage_large", "Large Covenant Crate" },
+	{ "c_field_generator", "Covenant Shield Generator" },
+	{ "c_uplink", "Covenant Uplink" },
+	{ "landing beacon", "Landing Beacon" },
+	{ "pelican_crashed", "Crashed Pelican" },
+	{ "c_dropship_crashed", "Crashed Covenant Dropship" },
+	{ "metal_small", "Metal Barricade" },
+	{ "metal_tall", "Tall Metal Barricade" },
+	{ "metal_wide", "Wide Metal Barricade" },
+	{ "door small", "Forerunner Door" },
+	{ "holo display square", "Holo Display" },
+	{ "holo display tall", "Tall Holo Display" },
+	{ "holo display wide", "Wide Holo Display" },
+	{ "holo control ring", "Holo Control Ring" },
+	{ "holo control", "Holo Control Panel" },
+	{ "light fixture ceiling1", "Forerunner Ceiling Light" },
+	{ "light fixture floor1", "Forerunner Floor Light" },
+	{ "light fixture floor2", "Forerunner Floor Light 2" },
+	{ "light fixture wall1", "Forerunner Wall Light" },
+	{ "light fixture wall3", "Forerunner Wall Light 2" },
+	{ "tree_leafy", "Leafy Tree" },
+	{ "tree_leafy_medium", "Medium Leafy Tree" },
+	{ "tree_leafy_doublewide", "Wide Leafy Tree" },
+	{ "tree_leafy_fallentrunk", "Fallen Trunk" },
+	{ "tree_leafy_stump", "Tree Stump" },
+	{ "vines_hanging", "Hanging Vines" },
 	/* weapons */
 	{ "assault rifle", "Assault Rifle" },
 	{ "pistol", "Pistol" },
@@ -507,6 +612,9 @@ struct forge_pad
 	boolean fast;
 	boolean nearer;
 	boolean farther;
+	/* the keyboard's delete key (controls.forge_delete), apart from the
+	controller's Y: game.forge_hold_to_delete may treat them apart */
+	boolean delete_key;
 };
 
 /* a tag the Forge menu offers */
@@ -531,16 +639,33 @@ file saves and what a new round places again). An object gone in play
 it is still the layout's and comes back with the next round, or after its
 respawn time (forge_item_life_update); only the editor's delete (or undo)
 takes an entry out */
+/* (forge_ai_move.inc) a placed character's AI movement settings (a layout
+record's, version 12): its behavior (FORGE_FILE_AI_*), its route (0 none,
+else 1 up) and options (FORGE_FILE_AI_OPTION_*); a vehicle's route alone */
+struct forge_ai_move_settings
+{
+	unsigned char behavior;
+	unsigned char route;
+	unsigned char options;
+};
+
 struct forge_placed
 {
 	long object_index;
-	/* the palette tag it was spawned from */
+	/* the palette tag it was spawned from (an actor variant for an AI
+	character: ai) */
 	long tag_index;
+	boolean ai;
 	/* its properties (a layout's record's): team (NONE neutral), respawn
-	time, FORGE_RECORD_* flags */
+	time, FORGE_RECORD_* flags; an AI character's AI team
+	(FORGE_AI_TEAM_*) */
 	signed char team;
 	unsigned char flags;
 	unsigned short respawn_seconds;
+	unsigned char ai_team;
+	/* (forge_ai_move.inc) a character's behavior, route and vehicles, a
+	vehicle's route */
+	struct forge_ai_move_settings move;
 	/* its own number this session (the undo history names it by this) */
 	long id;
 	/* where the editor put it (its placed spot: saved, and where a new
@@ -551,8 +676,14 @@ struct forge_placed
 	boolean has_home;
 	unsigned long settle_until;
 	/* (an item) the game tick it was first seen gone at, plus one; 0 while
-	it is there: its respawn counts from it */
+	it is there: its respawn counts from it. (An AI character) the tick it
+	was first seen dead at, plus one: its respawn and its body's clearing
+	count from it */
 	long dead_tick;
+	/* (an AI character) not placed yet for want of room - FORGE_MAXIMUM_AI
+	alive already -, placed as soon as one alive is fewer; no object
+	meanwhile */
+	boolean waiting;
 	/* (forge_physics.inc) its collision switch set by its PHASED physics */
 	boolean phased_applied;
 };
@@ -577,6 +708,8 @@ struct forge_undo
 	signed char team;
 	unsigned char flags;
 	unsigned short respawn_seconds;
+	unsigned char ai_team;
+	struct forge_ai_move_settings move;
 	/* where it was before the step, and after */
 	struct forge_transform from;
 	struct forge_transform to;
@@ -598,14 +731,37 @@ struct forge_spawn
 	/* (a teleporter's: forge_netgame.inc) its channel, 0 to
 	FORGE_TELEPORTER_CHANNELS - 1; a game type object's index */
 	short channel;
-	/* where, facing along the ground */
+	/* (an AI route point's: forge_ai_move.inc) its stop
+	(FORGE_FILE_ROUTE_STOP_*); a patrol area's size (0 to
+	FORGE_FILE_AI_AREA_SIZES - 1) */
+	short option;
+	/* where, facing along the ground (a volume: its floor's middle) */
 	struct forge_transform home;
+	/* (a volume's: forge_volumes.inc) its shape, size (quarter world units:
+	half width, half length, height; a sphere's radius), amount and target
+	(FORGE_FILE_VOLUME_*) */
+	unsigned char volume_shape;
+	unsigned char volume_size[3];
+	unsigned char volume_amount;
+	unsigned char volume_target;
+	/* (an effect's or a decal's: forge_effects.inc) its tag, its repeat
+	(seconds; 0 again as soon as it ends) or size (tenths); what it shows
+	now: its effect, when it started, the decal datums it laid, whether it
+	was started this round (the round's count) */
+	long effect_tag_index;
+	unsigned char effect_value;
+	long effect_index;
+	long effect_start_tick;
+	long decal_pieces[4];
+	short decal_piece_count;
+	boolean effect_started;
+	long effect_round;
 };
 
 /* (the players a round's spawns are kept for: absolute indices) */
 #define FORGE_SPAWN_PLAYERS 32
 
-typedef char verify_forge_file_records[FORGE_FILE_MAXIMUM_RECORDS == FORGE_MAXIMUM_OBJECTS ? 1 : -1];
+typedef char verify_forge_file_records[FORGE_FILE_MAXIMUM_RECORDS >= FORGE_MAXIMUM_OBJECTS ? 1 : -1];
 
 /* ---------- globals */
 
@@ -633,6 +789,7 @@ static struct
 	/* the player's unit while it waits, and what it was before */
 	long unit_index;
 	boolean unit_could_take_damage;
+	boolean unit_cast_shadow;
 	/* the object held, how far from the camera, and its facing as held */
 	long held_object_index;
 	real held_distance;
@@ -648,6 +805,14 @@ static struct
 	/* the budget */
 	struct forge_placed placed[FORGE_MAXIMUM_OBJECTS];
 	short placed_count;
+	/* (forge_ai.inc) the layout's AI characters, those not alive among
+	them (dead, or waiting for room), and the waiting: only the living count
+	against FORGE_MAXIMUM_AI and the objects' budget */
+	short ai_count;
+	short ai_dead_count;
+	short ai_waiting_count;
+	/* (forge_ai.inc) the session's map is a campaign mission */
+	boolean campaign;
 	/* the buttons down last frame */
 	boolean was_down[NUMBER_OF_GAMEPAD_BUTTONS];
 	boolean toggle_was_down;
@@ -749,6 +914,29 @@ static struct
 	boolean nudge_flicked[3];
 	/* (the Forge menu's status line: when menu_status was written) */
 	unsigned long menu_status_time;
+	/* (game.forge_hold_to_delete) the delete button held since (system time, 0
+	not held), done for this hold, how far along (0 to 1, for the HUD's
+	fill); the delete that needs no hold down last frame */
+	unsigned long delete_hold_since;
+	boolean delete_hold_done;
+	real delete_hold_fraction;
+	boolean delete_press_was_down;
+	/* (the Forge menu's PROPERTIES) with nothing held, the layout's object
+	(its object index, NONE) or marker (its id, 0) the crosshair was on as
+	X opened the menu: the properties are its while the menu is open; and
+	whether the crosshair is on one now (the prompt's PROPERTIES) */
+	long properties_object_index;
+	long properties_marker_id;
+	boolean hud_properties;
+	/* (game.forge_held_facing "view") the hold the facing follows the view
+	in (the object held, or the marker's id; NONE and 0 none), whether it
+	still does (not once turned by hand), the camera's yaw it was last
+	turned to and the facing it was given then */
+	long follow_object_index;
+	long follow_marker_id;
+	boolean following;
+	real follow_yaw;
+	real_vector3d follow_forward;
 } forge_globals = { FALSE, "", FALSE, FALSE, FALSE, 0, NONE, FALSE, NONE, 0.f, { 0.f }, { 0.f }, _forge_speed_normal };
 
 /* ---------- private code */
@@ -771,6 +959,43 @@ static void forge_spawn_properties_get(struct forge_spawn const *spawn, struct f
 static void forge_spawn_choose(short kind);
 static void forge_spawn_delete(long id);
 static void forge_spawn_log(char const *what, struct forge_spawn const *spawn);
+/* ---- the volumes (forge_volumes.inc) */
+static boolean forge_spawn_is_volume(struct forge_spawn const *spawn);
+static short forge_volumes_count(void);
+static void forge_volume_defaults(struct forge_spawn *spawn);
+static void forge_volume_from_record(struct forge_spawn *spawn, struct forge_file_record const *record);
+static void forge_volume_to_record(struct forge_spawn const *spawn, struct forge_file_record *record);
+static boolean forge_volume_property_apply(struct forge_spawn *spawn, short property, short step);
+static void forge_volume_properties_get(struct forge_spawn const *spawn, struct forge_properties *properties);
+static void forge_volume_property_text(struct forge_properties const *properties, short row, char *label,
+	int label_size, char *value, int value_size);
+static void forge_volume_log(char const *what, struct forge_spawn const *spawn);
+struct forge_marker;
+static real forge_volume_bounding_radius(struct forge_spawn const *spawn);
+static void forge_volume_color(struct forge_spawn const *spawn, struct forge_marker *marker);
+static void forge_volume_draw(struct forge_spawn const *spawn, struct forge_marker const *marker);
+static boolean forge_properties_hovered(long *object_index, long *marker_id);
+/* ---- the effects and decals (forge_effects.inc) */
+static boolean forge_spawn_is_effect(struct forge_spawn const *spawn);
+static short forge_effects_count(short kind);
+static void forge_effect_palette_reset(void);
+static short forge_effect_category_count(short category);
+static boolean forge_effect_category_item(short category, short item_index, struct forge_item *item);
+static void forge_effect_choose(short category, short item_index);
+static boolean forge_effect_choose_named(short category, char const *name);
+static void forge_effect_name(struct forge_spawn const *spawn, char *name, int size);
+static void forge_effect_log(char const *what, struct forge_spawn const *spawn);
+static void forge_effect_release(struct forge_spawn *spawn);
+static void forge_effect_set(struct forge_spawn *spawn, long tag_index, unsigned char value);
+static boolean forge_effect_from_record(struct forge_file_layout const *layout, struct forge_file_record const *record);
+static void forge_effects_from_layout_brought_in(struct forge_file_layout const *layout);
+static boolean forge_effect_to_record(struct forge_spawn const *spawn, struct forge_file_layout *layout,
+	struct forge_file_record *record);
+static short forge_effect_property_count(void);
+static void forge_effect_property_apply(struct forge_spawn *spawn, short property, short step, boolean held);
+static void forge_effect_property_text(struct forge_properties const *properties, short row, char *label,
+	int label_size, char *value, int value_size);
+static void forge_spawn_yaw_step(struct forge_spawn *spawn, short property, short step, boolean held);
 static struct forge_spawn *forge_spawn_add(long id, short kind, signed char team, unsigned short game_types,
 	short channel, struct forge_transform const *home);
 static void forge_netgame_changed(void);
@@ -807,9 +1032,37 @@ static void forge_draw_line(long font_index, rectangle2d const *bounds, short ju
 	real blue, char const *text);
 /* ---- the Forge menu's asks (forge_menu_link.inc) */
 static void forge_menu_asks_run(void);
+static boolean forge_placed_dead(struct forge_placed const *placed);
+static short forge_packs_of(short pack_category);
+static void forge_campaign_seats_tune(void);
+static void forge_flyable_tune(void);
+static void forge_ai_count(void);
+static short forge_ai_alive(void);
+static short forge_ai_dead_only(void);
+static void forge_ai_apply(struct forge_placed const *placed);
+static void forge_ai_attach(long object_index, long actor_variant_index);
+static void forge_ai_hold(void);
+static short forge_ai_clear(boolean all);
+static void forge_ai_life_update(void);
+static boolean forge_ai_property_apply(struct forge_placed *placed, short property, short step);
+static void forge_ai_log(void);
+struct forge_ai_move_settings;
+static void forge_ai_move_update(void);
+static void forge_ai_move_capture(struct forge_placed const *placed, unsigned long group_tag, struct forge_file_record *record);
+static void forge_ai_move_from_record(struct forge_placed *placed, struct forge_file_record const *record);
+static void forge_ai_move_properties_get(struct forge_placed const *placed, struct forge_properties *properties);
+static boolean forge_ai_move_property_apply(struct forge_placed *placed, short property, short step);
+static void forge_ai_move_log(void);
+static boolean forge_campaign_map_loaded(void);
+static short forge_campaign_spawn_location(long player_index, struct player_starting_location *location);
 static void forge_category_choose(short category, short item_index);
 static short forge_map_of_level(char const *level_name);
 static void forge_rotate_snap_text(char *text, size_t size);
+/* ---- the sky and fog (forge_environment.inc) */
+static void forge_environment_clear(void);
+static void forge_environment_from_layout(struct forge_file_layout const *layout);
+static short forge_environment_capture(struct forge_file_layout *layout);
+static void forge_environment_step(short row, short step);
 
 static char const *forge_tag_leaf(
 	long tag_index)
@@ -975,6 +1228,21 @@ static short forge_tag_category(
 
 	if (!name || strstr(name, "cinematic"))
 		return NONE;
+	/* (a tag brought in from a campaign map: a character, or one of a
+	pack's own vehicles or objects, in the campaign's categories; what they
+	need - their weapons, effects - none: forge_ai_tags.c) */
+	if (forge_ai_tags_source_map(tag_index))
+	{
+		if (!forge_ai_tags_offered(tag_index))
+			return NONE;
+		if (group_tag == VEHICLE_DEFINITION_TAG)
+			return _forge_category_campaign_vehicles;
+		if (group_tag == FORGE_SCENERY_DEFINITION_TAG || group_tag == MACHINE_DEFINITION_TAG ||
+			group_tag == CONTROL_DEFINITION_TAG || group_tag == LIGHT_FIXTURE_DEFINITION_TAG)
+		{
+			return _forge_category_campaign_objects;
+		}
+	}
 	switch (group_tag)
 	{
 	case VEHICLE_DEFINITION_TAG:
@@ -1014,6 +1282,12 @@ static short forge_tag_category(
 	case MACHINE_DEFINITION_TAG:
 	case CONTROL_DEFINITION_TAG:
 		return _forge_category_scenery;
+	case ACTOR_VARIANT_DEFINITION_TAG:
+		/* (an AI character: one that names its unit, not a vehicle's crew
+		- a dropship's gunner, a turret's) */
+		if (!strncmp(name, "vehicles\\", 9))
+			return NONE;
+		return actor_variant_definition_get(tag_index)->unit_reference.index != NONE ? _forge_category_ai : NONE;
 	}
 	return NONE;
 }
@@ -1038,7 +1312,7 @@ static void forge_palette_build(
 	static unsigned long const groups[] =
 	{
 		VEHICLE_DEFINITION_TAG, WEAPON_DEFINITION_TAG, EQUIPMENT_DEFINITION_TAG, FORGE_SCENERY_DEFINITION_TAG,
-		MACHINE_DEFINITION_TAG, CONTROL_DEFINITION_TAG,
+		MACHINE_DEFINITION_TAG, CONTROL_DEFINITION_TAG, ACTOR_VARIANT_DEFINITION_TAG, LIGHT_FIXTURE_DEFINITION_TAG,
 	};
 	short group_index;
 	short index;
@@ -1264,6 +1538,8 @@ static void forge_placed_update(
 
 		if (placed->object_index != NONE && !forge_object_alive(placed->object_index))
 			placed->object_index = NONE;
+		if (placed->ai)
+			continue;
 		/* (a placed item - a weapon, ammunition, a health pack: a layout's
 		pickup - stays while no one holds it: the game engine's purge deletes
 		every item unowned for 30 s (game_engine_update_purge). Dropped by a
@@ -1281,13 +1557,16 @@ static void forge_placed_update(
 			}
 		}
 	}
+	/* (the AI characters, the dead and the waiting among them: forge_ai.inc) */
+	forge_ai_count();
 }
 
 static short forge_objects_counted(
 	void)
 {
-	/* (the markers too: forge_spawns.inc) */
-	return (short)(forge_globals.placed_count + forge_globals.spawn_count);
+	/* (the markers too: forge_spawns.inc; not a dead AI character, which
+	counts nowhere until it is back: forge_ai.inc) */
+	return (short)(forge_globals.placed_count - forge_globals.ai_dead_count + forge_globals.spawn_count);
 }
 
 /* an entry of the layout taken out (the editor's delete, an undone
@@ -1394,6 +1673,14 @@ static void forge_homes_update(
 		{
 			continue;
 		}
+		/* (an AI character with its AI on, let go: only its fall followed,
+		not where it walks off to) */
+		if (placed->ai && placed->has_home && placed->object_index != forge_globals.held_object_index &&
+			!(placed->flags & FORGE_RECORD_AI_OFF))
+		{
+			placed->home.position.z = object->object.position.z;
+			continue;
+		}
 		forge_transform_get(placed->object_index, &placed->home);
 		placed->has_home = TRUE;
 	}
@@ -1411,12 +1698,16 @@ static void forge_placed_add(
 	csmemset(placed, 0, sizeof(*placed));
 	placed->object_index = object_index;
 	placed->tag_index = tag_index;
+	placed->ai = tag_index != NONE && tag_get_group_tag(tag_index) == ACTOR_VARIANT_DEFINITION_TAG;
 	placed->team = NONE;
 	placed->flags = FORGE_RECORD_PLACE_AT_START;
 	placed->respawn_seconds = FORGE_DEFAULT_RESPAWN_SECONDS;
+	placed->ai_team = FORGE_AI_TEAM_DEFAULT;
 	placed->dead_tick = 0;
 	placed->id = ++forge_globals.next_id;
 	forge_globals.placed_count++;
+	if (placed->ai)
+		forge_globals.ai_count++;
 	forge_settle(object_index);
 }
 
@@ -1523,6 +1814,9 @@ static short forge_group_delete(
 
 	if (category < 0 || category >= NUMBER_OF_FORGE_CATEGORIES)
 		return 0;
+	/* (the AI characters: CLEAR ALL AI, the dead with them) */
+	if (category == _forge_category_ai)
+		return forge_ai_clear(TRUE);
 	if (first != NONE)
 	{
 		for (index = (short)(forge_globals.spawn_count - 1); index >= 0; index--)
@@ -1566,7 +1860,7 @@ static short forge_group_delete(
 	}
 	forge_globals.deleted_count += deleted;
 	platform_log("forge: deleted all %s: %d (%d in use kept); budget %d/%d objects", forge_category_log_names[category],
-		deleted, kept, forge_objects_counted(), FORGE_MAXIMUM_OBJECTS);
+		deleted, kept, forge_objects_counted(), forge_objects_budget());
 	if (!deleted && !kept)
 		forge_menu_notice(("No %s to delete"), forge_category_name(category));
 	else if (kept)
@@ -1645,7 +1939,7 @@ static void forge_pad_get(
 		/* (rotate mode is the left trigger's with an object held) */
 		pad->down[_forge_button_alternate] |= holding && TEST_FLAG(keys, HALO_FORGE_KEY_ROTATE);
 		pad->down[_forge_button_duplicate] |= TEST_FLAG(keys, HALO_FORGE_KEY_COPY) != 0;
-		pad->down[_forge_button_delete] |= TEST_FLAG(keys, HALO_FORGE_KEY_DELETE) != 0;
+		pad->delete_key = TEST_FLAG(keys, HALO_FORGE_KEY_DELETE) != 0;
 		pad->down[_forge_button_straighten] |= TEST_FLAG(keys, HALO_FORGE_KEY_UPRIGHT) != 0;
 		pad->down[_forge_button_speed] |= TEST_FLAG(keys, HALO_FORGE_KEY_SPEED) != 0;
 		pad->down[_forge_button_menu] |= TEST_FLAG(keys, HALO_FORGE_KEY_MENU) != 0;
@@ -1699,6 +1993,105 @@ static void forge_pad_get(
 	return;
 }
 
+/* ---- delete: pressed, or held (game.forge_hold_to_delete) */
+
+enum
+{
+	/* (today's) a press deletes */
+	_forge_delete_press = 0,
+	/* the controller's Y held FORGE_DELETE_HOLD_MILLISECONDS deletes; the
+	keyboard's key still at a press */
+	_forge_delete_hold_controller,
+	/* both held */
+	_forge_delete_hold_all,
+	NUMBER_OF_FORGE_DELETE_MODES
+};
+
+/* game.forge_hold_to_delete: "off" (the default), "controller" or "all";
+anything else is "off" */
+static short forge_delete_mode(
+	void)
+{
+	char const *mode = config_string("game.forge_hold_to_delete");
+
+	if (mode && !strcmp(mode, "controller"))
+		return _forge_delete_hold_controller;
+	if (mode && !strcmp(mode, "all"))
+		return _forge_delete_hold_all;
+	return _forge_delete_press;
+}
+
+/* whether a delete is asked this frame: a press of what deletes at a press,
+or a hold of what deletes when held, once it has been held long enough
+(once a hold: let go to delete again). The hold is counted in system time,
+outside the game's tick: Forge's monitor is the editor's, never a game's
+simulation */
+static boolean forge_delete_asked(
+	struct forge_pad const *pad)
+{
+	short mode = forge_delete_mode();
+	boolean button = pad->down[_forge_button_delete];
+	boolean held = (mode != _forge_delete_press && button) || (mode == _forge_delete_hold_all && pad->delete_key);
+	boolean press = (mode == _forge_delete_press && (button || pad->delete_key)) ||
+		(mode == _forge_delete_hold_controller && pad->delete_key);
+	boolean pressed = press && !forge_globals.delete_press_was_down;
+	unsigned long now = system_milliseconds();
+	unsigned long elapsed;
+
+	forge_globals.delete_press_was_down = press;
+	forge_globals.delete_hold_fraction = 0.f;
+	if (!held)
+	{
+		forge_globals.delete_hold_since = 0;
+		forge_globals.delete_hold_done = FALSE;
+		return pressed;
+	}
+	if (!forge_globals.delete_hold_since)
+	{
+		forge_globals.delete_hold_since = now ? now : 1;
+		forge_globals.delete_hold_done = FALSE;
+	}
+	if (forge_globals.delete_hold_done)
+		return pressed;
+	elapsed = now - forge_globals.delete_hold_since;
+	if (elapsed >= FORGE_DELETE_HOLD_MILLISECONDS)
+	{
+		forge_globals.delete_hold_done = TRUE;
+		return TRUE;
+	}
+	forge_globals.delete_hold_fraction = (real)elapsed / (real)FORGE_DELETE_HOLD_MILLISECONDS;
+	return pressed;
+}
+
+/* (a menu over the monitor) what is held there deletes nothing once it
+is gone: let go first */
+static void forge_delete_hold_reset(
+	void)
+{
+	forge_globals.delete_hold_since = 1;
+	forge_globals.delete_hold_done = TRUE;
+	forge_globals.delete_hold_fraction = 0.f;
+	forge_globals.delete_press_was_down = TRUE;
+}
+
+/* the delete prompt's word: "HOLD DELETE" when the device used last deletes
+when held */
+static char const *forge_delete_word(
+	void)
+{
+	short mode = forge_delete_mode();
+	boolean keyboard = FALSE;
+
+	/* (ui_overlay.c's: the builds with the game list, HALO_GAME_BROWSER;
+	without it, a controller's word) */
+#ifdef HALO_GAME_BROWSER
+	keyboard = ui_overlay_keyboard() != 0;
+#endif
+	if (mode == _forge_delete_hold_all || (mode == _forge_delete_hold_controller && !keyboard))
+		return "HOLD DELETE";
+	return "DELETE";
+}
+
 /* ---- the monitor's world */
 
 /* the camera's place and direction (the last frame's) */
@@ -1724,6 +2117,21 @@ static boolean forge_object_is_players(
 
 	return (forge_globals.unit_index != NONE && object_get_ultimate_parent(object_index) == forge_globals.unit_index) ||
 		(unit_index != NONE && object_get_ultimate_parent(object_index) == unit_index);
+}
+
+/* how far the crosshair takes an object or a marker (game.forge_grab_range;
+anything but "near" or "medium" is "far", FORGE_PICK_RANGE). The
+structure still stops it nearer */
+static real forge_grab_range(
+	void)
+{
+	char const *range = config_string("game.forge_grab_range");
+
+	if (range && !strcmp(range, "near"))
+		return FORGE_GRAB_RANGE_NEAR;
+	if (range && !strcmp(range, "medium"))
+		return FORGE_GRAB_RANGE_MEDIUM;
+	return FORGE_PICK_RANGE;
 }
 
 /* how far along the camera's line the structure is (FORGE_PICK_RANGE if
@@ -1762,7 +2170,8 @@ static long forge_object_under_crosshair_at(
 	real_vector3d forward;
 	real_vector3d vector;
 	struct collision_result collision;
-	real nearest = FORGE_PICK_RANGE;
+	real range = forge_grab_range();
+	real nearest = range;
 	long nearest_index = NONE;
 	long player_index = local_player_get_player_index(forge_globals.local_player_index);
 	long ignored = forge_globals.unit_index != NONE ? forge_globals.unit_index :
@@ -1772,9 +2181,9 @@ static long forge_object_under_crosshair_at(
 
 	if (!forge_camera_get(&position, &forward))
 		return NONE;
-	vector.i = forward.i * FORGE_PICK_RANGE;
-	vector.j = forward.j * FORGE_PICK_RANGE;
-	vector.k = forward.k * FORGE_PICK_RANGE;
+	vector.i = forward.i * range;
+	vector.j = forward.j * range;
+	vector.k = forward.k * range;
 	if (collision_test_vector(
 			FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit) |
 			FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_bipeds_bit) |
@@ -1791,7 +2200,7 @@ static long forge_object_under_crosshair_at(
 			ignored,
 			&collision))
 	{
-		nearest = collision.t * FORGE_PICK_RANGE;
+		nearest = collision.t * range;
 		if (collision.type == _collision_result_object && object_try_and_get(collision.object_index))
 		{
 			long hit = object_get_ultimate_parent(collision.object_index);
@@ -1842,6 +2251,77 @@ static long forge_object_under_crosshair(
 
 static void forge_undo_record(short kind, long object_index, struct forge_transform const *from);
 static void forge_snapped(real_point3d *position, real_vector3d *forward, real_vector3d *up);
+
+/* game.forge_held_facing: "view" turns what is held with the camera's yaw
+until it is turned by hand; anything else ("keep", the default) keeps the
+facing it was grabbed with */
+static boolean forge_held_facing_follows(
+	void)
+{
+	char const *facing = config_string("game.forge_held_facing");
+
+	return facing && !strcmp(facing, "view");
+}
+
+/* (each frame, before what is held is placed) with game.forge_held_facing
+"view", what is held turns about up as the camera turns, so that it keeps
+facing the same way from the camera; its pitch and roll stay. Once its
+facing is changed any other way (rotate mode, the properties' angles,
+upright, a turn) it keeps its own until it is let go */
+static void forge_held_follow_view(
+	void)
+{
+	boolean object = object_try_and_get(forge_globals.held_object_index) != NULL;
+	real_point3d position;
+	real_vector3d forward;
+	real yaw;
+	real turn;
+	real_vector3d axis = *global_up3d;
+
+	if (!object && !forge_globals.held_marker_id)
+	{
+		forge_globals.follow_object_index = NONE;
+		forge_globals.follow_marker_id = 0;
+		forge_globals.following = FALSE;
+		return;
+	}
+	if (!forge_camera_get(&position, &forward))
+		return;
+	/* (straight up or down: no yaw to follow this frame) */
+	if (forward.i * forward.i + forward.j * forward.j < 0.0001f)
+		return;
+	yaw = arctangent(forward.j, forward.i);
+	/* (a new hold: followed from here, when the setting says so) */
+	if (forge_globals.follow_object_index != (object ? forge_globals.held_object_index : NONE) ||
+		forge_globals.follow_marker_id != forge_globals.held_marker_id)
+	{
+		forge_globals.follow_object_index = object ? forge_globals.held_object_index : NONE;
+		forge_globals.follow_marker_id = forge_globals.held_marker_id;
+		forge_globals.following = forge_held_facing_follows();
+		forge_globals.follow_yaw = yaw;
+		forge_globals.follow_forward = forge_globals.held_forward;
+		return;
+	}
+	if (!forge_globals.following)
+		return;
+	/* (turned by hand since the last frame: its own facing from now) */
+	if (forge_globals.held_forward.i != forge_globals.follow_forward.i ||
+		forge_globals.held_forward.j != forge_globals.follow_forward.j ||
+		forge_globals.held_forward.k != forge_globals.follow_forward.k)
+	{
+		forge_globals.following = FALSE;
+		platform_log("forge: the held facing no longer follows the view (turned by hand)");
+		return;
+	}
+	turn = yaw - forge_globals.follow_yaw;
+	if (turn != 0.f)
+	{
+		rotate_vector_about_axis(&forge_globals.held_forward, &axis, sine(turn), cosine(turn));
+		rotate_vector_about_axis(&forge_globals.held_up, &axis, sine(turn), cosine(turn));
+	}
+	forge_globals.follow_yaw = yaw;
+	forge_globals.follow_forward = forge_globals.held_forward;
+}
 
 /* the held object where the camera holds it */
 static void forge_held_object_place(
@@ -2236,12 +2716,14 @@ enum
 {
 	_forge_place_ok,
 	_forge_place_budget,
+	/* (an AI character: FORGE_MAXIMUM_AI alive already) */
+	_forge_place_ai_budget,
 	_forge_place_refused,
 };
 
 /* a palette tag placed at position, facing forward with up up, within the
-budget; the object, or NONE with why in *refusal (the player told unless
-quiet) */
+budget (an actor variant: its unit, given an actor - forge_ai.inc); the
+object, or NONE with why in *refusal (the player told unless quiet) */
 static long forge_place(
 	long tag_index,
 	real_point3d const *position,
@@ -2251,6 +2733,8 @@ static long forge_place(
 	short *refusal)
 {
 	struct object_placement_data placement;
+	long definition_index = tag_index;
+	long actor_variant_index = NONE;
 	long object_index;
 	short entry = forge_palette_of_tag(tag_index);
 	char name[FORGE_NAME_SIZE];
@@ -2261,14 +2745,35 @@ static long forge_place(
 	else
 		forge_tag_readable_name(tag_index, name, sizeof(name));
 	forge_placed_update();
-	if (forge_objects_counted() >= FORGE_MAXIMUM_OBJECTS || forge_globals.placed_count >= FORGE_MAXIMUM_OBJECTS)
+	if (forge_objects_counted() >= forge_objects_budget() || forge_globals.placed_count >= FORGE_MAXIMUM_OBJECTS)
 	{
 		*refusal = _forge_place_budget;
 		if (!quiet)
-			forge_notice("Budget full: %d objects. Delete one to place another.", FORGE_MAXIMUM_OBJECTS);
+			forge_notice("Budget full: %d objects. Delete one to place another.", forge_objects_budget());
 		return NONE;
 	}
-	object_placement_data_new(&placement, tag_index, NONE);
+	/* (an AI character: its actor variant's unit, at most FORGE_MAXIMUM_AI
+	alive) */
+	if (tag_get_group_tag(tag_index) == ACTOR_VARIANT_DEFINITION_TAG)
+	{
+		if (forge_ai_alive() >= forge_ai_maximum())
+		{
+			*refusal = _forge_place_ai_budget;
+			if (!quiet)
+				forge_notice("AI full: %d alive.", forge_ai_maximum());
+			return NONE;
+		}
+		actor_variant_index = tag_index;
+		definition_index = actor_variant_definition_get(tag_index)->unit_reference.index;
+		if (definition_index == NONE)
+		{
+			*refusal = _forge_place_refused;
+			if (!quiet)
+				forge_notice("%s cannot be placed here", name);
+			return NONE;
+		}
+	}
+	object_placement_data_new(&placement, definition_index, NONE);
 	SET_FLAG(placement.flags, _new_object_never_automatically_delete_bit, TRUE);
 	placement.position = *position;
 	placement.forward = *forward;
@@ -2283,14 +2788,20 @@ static long forge_place(
 			forge_notice("%s cannot be placed here", name);
 		return NONE;
 	}
+	if (actor_variant_index != NONE)
+		forge_ai_attach(object_index, actor_variant_index);
 	forge_placed_add(object_index, tag_index);
+	/* (a character's team, its default, at once: a multiplayer game gives
+	its units none) */
+	if (actor_variant_index != NONE)
+		forge_ai_apply(forge_placed_of_object(object_index));
 	forge_globals.spawned_count++;
 	if (!quiet)
 	{
-		platform_log("forge: spawned %s (%s, %s) at %.2f %.2f %.2f facing %.2f %.2f %.2f; budget %d/%d objects",
+		platform_log("forge: spawned %s (%s, %s) at %.2f %.2f %.2f facing %.2f %.2f %.2f; budget %d/%d objects, AI %d/%d",
 			name, forge_tag_leaf(tag_index), entry != NONE ? forge_category_log_names[forge_globals.palette[entry].category] : "?",
 			placement.position.x, placement.position.y, placement.position.z, placement.forward.i, placement.forward.j,
-			placement.forward.k, forge_objects_counted(), FORGE_MAXIMUM_OBJECTS);
+			placement.forward.k, forge_objects_counted(), forge_objects_budget(), forge_ai_alive(), forge_ai_maximum());
 		forge_notice("Placed %s", name);
 	}
 
@@ -2390,7 +2901,10 @@ static void forge_duplicate(
 			copy->team = original.team;
 			copy->flags = original.flags;
 			copy->respawn_seconds = original.respawn_seconds;
+			copy->ai_team = original.ai_team;
+			copy->move = original.move;
 			forge_physics_apply(copy);
+			forge_ai_apply(copy);
 		}
 	}
 }
@@ -2419,8 +2933,10 @@ static void forge_unit_set_visible(
 	return;
 }
 
-/* the player's unit as the monitor leaves it: hidden, unhurt (whatever it
-was is kept for the Spartan) */
+/* the player's unit as the monitor leaves it: hidden, unhurt, and casting
+no shadow (hidden with its weapon, it would start one every frame that
+nothing draws into: "empty shadow has been cast"); whatever it was is kept
+for the Spartan */
 static void forge_unit_hide(
 	long unit_index)
 {
@@ -2431,7 +2947,24 @@ static void forge_unit_hide(
 		return;
 	forge_globals.unit_could_take_damage = !TEST_FLAG(unit->object.damage_flags, _object_cannot_take_damage_bit);
 	SET_FLAG(unit->object.damage_flags, _object_cannot_take_damage_bit, TRUE);
+	forge_globals.unit_cast_shadow = !TEST_FLAG(unit->object.flags, _object_shadowless_bit);
+	SET_FLAG(unit->object.flags, _object_shadowless_bit, TRUE);
 	forge_unit_set_visible(unit_index, FALSE);
+}
+
+/* the hidden unit as it was before the monitor */
+static void forge_unit_show(
+	void)
+{
+	struct object_datum *unit = object_try_and_get(forge_globals.unit_index);
+
+	if (!unit)
+		return;
+	forge_unit_set_visible(forge_globals.unit_index, TRUE);
+	if (forge_globals.unit_could_take_damage)
+		SET_FLAG(unit->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
+	if (forge_globals.unit_cast_shadow)
+		SET_FLAG(unit->object.flags, _object_shadowless_bit, FALSE);
 }
 
 static void forge_hud_title_update(
@@ -2488,9 +3021,7 @@ static void forge_end(
 	unit = object_try_and_get(forge_globals.unit_index);
 	if (unit)
 	{
-		forge_unit_set_visible(forge_globals.unit_index, TRUE);
-		if (forge_globals.unit_could_take_damage)
-			SET_FLAG(unit->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
+		forge_unit_show();
 		/* (the player stands where the monitor was; not one in a vehicle's
 		seat) */
 		if (unit->object.parent_object_index == NONE && forge_camera_get(&position, &forward))
@@ -2560,8 +3091,17 @@ static void forge_hud_update(
 {
 	long object_index;
 
-	snprintf(forge_globals.hud_budget, sizeof(forge_globals.hud_budget), "Objects %d/%d", forge_objects_counted(),
-		FORGE_MAXIMUM_OBJECTS);
+	/* (with AI characters: those alive, and the dead and waiting apart) */
+	if (forge_globals.ai_count > 0 && forge_globals.ai_waiting_count > 0)
+		snprintf(forge_globals.hud_budget, sizeof(forge_globals.hud_budget), "Objects %d/%d, AI %d/%d, %d dead, %d waiting",
+			forge_objects_counted(), forge_objects_budget(), forge_ai_alive(), forge_ai_maximum(), forge_ai_dead_only(),
+			forge_globals.ai_waiting_count);
+	else if (forge_globals.ai_count > 0)
+		snprintf(forge_globals.hud_budget, sizeof(forge_globals.hud_budget), "Objects %d/%d, AI %d/%d, %d dead",
+			forge_objects_counted(), forge_objects_budget(), forge_ai_alive(), forge_ai_maximum(), forge_ai_dead_only());
+	else
+		snprintf(forge_globals.hud_budget, sizeof(forge_globals.hud_budget), "Objects %d/%d", forge_objects_counted(),
+			forge_objects_budget());
 	forge_globals.hud_label[0] = 0;
 	forge_globals.hud_label_held = object_try_and_get(forge_globals.held_object_index) != NULL;
 	object_index = forge_globals.hud_label_held ? forge_globals.held_object_index : forge_object_under_crosshair();
@@ -2570,8 +3110,8 @@ static void forge_hud_update(
 	/* (a marker held, or under the crosshair before what is behind it:
 	"Initial Spawn, Red") */
 	{
-		real object_distance = FORGE_PICK_RANGE;
-		real marker_distance = FORGE_PICK_RANGE;
+		real object_distance = forge_grab_range();
+		real marker_distance = forge_grab_range();
 		long marker = forge_globals.held_marker_id ? forge_globals.held_marker_id :
 			forge_globals.hud_label_held ? NONE : forge_marker_under_crosshair(&marker_distance);
 
@@ -2586,6 +3126,15 @@ static void forge_hud_update(
 			forge_spawn_name(forge_spawn_of_id(marker), forge_globals.hud_label, sizeof(forge_globals.hud_label));
 			forge_globals.hud_label_held = forge_globals.held_marker_id != 0;
 		}
+	}
+	/* (the layout's object or marker under the crosshair, nothing held: X
+	opens its properties) */
+	{
+		long object_index_hovered;
+		long marker_hovered;
+
+		forge_globals.hud_properties = forge_globals.hud_label[0] && !forge_globals.hud_label_held &&
+			forge_properties_hovered(&object_index_hovered, &marker_hovered);
 	}
 	/* (holding one: rotate mode's snapping; rotating, its angles too) */
 	forge_globals.hud_rotate[0] = 0;
@@ -2687,6 +3236,11 @@ static boolean forge_undo_fill(
 	entry->team = placed ? placed->team : NONE;
 	entry->flags = placed ? placed->flags : FORGE_RECORD_PLACE_AT_START;
 	entry->respawn_seconds = placed ? placed->respawn_seconds : FORGE_DEFAULT_RESPAWN_SECONDS;
+	entry->ai_team = placed ? placed->ai_team : FORGE_AI_TEAM_DEFAULT;
+	if (placed)
+		entry->move = placed->move;
+	else
+		csmemset(&entry->move, 0, sizeof(entry->move));
 	forge_transform_get(object_index, &entry->from);
 	entry->to = entry->from;
 	return TRUE;
@@ -2761,7 +3315,10 @@ static boolean forge_undo_bring_back(
 		placed->team = entry->team;
 		placed->flags = entry->flags;
 		placed->respawn_seconds = entry->respawn_seconds;
+		placed->ai_team = entry->ai_team;
+		placed->move = entry->move;
 		forge_physics_apply(placed);
+		forge_ai_apply(placed);
 		if (entry->id != NONE)
 		{
 			placed->id = entry->id;
@@ -2943,19 +3500,112 @@ and their reset. A marker's: forge_spawns.inc */
 
 static short const forge_respawn_choices[] = { 0, 10, 20, 30, 45, 60, 90, 120, 180 };
 
-/* the placed entry of the object held, NULL for none or one of the map's */
+/* the placed entry of the object held, else of the one the crosshair was
+on as the menu opened (forge_properties_pick); NULL for none or one of the
+map's */
 static struct forge_placed *forge_properties_target(
 	void)
 {
-	return object_try_and_get(forge_globals.held_object_index) ? forge_placed_of_object(forge_globals.held_object_index) :
-		NULL;
+	if (object_try_and_get(forge_globals.held_object_index))
+		return forge_placed_of_object(forge_globals.held_object_index);
+	if (forge_globals.held_marker_id)
+		return NULL;
+	if (forge_globals.properties_object_index != NONE && object_try_and_get(forge_globals.properties_object_index))
+		return forge_placed_of_object(forge_globals.properties_object_index);
+	return NULL;
 }
 
-/* the marker the properties are of (the one held), NULL */
+/* the marker the properties are of (the one held, else the one picked),
+NULL */
 static struct forge_spawn *forge_properties_spawn(
 	void)
 {
-	return forge_globals.held_marker_id ? forge_spawn_of_id(forge_globals.held_marker_id) : NULL;
+	if (forge_globals.held_marker_id)
+		return forge_spawn_of_id(forge_globals.held_marker_id);
+	if (object_try_and_get(forge_globals.held_object_index) || !forge_globals.properties_marker_id)
+		return NULL;
+	return forge_spawn_of_id(forge_globals.properties_marker_id);
+}
+
+/* the layout's object or marker under the crosshair, nothing held (the
+nearer of the two, as a grab takes): TRUE and which (object_index NONE or
+marker_id 0 for the other); FALSE for none, or one of the map's own */
+static boolean forge_properties_hovered(
+	long *object_index,
+	long *marker_id)
+{
+	real object_distance = FORGE_PICK_RANGE;
+	real marker_distance = FORGE_PICK_RANGE;
+	long object;
+	long marker;
+
+	*object_index = NONE;
+	*marker_id = 0;
+	if (object_try_and_get(forge_globals.held_object_index) || forge_globals.held_marker_id)
+		return FALSE;
+	object = forge_object_under_crosshair_at(&object_distance);
+	marker = forge_marker_under_crosshair(&marker_distance);
+	if (marker != NONE && marker_distance <= object_distance + FORGE_MARKER_PICK_RADIUS && forge_spawn_of_id(marker))
+	{
+		*marker_id = marker;
+		return TRUE;
+	}
+	if (object != NONE && forge_placed_of_object(object))
+	{
+		*object_index = object;
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/* (X, nothing held) the properties made the ones of what the crosshair is
+on: TRUE when it is the layout's */
+static boolean forge_properties_pick(
+	void)
+{
+	boolean picked = forge_properties_hovered(&forge_globals.properties_object_index,
+		&forge_globals.properties_marker_id);
+
+	if (forge_globals.properties_object_index != NONE)
+	{
+		char name[FORGE_NAME_SIZE];
+
+		forge_object_name(forge_globals.properties_object_index, name, sizeof(name));
+		platform_log("forge: properties of %s (aimed at)", name);
+	}
+	else if (forge_globals.properties_marker_id)
+	{
+		forge_spawn_log("properties of (aimed at)", forge_spawn_of_id(forge_globals.properties_marker_id));
+	}
+	return picked;
+}
+
+static void forge_properties_unpick(
+	void)
+{
+	forge_globals.properties_object_index = NONE;
+	forge_globals.properties_marker_id = 0;
+}
+
+/* the facing the properties show and step: the held object's as it is
+held, else the object's own */
+static void forge_properties_facing(
+	struct forge_placed const *placed,
+	real_vector3d *forward,
+	real_vector3d *up)
+{
+	struct object_datum *object = object_try_and_get(placed->object_index);
+
+	if (placed->object_index == forge_globals.held_object_index || !object)
+	{
+		*forward = forge_globals.held_forward;
+		*up = forge_globals.held_up;
+	}
+	else
+	{
+		*forward = object->object.forward;
+		*up = object->object.up;
+	}
 }
 
 static void forge_property_apply(
@@ -2969,10 +3619,18 @@ static void forge_property_apply(
 	/* (a marker's: forge_spawns.inc) */
 	if (spawn)
 	{
-		forge_spawn_property_apply(spawn, property, step, TRUE);
+		forge_spawn_property_apply(spawn, property, step, spawn->id == forge_globals.held_marker_id);
 		return;
 	}
 	if (!placed)
+		return;
+	/* (an AI character's AI team, AI and respawn: forge_ai.inc; its
+	movement, or a vehicle's route: forge_ai_move.inc) */
+	if (forge_ai_move_property_apply(placed, property, step))
+		return;
+	if (placed->ai && forge_ai_property_apply(placed, property, step))
+		return;
+	if (!placed->ai && (property == _forge_property_ai_team || property == _forge_property_ai))
 		return;
 	switch (property)
 	{
@@ -3005,7 +3663,8 @@ static void forge_property_apply(
 			forge_rotate_snaps[forge_globals.rotate_snap] : FORGE_ANGLE_STEP);
 		real_vector3d forward, up;
 
-		forge_angles_from_facing(&forge_globals.held_forward, &forge_globals.held_up, angles);
+		forge_properties_facing(placed, &forward, &up);
+		forge_angles_from_facing(&forward, &up, angles);
 		if (property == _forge_property_reset_rotation)
 		{
 			angles[0] = angles[1] = angles[2] = 0.f;
@@ -3031,14 +3690,16 @@ static void forge_property_apply(
 			angles[axis] = DEGREES_TO_RADIANS(degrees);
 		}
 		forge_facing_from_angles(angles, &forward, &up);
-		forge_set_facing(forge_globals.held_object_index, &forward, &up);
+		forge_set_facing(placed->object_index, &forward, &up);
 		break;
 	}
 	case _forge_property_physics:
 	{
-		/* (normal, fixed, phased, round) */
+		/* (normal, fixed, phased, round: never an AI character's) */
 		short mode = forge_physics_mode(placed);
 
+		if (placed->ai)
+			return;
 		mode = (short)((mode + step + NUMBER_OF_FORGE_PHYSICS_MODES) % NUMBER_OF_FORGE_PHYSICS_MODES);
 		placed->flags = (unsigned char)((placed->flags & ~FORGE_RECORD_PHYSICS_MASK) | forge_physics_flags(mode));
 		forge_physics_apply(placed);
@@ -3049,12 +3710,13 @@ static void forge_property_apply(
 	{
 		float angles[3];
 		char rotation[96];
+		real_vector3d forward, up;
 
-		forge_angles_from_facing(&forge_globals.held_forward, &forge_globals.held_up, angles);
+		forge_properties_facing(placed, &forward, &up);
+		forge_angles_from_facing(&forward, &up, angles);
 		snprintf(rotation, sizeof(rotation), "yaw %.1f, pitch %.1f, roll %.1f, facing %.3f %.3f %.3f up %.3f %.3f %.3f",
 			RADIANS_TO_DEGREES(angles[0]), RADIANS_TO_DEGREES(angles[1]), RADIANS_TO_DEGREES(angles[2]),
-			forge_globals.held_forward.i, forge_globals.held_forward.j, forge_globals.held_forward.k, forge_globals.held_up.i,
-			forge_globals.held_up.j, forge_globals.held_up.k);
+			forward.i, forward.j, forward.k, up.i, up.j, up.k);
 		platform_log("forge: properties: team %d, respawn %d s, %splaced at start, physics %s, %s", placed->team,
 			placed->respawn_seconds, (placed->flags & FORGE_RECORD_PLACE_AT_START) ? "" : "not ",
 			forge_physics_log_names[forge_physics_mode(placed)], rotation);
@@ -3209,8 +3871,22 @@ static boolean forge_variant_capture(
 		record->respawn_seconds = (unsigned short)MIN(placed->respawn_seconds, FORGE_FILE_MAXIMUM_RESPAWN_SECONDS);
 		record->count = 1;
 		record->flags = (unsigned char)(placed->flags & FORGE_RECORD_FLAGS_KNOWN);
-		/* (no character's settings: the Forge menu places no characters) */
-		record->flags &= (unsigned char)~(FORGE_RECORD_AI_OFF | FORGE_RECORD_AI_RESPAWN);
+		/* (an AI character's settings: version 2 with an AI team or its AI
+		off, 3 with a respawn - after a second or more -; never physics) */
+		if (placed->ai && group_tag == ACTOR_VARIANT_DEFINITION_TAG)
+		{
+			record->ai_team = (unsigned char)(placed->ai_team % NUMBER_OF_FORGE_AI_TEAMS);
+			record->flags &= (unsigned char)~FORGE_RECORD_PHYSICS_MASK;
+			if ((record->flags & FORGE_RECORD_AI_RESPAWN) && !record->respawn_seconds)
+				record->flags &= (unsigned char)~FORGE_RECORD_AI_RESPAWN;
+		}
+		else
+		{
+			record->flags &= (unsigned char)~(FORGE_RECORD_AI_OFF | FORGE_RECORD_AI_RESPAWN);
+		}
+		/* (AI movement: version 12, a character's behavior, route and
+		options, a vehicle's route) */
+		forge_ai_move_capture(placed, (unsigned long)group_tag, record);
 		/* (an object's physics: version 7, never both) */
 		if ((record->flags & FORGE_RECORD_PHYSICS_MASK) == FORGE_RECORD_PHYSICS_MASK)
 			record->flags &= (unsigned char)~FORGE_RECORD_PHYSICS_MASK;
@@ -3236,6 +3912,7 @@ static boolean forge_variant_capture(
 	if (spawns)
 	{
 		skipped = (short)(skipped + forge_spawns_capture(layout));
+		skipped = (short)(skipped + forge_environment_capture(layout));
 		/* (the map's own objects it takes away) */
 		forge_map_objects_capture(layout);
 	}
@@ -3320,11 +3997,16 @@ static void forge_variant_apply(
 	short over_budget = 0;
 	short refused = 0;
 	short other_kinds = 0;
+	short waiting = 0;
 	short skipped;
 	short index;
 	struct structure_bsp *structure = global_structure_bsp_get();
 
 	forge_palette_ready();
+	/* (its effects and decals of the campaign maps' tags, brought in after
+	the map's load: forge_effects.inc) */
+	if (!round)
+		forge_effects_from_layout_brought_in(layout);
 	for (index = 0; index < layout->path_count && index < FORGE_FILE_MAXIMUM_PATHS; index++)
 	{
 		short entry;
@@ -3358,8 +4040,13 @@ static void forge_variant_apply(
 				tags[index] = tag_index;
 			}
 		}
-		if (tags[index] == NONE)
+		/* (an effect's or a decal's path is found by forge_effect_from_record,
+		which says so itself when it isn't on the map) */
+		if (tags[index] == NONE && layout->paths[index].group_tag != (unsigned int)EFFECT_DEFINITION_TAG &&
+			layout->paths[index].group_tag != (unsigned int)DECAL_GROUP_TAG)
+		{
 			platform_log("forge: the layout's %s is not on this map: its objects are skipped", layout->paths[index].path);
+		}
 	}
 	for (index = 0; index < layout->record_count && index < FORGE_FILE_MAXIMUM_RECORDS; index++)
 	{
@@ -3382,6 +4069,18 @@ static void forge_variant_apply(
 		}
 		if (record->kind == _forge_record_flag && forge_file_layout_version(layout) >= 6)
 			continue;
+		/* (the sky and fog: as the map loaded, forge_environment_from_layout) */
+		if (record->kind == _forge_record_environment && forge_file_layout_version(layout) >= FORGE_FILE_ENVIRONMENT_VERSION)
+			continue;
+		/* (a volume: as the map loaded, forge_spawns_from_layout) */
+		if (record->kind == _forge_record_volume && forge_file_layout_version(layout) >= FORGE_FILE_VOLUMES_VERSION)
+			continue;
+		/* (an effect, a decal: as the map loaded, forge_spawns_from_layout) */
+		if ((record->kind == _forge_record_effect || record->kind == _forge_record_decal) &&
+			forge_file_layout_version(layout) >= FORGE_FILE_EFFECTS_VERSION)
+		{
+			continue;
+		}
 		if (record->kind != _forge_record_object)
 		{
 			other_kinds++;
@@ -3407,9 +4106,30 @@ static void forge_variant_apply(
 		}
 		forge_facing_from_angles(record->angles, &forward, &up);
 		object_index = forge_place(tags[record->path_index], &position, &forward, &up, TRUE, &refusal);
+		/* (an AI character past FORGE_MAXIMUM_AI alive: kept, waiting for
+		room - placed as soon as one alive is fewer: forge_ai.inc) */
+		if (object_index == NONE && refusal == _forge_place_ai_budget && forge_globals.placed_count < FORGE_MAXIMUM_OBJECTS)
+		{
+			struct forge_placed *entry;
+
+			forge_placed_add(NONE, tags[record->path_index]);
+			entry = &forge_globals.placed[forge_globals.placed_count - 1];
+			entry->team = record->team;
+			entry->flags = record->flags;
+			entry->respawn_seconds = record->respawn_seconds;
+			entry->ai_team = (unsigned char)(record->ai_team % NUMBER_OF_FORGE_AI_TEAMS);
+			forge_ai_move_from_record(entry, record);
+			entry->home.position = position;
+			entry->home.forward = forward;
+			entry->home.up = up;
+			entry->has_home = TRUE;
+			entry->waiting = TRUE;
+			waiting++;
+			continue;
+		}
 		if (object_index == NONE)
 		{
-			if (refusal == _forge_place_budget)
+			if (refusal == _forge_place_budget || refusal == _forge_place_ai_budget)
 				over_budget++;
 			else
 				refused++;
@@ -3422,8 +4142,18 @@ static void forge_variant_apply(
 			entry->team = record->team;
 			entry->flags = record->flags;
 			entry->respawn_seconds = record->respawn_seconds;
-			entry->flags &= (unsigned char)~(FORGE_RECORD_AI_OFF | FORGE_RECORD_AI_RESPAWN);
-			forge_physics_apply(entry);
+			forge_ai_move_from_record(entry, record);
+			if (entry->ai)
+			{
+				entry->ai_team = (unsigned char)(record->ai_team % NUMBER_OF_FORGE_AI_TEAMS);
+				entry->flags &= (unsigned char)~FORGE_RECORD_PHYSICS_MASK;
+				forge_ai_apply(entry);
+			}
+			else
+			{
+				entry->flags &= (unsigned char)~(FORGE_RECORD_AI_OFF | FORGE_RECORD_AI_RESPAWN);
+				forge_physics_apply(entry);
+			}
 		}
 		placed++;
 	}
@@ -3431,7 +4161,8 @@ static void forge_variant_apply(
 	if (round)
 	{
 		platform_log("forge: new round %ld: %d placed again, %d skipped (%d missing tags, %d outside the map, %d past the "
-			"budget, %d refused)", forge_globals.round_count, placed, skipped, missing, outside, over_budget, refused);
+			"budget, %d refused), %d AI waiting for room", forge_globals.round_count, placed, skipped, missing, outside,
+			over_budget, refused, waiting);
 		forge_notice(("New round: %d objects placed"), placed);
 		return;
 	}
@@ -3439,9 +4170,17 @@ static void forge_variant_apply(
 		platform_log("forge: the layout was made with another copy of this map (%08x, this one %08lx)", layout->map_hash,
 			(unsigned long)cache_files_get_checksum());
 	platform_log("forge: layout \"%s\" applied: %d placed, %d skipped (%d missing tags, %d outside the map, %d past the "
-		"budget, %d refused, %d not objects)", layout->title, placed, skipped, missing, outside, over_budget, refused,
-		other_kinds);
-	if (skipped)
+		"budget, %d refused, %d not objects), %d AI waiting for room", layout->title, placed, skipped, missing, outside,
+		over_budget, refused, other_kinds, waiting);
+	if (over_budget)
+	{
+		char warning[FORGE_LINE_SIZE];
+
+		snprintf(warning, sizeof(warning), "Layout %s: %d placed, %d past the budget of %d objects", layout->title, placed,
+			over_budget, forge_objects_budget());
+		forge_warning_hud(warning);
+	}
+	else if (skipped)
 		forge_notice(("Layout %s: %d placed, %d skipped"), layout->title, placed, skipped);
 	else
 		forge_notice(("Layout %s: %d placed"), layout->title, placed);
@@ -3456,6 +4195,10 @@ static void forge_session_update(
 	long player_index;
 
 	if (!forge_globals.game_active || forge_globals.reload_pending)
+		return;
+	/* (a multiplayer map's AI characters not brought in yet: the session,
+	and its layout, wait for them - forge_ai_tags.c) */
+	if (forge_ai_tags_pending())
 		return;
 	/* (a local game only: never a network game's, hosted or joined) */
 	if (game_connection() != _game_connection_local)
@@ -3488,6 +4231,30 @@ static void forge_session_update(
 		{
 			forge_globals.game_requested = FALSE;
 			platform_log("forge: the Forge game of %s starts", forge_globals.game_map);
+			/* (a multiplayer map: the AI characters its campaign maps gave,
+			said, and the factions none of whose campaign maps is there) */
+			if (forge_packs_of(NONE) > 0)
+			{
+				char found[96] = "";
+				char missing[96] = "";
+				short faction;
+
+				for (faction = 0; faction < forge_ai_tags_faction_count(); faction++)
+				{
+					char const *name = "";
+					char const *map = NULL;
+					char *list;
+
+					forge_ai_tags_faction(faction, &name, &map);
+					list = map ? found : missing;
+					snprintf(list + strlen(list), sizeof(found) - strlen(list), "%s%s", list[0] ? ", " : "", name);
+				}
+				if (missing[0])
+					forge_warning_hud(found[0] ? "Campaign characters and objects: some of their campaign maps are missing." :
+						"No campaign characters or objects: no campaign maps in the maps folder.");
+				platform_log("forge: AI characters from the campaign maps: %s; none for: %s", found[0] ? found : "none",
+					missing[0] ? missing : "none");
+			}
 			if (forge_globals.variant_pending)
 			{
 				forge_globals.variant_pending = FALSE;
@@ -3542,6 +4309,37 @@ static void forge_new_round_start(
 }
 
 /* ---------- public code */
+
+/* the budget and the AI's most alive, as set (game.forge_objects,
+game.forge_ai), clamped to the build's: read as a Forge game's map loads */
+static short forge_budget_set = FORGE_MAXIMUM_OBJECTS;
+static short forge_ai_set = FORGE_MAXIMUM_AI;
+
+static void forge_limits_read(
+	void)
+{
+	long objects = config_integer("game.forge_objects");
+	long ai = config_integer("game.forge_ai");
+
+	forge_budget_set = (short)PIN(objects, FORGE_MINIMUM_OBJECTS, FORGE_MAXIMUM_OBJECTS);
+	forge_ai_set = (short)PIN(ai, FORGE_MINIMUM_AI, FORGE_MAXIMUM_AI);
+	if (forge_budget_set != objects || forge_ai_set != ai)
+		platform_log("forge: game.forge_objects %ld and game.forge_ai %ld taken as %d and %d (this build: %d to %d, %d to %d)",
+			objects, ai, forge_budget_set, forge_ai_set, FORGE_MINIMUM_OBJECTS, FORGE_MAXIMUM_OBJECTS, FORGE_MINIMUM_AI,
+			FORGE_MAXIMUM_AI);
+}
+
+short forge_objects_budget(
+	void)
+{
+	return forge_budget_set;
+}
+
+short forge_ai_maximum(
+	void)
+{
+	return forge_ai_set;
+}
 
 /* whether Forge is on (game.forge): off, nothing of it runs */
 boolean forge_enabled(
@@ -3814,14 +4612,23 @@ boolean forge_properties_get(
 	properties->place_at_start = (placed->flags & FORGE_RECORD_PLACE_AT_START) != 0;
 	{
 		float angles[3];
+		real_vector3d forward, up;
 
-		forge_angles_from_facing(&forge_globals.held_forward, &forge_globals.held_up, angles);
+		forge_properties_facing(placed, &forward, &up);
+		forge_angles_from_facing(&forward, &up, angles);
 		properties->yaw = (short)forge_round(RADIANS_TO_DEGREES(angles[0]));
 		properties->pitch = (short)forge_round(RADIANS_TO_DEGREES(angles[1]));
 		properties->roll = (short)forge_round(RADIANS_TO_DEGREES(angles[2]));
 	}
-	properties->has_physics = TRUE;
+	properties->has_physics = !placed->ai;
 	properties->physics = forge_physics_mode(placed);
+	/* (an AI character's: forge_ai.inc) */
+	properties->character = placed->ai;
+	properties->ai_team = (short)(placed->ai_team % NUMBER_OF_FORGE_AI_TEAMS);
+	properties->ai_on = !(placed->flags & FORGE_RECORD_AI_OFF);
+	forge_ai_move_properties_get(placed, properties);
+	if (placed->ai && !(placed->flags & FORGE_RECORD_AI_RESPAWN))
+		properties->respawn_seconds = 0;
 	return TRUE;
 }
 
@@ -3871,6 +4678,7 @@ void forge_map_reset(
 	/* (every object is gone, its indices with it: the layout waits in
 	forge_round_layout; the undo history's steps name objects no more) */
 	forge_globals.placed_count = 0;
+	forge_globals.ai_count = forge_globals.ai_dead_count = forge_globals.ai_waiting_count = 0;
 	forge_globals.held_object_index = NONE;
 	forge_globals.held_spawned = FALSE;
 	forge_globals.undo_count = 0;
@@ -3897,8 +4705,13 @@ void forge_map_reset(
 void forge_map_loaded(
 	char const *scenario_name)
 {
+#if HALO_AI_NAV
+	/* (the last map's navigation let go: forge_ai_move.inc) */
+	ai_nav_map_reset();
+#endif
 	/* (every object of the last map is gone, its indices with them) */
 	forge_globals.placed_count = 0;
+	forge_globals.ai_count = forge_globals.ai_dead_count = forge_globals.ai_waiting_count = 0;
 	forge_globals.held_marker_id = 0;
 	forge_globals.held_object_index = NONE;
 	forge_globals.held_spawned = FALSE;
@@ -3906,6 +4719,7 @@ void forge_map_loaded(
 	forge_globals.undo_cursor = 0;
 	forge_globals.menu_status[0] = 0;
 	forge_globals.palette_built = FALSE;
+	forge_effect_palette_reset();
 	forge_globals.spawned_count = 0;
 	forge_globals.deleted_count = 0;
 	forge_globals.notice[0] = 0;
@@ -3920,6 +4734,9 @@ void forge_map_loaded(
 		forge_monitor_flying = 0;
 		forge_globals.unit_index = NONE;
 	}
+	/* (the budget and the AI's most, as set now) */
+	if (forge_globals.game_requested)
+		forge_limits_read();
 	/* (the map asked for is the one loaded, by its path; a local game only) */
 	forge_globals.reload_pending = FALSE;
 	forge_globals.game_active = forge_globals.game_requested && scenario_name &&
@@ -3927,11 +4744,20 @@ void forge_map_loaded(
 	if (forge_globals.game_requested && !forge_globals.game_active)
 		platform_log("forge: a Forge game of %s was asked for, but %s loaded", forge_globals.game_map,
 			scenario_name ? scenario_name : "nothing");
+	/* (a campaign mission's: its scripts and encounters left out, forge_ai.inc) */
+	forge_globals.campaign = forge_globals.game_active && forge_map_of_level(scenario_name) != NONE &&
+		forge_maps[forge_map_of_level(scenario_name)].campaign;
+	if (forge_globals.campaign)
+		platform_log("forge: %s is a campaign mission: its scripts and encounters are left out", scenario_name);
 	/* (the layout's markers: the layout's, before anyone spawns -
 	forge_spawns.inc; none of another map's, nor in another game) */
 	forge_spawns_clear();
+	forge_environment_clear();
 	if (forge_globals.game_active && forge_globals.variant_pending)
+	{
 		forge_spawns_from_layout(&forge_variant_layout);
+		forge_environment_from_layout(&forge_variant_layout);
+	}
 	/* (the map's own objects it takes away, before the map makes them) */
 	forge_map_objects_start(forge_globals.game_active && forge_globals.variant_pending ? &forge_variant_layout : NULL);
 	/* (its teleporters and flags the engine's netgame flags as its game
@@ -4001,6 +4827,9 @@ short forge_category_item_count(
 {
 	if (category < 0 || category >= NUMBER_OF_FORGE_CATEGORIES)
 		return 0;
+	/* (EFFECTS, DECALS: the map's, in a Forge game) */
+	if (category == _forge_category_effects || category == _forge_category_decals)
+		return forge_globals.game_active && !forge_globals.playing ? forge_effect_category_count(category) : 0;
 	/* (SPAWNING, TELEPORTERS, OBJECTIVES: their markers' kinds, in a Forge
 	game) */
 	if (forge_marker_category_first(category) != NONE)
@@ -4019,6 +4848,8 @@ boolean forge_category_item(
 	if (item_index < 0 || item_index >= forge_category_item_count(category))
 		return FALSE;
 	csmemset(item, 0, sizeof(*item));
+	if (category == _forge_category_effects || category == _forge_category_decals)
+		return forge_effect_category_item(category, item_index, item);
 	if (forge_marker_category_first(category) != NONE)
 	{
 		short kind = (short)(forge_marker_category_first(category) + item_index);
@@ -4030,7 +4861,148 @@ boolean forge_category_item(
 	entry = &forge_globals.palette[forge_globals.palette_first[category] + item_index];
 	csmemcpy(item->name, entry->name, sizeof(item->name));
 	item->placed = forge_placed_of_tag(entry->tag_index);
+	/* (brought in from a campaign map: its faction, or pack, and mission) */
+	if (forge_ai_tags_source_map(entry->tag_index))
+	{
+		short faction = forge_ai_tags_faction_of(entry->tag_index);
+		char const *name = "";
+		char const *map = NULL;
+
+		if (faction != NONE)
+			forge_ai_tags_faction(faction, &name, &map);
+		snprintf(item->faction, sizeof(item->faction), "%s", name);
+		snprintf(item->from, sizeof(item->from), "%s", forge_mission_title(forge_ai_tags_source_map(entry->tag_index)));
+	}
 	return TRUE;
+}
+
+boolean forge_ai_tags_wanted(
+	char const *scenario_name)
+{
+	short map_index;
+
+	if (!forge_enabled() || !forge_globals.game_requested || !scenario_name ||
+		_stricmp(scenario_name, forge_globals.game_map) || game_connection() != _game_connection_local)
+	{
+		return FALSE;
+	}
+	map_index = forge_map_of_level(scenario_name);
+	return map_index != NONE && !forge_maps[map_index].campaign;
+}
+
+char const *forge_mission_title(
+	char const *short_name)
+{
+	short map_index = short_name ? forge_map_of_short(short_name) : NONE;
+
+	return map_index != NONE ? forge_maps[map_index].name : "";
+}
+
+/* the packs' category of one of the Forge menu's (NONE: none) */
+static short forge_pack_category(
+	short category)
+{
+	return category == _forge_category_ai ? FORGE_AI_PACK_AI :
+		category == _forge_category_campaign_vehicles ? FORGE_AI_PACK_VEHICLES :
+		category == _forge_category_campaign_objects ? FORGE_AI_PACK_OBJECTS : NONE;
+}
+
+/* (a multiplayer map's Forge game) the packs of a category, or all (NONE) */
+static short forge_packs_of(
+	short pack_category)
+{
+	short map_index = forge_globals.game_active ? forge_map_of_level(forge_globals.game_map) : NONE;
+	short faction;
+	short count = 0;
+
+	if (map_index == NONE || forge_maps[map_index].campaign)
+		return 0;
+	for (faction = 0; faction < forge_ai_tags_faction_count(); faction++)
+		count += pack_category == NONE || forge_ai_tags_faction_category(faction) == pack_category ? 1 : 0;
+	return count;
+}
+
+short forge_ai_faction_lines(
+	short category)
+{
+	short pack_category = forge_pack_category(category);
+
+	return pack_category != NONE ? forge_packs_of(pack_category) : 0;
+}
+
+short forge_ai_faction_line(
+	short category,
+	short line_index,
+	char *line,
+	int size,
+	boolean *missing)
+{
+	char const *name = "";
+	char const *map = NULL;
+	short pack_category = forge_pack_category(category);
+	short faction;
+	short seen = 0;
+
+	line[0] = 0;
+	*missing = FALSE;
+	if (line_index < 0 || line_index >= forge_ai_faction_lines(category))
+		return 0;
+	for (faction = 0; faction < forge_ai_tags_faction_count(); faction++)
+	{
+		if (forge_ai_tags_faction_category(faction) == pack_category && seen++ == line_index)
+			break;
+	}
+	if (faction >= forge_ai_tags_faction_count() || !forge_ai_tags_faction(faction, &name, &map))
+		return 0;
+	*missing = map == NULL;
+	if (map)
+		snprintf(line, (size_t)size, "%s: %s", name, forge_mission_title(map));
+	else
+		snprintf(line, (size_t)size, "%s", name);
+	return 1;
+}
+
+/* (an import done) the campaign vehicles' seats a player could not take,
+given animations the player's unit has: the Wraith's driver ("wraith-driver",
+an Elite's) the Scorpion driver's. Only the copy this Forge game brought in
+from a campaign map; a label already changed is not changed again */
+static struct
+{
+	char const *path;
+	char const *label;
+	char const *player_label;
+} const forge_campaign_seats[] =
+{
+	{ "vehicles\\wraith\\wraith", "wraith-driver", "scorpion-driver" },
+};
+
+static void forge_campaign_seats_tune(
+	void)
+{
+	short entry;
+
+	for (entry = 0; entry < (short)NUMBEROF(forge_campaign_seats); entry++)
+	{
+		long tag_index = tag_loaded(VEHICLE_DEFINITION_TAG, forge_campaign_seats[entry].path);
+		struct unit_definition *definition;
+		short seat_index;
+
+		if (tag_index == NONE || !forge_ai_tags_source_map(tag_index))
+			continue;
+		definition = unit_definition_get(tag_index);
+		for (seat_index = 0; seat_index < definition->unit.seats.count; seat_index++)
+		{
+			struct unit_seat *seat = TAG_BLOCK_GET_ELEMENT(&definition->unit.seats, seat_index, struct unit_seat);
+
+			if (!_strnicmp(seat->label, forge_campaign_seats[entry].label, TAG_STRING_LENGTH))
+			{
+				csmemset(seat->label, 0, TAG_STRING_LENGTH + 1);
+				csstrncpy(seat->label, forge_campaign_seats[entry].player_label, TAG_STRING_LENGTH);
+				platform_log("forge: %s's seat %d a player's (%s)", forge_tag_leaf(tag_index), seat_index,
+					forge_campaign_seats[entry].player_label);
+			}
+		}
+	}
 }
 
 /* (the Forge menu's choice, forge_update's) an item of a category spawned in the
@@ -4045,7 +5017,9 @@ static void forge_category_choose(
 		forge_marker_drop();
 	if (object_try_and_get(forge_globals.held_object_index))
 		forge_drop();
-	if (forge_marker_category_first(category) != NONE)
+	if (category == _forge_category_effects || category == _forge_category_decals)
+		forge_effect_choose(category, item_index);
+	else if (forge_marker_category_first(category) != NONE)
 		forge_spawn_choose((short)(forge_marker_category_first(category) + item_index));
 	else
 		forge_spawn(forge_globals.palette[forge_globals.palette_first[category] + item_index].tag_index);
@@ -4237,6 +5211,15 @@ void forge_update(
 		forge_globals.test_buttons_frames--;
 	if (forge_globals.test_sticks_frames > 0)
 		forge_globals.test_sticks_frames--;
+	/* (a multiplayer map's AI characters, brought in from the player's
+	campaign maps once its load is done: forge_ai_tags.c; the palette made
+	again with them) */
+	if (forge_globals.game_active && forge_ai_tags_update())
+	{
+		forge_globals.palette_built = FALSE;
+		forge_campaign_seats_tune();
+		forge_flyable_tune();
+	}
 	forge_session_update();
 	/* (the layout's teleporters and flags the engine's, before the tick) */
 	forge_netgame_update();
@@ -4253,12 +5236,19 @@ void forge_update(
 			forge_physics_update();
 			/* (its weapons and equipment: kept at their spots, their RESPAWN) */
 			forge_item_life_update();
+			/* (its AI characters: their lives and AI, forge_ai.inc) */
+			forge_ai_life_update();
+			forge_ai_hold();
+			forge_ai_move_update();
 		}
 		return;
 	}
 	if (!forge_globals.game_active)
 		return;
 	forge_item_life_update();
+	forge_ai_life_update();
+	/* (the characters' movement, the craft's flights: forge_ai_move.inc) */
+	forge_ai_move_update();
 	/* (NEW ROUND: once the Forge menu has closed and the game runs - the engine
 	resets a map only then) */
 	if (forge_globals.round_requested)
@@ -4320,10 +5310,14 @@ void forge_update(
 	/* (a menu of the game's over it, pausing it: no HUD, no controls) */
 	forge_globals.hud_hidden = game_time_get_paused();
 	if (forge_globals.hud_hidden)
+	{
+		forge_delete_hold_reset();
 		return;
+	}
 	forge_placed_update();
 	forge_homes_update();
 	forge_physics_update();
+	forge_ai_hold();
 
 	/* (the Spartan: the combo is the monitor) */
 	if (!forge_globals.active)
@@ -4337,12 +5331,7 @@ void forge_update(
 	hidden as the last did) */
 	if (player_get(player_index)->unit_index != forge_globals.unit_index)
 	{
-		if (object_try_and_get(forge_globals.unit_index))
-		{
-			forge_unit_set_visible(forge_globals.unit_index, TRUE);
-			if (forge_globals.unit_could_take_damage)
-				SET_FLAG(object_get(forge_globals.unit_index)->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
-		}
+		forge_unit_show();
 		forge_unit_hide(player_get(player_index)->unit_index);
 	}
 	if (toggle_pressed)
@@ -4356,14 +5345,25 @@ void forge_update(
 	forge_menu_asks_run();
 	if (!forge_globals.active)
 		return;
+	/* (X with nothing held: the properties of the layout's object or marker
+	the crosshair is on, the menu opened on them; none, the menu as ever) */
+	if (!forge_menu_game_open())
+		forge_properties_unpick();
 	if (!forge_menu_game_open() && pressed[_forge_button_menu])
+	{
+		forge_properties_pick();
 		forge_menu_game_open_now();
+		if (!forge_menu_game_open())
+			forge_properties_unpick();
+	}
 	if (forge_menu_game_open())
 	{
 		forge_globals.rotating = FALSE;
+		forge_delete_hold_reset();
 	}
 	else
 	{
+		boolean delete_asked = forge_delete_asked(&pad);
 		boolean rotating = pad.down[_forge_button_alternate] && object_try_and_get(forge_globals.held_object_index);
 
 		/* (LT + the right stick's click: rotate mode and nudge mode
@@ -4410,8 +5410,8 @@ void forge_update(
 			else
 			{
 				/* (the nearer of an object and a marker) */
-				real object_distance = FORGE_PICK_RANGE;
-				real marker_distance = FORGE_PICK_RANGE;
+				real object_distance = forge_grab_range();
+				real marker_distance = forge_grab_range();
 				long object_index = forge_object_under_crosshair_at(&object_distance);
 				long marker = forge_marker_under_crosshair(&marker_distance);
 
@@ -4423,7 +5423,7 @@ void forge_update(
 		}
 		/* (Y: a marker held, or under the crosshair before what is behind
 		it, deleted; else the object held or aimed at) */
-		if (pressed[_forge_button_delete])
+		if (delete_asked)
 		{
 			if (forge_globals.held_marker_id)
 			{
@@ -4431,8 +5431,8 @@ void forge_update(
 			}
 			else
 			{
-				real object_distance = FORGE_PICK_RANGE;
-				real marker_distance = FORGE_PICK_RANGE;
+				real object_distance = forge_grab_range();
+				real marker_distance = forge_grab_range();
 				long marker = NONE;
 
 				if (!object_try_and_get(forge_globals.held_object_index))
@@ -4471,6 +5471,7 @@ void forge_update(
 	}
 	forge_globals.pending_mouse_turn = 0.f;
 	forge_globals.pending_mouse_pitch = 0.f;
+	forge_held_follow_view();
 	if (object_try_and_get(forge_globals.held_object_index))
 		forge_held_object_place();
 	if (forge_globals.held_marker_id)
@@ -4562,14 +5563,14 @@ static void forge_draw_prompts(
 		snprintf(snap, sizeof(snap), "SNAP: %s", text);
 		FORGE_PROMPT(UI_BUTTON_LEFT_SHOULDER, HALO_FORGE_KEY_SPEED, forge_globals.nudge_mode ? "NUDGE STEP" : snap);
 		FORGE_PROMPT(NONE, HALO_FORGE_KEY_NUDGE, forge_globals.nudge_mode ? "RS: ROTATE" : "RS: NUDGE");
-		FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, "DELETE");
+		FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, forge_delete_word());
 	}
 	else if (holding)
 	{
 		FORGE_PROMPT(UI_BUTTON_RIGHT_TRIGGER, HALO_FORGE_KEY_GRAB, "LET GO");
 		FORGE_PROMPT(UI_BUTTON_LEFT_TRIGGER, HALO_FORGE_KEY_ROTATE, "ROTATE");
 		FORGE_PROMPT(UI_BUTTON_B, HALO_FORGE_KEY_COPY, "COPY");
-		FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, "DELETE");
+		FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, forge_delete_word());
 		FORGE_PROMPT(UI_BUTTON_X, HALO_FORGE_KEY_MENU, "PROPERTIES");
 	}
 	else
@@ -4579,9 +5580,9 @@ static void forge_draw_prompts(
 		if (forge_globals.hud_label[0])
 		{
 			FORGE_PROMPT(UI_BUTTON_B, HALO_FORGE_KEY_COPY, "COPY");
-			FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, "DELETE");
+			FORGE_PROMPT(UI_BUTTON_Y, HALO_FORGE_KEY_DELETE, forge_delete_word());
 		}
-		FORGE_PROMPT(UI_BUTTON_X, HALO_FORGE_KEY_MENU, "FORGE MENU");
+		FORGE_PROMPT(UI_BUTTON_X, HALO_FORGE_KEY_MENU, forge_globals.hud_properties ? "PROPERTIES" : "FORGE MENU");
 		FORGE_PROMPT(UI_BUTTON_LEFT_SHOULDER, HALO_FORGE_KEY_SPEED, speed);
 		FORGE_PROMPT(UI_BUTTON_BACK, HALO_FORGE_KEY_MONITOR, "+ RS: SPARTAN");
 	}
@@ -4635,6 +5636,12 @@ void forge_draw(
 	if (forge_menu_game_open())
 		return;
 	forge_draw_prompts();
+	/* (game.forge_hold_to_delete) the delete held: its fill over the crosshair */
+	if (forge_globals.delete_hold_fraction > 0.f &&
+		(forge_globals.hud_label[0] || forge_globals.held_marker_id || object_try_and_get(forge_globals.held_object_index)))
+	{
+		forge_menu_draw_hold(forge_globals.delete_hold_fraction);
+	}
 
 	/* the crosshair, and under it what it is on (ice blue) or what is
 	held (orange) */
@@ -4870,7 +5877,7 @@ boolean forge_command(
 	if (!strcmp(word, "budget"))
 	{
 		forge_placed_update();
-		platform_log("forge: budget %d/%d (%d objects, %d markers); HUD: %s", forge_objects_counted(), FORGE_MAXIMUM_OBJECTS,
+		platform_log("forge: budget %d/%d (%d objects, %d markers); HUD: %s", forge_objects_counted(), forge_objects_budget(),
 			forge_globals.placed_count, forge_globals.spawn_count, forge_globals.hud_budget);
 		return TRUE;
 	}
@@ -4969,7 +5976,7 @@ boolean forge_command(
 			forge_spawns_of_kind(_forge_spawn_initial) + forge_spawns_of_kind(_forge_spawn_respawn), forge_spawns_of_kind(_forge_spawn_initial),
 			forge_spawns_of_kind(_forge_spawn_teleporter_sender) +
 			forge_spawns_of_kind(_forge_spawn_teleporter_receiver), forge_objectives_count(NONE, NONE),
-			forge_globals.markers_drawn, forge_globals.map_markers_drawn, forge_objects_counted(), FORGE_MAXIMUM_OBJECTS);
+			forge_globals.markers_drawn, forge_globals.map_markers_drawn, forge_objects_counted(), forge_objects_budget());
 		for (index = 0; index < forge_globals.spawn_count && index < FORGE_SPAWN_TABLE; index++)
 			forge_spawn_log("spawns:", &forge_globals.spawns[index]);
 		return TRUE;
@@ -4991,6 +5998,74 @@ boolean forge_command(
 		forge_netgame_log();
 		return TRUE;
 	}
+	/* (the tests: the Spartan into the layout's vehicle "#<id>", its first
+	seat the Spartan can take - as walking up to it and pressing action) */
+	if (!strcmp(word, "board"))
+	{
+		long vehicle_index = rest[0] == '#' ? forge_command_target(rest) : NONE;
+		long player_index = local_player_get_player_index(forge_globals.local_player_index);
+		long unit_index = player_index != NONE ? player_get(player_index)->unit_index : NONE;
+		struct object_datum *vehicle = object_try_and_get(vehicle_index);
+		short seat_index;
+
+		if (!vehicle || unit_index == NONE || forge_globals.active || vehicle->object.type != _object_type_vehicle)
+			return FALSE;
+		/* ("#<id> walk <seat>": the Spartan put at the seat's way in, on
+		foot, for the action button to board it as a player would) */
+		{
+			char const *walk = strstr(rest, " walk ");
+			real_point3d entry;
+
+			if (walk && sscanf(walk + 6, "%hd", &seat_index) == 1 &&
+				seat_index >= 0 && seat_index < unit_definition_get(vehicle->definition_index)->unit.seats.count &&
+				unit_get_seat_entrance_point(unit_index, vehicle_index, seat_index, &entry, NULL, NULL))
+			{
+				object_set_position(unit_index, &entry, NULL, NULL);
+				platform_log("forge: the Spartan at seat %d's way in of %s, %.2f %.2f %.2f (the tests)", seat_index,
+					forge_tag_leaf(vehicle->definition_index), entry.x, entry.y, entry.z);
+				return TRUE;
+			}
+			if (walk)
+				return FALSE;
+		}
+		for (seat_index = 0; seat_index < unit_definition_get(vehicle->definition_index)->unit.seats.count; seat_index++)
+		{
+			long occupant = NONE;
+
+			if (unit_can_enter_seat(unit_index, vehicle_index, seat_index, &occupant) && occupant == NONE &&
+				unit_enter_seat(unit_index, vehicle_index, seat_index))
+			{
+				platform_log("forge: the Spartan boards %s, seat %d (the tests)", forge_tag_leaf(vehicle->definition_index),
+					seat_index);
+				return TRUE;
+			}
+		}
+		platform_log("forge: the Spartan can take no seat of %s", forge_tag_leaf(vehicle->definition_index));
+		return TRUE;
+	}
+	/* (the tests: a layout's AI character, "#<id>", killed - its respawn
+	and its body's clearing then run as after any death) */
+	if (!strcmp(word, "kill"))
+	{
+		long object_index = rest[0] == '#' ? forge_command_target(rest) : NONE;
+		struct forge_placed *placed = forge_placed_of_object(object_index);
+
+		if (!placed || !placed->ai)
+			return FALSE;
+		unit_kill(object_index);
+		platform_log("forge: #%ld killed (the tests)", placed->id);
+		return TRUE;
+	}
+	/* (the layout's AI characters in the log: in a layout played too) */
+	if (!strcmp(word, "ai"))
+	{
+		/* ("forge ai move": their movement, forge_ai_move.inc) */
+		if (!strcmp(rest, "move"))
+			forge_ai_move_log();
+		else
+			forge_ai_log();
+		return TRUE;
+	}
 	if (!strcmp(word, "where"))
 	{
 		real_point3d position;
@@ -5003,13 +6078,24 @@ boolean forge_command(
 			platform_log("forge: no camera");
 			return FALSE;
 		}
+		{
+			long player_index = local_player_get_player_index(forge_globals.local_player_index);
+			long unit_index = player_index != NONE ? player_get(player_index)->unit_index : NONE;
+			struct unit_datum *unit = unit_index != NONE ? unit_get(unit_index) : NULL;
+
+			if (unit && unit->object.parent_object_index != NONE)
+			{
+				platform_log("forge: the Spartan rides %s, seat %d",
+					forge_tag_leaf(object_get(unit->object.parent_object_index)->definition_index), unit->unit.parent_seat_index);
+			}
+		}
 		platform_log("forge: %s; camera at %.2f %.2f %.2f looking %.2f %.2f %.2f; holding %s at %.2f; aiming at %s; "
 			"%ld spawned, %ld deleted; budget %d/%d; snap %s; layout \"%s\"",
 			forge_globals.active ? "monitor" : forge_globals.game_active ? "Spartan" : "no Forge game",
 			position.x, position.y, position.z, forward.i, forward.j, forward.k,
 			held ? forge_tag_leaf(held->definition_index) : forge_globals.held_marker_id ? "a marker" : "nothing",
 			forge_globals.held_distance, aimed != NONE ? forge_tag_leaf(object_get(aimed)->definition_index) : "nothing",
-			forge_globals.spawned_count, forge_globals.deleted_count, forge_objects_counted(), FORGE_MAXIMUM_OBJECTS,
+			forge_globals.spawned_count, forge_globals.deleted_count, forge_objects_counted(), forge_objects_budget(),
 			forge_globals.snap ? "on" : "off", forge_globals.variant_title);
 		return TRUE;
 	}
@@ -5021,8 +6107,13 @@ boolean forge_command(
 	if (!strcmp(word, "menu"))
 	{
 		/* (the Forge menu opened or closed, as X and B do) */
-		if (!strcmp(rest, "open"))
+		if (!strcmp(rest, "open") && !forge_menu_game_open())
+		{
+			forge_properties_pick();
 			forge_menu_game_open_now();
+			if (!forge_menu_game_open())
+				forge_properties_unpick();
+		}
 		else if (!strcmp(rest, "close"))
 			forge_menu_game_close();
 		else
@@ -5054,6 +6145,13 @@ boolean forge_command(
 		forge_menu_notice("%s", forge_globals.snap ? "Snap: On" : "Snap: Off");
 		return TRUE;
 	}
+	if (!strcmp(word, "clearai"))
+	{
+		if (strcmp(rest, "dead") && strcmp(rest, "all"))
+			return FALSE;
+		forge_ai_clear(!strcmp(rest, "all"));
+		return TRUE;
+	}
 	if (!strcmp(word, "deleteall"))
 	{
 		short category;
@@ -5082,13 +6180,23 @@ boolean forge_command(
 			forge_drop();
 		return forge_spawn(forge_globals.palette[entry].tag_index) != NONE;
 	}
+	if (!strcmp(word, "effect") || !strcmp(word, "decal"))
+	{
+		/* (one of the map's effects or decals by name, placed and held) */
+		if (forge_globals.held_marker_id)
+			forge_marker_drop();
+		if (object_try_and_get(forge_globals.held_object_index))
+			forge_drop();
+		return forge_effect_choose_named(!strcmp(word, "decal") ? _forge_category_decals : _forge_category_effects, rest);
+	}
 	if (!strcmp(word, "marker"))
 	{
 		short kind;
 
 		for (kind = 0; kind < NUMBER_OF_FORGE_MARKER_KINDS && strcmp(rest, forge_spawn_kind_words[kind]); kind++)
 			;
-		if (kind >= NUMBER_OF_FORGE_MARKER_KINDS)
+		/* (an effect or a decal takes a tag: forge effect|decal <name>) */
+		if (kind >= NUMBER_OF_FORGE_MARKER_KINDS || kind == _forge_spawn_effect || kind == _forge_spawn_decal)
 			return FALSE;
 		if (forge_globals.held_marker_id)
 			forge_marker_drop();
@@ -5189,7 +6297,8 @@ boolean forge_command(
 	{
 		static char const *const properties[NUMBER_OF_FORGE_PROPERTIES] =
 		{
-			"team", "respawn", "start", "yaw", "pitch", "roll", "resetrot", "physics",
+			"team", "respawn", "start", "yaw", "pitch", "roll", "resetrot", "physics", "aiteam", "ai", "behavior", "route",
+			"vehicles",
 		};
 		char name[32];
 		char const *cursor = rest;
@@ -5204,6 +6313,25 @@ boolean forge_command(
 		if (property >= NUMBER_OF_FORGE_PROPERTIES || (!forge_properties_target() && !forge_properties_spawn()))
 			return FALSE;
 		forge_property_apply(property, (short)(!strcmp(back, "-") ? -1 : 1));
+		return TRUE;
+	}
+	if (!strcmp(word, "environment"))
+	{
+		/* (the sky and fog's option stepped, as SKY AND FOG's row: sky, fog,
+		color, density, start, end; back with -) */
+		char option[16];
+		char back[8];
+		char const *cursor = rest;
+		short row;
+
+		option[0] = back[0] = 0;
+		forge_word(&cursor, option, sizeof(option));
+		forge_word(&cursor, back, sizeof(back));
+		for (row = 0; row < NUMBER_OF_FORGE_ENVIRONMENT_ROWS && strcmp(option, forge_environment_row_words[row]); row++)
+			;
+		if (row >= NUMBER_OF_FORGE_ENVIRONMENT_ROWS)
+			return FALSE;
+		forge_environment_step(row, (short)(!strcmp(back, "-") ? -1 : 1));
 		return TRUE;
 	}
 	if (!strcmp(word, "distance"))
@@ -5257,5 +6385,11 @@ with this file's) */
 #include "forge_netgame.inc"
 #include "forge_physics.inc"
 #include "forge_precision.inc"
+#include "forge_ai.inc"
+#include "forge_flyable.inc"
+#include "forge_ai_move.inc"
+#include "forge_volumes.inc"
+#include "forge_environment.inc"
+#include "forge_effects.inc"
 #include "forge_menu_link.inc"
 #include "forge_map_objects.inc"

@@ -46,7 +46,7 @@ listed; the game's own library's (what its Workshop got) always are, with
 WORKSHOP_OWN_ITEMS_ALWAYS_LISTED (workshop_decisions.h) */
 static int steam_folders_enabled(void)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	return 0;
 #else
 	return config_boolean("game.workshop_maps");
@@ -56,7 +56,7 @@ static int steam_folders_enabled(void)
 /* (1: Steam's folders too; 2: the game's own library alone; 0: none) */
 static int discovery_enabled(void)
 {
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 	return 0;
 #else
 	return steam_folders_enabled() ? 1 : WORKSHOP_OWN_ITEMS_ALWAYS_LISTED ? 2 : 0;
@@ -1016,6 +1016,28 @@ int steam_workshop_resource_path(const char *request, const char *data_root, cha
 		shared_missing = 1;
 	return result;
 }
+
+#ifdef HALO_ARK
+int steam_workshop_mcc_install(int which, char *path, unsigned long size)
+{
+	char (*paths)[STEAM_WORKSHOP_PATH_SIZE];
+	int count, library, seen = 0, result = 0;
+
+	if (which < 0 || !path || !size)
+		return 0;
+	paths = malloc(sizeof(*paths) * 2 * STEAM_WORKSHOP_MAXIMUM_LIBRARIES);
+	if (!paths)
+		return 0;
+	count = libraries(paths, 2 * STEAM_WORKSHOP_MAXIMUM_LIBRARIES);
+	for (library = 0; library < count && !result; library++)
+	{
+		if (mcc_install_folder(paths[library], path, (unsigned)size) && is_directory(path) && seen++ == which)
+			result = 1;
+	}
+	free(paths);
+	return result;
+}
+#endif
 
 int steam_workshop_shared_missing(void)
 {

@@ -7,7 +7,14 @@ which only the join request's handler calls), before the machine is added;
 its refusal the protocol's own bad password code, which every client already
 knows; the host's own machine left out; the password the one the menus set
 for an internet game; and a dedicated server, which has no password, never
-refusing for one."""
+refusing for one. And the invites of a password game (port/linux/src/
+p2p_crypto.c, as p2p.c and p2p_lobby.c use them, in
+port/linux/tests/p2p_join_password_test.c): the host's link never holds the
+token it listens with, only the password opens it, and older versions read
+the link as no invite.
+
+A game with a password run for real, host and client, is
+tools/test_join_password_pair.py (it needs a built game and maps)."""
 import re
 import shutil
 import subprocess
@@ -131,3 +138,32 @@ def test_dedicated_server_sets_no_password():
     before"""
     for path in (ROOT / "server").rglob("*.c"):
         assert "p2p_set_hosting_password" not in path.read_text(encoding="utf-8", errors="replace"), path
+
+
+def test_p2p_join_password(tmp_path):
+    """the invites' C tests, warnings as errors. The unit needs no SDL or
+    game: the platform headers are left out, and the two functions it calls
+    from them are declared ahead."""
+    cc = compiler()
+    if not cc:
+        pytest.skip("no C compiler")
+    prelude = tmp_path / "prelude.h"
+    prelude.write_text("void posix_random_bytes(void *buffer, unsigned long size);\n"
+                       "void platform_log(const char *format, ...);\n")
+    binary = tmp_path / "p2p_join_password_test"
+    monocypher = ROOT / "port" / "third_party" / "monocypher"
+    build = subprocess.run(
+        [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
+         "-D__HALO_LINUX_PLATFORM_H", "-D__HALO_LINUX_POSIX_H", "-include", str(prelude),
+         "-I", str(ROOT / "port" / "linux" / "src"), "-I", str(monocypher),
+         str(ROOT / "port" / "linux" / "tests" / "p2p_join_password_test.c"),
+         str(ROOT / "port" / "linux" / "src" / "p2p_crypto.c"),
+         str(ROOT / "port" / "linux" / "game" / "content_sha256.c"),
+         str(monocypher / "monocypher.c"), str(monocypher / "monocypher-ed25519.c"),
+         "-o", str(binary)],
+        capture_output=True, text=True,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS" in result.stdout

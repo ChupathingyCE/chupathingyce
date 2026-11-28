@@ -166,7 +166,8 @@ def ready(tmp_path_factory):
         rewrite(ROOT / "port/linux/include" / name, work / name)
     # (map_families.c's own includes are relative to it: ../src)
     rewrite(ROOT / "port/linux/game/map_families.c", work / "game/map_families.c")
-    rewrite(ROOT / "port/linux/game/map_stock_pairs.h", work / "game/map_stock_pairs.h")
+    for name in ("map_stock_pairs.h", "content_resource_map.h", "content_bytes.h"):
+        rewrite(ROOT / "port/linux/game" / name, work / "game" / name)
     for name in ("map_archive.h", "map_file_hash.h"):
         rewrite(ROOT / "port/linux/src" / name, work / "src" / name)
     binary = work / "ready"

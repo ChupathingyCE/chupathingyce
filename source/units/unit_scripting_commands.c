@@ -65,7 +65,8 @@ void unit_scripting_set_maximum_vitality(
 	/* port: in network co-op, a player's is every player's */
 	if (unit_index != NONE && network_coop_set_players_vitality(unit_index, TRUE, body_vitality, shield_vitality))
 		return;
-	if (unit_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct object_datum const *object;
 		object = object_get(unit_index);
@@ -107,7 +108,8 @@ void unit_scripting_set_current_vitality_of(
 	real body_vitality,
 	real shield_vitality)
 {
-	if (unit_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index))
 	{
 		struct object_datum *object = object_get(unit_index);
 
@@ -269,7 +271,8 @@ boolean unit_scripting_has_weapon(
 {
 	boolean result;
 	result = FALSE;
-	if (unit_index != NONE && weapon_definition_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index) && weapon_definition_index != NONE)
 		result = unit_has_weapon_definition_index(unit_index, weapon_definition_index);
 	return result;
 }
@@ -280,7 +283,8 @@ boolean unit_scripting_has_weapon_readied(
 {
 	boolean result;
 	result = FALSE;
-	if (unit_index != NONE && weapon_definition_index != NONE)
+	/* port: a unit deleted since the script had it is none (#1861) */
+	if (object_try_and_get(unit_index) && weapon_definition_index != NONE)
 	{
 		struct unit_datum const *unit;
 		long weapon_index;

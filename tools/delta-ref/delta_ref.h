@@ -200,6 +200,12 @@ int dref_welcome_read(const uint8_t *payload, int size, struct dref_hello *welco
 int dref_roster_read(const uint8_t *payload, int size, struct dref_roster *roster);
 /* the roster's entry index (below its count): 1 if read */
 int dref_roster_entry(const uint8_t *payload, int size, int index, struct dref_roster_entry *entry);
+/* a host's ROSTER into out (at most out_size bytes): the room's fields and
+count entries (at most 32), each without a profile (revision and player
+ID zero, flag 0x04 left out). The datagram's size, or 0 if it does not fit
+or count is over 32. */
+int dref_roster_write(uint8_t *out, int out_size, uint32_t session, const struct dref_roster *roster,
+	const struct dref_roster_entry *entries, int count);
 
 /* capabilities with the bits a HELLO never carries taken out */
 uint32_t dref_capabilities_clean(uint32_t capabilities);
@@ -275,10 +281,30 @@ enum
 	DREF_FLAG_IN_PROGRESS = 0x02,
 	/* a dedicated server's game (OpenCE 39 on; Delta's own flag before) */
 	DREF_FLAG_DEDICATED = 0x04,
-	/* Delta's tag at the tail: 'D', 'L', major, layout (1), wire number
-	and letter, oldest wire number and letter, check */
+	/* Delta's tag at the tail: 'D', 'L', major, layout, then the layout's
+	four bytes, a reserved byte or wire bytes, and a check (0xA5 xor the
+	eight bytes before) */
 	DREF_TAG_OFFSET = 17,
-	DREF_TAG_SIZE = 9
+	DREF_TAG_SIZE = 9,
+	/* the tag's layouts: 1, a build of Chupathingy's game code (its wire
+	and its oldest compatible wire); 2, a host of another project's code
+	(its project number and that project's own version) */
+	DREF_TAG_LAYOUT_WIRE = 1,
+	DREF_TAG_LAYOUT_PROJECT = 2,
+	/* version words from here on are Content Evolved's modded games: all
+	26 bytes are Content Evolved's, and no other meaning is read from them */
+	DREF_MODDED_VERSION = 0xFF00
+};
+
+/* project numbers (docs/delta/registry.md, "Projects"): whose game code a
+host runs. 1 writes layout 1 alone, so a layout 2 tag names 2 or later. Ask
+for one before your host writes a tag; never pick a free one yourself. */
+enum
+{
+	DREF_PROJECT_NONE = 0,
+	DREF_PROJECT_CHUPATHINGY = 1,
+	DREF_PROJECT_CONTENT_EVOLVED = 2,
+	DREF_PROJECT_GULCHCE = 3
 };
 
 /* a wire ID, "chupa-44b": number 44, letter 'b' */
@@ -298,19 +324,38 @@ struct dref_advert
 	/* the host speaks Delta Peer: say HELLO (by its tag, or by the old
 	layout of hosts before chupa-39a) */
 	int speaks_delta;
-	/* the tag, if valid: the host's major and wires */
+	/* a layout 1 tag, if valid: the host's major and wires */
 	int has_tag;
 	unsigned major;
 	struct dref_wire wire;
 	struct dref_wire oldest;
+	/* a layout 2 tag, if valid: the host's project (2 or later; 0 for
+	none) and that project's own version, and its major in major. Such a
+	host is joined by its network version alone: say HELLO, but never
+	read a wire into it */
+	unsigned project;
+	unsigned project_version;
+	/* a Content Evolved modded game (a version word of DREF_MODDED_VERSION
+	or more): flags and kind are 0, and nothing else is read */
+	int modded;
 };
 
 /* the reserved bytes (size of them, at least DREF_RESERVED_SIZE): 1 if
-read (the size was enough) */
+read (the size was enough). A tag of a layout this client doesn't know is
+no tag: the host is joined by its number, without HELLO. */
 int dref_advert_read(const uint8_t *reserved, int size, struct dref_advert *advert);
-/* a host's reserved bytes: OpenCE's version, flags and kind, the rest zero
-(a port has no Delta tag of its own: docs/delta/ports.md) */
+/* a host's reserved bytes without Delta: OpenCE's version, flags and kind,
+the rest zero (docs/delta/ports.md, "If you host games from your port") */
 void dref_advert_write(uint8_t *reserved, unsigned version, unsigned flags, unsigned kind);
+/* ... and a port host's with Delta: the same, and a layout 2 tag at the
+tail naming its project (from the registry, 2 or later) and that
+project's own version (0 to 65535). Write it only while the host answers
+HELLO on its Delta socket. 1 if written; 0, and the bytes as
+dref_advert_write leaves them, for a project under 2 or over 255, or a
+version word of DREF_MODDED_VERSION or more (those bytes are Content
+Evolved's own). */
+int dref_advert_write_project(uint8_t *reserved, unsigned version, unsigned flags, unsigned kind, unsigned project,
+	unsigned project_version);
 
 /* The join mark: a client that will say HELLO marks its join request in its
 machine name (count 16-bit characters, the game's own array), past the

@@ -42,6 +42,33 @@ enum
 	_weapon_enables_unit_integrated_night_vision_bit,
 	_weapon_non_players_use_melee_damage_bit,
 	NUMBER_OF_WEAPON_DEFINITION_FLAGS,
+
+	/* port: (Halo 2's weapons, port/linux/game/h2_weapons.c) its
+	first-person model has its own arms, which its first-person animations
+	move: the globals' hands are not drawn with it */
+	_weapon_first_person_model_has_hands_bit = 30,
+	/* port: (Halo 2's sword) its melee lunges at an enemy in range
+	(port_lunge_range, port_lunge_angle) and its primary trigger melees
+	(units/bipeds.c) */
+	_weapon_melee_lunges_bit = 29,
+	/* port: (Halo 2's SMG, magnum, plasma rifle, plasma pistol, needler) it
+	can be held in the left hand beside another (units/dual_wield.c); its
+	first-person graph's second set of first-person animations its
+	dual-wielded ones */
+	_weapon_can_be_dual_wielded_bit = 28,
+	/* port: (Halo 2's weapons, h2_weapons.c) its melee is Halo 2's
+	(units/units.c, units/bipeds.c): its strike reaches over its
+	port_melee_pyramid, its damage scaled by the striker's speed as Halo 2's,
+	its lunge (_weapon_melee_lunges_bit) does port_lunge_damage, and its
+	strike's length is its first-person animation's */
+	_weapon_h2_melee_bit = 27,
+};
+
+enum
+{
+	/* port: a trigger's burst (its port_burst_tag when it has one) */
+	WEAPON_TRIGGER_BURST_TAG = 'brst',
+	MAXIMUM_WEAPON_TRIGGER_BURST_SHOTS = 15,
 };
 
 enum weapon_trigger_definition_flags
@@ -154,7 +181,22 @@ struct weapon_trigger_definition
 	real heat_unused[1];
 	real overloading_time;
 	long overloading_unused[2];
-	long unused[8];
+	/* port: (Halo 2's weapons, port/linux/game/h2_weapons.c) a burst, when
+	port_burst_tag is WEAPON_TRIGGER_BURST_TAG: a pull fires burst_shots
+	shots at the trigger's rate of fire, then the trigger recovers for
+	burst_recovery_time seconds (items/weapons.c) - in what were unused
+	words */
+	unsigned long port_burst_tag;
+	short burst_shots;
+	word burst_pad;
+	real burst_recovery_time;
+	/* port: (Halo 2's weapons) its tracking, when port_tracking_tag is
+	'h2tr' (port/linux/game/h2_projectiles.h: the rocket's lock-on, the
+	plasma pistol's biped tracking) - in what were unused words */
+	unsigned long port_tracking_tag;
+	short port_tracking_type;
+	word port_tracking_pad;
+	long unused[3];
 	real runtime_illumination_recovery_time;
 	real runtime_ejection_port_recovery_time;
 	real runtime_rate_of_fire_acceleration_time;
@@ -179,12 +221,22 @@ struct _weapon_definition
 	real overheated_explosion_fraction;
 	real heat_loss_per_second;
 	real heat_illumination;
-	real heat_unused[4];
+	/* port: (_weapon_h2_melee_bit) Halo 2's damage pyramid: its width and
+	height (radians, about the aim) and its depth (world units) - and its
+	lunge's damage (a jpt! tag index, NONE: its melee's) - in what were
+	unused words */
+	real port_melee_pyramid[3];
+	long port_lunge_damage;
 	struct tag_reference overheated_effect;
 	struct tag_reference detonation_effect;
 	struct tag_reference melee_attack_damage;
 	struct tag_reference melee_attack_response;
-	unsigned long unused_sabine_women[2];
+	/* port: (Halo 2's weapons, h2_weapons.c) the first-person model and
+	animation graph an Elite holds it with (Halo 2's dervish set; tag
+	indices, 0 or NONE: none - first_person_weapons.c) - in what were unused
+	words */
+	long port_elite_first_person_model;
+	long port_elite_first_person_animations;
 	struct tag_reference ai_firing_parameters;
 	real near_reticle_range;
 	real far_reticle_range;
@@ -201,7 +253,11 @@ struct _weapon_definition
 	real properties_unused;
 	real ai_minimum_target_range;
 	real ai_idle_look_time_modifier;
-	real ai_unused;
+	/* port: (a melee weapon's) the
+	explosion its strike makes where it lands - a jpt! tag index, its
+	area damage and acceleration done from the strike's point (units/units.c);
+	0 or NONE: none - in what was an unused word */
+	long port_melee_area_damage;
 	real integrated_light_poweron_time;
 	real integrated_light_poweroff_time;
 	struct tag_reference integrated_light_on_effect;
@@ -210,7 +266,10 @@ struct _weapon_definition
 	real age_rate_of_fire_penalty;
 	real age_misfire_start;
 	real age_misfire_chance;
-	real age_unused[3];
+	/* port: (Halo 2's weapons, h2_weapons.c) the first-person weapon's place
+	off the view - forward, left, up (Halo 2's "first person weapon offset",
+	first_person_weapons.c) - in what were unused words */
+	real port_first_person_offset[3];
 	struct weapon_interface_definition interface_definition;
 	struct tag_reference pickup_sound;
 	struct tag_reference zoom_in_sound;
@@ -218,7 +277,14 @@ struct _weapon_definition
 	struct tag_block unused_block;
 	real active_camo_ding;
 	real active_camo_regrowth_rate;
-	long unused4[3];
+	/* port: (_weapon_melee_lunges_bit) how far an enemy a melee lunges at
+	may be, and how far off the aim (radians) - in what were unused words */
+	real port_lunge_range;
+	real port_lunge_angle;
+	/* port: (_weapon_h2_melee_bit) its lunge's self damage (a jpt! tag
+	index, NONE none: Halo 2's weap 0x1F4, the melee's melee_attack_response
+	its strikes') - in what was an unused word */
+	long port_lunge_response;
 	short unused5;
 	short weapon_type;
 	struct tag_block predicted_resources;

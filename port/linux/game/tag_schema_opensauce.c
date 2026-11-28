@@ -28,6 +28,8 @@ groups are checked as their tags load and not used yet.
 #include "tag_schema.h"
 #include "cache/predicted_resources.h"
 #include "opensauce.h"
+#include "opensauce_postprocess_tags.h"
+#include "opensauce_transform_tags.h"
 
 #include <string.h>
 
@@ -182,307 +184,6 @@ struct opensauce_project_yellow_globals
 	byte pad4[80];
 };
 
-/* ---------- structures: actor variant transforms (avtc, avti, avto) */
-
-struct opensauce_transform_keyframe_action
-{
-	short keyframe;
-	short rider_handling;
-	short target;
-	word pad;
-	struct tag_reference damage_effect;
-	struct tag_reference effect;
-	char effect_marker[32];
-};
-
-struct opensauce_transform_in_target
-{
-	char target_name[32];
-	word flags;
-	word pad;
-	real selection_chance[4];
-	struct tag_reference actor_variant;
-	short encounter_squad_handling;
-	word pad2;
-	short team_handling;
-	short team_override;
-	short initial_state_handling;
-	short initial_state_override;
-	short return_state_handling;
-	short return_state_override;
-	word pad3[2];
-	char transform_in_animation[32];
-	struct tag_block keyframe_actions;
-	unsigned long pad4;
-	short vitality_inheritance;
-	short vitality_override;
-	real shield_override;
-	real health_override;
-	byte pad5[24];
-};
-
-struct opensauce_transform_in
-{
-	struct tag_block targets;
-	byte pad[24];
-};
-
-struct opensauce_transform_out_instigator
-{
-	struct tag_reference unit;
-	short damage_type;
-	word pad;
-	byte pad2[12];
-};
-
-struct opensauce_transform_out_attachment
-{
-	struct tag_reference object_type;
-	char object_marker[32];
-	char destination_marker[32];
-	short destination_marker_count;
-	word pad;
-	short team_handling;
-	short team_override;
-	real attachment_scale[2];
-	byte pad2[24];
-};
-
-struct opensauce_transform_out
-{
-	word flags;
-	word pad;
-	word criteria_flags;
-	word pad2;
-	word actor_action;
-	word actor_state;
-	real shield_range[2];
-	real health_range[2];
-	byte pad3[24];
-	struct tag_block instigators;
-	char transform_out_animation[32];
-	struct tag_block keyframe_actions;
-	word attachment_flags;
-	word pad4;
-	struct tag_block attachments;
-	byte pad5[24];
-};
-
-struct opensauce_transform_collection_transform
-{
-	word flags;
-	word pad;
-	char transform_name[32];
-	real selection_chance[4];
-	struct tag_reference transform_out;
-	/* (runtime: OpenSauce's pointer to the tag's definition) */
-	unsigned long transform_out_definition;
-	struct tag_reference transform_in;
-	unsigned long transform_in_definition;
-	byte pad2[24];
-};
-
-struct opensauce_transform_collection_entry
-{
-	struct tag_reference actor_variant;
-	struct tag_block transforms;
-	byte pad[24];
-};
-
-struct opensauce_transform_collection
-{
-	struct tag_block actor_variant_transforms;
-	byte pad[24];
-};
-
-/* ---------- structures: post-processing (shpg, efpg, efpc, sppg) */
-
-struct opensauce_postprocess_pass
-{
-	char name[32];
-	word flags;
-	short render_chain;
-	byte pad[12];
-};
-
-struct opensauce_postprocess_technique
-{
-	char name[32];
-	word shader_model;
-	word pad;
-	byte pad2[16];
-	struct tag_block passes;
-};
-
-/* a value's fields (s_shader_postprocess_value_base) */
-#define OPENSAUCE_POSTPROCESS_VALUE_FIELDS \
-	char value_name[32]; \
-	short value_type; \
-	short value_count; \
-	/* (runtime: the effect's handle of it) */ \
-	unsigned long value_handle; \
-	byte value[32]; \
-	short runtime_value; \
-	word runtime_flags; \
-	short animation_function; \
-	byte animation_flags; \
-	byte pad_value; \
-	real animation_duration; \
-	real animation_rate;
-
-struct opensauce_postprocess_value
-{
-	OPENSAUCE_POSTPROCESS_VALUE_FIELDS
-};
-
-struct opensauce_postprocess_bitmap
-{
-	OPENSAUCE_POSTPROCESS_VALUE_FIELDS
-	byte pad[12];
-	struct tag_reference bitmap;
-};
-
-struct opensauce_postprocess_parameter
-{
-	OPENSAUCE_POSTPROCESS_VALUE_FIELDS
-	struct tag_reference bitmap;
-	/* (runtime: the bitmap's data, or an external texture) */
-	unsigned long runtime[2];
-	word flags;
-	word pad;
-};
-
-struct opensauce_shader_postprocess_generic
-{
-	word pad;
-	word flags;
-	byte pad2[20];
-	struct tag_data shader_code_binary;
-	/* (runtime: the effect's handles of its standard variables) */
-	unsigned long handles[11];
-	byte pad3[20];
-	struct tag_block techniques;
-	struct tag_block predicted_resources;
-	/* (runtime: the effect, its handle and its technique) */
-	word runtime_flags;
-	word pad4;
-	unsigned long runtime_effect;
-	unsigned long runtime_handle;
-	unsigned long runtime_technique;
-	byte pad5[16];
-	/* (shader_postprocess_generic's own) */
-	word pad6[2];
-	struct tag_reference base_shader;
-	struct tag_block parameters;
-	struct tag_block bitmaps;
-	struct tag_block bools;
-	struct tag_block integers;
-	struct tag_block floats;
-	struct tag_block float2s;
-	struct tag_block float3s;
-	struct tag_block float4s;
-	struct tag_block colors;
-	byte pad7[36];
-};
-
-struct opensauce_postprocess_shader_reference
-{
-	struct tag_reference shader;
-};
-
-struct opensauce_postprocess_shader_index
-{
-	long shader;
-};
-
-struct opensauce_postprocess_exposed_parameter
-{
-	char exposed_name[32];
-	char parameter_name[32];
-	long shader_index;
-	byte runtime[12];
-};
-
-struct opensauce_effect_postprocess_generic
-{
-	/* (effect_postprocess's) */
-	byte pad[12];
-	short tessellation[2];
-	real x_bounds[2];
-	real y_bounds[2];
-	byte pad2[12];
-	word runtime_flags;
-	word pad3;
-	byte pad4[12];
-	/* (effect_postprocess_generic's own) */
-	struct tag_block shaders;
-	struct tag_block shader_indices;
-	struct tag_block exposed_parameters;
-};
-
-struct opensauce_postprocess_script_variable
-{
-	char script_variable_name[32];
-	char exposed_parameter_name[32];
-	byte runtime[16];
-};
-
-struct opensauce_postprocess_collection_effect
-{
-	struct tag_reference effect;
-	char name[32];
-	struct tag_block script_variables;
-	byte pad[12];
-};
-
-struct opensauce_postprocess_activation_control
-{
-	short state;
-	word flags;
-};
-
-struct opensauce_postprocess_effect_instance
-{
-	char name[32];
-	short effect_index;
-	short render_stage;
-	short tessellation[2];
-	real x_bounds[2];
-	real y_bounds[2];
-	byte pad[12];
-	short activation_operation;
-	byte pad2[6];
-	struct tag_block activation_controls;
-	byte pad3[12];
-	byte pad4[16];
-};
-
-struct opensauce_effect_postprocess_collection
-{
-	byte pad[12];
-	struct tag_block shaders;
-	struct tag_block effects;
-	struct tag_block effect_instances;
-};
-
-struct opensauce_postprocess_bloom
-{
-	word flags;
-	word pad;
-	real size;
-	real exposure;
-	real mix_amount;
-	real minimum_color[3];
-	real maximum_color[3];
-};
-
-struct opensauce_shader_postprocess_globals
-{
-	word pad[2];
-	struct tag_block bloom_globals;
-	byte pad2[228];
-};
-
 /* (OpenSauce's sizes: its structures' asserts and its tag definitions) */
 typedef char verify_opensauce_build_info_size[sizeof(struct opensauce_build_info) == 0x30 ? 1 : -1];
 typedef char verify_opensauce_scripted_widget_size[sizeof(struct opensauce_scripted_widget) == 0x4C ? 1 : -1];
@@ -493,31 +194,6 @@ typedef char verify_opensauce_project_yellow_size[sizeof(struct opensauce_projec
 typedef char verify_opensauce_player_unit_size[sizeof(struct opensauce_player_unit) == 0x50 ? 1 : -1];
 typedef char verify_opensauce_project_yellow_globals_size[
 	sizeof(struct opensauce_project_yellow_globals) == 0x120 ? 1 : -1];
-typedef char verify_opensauce_keyframe_action_size[sizeof(struct opensauce_transform_keyframe_action) == 0x48 ? 1 : -1];
-typedef char verify_opensauce_transform_in_target_size[sizeof(struct opensauce_transform_in_target) == 0xAC ? 1 : -1];
-typedef char verify_opensauce_transform_in_size[sizeof(struct opensauce_transform_in) == 0x24 ? 1 : -1];
-typedef char verify_opensauce_instigator_size[sizeof(struct opensauce_transform_out_instigator) == 0x20 ? 1 : -1];
-typedef char verify_opensauce_attachment_size[sizeof(struct opensauce_transform_out_attachment) == 0x78 ? 1 : -1];
-typedef char verify_opensauce_transform_out_size[sizeof(struct opensauce_transform_out) == 0x94 ? 1 : -1];
-typedef char verify_opensauce_collection_transform_size[
-	sizeof(struct opensauce_transform_collection_transform) == 0x74 ? 1 : -1];
-typedef char verify_opensauce_collection_entry_size[sizeof(struct opensauce_transform_collection_entry) == 0x34 ? 1 : -1];
-typedef char verify_opensauce_collection_size[sizeof(struct opensauce_transform_collection) == 0x24 ? 1 : -1];
-typedef char verify_opensauce_pass_size[sizeof(struct opensauce_postprocess_pass) == 0x30 ? 1 : -1];
-typedef char verify_opensauce_technique_size[sizeof(struct opensauce_postprocess_technique) == 0x40 ? 1 : -1];
-typedef char verify_opensauce_value_size[sizeof(struct opensauce_postprocess_value) == 0x58 ? 1 : -1];
-typedef char verify_opensauce_bitmap_size[sizeof(struct opensauce_postprocess_bitmap) == 0x74 ? 1 : -1];
-typedef char verify_opensauce_parameter_size[sizeof(struct opensauce_postprocess_parameter) == 0x74 ? 1 : -1];
-typedef char verify_opensauce_shpg_size[sizeof(struct opensauce_shader_postprocess_generic) == 0x148 ? 1 : -1];
-typedef char verify_opensauce_exposed_size[sizeof(struct opensauce_postprocess_exposed_parameter) == 0x50 ? 1 : -1];
-typedef char verify_opensauce_efpg_size[sizeof(struct opensauce_effect_postprocess_generic) == 0x60 ? 1 : -1];
-typedef char verify_opensauce_script_variable_size[sizeof(struct opensauce_postprocess_script_variable) == 0x50 ? 1 : -1];
-typedef char verify_opensauce_collection_effect_size[
-	sizeof(struct opensauce_postprocess_collection_effect) == 0x48 ? 1 : -1];
-typedef char verify_opensauce_effect_instance_size[sizeof(struct opensauce_postprocess_effect_instance) == 0x74 ? 1 : -1];
-typedef char verify_opensauce_efpc_size[sizeof(struct opensauce_effect_postprocess_collection) == 0x30 ? 1 : -1];
-typedef char verify_opensauce_bloom_size[sizeof(struct opensauce_postprocess_bloom) == 0x28 ? 1 : -1];
-typedef char verify_opensauce_sppg_size[sizeof(struct opensauce_shader_postprocess_globals) == 0xF4 ? 1 : -1];
 
 /* ---------- definitions: project_yellow and its globals */
 
@@ -1056,8 +732,11 @@ static char const *const tag_schema_opensauce_placements[][2] =
 
 /* OpenSauce's maps' maxima where they are not Halo PC's: the scenario's
 scripts' syntax is for 28501 nodes (scenario_check_scripts checks it as such
-in this layout), and its object placements are as many as there are; any
-other field keeps the one the checks take (maximum) */
+in this layout), its object placements are as many as there are, and its
+grenade types are four (the globals' grenades, a unit's and an equipment's
+grenade type: OpenSauce's grenade type upgrade, game_globals_definitions
+and units_grenade_count_upgrade); any other field keeps the one the checks
+take (maximum) */
 static long tag_schema_opensauce_field_maximum(
 	struct tag_schema_field const *field,
 	long maximum)
@@ -1066,6 +745,11 @@ static long tag_schema_opensauce_field_maximum(
 		return maximum;
 	if (field->type == _tag_schema_data && !strcmp(field->name, "hs_syntax_data"))
 		return OPENSAUCE_HS_SYNTAX_DATA_SIZE;
+	if (maximum == 2 && ((field->type == _tag_schema_enum && !strcmp(field->name, "grenade_type")) ||
+		(field->type == _tag_schema_block && !strcmp(field->name, "grenades"))))
+	{
+		return OPENSAUCE_NUMBER_OF_GRENADE_TYPES;
+	}
 	if (field->type == _tag_schema_block && field->definition)
 	{
 		struct tag_schema_definition const *element = field->definition;

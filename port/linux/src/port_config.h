@@ -66,6 +66,21 @@ which are the Xbox's now, the player not yet told */
 int config_menus_retired_pending(void);
 /* the player was told: display.menus written as "xbox" */
 void config_menus_retired_seen(void);
+/* the Mac's one question about Metal (#2028): 0.9.1's setup screen offered
+it as METAL, with no testing mark, so players who chose it are still on
+display.renderer = "bgfx". They are asked once whether to go back to
+OpenGL; display.metal_asked keeps the answer, so it is never asked again */
+#if defined(HALO_BGFX) && defined(__APPLE__) && !defined(HALO_IOS) && !defined(HALO_ANDROID) && \
+	!defined(HALO_METAL_ASK)
+#define HALO_METAL_ASK
+#endif
+#ifdef HALO_METAL_ASK
+/* whether to ask: display.renderer is "bgfx" and display.metal_asked unset */
+int config_metal_ask_pending(void);
+/* the answer: 1 writes display.renderer = "gl"; either way
+display.metal_asked is written */
+void config_metal_ask_answer(int use_opengl);
+#endif
 /* how many times config_write has changed a setting: what keeps one reads
 it again when this moves */
 unsigned long config_changes(void);

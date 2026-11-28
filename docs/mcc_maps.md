@@ -307,24 +307,6 @@ files are the item makers' text: one that is too large (256 KB), too deep, not
 an object, or that names a path leaving its item, refuses that item or map and
 nothing else.
 
-### Workshop collections
-
-Several Workshop items belong to a collection that their makers published as a
-set (a competitive pack, a social pack, a 2v2 set). `workshop_collections.c`
-holds a fixed, curated set of Halo CE collections as data: a name and the ids of
-its items. It does not query current Steam collection membership. Enable
-`game.mcc_collections` (`HALO_MCC_COLLECTIONS=1`, default off) and reopen the
-map list to use these groups. Imported packages can identify their collection
-through `workshop_id.txt`, without Steam. At the
-top of the MCC map menus a collection the player has an item of is a folder
-(`[PRO EDITION]`), before the package folders; it holds the maps of the
-player's items that are in it, by their Workshop titles. An item that is in two
-collections is in both folders; an item in none keeps the package folder of its
-own, named by its title. A collection with no subscribed item has no folder.
-Only the menu changes: levels are still `mcc_maps\<item id>\<map name>`, so
-a host's map and a joiner's messages do not depend on collections. A collection
-the table does not know is shown as its items' own folders.
-
 The two MCC categories show package folders first (alphabetically, in brackets),
 then loose maps. Open a folder to choose one of its levels; the rows omit the
 repeated package suffix, while the selected map's details retain its identity.
@@ -359,8 +341,7 @@ Without campaign metadata enabled, each selected MCC campaign map remains an
 independent scenario. Enable **CAMPAIGN MISSIONS** under Settings > Network
 Setup > Map Sharing > MCC Packages (`game.mcc_campaigns`, default false) to
 use Workshop campaigns' authored mission order and progression. Their missions
-are listed either way. The same screen exposes desktop Steam discovery and
-optional collection folders.
+are listed either way. The same screen exposes desktop Steam discovery.
 
 `ModInfo.json` must identify `Halo1` and `GameModContents.HasCampaign = true`.
 `CampaignInfo.json` supplies an explicit `CampaignMaps` list; each referenced
@@ -551,7 +532,10 @@ so a later native editor cannot be closed by stale MCC state.
 Campaign layouts display the scenario's current mission objectives through
 the native objective-text callback. Owned objective and confirmation text
 boxes wrap their instance copies using the current font's metrics and clip
-to their bounds. The map's objective data, custom HUD
+to their bounds. So does the objective's text box of an MCC map's own
+campaign pause screen (the one the Xbox and Chupathingy menus show), as MCC
+wraps it: a campaign's objective written as one long line ends on the next
+line instead of past the box's edge. The map's objective data, custom HUD
 and embedded widgets remain present. Scripts that explicitly open embedded
 widgets can still use the MCC callback adapter described below. The new
 pause labels and confirmation text are currently English; localization of
@@ -606,7 +590,7 @@ are not an MCC implementation dependency. The independent components are:
 | `port/linux/game/mcc_maps.c` | Catalog, display identities, names and descriptions. |
 | `port/linux/game/mcc_cache_format.c` | Portable little-endian version-13 reader and file-range audit. |
 | `port/linux/game/mcc_cache.c` | MCC path admission, read-only file lifetime, conversion and streaming dispatch. |
-| `port/linux/game/mcc_identity.c`, `mcc_sha256.c` and `mcc_precache.c` | SHA-256 session content checks, local package resolution and metadata-based readiness caching. |
+| `port/linux/game/mcc_identity.c`, `content_sha256.c` and `mcc_precache.c` | SHA-256 session content checks, local package resolution and metadata-based readiness caching. |
 | `port/linux/game/mcc_main.c` | MCC load-failure recovery through the native main-menu lifecycle. |
 | `port/linux/game/mcc_ui.c` and `mcc_ui_network.inl` | MCC in-map widget actions, settings routing, checkpoint/quit behavior and synchronized network restarts. |
 | `port/linux/game/mcc_pause.c` and `mcc_pause_runtime.c` | Generated stock-style pause layouts, objective display, independent UI art and atomic publication/lifetime of the appended tags. |
@@ -615,7 +599,7 @@ are not an MCC implementation dependency. The independent components are:
 | `port/linux/game/mcc_geometry.c` | New model descriptors, model vertex/index conversion, external BSP vertex streams and node palettes. |
 | `port/linux/game/mcc_audio.c` | MCC sound decoding, resampling and Xbox ADPCM encoding into an MCC virtual stream. |
 | `port/linux/game/mcc_resources.c` | MCC-only resource selection, dependency fingerprints, indexed reads and file lifetime. |
-| `port/linux/game/mcc_vorbis.c` | Private namespaced Vorbis decoder, bounded Ogg validation and empty residue vector compatibility. |
+| `port/linux/game/content_vorbis.c` (`mcc_vorbis_decode`) | MCC's Vorbis decoder over the game's one stb_vorbis: bounded Ogg validation and empty residue vector compatibility. |
 | `port/linux/game/mcc_bitmaps.c` | MCC pixel layout, BC7 decoding and shader/HUD channel normalization into an MCC virtual stream. |
 | `port/linux/game/mcc_texture_cache.c` and `port/linux/src/mcc_texture_bridge.c` | Direct bindings of checked MCC pixel allocations and lazy GPU textures, independent of the Xbox/CE staging cache. |
 | `port/linux/game/mcc_tags.c` | MCC metadata, shader-type, HUD placement and widget normalization. |
@@ -824,8 +808,12 @@ them, are copied from the map's own pixels into the texture. The health,
 shield and ammo meters use the Xbox maps' high-res meters, laid out as MCC's
 meter sheets (`tools/hud_assets.py mcc-meters`), with their exact segment
 thresholds and coverage. A meter sheet is replaced whole or not at all, so a
-meter never mixes MCC's pieces with ours. Turning High-Res HUD off restores
-MCC's sheets at once.
+meter never mixes MCC's pieces with ours. The unit HUD's sheets (its panels'
+backgrounds and their meters, `hud_unit_backgrounds` and `hud_unit_meters`)
+are replaced together: a map with one of them its own, as a campaign mod's
+`bitmaps.map` can have, keeps them all its own, so a vehicle's health panel
+never puts MCC's wrench beside ours. Turning High-Res HUD off restores MCC's
+sheets at once.
 
 Visual checks must cover real stock/custom MCC HUDs at native resolution; synthetic
 tests alone cannot establish that every authored layout matches MCC.

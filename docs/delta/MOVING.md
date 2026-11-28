@@ -11,8 +11,8 @@ other (`docs/delta/` and `tools/delta-ref/`):
 
 | Folder | Files |
 | --- | --- |
-| `docs/delta/` | `README.md`, `peer.md`, `versioning.md`, `registry.md`, `registry.json`, `list.md`, `stats.md`, `control.md`, `link.md`, `clients.md`, `security.md`, `ports.md`, this note |
-| `tools/delta-ref/` | `delta_ref.h`, `delta_ref.c`, `delta_ref_test.c`, `golden.h`, `Makefile`, `conformance.py`, `loopback_host.sh`, `README.md` |
+| `docs/delta/` | `README.md`, `peer.md`, `versioning.md`, `registry.md`, `registry.json`, `layouts.json`, `list.md`, `stats.md`, `control.md`, `link.md`, `clients.md`, `security.md`, `ports.md`, this note |
+| `tools/delta-ref/` | `delta_ref.h`, `delta_ref.c`, `delta_ref_test.c`, `golden.h`, `delta_layout.h`, `delta_layout.c`, `delta_layout_test.c`, `fuzz_layout.c`, `Makefile`, `conformance.py`, `loopback_host.sh`, `README.md` |
 
 The two folders link to each other with relative paths
 (`../../tools/delta-ref/...` from the spec, `../../docs/delta/...` from the
@@ -31,7 +31,7 @@ Chupathingy dedicated server program, which it is given by path.
 | `docs/delta.md`, `docs/delta-compatibility.md` | short pages that send old links to the spec |
 | `docs/online.md` | the players' page on playing online |
 | `tools/delta_ref_capture/` | makes `golden.h` from the game's own `delta_wire.c`, `delta_compat.c` and `browser.c`, checks `peer.md`'s hex examples against it, and runs the reference client against the game's real host |
-| `tools/test_delta_ref.py`, `tools/test_delta_registry.py`, `tools/test_delta_docs.py` | the game's checks of the kit, of `registry.json` against `delta.h`, and of these pages' links |
+| `tools/test_delta_ref.py`, `tools/test_delta_registry.py`, `tools/test_delta_docs.py`, `tools/test_delta_layouts.py` | the game's checks of the kit, of `registry.json` against `delta.h`, of these pages' links, and of `layouts.json` and the kit's layout converter against `network_rules.c` |
 
 Wherever the spec lives, the game keeps checking `golden.h` and
 `registry.json` against its own code, so a change to the game's wire shows

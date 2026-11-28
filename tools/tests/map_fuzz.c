@@ -28,8 +28,20 @@ compiled with the macOS build's flags, as the game's own units are):
                     that part is changed between the checks and the load
                     (a byte in its middle; the last byte of each resource
                     map), and the load must refuse it.
+                    With MAP_FUZZ_CE_RESOURCE (bitmaps, sounds, loc,
+                    pc_bitmaps or pc_sounds), the input is that resource map
+                    instead, and the map is the one MAP_FUZZ_CE_MAP names:
+                    ce_resources.c's reader of resource maps fuzzed through
+                    the same checks and load.
   MAP_FUZZ_VORBIS   an Ogg Vorbis stream through ce_vorbis_decode (stb_vorbis),
+                    and mcc_vorbis_decode where the build has MCC maps,
                     as a Custom Edition sound's permutation is decoded.
+  MAP_FUZZ_FORGE_AI a campaign map as Forge's AI characters read one into a
+                    multiplayer map (port/linux/game/forge_ai_tags.c): the
+                    player's own file, so anything; its header, its tags
+                    expanded and moved, the tag validator, the characters'
+                    tags reached, copied and numbered, their pixels and
+                    samples written to the data file and read back.
 
 An input is the map file itself (uncompressed: an Xbox map's tags inflated as
 cache_files.c inflates them), or, with MAP_FUZZ_BASE naming a map file, a list
@@ -80,8 +92,8 @@ the game's heap, debug_malloc below) */
 #undef free
 #undef realloc
 
-#if !defined(MAP_FUZZ_XBOX) && !defined(MAP_FUZZ_CE) && !defined(MAP_FUZZ_VORBIS)
-#error define MAP_FUZZ_XBOX, MAP_FUZZ_CE or MAP_FUZZ_VORBIS
+#if !defined(MAP_FUZZ_XBOX) && !defined(MAP_FUZZ_CE) && !defined(MAP_FUZZ_VORBIS) && !defined(MAP_FUZZ_FORGE_AI)
+#error define MAP_FUZZ_XBOX, MAP_FUZZ_CE, MAP_FUZZ_VORBIS or MAP_FUZZ_FORGE_AI
 #endif
 
 /* ---------- constants */
@@ -174,6 +186,9 @@ struct fuzz_file
 	unsigned long position;
 	boolean writable;
 	unsigned long written;
+	/* (a resource map's: its index in fuzz_resources, plus one, whose data
+	is read as it is now, as a file held open reads what is in it now) */
+	long resource;
 };
 
 /* ---------- prototypes */
@@ -233,6 +248,18 @@ int ce_vorbis_resample_piece(short **samples, int frames, int channels, int rate
 int ce_vorbis_edges(const unsigned char *data, int size, int count, int whole, int *channels, int *sample_rate,
 	short *head, int *head_frames, short *tail, int *tail_frames);
 void ce_vorbis_free(short *samples);
+#ifdef MAP_FUZZ_VORBIS
+#include "halo_port_features.h"
+/* (MCC's decoder, over the same stb_vorbis: content_vorbis.c, where the build
+has MCC maps) */
+int mcc_vorbis_decode(unsigned char const *bytes, uint32_t size, uint32_t frame_limit,
+	short **samples, uint32_t *frames, uint32_t *rate, int *channels);
+void mcc_vorbis_free(short *samples);
+void mcc_loading_pulse(void);
+void mcc_loading_pulse(void)
+{
+}
+#endif
 
 /* ---------- globals */
 
@@ -255,6 +282,11 @@ static struct
 /* (the first three Custom Edition's, MAP_FUZZ_CE_RESOURCES; the others Halo
 PC's own, MAP_FUZZ_PC_RESOURCES) */
 #define FUZZ_RESOURCE_COUNT ((long)(sizeof(fuzz_resources) / sizeof(fuzz_resources[0])))
+/* the resource map that is the input (MAP_FUZZ_CE_RESOURCE: an index in
+fuzz_resources, or -1), and the map read with it (MAP_FUZZ_CE_MAP) */
+static long fuzz_resource_input = -1;
+static unsigned char *fuzz_resource_map;
+static unsigned long fuzz_resource_map_size;
 /* the Xbox's ui.map (MAP_FUZZ_XBOX_UI) */
 static unsigned char *fuzz_xbox_ui;
 static unsigned long fuzz_xbox_ui_size;
@@ -262,6 +294,11 @@ static struct fuzz_file fuzz_map_file;
 /* what is changed between the checks and the load (MAP_FUZZ_CE_CHANGE) */
 static char const *fuzz_ce_change;
 static struct fuzz_file fuzz_open_files[8];
+#ifdef MAP_FUZZ_FORGE_AI
+/* the campaign map's file as the game finds it (MAP_FUZZ_FORGE_AI) */
+static unsigned char *fuzz_forge_map;
+static unsigned long fuzz_forge_map_size;
+#endif
 static boolean fuzz_tags_are_ce;
 /* the game exiting on purpose (system_exit), or asserting */
 static jmp_buf fuzz_exit;
@@ -428,6 +465,14 @@ char const *cache_files_map_directory(void)
 unsigned long system_milliseconds(void)
 {
 	return 0;
+}
+
+/* (sound_manager.c's, for ce_resources.c's decoded sounds: none plays here) */
+boolean sound_definition_playing(long definition_index);
+boolean sound_definition_playing(long definition_index)
+{
+	(void)definition_index;
+	return FALSE;
 }
 
 void system_exit(long code)
@@ -668,6 +713,21 @@ HANDLE CreateFileA(char const *path, DWORD access, DWORD share, LPSECURITY_ATTRI
 			file->writable = TRUE;
 			return file;
 		}
+#ifdef MAP_FUZZ_FORGE_AI
+		/* (the characters' data file, and the campaign map, by any of
+		the factions' missions' names) */
+		if (strstr(path, "forge_ai_"))
+		{
+			file->writable = TRUE;
+			return file;
+		}
+		if (fuzz_forge_map && strlen(path) > 4 && !strcmp(path + strlen(path) - 4, ".map"))
+		{
+			file->data = fuzz_forge_map;
+			file->size = fuzz_forge_map_size;
+			return file;
+		}
+#endif
 		if (!strcmp(path, "ui.map"))
 		{
 			if (!fuzz_xbox_ui)
@@ -685,6 +745,7 @@ HANDLE CreateFileA(char const *path, DWORD access, DWORD share, LPSECURITY_ATTRI
 				{
 					file->data = fuzz_resources[resource].data;
 					file->size = fuzz_resources[resource].size;
+					file->resource = resource + 1;
 					return file;
 				}
 			}
@@ -713,10 +774,22 @@ DWORD GetLastError(void)
 	return 0;
 }
 
+/* a resource map's file as its data is now (MAP_FUZZ_CE_RESOURCE gives each
+input its own) */
+static void fuzz_file_refresh(struct fuzz_file *file)
+{
+	if (file->resource)
+	{
+		file->data = fuzz_resources[file->resource - 1].data;
+		file->size = fuzz_resources[file->resource - 1].size;
+	}
+}
+
 DWORD GetFileSize(HANDLE handle, LPDWORD high)
 {
 	struct fuzz_file *file = handle;
 
+	fuzz_file_refresh(file);
 	if (high)
 		*high = 0;
 	return file->writable ? file->written : file->size;
@@ -737,6 +810,7 @@ BOOL ReadFile(HANDLE handle, LPVOID buffer, DWORD size, LPDWORD read, LPOVERLAPP
 	struct fuzz_file *file = handle;
 	unsigned long available;
 
+	fuzz_file_refresh(file);
 	if (file->writable)
 	{
 		*read = 0;
@@ -1014,6 +1088,29 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 			fuzz_resources[index].data = fuzz_file_read(path, &fuzz_resources[index].size);
 		}
 	}
+#ifdef MAP_FUZZ_CE
+	{
+		char const *resource = getenv("MAP_FUZZ_CE_RESOURCE");
+		char const *map = getenv("MAP_FUZZ_CE_MAP");
+
+		if (resource && *resource)
+		{
+			long index;
+
+			for (index = 0; index < FUZZ_RESOURCE_COUNT; index++)
+			{
+				if (!strcmp(resource, fuzz_resources[index].name))
+					fuzz_resource_input = index;
+			}
+			if (fuzz_resource_input < 0 || !map || !*map ||
+				!(fuzz_resource_map = fuzz_file_read(map, &fuzz_resource_map_size)))
+			{
+				fprintf(stderr, "map_fuzz: MAP_FUZZ_CE_RESOURCE needs a resource map's name and MAP_FUZZ_CE_MAP a map\n");
+				abort();
+			}
+		}
+	}
+#endif
 	return 0;
 }
 
@@ -1497,6 +1594,164 @@ static void fuzz_ce(unsigned char const *data, size_t size)
 }
 #endif
 
+#ifdef MAP_FUZZ_FORGE_AI
+void forge_ai_tags_loaded(char const *scenario_name);
+boolean forge_ai_tags_update(void);
+void forge_ai_tags_map_unloaded(void);
+boolean forge_ai_tags_active(void);
+boolean forge_ai_tags_read(long tag_index, long offset, long size, void *buffer, boolean *read);
+
+/* the multiplayer map's own tag table (cache_files.c's): its scenario
+alone, then the characters' tags forge_ai_tags.c adds after it */
+static struct tag_instance fuzz_forge_own[1];
+static void *fuzz_forge_instances;
+static long fuzz_forge_count;
+unsigned long cache_files_reserved_after_tags;
+
+void platform_log(char const *format, ...)
+{
+	if (fuzz_verbose)
+	{
+		va_list arguments;
+
+		va_start(arguments, format);
+		fprintf(stderr, "map_fuzz: ");
+		vfprintf(stderr, format, arguments);
+		fprintf(stderr, "\n");
+		va_end(arguments);
+	}
+}
+
+boolean forge_ai_tags_wanted(char const *scenario_name)
+{
+	return TRUE;
+}
+
+void *cache_files_tag_instances(long *count)
+{
+	*count = fuzz_forge_count;
+	return fuzz_forge_instances;
+}
+
+void cache_files_set_tag_instances(void *instances, long count)
+{
+	fuzz_forge_instances = instances;
+	fuzz_forge_count = count;
+}
+
+/* (no room past the map's tags: the characters' tags go in the heap) */
+void *cache_files_tag_room(unsigned long *size)
+{
+	*size = 0;
+	return NULL;
+}
+
+/* (the multiplayer map has none of the campaign's tags) */
+long tag_loaded(long group_tag, const char *name)
+{
+	return NONE;
+}
+
+char *tag_get_name(long tag_index)
+{
+	return "fuzz";
+}
+
+long tag_get_group_tag(long tag_index)
+{
+	return NONE;
+}
+
+void D3DResource_BlockUntilNotBusy(struct D3DResource *resource)
+{
+}
+
+/* the input is a campaign map's file expanded (its header, then the rest;
+with MAP_FUZZ_BASE, a campaign map inflated and changed), written as the
+game finds one: the header, then the rest as one zlib stream
+of stored blocks, which forge_ai_tags.c inflates */
+static void fuzz_forge_ai(unsigned char const *data, size_t size)
+{
+	enum { STORED_BLOCK = 0xFFFF };
+	size_t body = size - HEADER_SIZE;
+	size_t blocks = body / STORED_BLOCK + 1;
+	size_t at;
+	unsigned long adler = 1, s1 = 1, s2 = 0;
+	unsigned char *file;
+	unsigned char *out;
+
+	/* (forge_ai_tags.c's FORGE_AI_MAXIMUM_FILE) */
+	if (size < HEADER_SIZE || size > 0x20000000)
+		return;
+	file = malloc(HEADER_SIZE + 2 + blocks * 5 + body + 4);
+	if (!file)
+		return;
+	memcpy(file, data, HEADER_SIZE);
+	out = file + HEADER_SIZE;
+	*out++ = 0x78;
+	*out++ = 0x01;
+	for (at = 0; at < body || at == 0; )
+	{
+		size_t length = body - at < STORED_BLOCK ? body - at : STORED_BLOCK;
+		boolean last = at + length >= body;
+
+		*out++ = last ? 1 : 0;
+		*out++ = (unsigned char)(length & 0xFF);
+		*out++ = (unsigned char)(length >> 8);
+		*out++ = (unsigned char)(~length & 0xFF);
+		*out++ = (unsigned char)((~length >> 8) & 0xFF);
+		memcpy(out, data + HEADER_SIZE + at, length);
+		out += length;
+		at += length;
+		if (last)
+			break;
+	}
+	for (at = 0; at < body; at++)
+	{
+		s1 = (s1 + data[HEADER_SIZE + at]) % 65521;
+		s2 = (s2 + s1) % 65521;
+	}
+	adler = (s2 << 16) | s1;
+	*out++ = (unsigned char)(adler >> 24);
+	*out++ = (unsigned char)(adler >> 16);
+	*out++ = (unsigned char)(adler >> 8);
+	*out++ = (unsigned char)adler;
+	fuzz_forge_map = file;
+	fuzz_forge_map_size = (unsigned long)(out - file);
+
+	memset(fuzz_forge_own, 0, sizeof(fuzz_forge_own));
+	fuzz_forge_own[0].group_tag = SCENARIO_GROUP;
+	fuzz_forge_own[0].parent_group_tags[0] = NONE;
+	fuzz_forge_own[0].parent_group_tags[1] = NONE;
+	fuzz_forge_own[0].tag_index = (long)0xE1740000;
+	fuzz_forge_instances = fuzz_forge_own;
+	fuzz_forge_count = 1;
+	forge_ai_tags_loaded("fuzz");
+	forge_ai_tags_update();
+	/* (each tag brought in: its first pixels or samples read back, as the
+	texture and sound caches read them) */
+	if (forge_ai_tags_active())
+	{
+		long index;
+
+		for (index = 1; index < fuzz_forge_count; index++)
+		{
+			unsigned char buffer[256];
+			boolean read = FALSE;
+
+			forge_ai_tags_read(((struct tag_instance *)fuzz_forge_instances)[index].tag_index, 0, sizeof(buffer), buffer,
+				&read);
+		}
+	}
+	forge_ai_tags_map_unloaded();
+	fuzz_forge_instances = NULL;
+	fuzz_forge_count = 0;
+	fuzz_forge_map = NULL;
+	fuzz_forge_map_size = 0;
+	free(file);
+}
+#endif
+
 int LLVMFuzzerTestOneInput(unsigned char const *data, size_t size)
 {
 #ifdef MAP_FUZZ_VORBIS
@@ -1542,8 +1797,48 @@ int LLVMFuzzerTestOneInput(unsigned char const *data, size_t size)
 			}
 		}
 		ce_vorbis_free(samples);
+#if HALO_MCC
+		/* (and through MCC's decoder, its pages checked first) */
+		{
+			short *pcm = NULL;
+			uint32_t mcc_frames = 0, mcc_rate = 0;
+			int mcc_channels = 0;
+
+			if (mcc_vorbis_decode(data, (uint32_t)size, 0x1000000u, &pcm, &mcc_frames, &mcc_rate, &mcc_channels) && pcm)
+			{
+				volatile short sink = pcm[(size_t)mcc_frames * (size_t)mcc_channels - 1];
+
+				(void)sink;
+			}
+			if (pcm)
+				mcc_vorbis_free(pcm);
+		}
+#endif
 	}
 #else
+#ifdef MAP_FUZZ_CE
+	/* (the input a resource map, read with the map named: MAP_FUZZ_CE_RESOURCE;
+	kept until the next input's, as a file the game holds open stays) */
+	if (fuzz_resource_input >= 0)
+	{
+		static unsigned char *resource;
+		unsigned char *map = malloc(fuzz_resource_map_size);
+
+		free(resource);
+		resource = malloc(size ? size : 1);
+		if (resource)
+			memcpy(resource, data, size);
+		fuzz_resources[fuzz_resource_input].data = resource;
+		fuzz_resources[fuzz_resource_input].size = resource ? (unsigned long)size : 0;
+		if (resource && map)
+		{
+			memcpy(map, fuzz_resource_map, fuzz_resource_map_size);
+			fuzz_ce(map, fuzz_resource_map_size);
+		}
+		free(map);
+		return 0;
+	}
+#endif
 	if (fuzz_base)
 		data = fuzz_patch(data, size, &size);
 	{
@@ -1557,8 +1852,10 @@ int LLVMFuzzerTestOneInput(unsigned char const *data, size_t size)
 			memcpy(copy, data, size);
 			map = copy;
 		}
-#ifdef MAP_FUZZ_XBOX
+#if defined(MAP_FUZZ_XBOX)
 		fuzz_xbox(map, size);
+#elif defined(MAP_FUZZ_FORGE_AI)
+		fuzz_forge_ai(map, size);
 #else
 		fuzz_ce(map, size);
 #endif
@@ -1720,18 +2017,43 @@ boolean pc_menu_owns(unsigned long address, long size)
 	return FALSE;
 }
 
-/* (SPV3 mode, spv3_mode.c, not in the harness: always off, so the checks
-see Custom Edition's own limits) */
+#include "opensauce_maps.h"
+/* (SPV3 mode, spv3_mode.c, and OpenSauce's larger tag window,
+opensauce_maps.c, not in the harness: always off, so the checks see Custom
+Edition's own limits) */
 boolean spv3_mode_active(void) { return FALSE; }
-unsigned long spv3_mode_tag_cache_size(unsigned long custom_edition_size) { return custom_edition_size; }
-boolean spv3_mode_accepts_opensauce(char const *map_name, unsigned short flags)
+unsigned long opensauce_maps_tag_cache_size(unsigned long custom_edition_size) { return custom_edition_size; }
+boolean opensauce_maps_accepts_header(char const *map_name, unsigned short flags)
 {
 	(void)map_name;
 	(void)flags;
 	return FALSE;
 }
-void spv3_mode_survey(char const *map_name, void const *cache_header, void const *tags, unsigned long tag_data_size,
-	unsigned long file_size)
+void opensauce_maps_check_started(void) { }
+void opensauce_maps_session_now(struct opensauce_maps_session *session)
+{
+	session->hosting = session->hosting_internet = session->joined = session->host_on_lan = FALSE;
+}
+boolean opensauce_maps_online_allows(char const *map_name, unsigned short flags,
+	struct opensauce_maps_session const *session)
+{
+	(void)map_name;
+	(void)flags;
+	(void)session;
+	return TRUE;
+}
+void opensauce_maps_check_done(void) { }
+void spv3_mode_log(char const *format, ...) { (void)format; }
+
+/* (an OpenSauce map's log, opensauce_survey.c, not in the harness: nothing
+logged) */
+boolean opensauce_survey_wanted(void const *cache_header)
+{
+	(void)cache_header;
+	return FALSE;
+}
+void opensauce_survey_map(char const *map_name, void const *cache_header, void const *tags,
+	unsigned long tag_data_size, unsigned long file_size)
 {
 	(void)map_name;
 	(void)cache_header;
@@ -1739,18 +2061,27 @@ void spv3_mode_survey(char const *map_name, void const *cache_header, void const
 	(void)tag_data_size;
 	(void)file_size;
 }
-void spv3_mode_log(char const *format, ...) { (void)format; }
-void spv3_mode_note_resource_miss(char const *kind, char const *tag_name)
+void opensauce_survey_checked(char const *map_name, char const *refusal)
+{
+	(void)map_name;
+	(void)refusal;
+}
+void opensauce_survey_note_resource_miss(char const *kind, char const *tag_name)
 {
 	(void)kind;
 	(void)tag_name;
 }
 
-/* (tag_validate.c asks whether tag data is Stubbs the Zombie's own:
-stubbs_mode.c, not in the harness) */
+/* (tag_validate.c asks whether tag data is Stubbs the Zombie's own, and
+whether Stubbs mode is on for its layout: stubbs_mode.c, not in the
+harness) */
 boolean stubbs_mode_owns_data(void const *address, long size)
 {
 	(void)address;
 	(void)size;
+	return FALSE;
+}
+boolean stubbs_mode_active(void)
+{
 	return FALSE;
 }

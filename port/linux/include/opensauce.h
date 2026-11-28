@@ -15,6 +15,7 @@ is used for a map without an OpenSauce header.
 #ifndef HALO_CUSTOM_EDITION
 /* (no OpenSauce maps without Custom Edition's: as it is) */
 #define opensauce_map_drawn_camouflage(amount) (amount)
+#define opensauce_map_sound_gain(music) ((void)(music), 1.0f)
 #endif
 
 /* ---------- constants */
@@ -39,6 +40,10 @@ enum
 	OPENSAUCE_MAXIMUM_TAG_COUNT = 7680,
 	OPENSAUCE_MAXIMUM_HS_SYNTAX_NODES = 28501,
 	OPENSAUCE_HS_SYNTAX_DATA_SIZE = 0x38 + OPENSAUCE_MAXIMUM_HS_SYNTAX_NODES * 0x14,
+
+	/* its grenade types (game_globals_definitions.hpp's upgrade): Halo's
+	two and two more */
+	OPENSAUCE_NUMBER_OF_GRENADE_TYPES = 4,
 };
 
 /* ---------- structures */
@@ -100,6 +105,33 @@ the unit keeping its value. Any other map's as it is */
 #ifdef HALO_CUSTOM_EDITION
 float opensauce_map_drawn_camouflage(
 	float amount);
+#endif
+
+/* the ui_widget_definition a map's scripts open by name
+(display_scripted_ui_widget): from its project_yellow's scripted widgets, or
+its project_yellow_globals', as OpenSauce finds it; NONE if neither has one
+of that name with a definition, or the map isn't OpenSauce's */
+long opensauce_map_scripted_widget(
+	char const *name);
+
+/* whether the loaded map is OpenSauce's and its globals list more than
+Halo's two grenade types (OpenSauce allows four): their counts are kept by
+the extra grenade types' layer (mcc_grenades.c) */
+#ifdef HALO_CUSTOM_EDITION
+boolean opensauce_map_four_grenades(
+	void);
+#endif
+
+#ifdef HALO_CUSTOM_EDITION
+/* Halo PC's sound_set_music_gain and sound_set_effects_gain, which an
+OpenSauce map's scripts call: the music's or the other sounds' gain, 0 to 1,
+for this map (sound_manager.c takes it with the player's own volume). 1 on
+any other map, and again at each map */
+void opensauce_map_set_sound_gain(
+	boolean music,
+	float gain);
+float opensauce_map_sound_gain(
+	boolean music);
 #endif
 
 /* the map unloaded: whatever it changed put back */

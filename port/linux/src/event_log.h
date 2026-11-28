@@ -289,7 +289,6 @@ struct event_log_end
 
 /* the most events a game keeps (from the next game) */
 void event_log_set_capacity(int capacity);
-int event_log_capacity(void);
 
 /* a new game (what was kept of the last is forgotten); its ID, 32
 hexadecimal digits, from random bytes (16 of them, given) */

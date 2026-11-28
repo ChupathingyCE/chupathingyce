@@ -10,7 +10,8 @@
     "port/linux/game/network_damage.c",
     "port/linux/game/network_actors.c",
     "port/linux/game/network_coop.c",
-    "port/linux/game/network_rules.c"
+    "port/linux/game/network_rules.c",
+    "port/linux/src/server_names.c"
   ],
   "max_len": 8192
 }

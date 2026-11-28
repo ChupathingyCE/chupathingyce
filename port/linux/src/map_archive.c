@@ -30,6 +30,7 @@ before it is played.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../game/content_bytes.h"
 
 /* ---------- constants */
 
@@ -73,16 +74,6 @@ enum
 };
 
 /* ---------- private code */
-
-static unsigned int read_16(const unsigned char *bytes)
-{
-	return (unsigned int)bytes[0] | (unsigned int)bytes[1] << 8;
-}
-
-static unsigned int read_32(const unsigned char *bytes)
-{
-	return read_16(bytes) | read_16(bytes + 2) << 16;
-}
 
 static int refuse(char *error, int error_size, const char *format, ...)
 {
@@ -171,19 +162,19 @@ static int find_end(const struct map_archive_io *io, unsigned int *directory_off
 	/* (the last record whose comment ends the archive) */
 	for (index = tail_size - ZIP_END_SIZE + 1; index-- > 0 && !found;)
 	{
-		if (read_32(tail + index) == ZIP_END_SIGNATURE &&
-			index + ZIP_END_SIZE + read_16(tail + index + 20) == tail_size)
+		if (content_u32le(tail + index) == ZIP_END_SIGNATURE &&
+			index + ZIP_END_SIZE + content_u16le(tail + index + 20) == tail_size)
 		{
 			const unsigned char *end = tail + index;
 
-			if (read_16(end + 4) || read_16(end + 6) || read_16(end + 8) != read_16(end + 10))
+			if (content_u16le(end + 4) || content_u16le(end + 6) || content_u16le(end + 8) != content_u16le(end + 10))
 			{
 				free(tail);
 				return refuse(error, error_size, "the archive is split, which this does not read");
 			}
-			*entries = read_16(end + 10);
-			*directory_size = read_32(end + 12);
-			*directory_offset = read_32(end + 16);
+			*entries = content_u16le(end + 10);
+			*directory_size = content_u32le(end + 12);
+			*directory_offset = content_u32le(end + 16);
 			/* (ZIP64's markers: this reads none, and no map needs it) */
 			if (*entries == 0xffff || *directory_size == 0xffffffffu || *directory_offset == 0xffffffffu)
 			{
@@ -245,14 +236,14 @@ static int directory_each(const struct map_archive_io *io, unsigned int maximum_
 		unsigned int extra_length, comment_length;
 
 		if (!within(offset, ZIP_CENTRAL_SIZE, directory_offset + directory_size) ||
-			!io->read(io->context, offset, header, ZIP_CENTRAL_SIZE) || read_32(header) != ZIP_CENTRAL_SIGNATURE)
+			!io->read(io->context, offset, header, ZIP_CENTRAL_SIZE) || content_u32le(header) != ZIP_CENTRAL_SIGNATURE)
 		{
 			return refuse(error, error_size, "the archive's directory is damaged");
 		}
 		memset(&found, 0, sizeof(found));
-		found.name_length = read_16(header + 28);
-		extra_length = read_16(header + 30);
-		comment_length = read_16(header + 32);
+		found.name_length = content_u16le(header + 28);
+		extra_length = content_u16le(header + 30);
+		comment_length = content_u16le(header + 32);
 		if (found.name_length >= sizeof(found.name) ||
 			!within(offset + ZIP_CENTRAL_SIZE, found.name_length + extra_length + comment_length,
 				directory_offset + directory_size) ||
@@ -263,12 +254,12 @@ static int directory_each(const struct map_archive_io *io, unsigned int maximum_
 		if (name_escapes(found.name, found.name_length))
 			return refuse(error, error_size, "the archive names a path outside its folder");
 		found.name[found.name_length] = 0;
-		found.encrypted = (read_16(header + 8) & ZIP_FLAG_ENCRYPTED) != 0;
-		found.method = (int)read_16(header + 10);
-		found.crc = read_32(header + 16);
-		found.compressed_size = read_32(header + 20);
-		found.size = read_32(header + 24);
-		found.local_offset = read_32(header + 42);
+		found.encrypted = (content_u16le(header + 8) & ZIP_FLAG_ENCRYPTED) != 0;
+		found.method = (int)content_u16le(header + 10);
+		found.crc = content_u32le(header + 16);
+		found.compressed_size = content_u32le(header + 20);
+		found.size = content_u32le(header + 24);
+		found.local_offset = content_u32le(header + 42);
 		if (!proc(context, &found))
 		{
 			*stopped = 1;
@@ -297,13 +288,13 @@ static int unpack_directory_entry(const struct map_archive_io *io, const struct 
 	if (entry->method == ZIP_METHOD_STORED && entry->compressed_size != entry->size)
 		return refuse(error, error_size, "the archive's %s has two sizes", what);
 	if (!within(entry->local_offset, ZIP_LOCAL_SIZE, directory_offset) ||
-		!io->read(io->context, entry->local_offset, local, ZIP_LOCAL_SIZE) || read_32(local) != ZIP_LOCAL_SIGNATURE)
+		!io->read(io->context, entry->local_offset, local, ZIP_LOCAL_SIZE) || content_u32le(local) != ZIP_LOCAL_SIGNATURE)
 	{
 		return refuse(error, error_size, "the archive's %s entry is damaged", what);
 	}
-	if (!within(entry->local_offset + ZIP_LOCAL_SIZE, read_16(local + 26) + read_16(local + 28), directory_offset))
+	if (!within(entry->local_offset + ZIP_LOCAL_SIZE, content_u16le(local + 26) + content_u16le(local + 28), directory_offset))
 		return refuse(error, error_size, "the archive's %s entry is damaged", what);
-	data_offset = entry->local_offset + ZIP_LOCAL_SIZE + read_16(local + 26) + read_16(local + 28);
+	data_offset = entry->local_offset + ZIP_LOCAL_SIZE + content_u16le(local + 26) + content_u16le(local + 28);
 	if (!within(data_offset, entry->compressed_size, directory_offset))
 		return refuse(error, error_size, "the archive's %s lies outside it", what);
 	return unpack_entry(io, entry->method, data_offset, entry->compressed_size, entry->size, entry->crc, error,
@@ -574,13 +565,13 @@ int map_archive_extract(const struct map_archive_io *io, const char *name, unsig
 		unsigned int name_length, extra_length, comment_length;
 
 		if (!within(offset, ZIP_CENTRAL_SIZE, directory_offset + directory_size) ||
-			!io->read(io->context, offset, header, ZIP_CENTRAL_SIZE) || read_32(header) != ZIP_CENTRAL_SIGNATURE)
+			!io->read(io->context, offset, header, ZIP_CENTRAL_SIZE) || content_u32le(header) != ZIP_CENTRAL_SIGNATURE)
 		{
 			return refuse(error, error_size, "the archive's directory is damaged");
 		}
-		name_length = read_16(header + 28);
-		extra_length = read_16(header + 30);
-		comment_length = read_16(header + 32);
+		name_length = content_u16le(header + 28);
+		extra_length = content_u16le(header + 30);
+		comment_length = content_u16le(header + 32);
 		if (name_length >= sizeof(entry_name) ||
 			!within(offset + ZIP_CENTRAL_SIZE, name_length + extra_length + comment_length,
 				directory_offset + directory_size) ||
@@ -597,13 +588,13 @@ int map_archive_extract(const struct map_archive_io *io, const char *name, unsig
 			if (found)
 				return refuse(error, error_size, "the archive holds %s more than once", wanted);
 			found = 1;
-			if (read_16(header + 8) & ZIP_FLAG_ENCRYPTED)
+			if (content_u16le(header + 8) & ZIP_FLAG_ENCRYPTED)
 				return refuse(error, error_size, "the archive's map is encrypted");
-			found_method = (int)read_16(header + 10);
-			found_crc = read_32(header + 16);
-			found_compressed = read_32(header + 20);
-			found_size = read_32(header + 24);
-			found_local = read_32(header + 42);
+			found_method = (int)content_u16le(header + 10);
+			found_crc = content_u32le(header + 16);
+			found_compressed = content_u32le(header + 20);
+			found_size = content_u32le(header + 24);
+			found_local = content_u32le(header + 42);
 		}
 		offset += ZIP_CENTRAL_SIZE + name_length + extra_length + comment_length;
 	}
@@ -626,13 +617,13 @@ int map_archive_extract(const struct map_archive_io *io, const char *name, unsig
 		unsigned int data_offset;
 
 		if (!within(found_local, ZIP_LOCAL_SIZE, directory_offset) ||
-			!io->read(io->context, found_local, local, ZIP_LOCAL_SIZE) || read_32(local) != ZIP_LOCAL_SIGNATURE)
+			!io->read(io->context, found_local, local, ZIP_LOCAL_SIZE) || content_u32le(local) != ZIP_LOCAL_SIGNATURE)
 		{
 			return refuse(error, error_size, "the archive's map entry is damaged");
 		}
-		if (!within(found_local + ZIP_LOCAL_SIZE, read_16(local + 26) + read_16(local + 28), directory_offset))
+		if (!within(found_local + ZIP_LOCAL_SIZE, content_u16le(local + 26) + content_u16le(local + 28), directory_offset))
 			return refuse(error, error_size, "the archive's map entry is damaged");
-		data_offset = found_local + ZIP_LOCAL_SIZE + read_16(local + 26) + read_16(local + 28);
+		data_offset = found_local + ZIP_LOCAL_SIZE + content_u16le(local + 26) + content_u16le(local + 28);
 		if (!within(data_offset, found_compressed, directory_offset))
 			return refuse(error, error_size, "the archive's map lies outside it");
 		if (!unpack_entry(io, found_method, data_offset, found_compressed, found_size, found_crc, error, error_size))
@@ -686,15 +677,15 @@ int map_archive_extract_entry(const struct map_archive_io *io, const char *name,
 
 unsigned int map_archive_header_checksum(const unsigned char *header)
 {
-	return read_32(header + HEADER_CHECKSUM_OFFSET);
+	return content_u32le(header + HEADER_CHECKSUM_OFFSET);
 }
 
 int map_archive_check_header(const unsigned char *header, unsigned int file_size, const char *name,
 	unsigned int version, char *error, int error_size)
 {
-	unsigned int file_length = read_32(header + HEADER_FILE_LENGTH_OFFSET);
-	unsigned int tag_data_offset = read_32(header + HEADER_TAG_DATA_OFFSET);
-	unsigned int tag_data_size = read_32(header + HEADER_TAG_DATA_SIZE_OFFSET);
+	unsigned int file_length = content_u32le(header + HEADER_FILE_LENGTH_OFFSET);
+	unsigned int tag_data_offset = content_u32le(header + HEADER_TAG_DATA_OFFSET);
+	unsigned int tag_data_size = content_u32le(header + HEADER_TAG_DATA_SIZE_OFFSET);
 	const char *map_name = (const char *)header + HEADER_NAME_OFFSET;
 	const char *terminator = (const char *)memchr(map_name, 0, HEADER_NAME_SIZE);
 
@@ -702,19 +693,19 @@ int map_archive_check_header(const unsigned char *header, unsigned int file_size
 		error[0] = 0;
 	if (file_size < MAP_ARCHIVE_HEADER_SIZE || file_size > MAP_ARCHIVE_MAXIMUM_SIZE)
 		return refuse(error, error_size, "its size (%u bytes) is not a map's", file_size);
-	if (read_32(header) != HEADER_SIGNATURE || read_32(header + HEADER_FOOTER_OFFSET) != FOOTER_SIGNATURE)
+	if (content_u32le(header) != HEADER_SIGNATURE || content_u32le(header + HEADER_FOOTER_OFFSET) != FOOTER_SIGNATURE)
 		return refuse(error, error_size, "it is not a cache file");
-	if (read_32(header + HEADER_VERSION_OFFSET) != CUSTOM_EDITION_VERSION)
+	if (content_u32le(header + HEADER_VERSION_OFFSET) != CUSTOM_EDITION_VERSION)
 	{
 		return refuse(error, error_size, "it is a cache file of version %u, not Custom Edition's %d",
-			read_32(header + HEADER_VERSION_OFFSET), CUSTOM_EDITION_VERSION);
+			content_u32le(header + HEADER_VERSION_OFFSET), CUSTOM_EDITION_VERSION);
 	}
 	/* (0 from some of Invader's maps: the loader takes the file's own) */
 	if (file_length && (file_length < MAP_ARCHIVE_HEADER_SIZE || file_length > file_size))
 		return refuse(error, error_size, "its header says %u bytes, the file has %u", file_length, file_size);
 	if (tag_data_offset < MAP_ARCHIVE_HEADER_SIZE || !within(tag_data_offset, tag_data_size, file_size))
 		return refuse(error, error_size, "its tag data lies outside the file");
-	if (read_16(header + HEADER_TYPE_OFFSET) != MULTIPLAYER_TYPE)
+	if (content_u16le(header + HEADER_TYPE_OFFSET) != MULTIPLAYER_TYPE)
 		return refuse(error, error_size, "it is not a multiplayer map");
 	if (!terminator)
 		return refuse(error, error_size, "its name does not end within its header");

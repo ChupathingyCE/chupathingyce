@@ -466,6 +466,7 @@ through as theirs do (cache_files.c loads its tags into its own tag cache,
 platform.h) */
 #include "halo_map_families.h"
 #include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
+#include "opensauce_maps.h" /* port: port/linux/game/opensauce_maps.c */
 
 #define CE_MAP_FILE_INDEX NUMBER_OF_CACHED_MAP_FILES
 
@@ -474,7 +475,11 @@ static char ce_map_name[64];
 /* each request's file, if not the map's: a Custom Edition map's resource
 map, for its indexed tags' pixels and samples (port/linux/game/ce_resources.c) */
 static HANDLE ce_request_files[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
+/* (a decoded sound's read, told when it finishes: ce_resources.c) */
+static long ce_request_sound_reads[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
 HANDLE ce_resources_file_for_tag(long tag_index);
+boolean ce_resources_sound_read(long tag_index, long *offset, long size, long *read);
+void ce_resources_sound_read_finished(long read);
 boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset,
 	long tag_data_size);
 boolean ce_map_check_stale(void);
@@ -499,8 +504,10 @@ static boolean ce_map_name_is(
 	const char *map_name)
 {
 	/* (a pack's Xbox map, <file>@<pack>, is the Xbox loader's: not one of these.
-	SPV3's menus are a Custom Edition map, maps_spv3\ui.yelo: spv3_mode.c) */
-	return !map_family_is_xbox_format(map_family_parse(map_name, NULL, 0)) || spv3_mode_is_ui(map_name);
+	SPV3's menus are a Custom Edition map, maps_spv3\ui.yelo: spv3_mode.c; so
+	are another OpenSauce mod's, maps_<pack>\ui.yelo: opensauce_maps.c) */
+	return !map_family_is_xbox_format(map_family_parse(map_name, NULL, 0)) || spv3_mode_is_ui(map_name) ||
+		opensauce_maps_pack_is_ui(map_name);
 }
 
 /* the map named <name>@ce, @md or @pc opened in its slot (once): FALSE if
@@ -528,8 +535,11 @@ static boolean ce_map_open(
 #endif
 	/* (the map open, unless a load found it changed since it was checked:
 	then it is opened and checked again, port/linux/game/ce_map_checks.c) */
-	if (ce_map_file.file && !_stricmp(ce_map_name, map_name) && !ce_map_check_stale())
+	if (ce_map_file.file && !_stricmp(ce_map_name, map_name) && !ce_map_check_stale() &&
+		opensauce_maps_header_online_allows(map_name, &ce_map_file.header))
+	{
 		return TRUE;
+	}
 	if (strlen(map_name) >= sizeof(ce_map_name) - 1)
 		return FALSE;
 	/* (its tag cache, which the platform layer maps at start-up: xbox_memory.c) */
@@ -543,8 +553,9 @@ static boolean ce_map_open(
 		}
 	}
 	family = map_family_parse(map_name, file_name, sizeof(file_name));
-	/* (SPV3's menus: its ui.yelo, read as a Custom Edition map) */
-	if (spv3_mode_is_ui(map_name))
+	/* (SPV3's menus, or another OpenSauce mod's: its ui.yelo, read as a
+	Custom Edition map) */
+	if (spv3_mode_is_ui(map_name) || opensauce_maps_pack_is_ui(map_name))
 	{
 		family = _map_family_custom_edition;
 		snprintf(file_name, sizeof(file_name), "ui");
@@ -629,6 +640,8 @@ static boolean ce_map_open(
 		strncpy(ce_map_name, map_name, sizeof(ce_map_name) - 1);
 		error(_error_silent, "%s map %s: %s, build %.32s", map_family_kind(family), map_name, path,
 			ce_map_file.header.build);
+		/* (SPV3's ui: whether it is its own file, spv3_mode.c) */
+		spv3_mode_note_map_opened(map_name, path);
 		return TRUE;
 	}
 	/* (the map open before stays open, and its version the one loaded) */
@@ -1301,6 +1314,21 @@ short cache_file_read(
 			(boolean)_cache_file_read_failed;
 		return 0;
 	}
+#ifndef HALO_CONSOLE_NO_FORGE
+	/* port: Forge's AI characters' pixels and samples, kept from the
+	campaign map they came from (port/linux/game/forge_ai_tags.c), served at
+	once as an MCC map's are */
+	{
+		extern boolean forge_ai_tags_read(long tag_index, long offset, long size, void *buffer, boolean *read);
+		boolean read;
+
+		if (forge_ai_tags_read(tag_index, offset, size, buffer, &read))
+		{
+			*completion_flag_reference = read ? TRUE : (boolean)_cache_file_read_failed;
+			return 0;
+		}
+	}
+#endif
 	request_index = cache_request_next_free_index();
 	request = cache_request_get(request_index);
 	match_assert(
@@ -1339,6 +1367,19 @@ short cache_file_read(
 	{
 		size = (size | (CACHE_FILE_SECTOR_SIZE - 1)) + 1;
 	}
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a decoded sound's samples read at their place in the decoded
+	sounds' file, decoded into it first if they are not there
+	(ce_resources.c); one that cannot be is a failed read */
+	ce_request_sound_reads[request_index] = NONE;
+	if (cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX &&
+		!ce_resources_sound_read(tag_index, &offset, size, &ce_request_sound_reads[request_index]))
+	{
+		*completion_flag_reference = _cache_file_read_failed;
+
+		return NONE;
+	}
+#endif
 	*completion_flag_reference = FALSE;
 #ifdef HALO_CUSTOM_EDITION
 	ce_request_files[request_index] = cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX
@@ -1741,6 +1782,14 @@ static void CALLBACK cache_file_read_io_completion_routine(
 		error_code == ERROR_SUCCESS && bytes_transferred == (unsigned long)finished_request->size ?
 			TRUE :
 			_cache_file_read_failed;
+#ifdef HALO_CUSTOM_EDITION
+	{
+		long *sound_read = &ce_request_sound_reads[finished_request - cache_request_get(0)];
+
+		ce_resources_sound_read_finished(*sound_read);
+		*sound_read = NONE;
+	}
+#endif
 	finished_request->pending = FALSE;
 	finished_request->running = FALSE;
 

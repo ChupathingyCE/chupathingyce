@@ -39,7 +39,6 @@ void guide_logs_modal_back(void);
 void guide_logs_modal_move(short step);
 void guide_logs_modal_click(short index);
 void guide_logs_modal_click_outside(short x, short y);
-char const *guide_logs_modal_prompt(void);
 void guide_logs_modal_render(float left, float top, float right, float bottom,
 	void (*target)(float x0, float y0, float x1, float y1, short index));
 /* each frame, the Guide open or not: a send that ends with its window

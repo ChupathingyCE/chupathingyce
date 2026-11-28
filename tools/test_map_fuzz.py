@@ -19,6 +19,10 @@ scratch folder, never copied into the repository):
     python3 tools/test_map_fuzz.py --target ce --seconds 1800 --base maps_ce/foo.map --resources maps_ce [--xbox-ui maps/ui.map]
     python3 tools/test_map_fuzz.py --target vorbis --seconds 600 --corpus DIR
 
+A Custom Edition resource map can be the input instead, read with a map
+that takes from it (MAP_FUZZ_CE_RESOURCE names which, MAP_FUZZ_CE_MAP the map;
+test_resource_maps_fuzzed).
+
 With --base, each input is a list of changes to that map (map_fuzz.c), which
 reaches far deeper into a real map than whole-file mutations. A crash leaves
 its input in the working folder (crash-*); a regression input goes in
@@ -77,7 +81,7 @@ CUSTOM_EDITION = [
     # (Halo PC's tag schema, which the tags go through as they load)
     *VALIDATOR,
     # (what the checks read, hashed: ce_map_checks.c)
-    "port/linux/game/mcc_sha256.c",
+    "port/linux/game/content_sha256.c",
     "source/bitmaps/bitmaps.c",
     "source/rasterizer/rasterizer_geometry.c",
     "source/rasterizer/rasterizer_swizzle.c",
@@ -87,7 +91,16 @@ CUSTOM_EDITION = [
 TARGETS = {
     "xbox": ("MAP_FUZZ_XBOX", VALIDATOR),
     "ce": ("MAP_FUZZ_CE", CUSTOM_EDITION),
-    "vorbis": ("MAP_FUZZ_VORBIS", ["port/linux/game/ce_vorbis.c"]),
+    "vorbis": ("MAP_FUZZ_VORBIS", ["port/linux/game/content_vorbis.c"]),
+    # (a campaign map read for Forge's AI characters: forge_ai_tags.c)
+    "forge_ai": ("MAP_FUZZ_FORGE_AI", [
+        "port/linux/game/forge_ai_tags.c",
+        *VALIDATOR,
+        "source/bitmaps/bitmaps.c",
+        "source/rasterizer/rasterizer_geometry.c",
+        "source/rasterizer/rasterizer_swizzle.c",
+        *(f"port/third_party/zlib/{name}.c" for name in ("adler32", "crc32", "inffast", "inflate", "inftrees", "zutil")),
+    ]),
 }
 
 
@@ -344,6 +357,8 @@ def seeds(target):
         return {"minimal_xbox.map": xbox_map()}
     if target == "ce":
         return {"minimal_ce.map": ce_map()}
+    if target == "forge_ai":
+        return {"minimal_xbox.map": xbox_map()}
     return {"empty.ogg": b"OggS"}
 
 
@@ -949,6 +964,48 @@ def test_map_changed_after_the_checks(built, tmp_path):
         assert f"refused as it loaded: {what} changed since the map was checked" in result.stderr, \
             (part, result.stderr[-4000:])
         assert f"the load found its {part} changed" in result.stderr, (part, result.stderr[-4000:])
+
+
+def resource_map_cases():
+    """(name, the map, the resource map that is the input, its seeds): a
+    Custom Edition map whose sound's samples are in sounds.map, one whose
+    string is a tag indexed in loc.map, and a HaloMD map whose stock sound is
+    in Halo PC's own sounds.map; none of a game's data"""
+    adpcm, external = 1, 1
+    sounds_map = ce_map(sound=[(adpcm, 36, external, 0x400)])
+    loc_map, loc = ce_map_with_model_data_and_string()
+    retail = bytearray(ce_map(sound=[(adpcm, 36, external, 0x400)]))
+    struct.pack_into("<i", retail, 4, 7)
+    return (
+        ("sounds", sounds_map, {"sounds.map": struct.pack("<IIII", 2, 16, 16, 0) + bytes(0x1000)}),
+        ("loc", loc_map, {"loc.map": loc}),
+        ("pc_sounds", bytes(retail), {
+            "sounds.map": halo_pc_resource_map(2, [(b"fuzz_sound__0__0", 36, 0x400)], 0x1000),
+            "other.map": halo_pc_resource_map(2, [(b"fuzz_sound__0__0", 72, 0x400), (b"a", 4, 0x20)], 0x800),
+        }),
+    )
+
+
+@pytest.mark.parametrize("name", [case[0] for case in resource_map_cases()])
+def test_resource_maps_fuzzed(built, name, tmp_path):
+    """a resource map as the input (MAP_FUZZ_CE_RESOURCE), read with a map
+    that takes from it, through the checks and the load: each seed, then a
+    bounded run of fuzzing from them"""
+    binaries, _ = built
+    _, data, resource_seeds = next(case for case in resource_map_cases() if case[0] == name)
+    path = tmp_path / "map.map"
+    path.write_bytes(data)
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    for seed_name, seed in resource_seeds.items():
+        (corpus / seed_name).write_bytes(seed)
+    environment = {"MAP_FUZZ_CE_RESOURCE": name, "MAP_FUZZ_CE_MAP": str(path)}
+    result = run(binaries["ce"], sorted(corpus.iterdir()), environment={**environment, "MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
+    result = run(binaries["ce"], [corpus], f"-runs={FUZZ_RUNS}", "-seed=1", "-max_len=16384",
+                 f"-artifact_prefix={tmp_path}/", environment=environment)
+    assert result.returncode == 0, result.stderr[-6000:]
 
 
 def test_halomd_tag_data_size_given_as_file_length(built, tmp_path):

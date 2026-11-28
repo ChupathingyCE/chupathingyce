@@ -31,7 +31,8 @@ blank, and on a multiplayer map no screen pauses the game (a network game's
 clock runs on). On the desktop builds a frame of one of ui.map's pictures is
 made from ui.map's copy in the cache instead, as the main menu's build found
 it (ui_frame_make), so that the settings' pictures show in a game as they do
-from the main menu.
+from the main menu; also where the map has a picture of that name, as an MCC
+or Custom Edition map has (MCC's or Halo PC's own, a keyboard and a mouse).
 */
 
 #include "cseries.h"
@@ -492,6 +493,13 @@ static struct
 	/* (display.menus "chupathingy": its main menu, the Xbox's screens after a
 	network game) */
 	boolean chupathingy;
+#ifdef HALO_GAME_BROWSER
+	/* System Link's list, which ends with a DIRECT IP row, and the screen
+	that row opens (system_link_direct_ip_patch) */
+	boolean system_link_direct_ip;
+	long system_link_list;
+	long system_link_direct_ip_screen;
+#endif
 	char root[300];
 #ifdef HALO_64BIT
 	/* the name of an empty reference, inside the Xbox address space as the
@@ -1115,9 +1123,14 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 		long width = data->width, height = data->height;
 
 		/* (a frame of the map's: a copy of its bitmap, which the texture cache
-		loads from the map as its own; in a game map that has not got it, one
-		made from ui.map's copy in the cache, or nothing) */
-		if (data->map && build.game_map && tag_loaded(BITMAP_GROUP_TAG, data->map) == NONE)
+		loads from the map as its own; in a game map, one made from ui.map's
+		copy in the cache, else the map's own if it has one, else nothing.
+		ui.map's first: an MCC or Custom Edition map has a bitmap of the same
+		name, MCC's or Halo PC's picture (a keyboard where ui.map's is the
+		on-screen keyboard, a mouse where it is the player colors)) */
+		boolean map_frame = data->map != NULL;
+
+		if (data->map && build.game_map)
 		{
 #ifdef UI_FRAMES_FROM_CACHE
 			if (ui_frame_make(bitmap, data, tag_index))
@@ -1129,10 +1142,14 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 				return group;
 			memset(bitmap, 0, sizeof(*bitmap));
 #endif
-			png = BLANK_PNG;
-			width = height = PLACEHOLDER_SIZE;
+			if (tag_loaded(BITMAP_GROUP_TAG, data->map) == NONE)
+			{
+				map_frame = FALSE;
+				png = BLANK_PNG;
+				width = height = PLACEHOLDER_SIZE;
+			}
 		}
-		else if (data->map)
+		if (map_frame)
 		{
 			long group_index = map_tag(BITMAP_GROUP_TAG, data->map, source->file, source->line);
 			struct bitmap_group *group_source;
@@ -1808,8 +1825,6 @@ port/assets/menus/chupathingy) */
 enum
 {
 	_menus_xbox,
-	/* (Gearbox's Halo PC menus, retired as a menu set: menus_chosen) */
-	_menus_pc,
 	_menus_chupathingy,
 };
 
@@ -2630,18 +2645,15 @@ static void pause_patch_xbox(void)
 main menu's note says how to open DELTA instead, guide.c)
 
 With it, each main menu has DELTA (DELTA over it, on PARTY: a party started, friends
-invited, the party brought to a game), in every menu set: the row in
-chupathingy/main_menu.xml put in the main menu's list before QUIT here, in
-the Chupathingy menus' and Gearbox's (its list is tools/ce_menus.py's, from
-the PC version's tags), and DELTA in Gearbox's Multiplayer button bar. The
-lists are patched as the menus load, so a change shows the next time they
-do. The Xbox's main menu stays the Xbox's (its
+invited, the party brought to a game): the row in
+chupathingy/main_menu.xml put in the Chupathingy menus' main menu list
+before QUIT here. The list is patched as the menus load, so a change shows
+the next time they do. The Xbox's main menu stays the Xbox's (its
 rows are ui.map's pictures): there DELTA is the Multiplayer menu's row
 (ui_widget.c), the key and the Guide button. Not on the consoles (no DELTA
 there yet) nor with split screen's players (DELTA is the first player's). */
 
 #define DELTA_ROW "chupathingy/main_menu_delta"
-#define GEARBOX_MAIN_MENU_LIST "main_menu/main_menu_select_list"
 
 /* (delta.menu_item, as it is when the menus load: a change shows the
 next time they do) */
@@ -2693,13 +2705,12 @@ static boolean list_row_insert(struct ui_widget_definition *list, long at, long 
 	return TRUE;
 }
 
-/* the main menu (Gearbox's or the Chupathingy menus' list): the DELTA row
-before QUIT */
+/* the Chupathingy menus' main menu list: the DELTA row before QUIT */
 #define CHUPATHINGY_MAIN_MENU_LIST "chupathingy/main_menu_list"
 
 static void main_menu_delta_patch(void)
 {
-	long list = widget_named(menus_chosen() == _menus_chupathingy ? CHUPATHINGY_MAIN_MENU_LIST : GEARBOX_MAIN_MENU_LIST);
+	long list = widget_named(CHUPATHINGY_MAIN_MENU_LIST);
 	long row = widget_named(DELTA_ROW);
 	struct ui_widget_definition *definition;
 
@@ -2713,47 +2724,13 @@ static void main_menu_delta_patch(void)
 	}
 }
 
-/* Gearbox's Multiplayer menu: DELTA in its button bar, left of BACK (its
-list has no room for another row) */
-#define DELTA_BUTTON "chupathingy/button_delta"
-#define GEARBOX_MULTIPLAYER_BAR "main_menu/multiplayer_type_select/multiplayer_type_button_bar"
-
-static void multiplayer_delta_patch_gearbox(void)
-{
-	long bar = widget_named(GEARBOX_MULTIPLAYER_BAR), button = widget_named(DELTA_BUTTON);
-	struct ui_widget_definition *definition;
-	struct ui_widget_child_reference *children, *grown;
-	long count, child;
-
-	if (!main_menu_delta_offered() || bar == NONE || button == NONE)
-		return;
-	definition = tag_get(UI_WIDGET_DEFINITION_TAG, build.widget_tags[bar]);
-	count = definition ? definition->child_widgets.count : 0;
-	grown = count > 0 ? allocate((count + 1) * sizeof(*grown)) : NULL;
-	if (!grown)
-	{
-		platform_log("menus: the Multiplayer menu's DELTA not added");
-		return;
-	}
-	children = xbox_pointer(definition->child_widgets.address);
-	/* (first, so left and right go DELTA, BACK as they read) */
-	grown[0] = children[0];
-	reference_set(&grown[0].widget_tag, UI_WIDGET_DEFINITION_TAG, build.widget_tags[button]);
-	grown[0].horizontal_offset = (short)(children[0].horizontal_offset - 130);
-	for (child = 0; child < count; child++)
-		grown[child + 1] = children[child];
-	definition->child_widgets.address = XBOX_ADDRESS(grown);
-	definition->child_widgets.count = count + 1;
-}
-
 /* which display.menus asks for, in any case; a value that is none of them
 is said once in the log, and is the Xbox's. Gearbox's menus ("gearbox", or
 the older "pc") are no longer a menu set to choose: those values are the
 Xbox's too, and the player is told once, in the main
 menu's note (guide.c's _toast_menus_retired). Their screens, built from port/assets/menus/ce, stay
 in the game: the Chupathingy menus are made of many of them, and the rest
-are kept for extra screens (the _menus_pc paths here, which nothing chooses
-now) */
+are kept for extra screens */
 static short menus_chosen(void)
 {
 	static boolean said;
@@ -2794,7 +2771,7 @@ short pc_menus_set(
 {
 	short menus = menus_chosen();
 
-	return menus == _menus_pc ? 1 : menus == _menus_chupathingy ? 2 : 0;
+	return menus == _menus_chupathingy ? 2 : 0;
 }
 
 /* whether the Chupathingy menus are up */
@@ -2835,6 +2812,168 @@ static void host_setup_patch(void)
 			reference_set(&handlers[index].widget_tag, UI_WIDGET_DEFINITION_TAG, setup);
 	}
 }
+
+#ifdef HALO_GAME_BROWSER
+/* ---------- the Chupathingy menus' System Link: DIRECT IP
+
+System Link's list ends with a DIRECT IP row, and X opens it too: the
+Custom Edition menus' DIRECT IP screen, a game joined by its address
+(port/linux/game/direct_join.c). X's prompt, "X =DIRECT IP"
+(chupathingy/prompts.xml), sits left of CREATE GAME's in the screen's
+button bar. A handler and a child are added to the Xbox's screen as it
+loads; the Xbox menus keep it as it is (display.menus "xbox"). The handler
+goes where the screen's Y (CREATE GAME) is handled. The row is the list's
+code, for the list pc_menus_direct_ip_list names: its text and place
+(ui_widget_game_data_input_functions.c, server_list_menu_update) and its A
+(ui_widget_event_handler_functions.c). */
+
+#define SYSTEM_LINK_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\server_list_screen"
+#define SYSTEM_LINK_DIRECT_IP PC_MENU_TAG_PREFIX "main_menu\\multiplayer_type_select\\direct_ip\\direct_ip_screen"
+#define SYSTEM_LINK_DIRECT_IP_PROMPT PC_MENU_TAG_PREFIX "chupathingy\\system_link\\direct_ip"
+/* (the event types' places: menu_tags' EVENTS, x and y) */
+#define SYSTEM_LINK_EVENT_X 2
+#define SYSTEM_LINK_EVENT_Y 3
+/* where the prompt goes (the menus' 640x480), left of CREATE GAME's */
+#define SYSTEM_LINK_PROMPT_X 40
+#define SYSTEM_LINK_PROMPT_Y 414
+/* the list's message while it looks for games, and how far apart its rows
+are */
+#define SYSTEM_LINK_MESSAGE "\\looking_for_servers_text"
+#define SYSTEM_LINK_ROW 32
+
+static boolean handles_event(struct ui_widget_definition const *definition, short event_type)
+{
+	struct ui_widget_event_handler_reference const *handlers = xbox_pointer(definition->event_handlers.address);
+	long index;
+
+	for (index = 0; index < definition->event_handlers.count; index++)
+	{
+		if (handlers[index].event_type == event_type)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static void system_link_direct_ip_patch(void)
+{
+	long screen_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, SYSTEM_LINK_SCREEN);
+	long direct_ip = tag_loaded(UI_WIDGET_DEFINITION_TAG, SYSTEM_LINK_DIRECT_IP);
+	long prompt = tag_loaded(UI_WIDGET_DEFINITION_TAG, SYSTEM_LINK_DIRECT_IP_PROMPT);
+	struct ui_widget_definition *screen, *handler_owner;
+	struct ui_widget_child_reference const *children;
+	struct ui_widget_child_reference *grown_children;
+	struct ui_widget_event_handler_reference const *handlers;
+	struct ui_widget_event_handler_reference *grown_handlers;
+	long index, list = NONE;
+
+	if (screen_tag == NONE || direct_ip == NONE || prompt == NONE)
+	{
+		platform_log("menus: System Link's DIRECT IP not added (its screens are not as expected)");
+		return;
+	}
+	screen = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+	children = xbox_pointer(screen->child_widgets.address);
+	/* the handler beside Y's: the screen's, else its first child's that
+	has it (the list of games, which gets the DIRECT IP row) */
+	handler_owner = screen;
+	if (!handles_event(screen, SYSTEM_LINK_EVENT_Y))
+	{
+		for (index = 0; index < screen->child_widgets.count; index++)
+		{
+			struct ui_widget_definition *child;
+
+			if (children[index].widget_tag.index == NONE)
+				continue;
+			child = tag_get(UI_WIDGET_DEFINITION_TAG, children[index].widget_tag.index);
+			if (handles_event(child, SYSTEM_LINK_EVENT_Y))
+			{
+				handler_owner = child;
+				list = children[index].widget_tag.index;
+				break;
+			}
+		}
+	}
+	if (list != NONE && handler_owner->type == _widget_type_column_list)
+	{
+		menu_tags.system_link_direct_ip = TRUE;
+		menu_tags.system_link_list = list;
+		menu_tags.system_link_direct_ip_screen = direct_ip;
+	}
+	/* (added already: this map's tags were patched) */
+	for (index = 0; index < screen->child_widgets.count; index++)
+	{
+		if (children[index].widget_tag.index == prompt)
+			return;
+	}
+	/* "Looking for games..." a row lower, under the DIRECT IP row, which is
+	the list's first while no game is found */
+	if (menu_tags.system_link_direct_ip && handler_owner->extended_description_widget.index != NONE)
+	{
+		struct ui_widget_definition *description =
+			tag_get(UI_WIDGET_DEFINITION_TAG, handler_owner->extended_description_widget.index);
+		struct ui_widget_child_reference *parts = xbox_pointer(description->child_widgets.address);
+
+		for (index = 0; index < description->child_widgets.count; index++)
+		{
+			char const *name = parts[index].widget_tag.index != NONE ? tag_get_name(parts[index].widget_tag.index) : NULL;
+
+			if (name && strstr(name, SYSTEM_LINK_MESSAGE))
+				parts[index].vertical_offset += SYSTEM_LINK_ROW;
+		}
+	}
+	if (handles_event(handler_owner, SYSTEM_LINK_EVENT_X))
+	{
+		platform_log("menus: System Link's DIRECT IP not added (its X is taken)");
+		return;
+	}
+	handlers = xbox_pointer(handler_owner->event_handlers.address);
+	grown_handlers = allocate((handler_owner->event_handlers.count + 1) * (long)sizeof(*grown_handlers));
+	grown_children = allocate((screen->child_widgets.count + 1) * (long)sizeof(*grown_children));
+	if (!grown_handlers || !grown_children)
+		return;
+	if (handler_owner->event_handlers.count)
+		memcpy(grown_handlers, handlers, handler_owner->event_handlers.count * sizeof(*grown_handlers));
+	{
+		struct ui_widget_event_handler_reference *added = &grown_handlers[handler_owner->event_handlers.count];
+
+		memset(added, 0, sizeof(*added));
+		added->event_type = SYSTEM_LINK_EVENT_X;
+		SET_FLAG(added->flags, _event_handler_open_widget_bit, TRUE);
+		reference_set(&added->widget_tag, UI_WIDGET_DEFINITION_TAG, direct_ip);
+		reference_clear(&added->sound_effect, SOUND_TAG);
+	}
+	handler_owner->event_handlers.address = XBOX_ADDRESS(grown_handlers);
+	handler_owner->event_handlers.count++;
+	memcpy(grown_children, children, screen->child_widgets.count * sizeof(*grown_children));
+	{
+		struct ui_widget_child_reference *added = &grown_children[screen->child_widgets.count];
+
+		memset(added, 0, sizeof(*added));
+		reference_set(&added->widget_tag, UI_WIDGET_DEFINITION_TAG, prompt);
+		strncpy(added->name, "direct_ip", sizeof(added->name) - 1);
+		added->horizontal_offset = SYSTEM_LINK_PROMPT_X;
+		added->vertical_offset = SYSTEM_LINK_PROMPT_Y;
+	}
+	screen->child_widgets.address = XBOX_ADDRESS(grown_children);
+	screen->child_widgets.count++;
+	platform_log("menus: System Link has DIRECT IP (%s)", menu_tags.system_link_direct_ip ? "its row and X" : "X");
+}
+
+/* System Link's list that ends with a DIRECT IP row (the Chupathingy menus'),
+NONE for none */
+long pc_menus_direct_ip_list(
+	void)
+{
+	return menu_tags.loaded && menu_tags.system_link_direct_ip ? menu_tags.system_link_list : NONE;
+}
+
+/* the DIRECT IP screen that row opens */
+long pc_menus_direct_ip_screen(
+	void)
+{
+	return menu_tags.loaded && menu_tags.system_link_direct_ip ? menu_tags.system_link_direct_ip_screen : NONE;
+}
+#endif
 
 #ifdef HALO_GAME_BROWSER
 /* ---------- the Xbox's menus' game type editor: the game modes layer's rows
@@ -3306,13 +3445,13 @@ void menu_tags_loaded(
 	menu_tags.loaded = TRUE;
 	menu_tags.chupathingy = menus_chosen() == _menus_chupathingy;
 	if (menu_tags.chupathingy && !game_map)
-		host_setup_patch();
-	if (menus_chosen() == _menus_pc && !game_map)
 	{
-		main_menu_delta_patch();
-		multiplayer_delta_patch_gearbox();
+		host_setup_patch();
+#ifdef HALO_GAME_BROWSER
+		system_link_direct_ip_patch();
+#endif
 	}
-	else if (menus_chosen() == _menus_chupathingy && !game_map)
+	if (menus_chosen() == _menus_chupathingy && !game_map)
 		main_menu_delta_patch();
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);

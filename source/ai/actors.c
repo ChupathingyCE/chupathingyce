@@ -321,6 +321,9 @@ symbols in this file:
 #include "networking/network_game_globals.h"
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
+#ifndef HALO_CONSOLE_NO_FORGE
+#include "forge.h" /* port: port/linux/game/forge_ai_move.inc */
+#endif
 
 /* ---------- constants */
 
@@ -4245,6 +4248,11 @@ static void actor_update(
 			{
 				actor_clear_output(actor_index);
 				actor_action_control(actor_index);
+#ifndef HALO_CONSOLE_NO_FORGE
+				/* port: a Forge character's route, area or pursuit, on the
+				AI navigation (port/linux/game/forge_ai_move.inc) */
+				forge_ai_move_actor_control(actor_index);
+#endif
 				actor_communication_update(actor_index);
 				actor_conversation_control(actor_index);
 				actor_destination_update(actor_index);
@@ -4252,6 +4260,11 @@ static void actor_update(
 				actor_move_update(actor_index);
 				actor_look_update(actor_index);
 				actor_combat_update(actor_index);
+#ifndef HALO_CONSOLE_NO_FORGE
+				/* port: a Forge character driving a Warthog, as a player
+				drives (port/linux/game/forge_ai_move.inc) */
+				forge_ai_move_actor_output(actor_index);
+#endif
 				actor_unit_control(actor_index);
 			}
 		}

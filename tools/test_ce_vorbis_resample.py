@@ -1,7 +1,7 @@
 """Checks how a decoded sound is brought to half or twice its rate
-(port/linux/game/ce_vorbis.c, ce_vorbis_resample and _piece): a 44.1 kHz
+(port/linux/game/content_vorbis.c, ce_vorbis_resample and _piece): a 44.1 kHz
 mono sound played at 22.05 kHz, as the Xbox's mono channels play mono, or
-22.05 kHz Ogg Vorbis in a 44.1 kHz sound. ce_vorbis.c is compiled alone with
+22.05 kHz Ogg Vorbis in a 44.1 kHz sound. content_vorbis.c is compiled alone with
 the build machine's C compiler, and test signals are put through it:
 
 - what is under about 10 kHz keeps its level, what is above 11.025 kHz
@@ -403,8 +403,8 @@ def build(name, source):
         folder = Path(tempfile.mkdtemp(prefix="ce_vorbis_resample_"))
         (folder / f"{name}.c").write_text(source, encoding="utf-8")
         binary = folder / name
-        result = subprocess.run([cc, "-O2", "-DHALO_CUSTOM_EDITION", "-I", str(ROOT / "port/third_party/stb"),
-                                 str(ROOT / "port/linux/game/ce_vorbis.c"), str(folder / f"{name}.c"),
+        result = subprocess.run([cc, "-O2", "-DHALO_CUSTOM_EDITION", "-DHALO_MCC=0", "-I", str(ROOT / "port/third_party/stb"),
+                                 str(ROOT / "port/linux/game/content_vorbis.c"), str(folder / f"{name}.c"),
                                  "-o", str(binary), "-lm"], capture_output=True, text=True)
         if result.returncode:
             raise RuntimeError(f"{name} does not compile:\n{result.stderr}")

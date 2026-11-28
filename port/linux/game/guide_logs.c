@@ -251,14 +251,6 @@ void guide_logs_modal_click_outside(short x, short y)
 		logs_close();
 }
 
-char const *guide_logs_modal_prompt(void)
-{
-	char const *left, *right;
-
-	phase_buttons(logs_phase(), &left, &right);
-	return logs_view.option && right ? right : left;
-}
-
 static float measure_font(void *context, float size, char const *text)
 {
 	return ui_overlay_text_width((int)(intptr_t)context, size, text);
