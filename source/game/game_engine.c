@@ -4526,6 +4526,14 @@ static void game_engine_build_lighting(
 void game_engine_dispose_from_old_map(
 	void)
 {
+#if defined(HALO_PORT_VOICE_AUDIO) && defined(HALO_CUSTOM_EDITION)
+	/* port: the hit tone goes with its map (port/linux/game/hit_sound.c) */
+	{
+		extern void hit_sound_map_unloaded(void);
+
+		hit_sound_map_unloaded();
+	}
+#endif
 	if (game_engine && game_engine->dispose_from_old_map)
 		game_engine->dispose_from_old_map();
 
